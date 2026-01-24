@@ -1,0 +1,105 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  EMPLOYEE
+  MANAGER
+  ADMIN
+}
+
+model Location {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  users     User[]
+  createdAt DateTime @default(now())
+}
+
+model User {
+  id           String    @id @default(cuid())
+  name         String
+  email        String    @unique
+  passwordHash String
+  role         Role      @default(EMPLOYEE)
+  locationId   String?
+  location     Location? @relation(fields: [locationId], references: [id])
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+}
+model Item {
+  id          String   @id @default(cuid())
+  sku         String   @unique
+
+  partNumber  String?  // NEW: vendor/manufacturer part number (optional)
+
+  name        String
+  description String?
+  category    String?
+  unit        String?
+  cost        Decimal? @db.Decimal(10, 2)
+  price       Decimal? @db.Decimal(10, 2)
+  taxable     Boolean  @default(true)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  // ...existing fields...
+  versions ItemVersion[]
+
+}
+model ItemVersion {
+  id          String   @id @default(cuid())
+
+  itemId      String
+  item        Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  sku         String
+  partNumber  String?
+  name        String
+  description String?
+  category    String?
+  unit        String?
+  cost        Decimal? @db.Decimal(10, 2)
+  price       Decimal? @db.Decimal(10, 2)
+  taxable     Boolean
+  active      Boolean
+
+  version     Int
+  createdAt   DateTime @default(now())
+
+  @@index([itemId, version])
+}
+model ImportJob {
+  id        String   @id @default(cuid())
+  type      String   // e.g. "ITEMS"
+  createdAt DateTime @default(now())
+
+  total     Int      @default(0)
+  created   Int      @default(0)
+  updated   Int      @default(0)
+  failed    Int      @default(0)
+
+  errors    ImportRowError[]
+}
+
+model ImportRowError {
+  id        String   @id @default(cuid())
+  jobId     String
+  job       ImportJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  rowNumber Int
+  sku       String?
+  message   String
+
+  createdAt DateTime @default(now())
+
+  @@index([jobId, rowNumber])
+}
+
+
+
+
