@@ -6,11 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@prisma/client": "^6.11.1",
     "bcrypt": "^6.0.0",
+    "bcryptjs": "^3.0.3",
     "next": "16.1.4",
     "next-auth": "^4.24.13",
     "react": "19.2.3",

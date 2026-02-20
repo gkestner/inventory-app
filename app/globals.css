@@ -1,10 +1,117 @@
 @import "tailwindcss";
 
+/* -----------------------------
+   Theme tokens (light defaults)
+   ----------------------------- */
 :root {
+  color-scheme: light;
+
   --background: #ffffff;
   --foreground: #171717;
+
+  --surface: #ffffff;
+  --surface-2: #f7f7f7;
+  --muted: #5b5b5b;
+
+  --border: #d9d9d9;
+  --border-2: #ececec;
+
+  --overlay: rgba(0, 0, 0, 0.45);
+
+  --danger-bg: #fff5f5;
+  --danger-border: #cc0000;
+
+  --warning-bg: #fff8d6; /* used for history diff highlight */
+  --success-bg: #eaffea; /* used for "new item" highlight */
+
+  --input-bg: var(--surface);
+  --input-fg: var(--foreground);
+  --input-border: var(--border);
 }
 
+/* System dark (default when user has dark preference AND no forced theme) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --background: #0a0a0a;
+    --foreground: #ededed;
+
+    --surface: #121212;
+    --surface-2: #191919;
+    --muted: #b9b9b9;
+
+    --border: #2c2c2c;
+    --border-2: #242424;
+
+    --overlay: rgba(0, 0, 0, 0.65);
+
+    --danger-bg: rgba(204, 0, 0, 0.12);
+    --danger-border: #ff5c5c;
+
+    --warning-bg: rgba(255, 248, 214, 0.14);
+    --success-bg: rgba(234, 255, 234, 0.14);
+
+    --input-bg: #111111;
+    --input-fg: var(--foreground);
+    --input-border: var(--border);
+  }
+}
+
+/* Forced themes (override system) */
+html[data-theme="light"] {
+  color-scheme: light;
+
+  --background: #ffffff;
+  --foreground: #171717;
+
+  --surface: #ffffff;
+  --surface-2: #f7f7f7;
+  --muted: #5b5b5b;
+
+  --border: #d9d9d9;
+  --border-2: #ececec;
+
+  --overlay: rgba(0, 0, 0, 0.45);
+
+  --danger-bg: #fff5f5;
+  --danger-border: #cc0000;
+
+  --warning-bg: #fff8d6;
+  --success-bg: #eaffea;
+
+  --input-bg: var(--surface);
+  --input-fg: var(--foreground);
+  --input-border: var(--border);
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+
+  --background: #0a0a0a;
+  --foreground: #ededed;
+
+  --surface: #121212;
+  --surface-2: #191919;
+  --muted: #b9b9b9;
+
+  --border: #2c2c2c;
+  --border-2: #242424;
+
+  --overlay: rgba(0, 0, 0, 0.65);
+
+  --danger-bg: rgba(204, 0, 0, 0.12);
+  --danger-border: #ff5c5c;
+
+  --warning-bg: rgba(255, 248, 214, 0.14);
+  --success-bg: rgba(234, 255, 234, 0.14);
+
+  --input-bg: #111111;
+  --input-fg: var(--foreground);
+  --input-border: var(--border);
+}
+
+/* Tailwind theme bridge (optional, keeps your current pattern) */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -12,15 +119,22 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Basic element defaults so inputs/buttons don’t wash out */
+input,
+select,
+textarea {
+  background: var(--input-bg);
+  color: var(--input-fg);
+  border: 1px solid var(--input-border);
+}
+
+button,
+a {
+  color: inherit;
 }

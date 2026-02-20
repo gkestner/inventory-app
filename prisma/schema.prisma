@@ -1,3 +1,5 @@
+// prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -5,6 +7,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -13,52 +16,367 @@ enum Role {
   ADMIN
 }
 
+enum Permission {
+  // ===== App Navigation / Modules =====
+  VIEW_HOME
+
+  VIEW_CHECKOUT
+  CREATE_CHECKOUT
+
+  VIEW_WORK_ORDERS
+  CREATE_WORK_ORDERS
+  UPDATE_OWN_WORK_ORDERS
+  SUBMIT_OWN_WORK_ORDERS
+
+  // ===== Admin Modules =====
+  ADMIN_VIEW_ITEMS
+  ADMIN_EDIT_ITEMS
+  ADMIN_IMPORT_EXPORT_ITEMS
+
+  ADMIN_VIEW_USERS
+  ADMIN_EDIT_USERS
+
+  ADMIN_VIEW_LOCATIONS
+  ADMIN_EDIT_LOCATIONS
+
+  ADMIN_VIEW_WORK_ORDERS
+  ADMIN_EDIT_WORK_ORDERS
+  ADMIN_DELETE_WORK_ORDERS
+
+  ADMIN_VIEW_MAINTENANCE_TICKETS
+  ADMIN_EXPORT_MAINTENANCE_TICKETS
+}
+
+enum InvoiceVendor {
+  SUCCESS_PLUS
+  AMERICAN_PLUS
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  VOIDED
+}
+
+enum InventoryAlertType {
+  NEGATIVE_ON_HAND
+  BELOW_MIN
+  TECH_REQUEST_ORDER
+}
+
+enum PartsCheckoutStatus {
+  OPEN
+  INVOICED
+  VOIDED
+}
+
+model InvoiceVendorConfig {
+  vendor InvoiceVendor @id
+
+  // Percent values stored as whole percent (e.g., 10.00 = 10%)
+  partsUpchargePct Decimal @db.Decimal(5, 2) @default(0)
+  taxRatePct       Decimal @db.Decimal(5, 2) @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/**
+ * =========================
+ * Work Orders
+ * =========================
+ */
+enum WorkOrderStatus {
+  DRAFT
+  SUBMITTED
+  FINALIZED
+}
+
+/**
+ * Expanded enum:
+ * - Includes the REQUIRED pizza-maintenance areas (used by UI)
+ * - ALSO includes legacy values that already exist in DB (e.g. KITCHEN)
+ * to prevent runtime crashes when reading historical rows.
+ */
+enum EquipmentArea {
+  // --- REQUIRED (pizza list) ---
+  DOUGH_ROLLER
+  MAKETABLE
+  DOUGH_COOLER
+  MIXER
+  OVEN
+  WALK_IN
+  FREEZER
+  BUILDING_STRUCTURE
+  LIGHTING
+  PARKING_LOT
+  OFFICE
+  HVAC_GAME_ROOM
+  HVAC_KITCHEN
+  HVAC_DINING_ROOM
+  OTHER
+
+  // --- LEGACY (previous enum values found in DB) ---
+  FRONT_COUNTER
+  DRIVE_THRU
+  KITCHEN
+  ROOF
+  HVAC
+}
+
+/**
+ * =========================
+ * Inventory Orders (Order History)
+ * =========================
+ */
+enum InventoryOrderStatus {
+  ORDERED
+  ARRIVED
+  ADDED_TO_INVENTORY
+}
+
 model Location {
   id        String   @id @default(cuid())
   name      String   @unique
-  users     User[]
+  active    Boolean  @default(true)
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Primary/default location relation (User.locationId)
+  users User[]
+
+  // Per-user location assignments (primary + optional, ordered)
+  userLocations UserLocation[]
+
+  checkouts PartsCheckoutTicket[]
+
+  // Work Orders
+  workOrders WorkOrder[]
+
+  // Inventory Orders (optional “for store”)
+  inventoryOrdersForStore InventoryOrder[] @relation("InventoryOrderForStore")
+
+  // Store number used for invoicing (nullable for safe rollout)
+  locationNumber String? @unique
+
+  // Invoices per store
+  invoices Invoice[]
+
+  @@index([active])
 }
 
 model User {
-  id           String    @id @default(cuid())
+  id           String @id @default(cuid())
   name         String
-  email        String    @unique
+  email        String @unique
   passwordHash String
-  role         Role      @default(EMPLOYEE)
-  locationId   String?
-  location     Location? @relation(fields: [locationId], references: [id])
-  active       Boolean   @default(true)
-  createdAt    DateTime  @default(now())
-}
-model Item {
-  id          String   @id @default(cuid())
-  sku         String   @unique
+  role         Role   @default(EMPLOYEE)
 
-  partNumber  String?  // NEW: vendor/manufacturer part number (optional)
+  // Primary/default location (legacy single value; keep for compatibility)
+  locationId String?
+  location   Location? @relation(fields: [locationId], references: [id])
+
+  // Per-user locations (primary + optional, ordered)
+  allowedLocations UserLocation[]
+
+  // granular permissions (admins treated allow-all in code)
+  permissions UserPermission[]
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  createdCheckouts PartsCheckoutTicket[] @relation("CheckoutCreatedBy")
+  resolvedAlerts   InventoryAlert[]      @relation("AlertResolvedBy")
+  createdAlerts    InventoryAlert[]      @relation("AlertCreatedBy")
+
+  // Work Orders
+  workOrdersCreated WorkOrder[] @relation("WorkOrderCreatedBy")
+  workOrdersUpdated WorkOrder[] @relation("WorkOrderUpdatedBy")
+
+  // Inventory Orders
+  inventoryOrdersCreated InventoryOrder[] @relation("InventoryOrderCreatedBy")
+  inventoryOrdersForUser InventoryOrder[] @relation("InventoryOrderForUser")
+
+  // Invoices created/issued by admins
+  invoicesCreated Invoice[] @relation("InvoiceCreatedBy")
+}
+
+model UserPermission {
+  id         String     @id @default(cuid())
+  userId     String
+  permission Permission
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permission])
+  @@index([permission])
+  @@index([userId])
+}
+
+model UserLocation {
+  id         String @id @default(cuid())
+  userId     String
+  locationId String
+  sortOrder  Int    @default(0)
+
+  // allow multiple primary locations per user
+  isPrimary Boolean @default(false)
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, locationId])
+  @@index([userId, isPrimary, sortOrder])
+  @@index([userId, sortOrder])
+  @@index([locationId])
+}
+
+model WorkOrder {
+  id     String          @id @default(cuid())
+  status WorkOrderStatus @default(DRAFT)
+
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
+
+  startTime DateTime?
+  endTime   DateTime?
+
+  startingMileage Int?
+  endingMileage   Int?
+
+  notes String?
+
+  createdByUserId String
+  createdByUser   User   @relation("WorkOrderCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  updatedByUserId String?
+  updatedByUser   User?   @relation("WorkOrderUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  equipmentAreas WorkOrderEquipmentArea[]
+
+  @@index([status, createdAt])
+  @@index([locationId, createdAt])
+  @@index([createdByUserId, createdAt])
+}
+
+model WorkOrderEquipmentArea {
+  workOrderId String
+  area        EquipmentArea
+
+  workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  @@id([workOrderId, area])
+}
+
+/**
+ * =========================
+ * Inventory Orders (Order History)
+ * =========================
+ */
+model InventoryOrder {
+  id     String               @id @default(cuid())
+  status InventoryOrderStatus @default(ORDERED)
+
+  // Vendor for this order (can differ from the item's default vendor)
+  vendor InvoiceVendor @default(SUCCESS_PLUS)
+
+  itemId String
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  quantity Int
+
+  supplierName       String?
+  supplierPartNumber String?
+
+  unitPrice    Decimal? @db.Decimal(10, 2)
+  shippingCost Decimal? @db.Decimal(10, 2)
+  taxCost      Decimal? @db.Decimal(10, 2)
+
+  orderedAt          DateTime  @default(now())
+  arrivedAt          DateTime?
+  addedToInventoryAt DateTime?
+
+  forStoreId String?
+  forStore   Location? @relation("InventoryOrderForStore", fields: [forStoreId], references: [id], onDelete: SetNull)
+
+  forUserId String?
+  forUser   User?   @relation("InventoryOrderForUser", fields: [forUserId], references: [id], onDelete: SetNull)
+
+  createdByUserId String
+  createdByUser   User   @relation("InventoryOrderCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  note String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, orderedAt])
+  @@index([vendor, orderedAt])
+  @@index([itemId, orderedAt])
+  @@index([forStoreId, orderedAt])
+  @@index([forUserId, orderedAt])
+  @@index([createdByUserId, orderedAt])
+}
+
+model Item {
+  id  String @id @default(cuid())
+  sku String @unique
+
+  partNumber String?
+
+  // Default vendor used for ordering + invoicing unless overridden
+  vendor InvoiceVendor @default(SUCCESS_PLUS)
 
   name        String
   description String?
   category    String?
-  unit        String?
   cost        Decimal? @db.Decimal(10, 2)
   price       Decimal? @db.Decimal(10, 2)
   taxable     Boolean  @default(true)
   active      Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  // ...existing fields...
-  versions ItemVersion[]
 
+  manufacturer String?
+  orderFrom    String?
+  webUrl       String?
+
+  onHandQty  Int @default(0)
+  orderedQty Int @default(0)
+  usedQty    Int @default(0)
+  minQty     Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  versions  ItemVersion[]
+  alerts    InventoryAlert[]
+  checkouts PartsCheckoutTicket[]
+
+  inventoryOrders InventoryOrder[]
+
+  @@index([updatedAt])
+  @@index([vendor])
+  @@index([name])
+  @@index([category])
+  @@index([manufacturer])
+  @@index([orderFrom])
 }
-model ItemVersion {
-  id          String   @id @default(cuid())
 
-  itemId      String
-  item        Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+model ItemVersion {
+  id String @id @default(cuid())
+
+  itemId String
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   sku         String
   partNumber  String?
+
+  // ✅ FIX: default allows migration to backfill existing rows
+  vendor      InvoiceVendor @default(SUCCESS_PLUS)
+
   name        String
   description String?
   category    String?
@@ -68,28 +386,188 @@ model ItemVersion {
   taxable     Boolean
   active      Boolean
 
-  version     Int
-  createdAt   DateTime @default(now())
+  manufacturer String?
+  orderFrom    String?
+  webUrl       String?
 
-  @@index([itemId, version])
-}
-model ImportJob {
-  id        String   @id @default(cuid())
-  type      String   // e.g. "ITEMS"
+  onHandQty  Int @default(0)
+  orderedQty Int @default(0)
+  usedQty    Int @default(0)
+  minQty     Int @default(0)
+
+  version   Int
   createdAt DateTime @default(now())
 
-  total     Int      @default(0)
-  created   Int      @default(0)
-  updated   Int      @default(0)
-  failed    Int      @default(0)
+  @@unique([itemId, version])
+}
 
-  errors    ImportRowError[]
+model InventoryAlert {
+  id   String             @id @default(cuid())
+  type InventoryAlertType
+
+  itemId String
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  storeId    String?
+  storeName  String?
+  checkoutId String?
+  checkout   PartsCheckoutTicket? @relation(fields: [checkoutId], references: [id], onDelete: SetNull)
+
+  createdByUserId String?
+  createdByUser   User?   @relation("AlertCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByName   String?
+
+  qtyDelta       Int?
+  onHandAfter    Int?
+  orderedAfter   Int?
+  availableAfter Int?
+  minQtyAtTime   Int?
+
+  note      String?
+  createdAt DateTime @default(now())
+
+  resolvedAt       DateTime?
+  resolvedByUserId String?
+  resolvedByUser   User?     @relation("AlertResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  resolvedByName   String?
+
+  @@index([itemId, createdAt])
+  @@index([type, createdAt])
+  @@index([resolvedAt])
+  @@index([checkoutId])
+}
+
+model PartsCheckoutTicket {
+  id     String              @id @default(cuid())
+  status PartsCheckoutStatus @default(OPEN)
+
+  invoiceId String?
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  invoiceLine InvoiceLine? @relation("InvoiceLineCheckout")
+
+  itemId String
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  storeId   String
+  store     Location @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  storeName String
+
+  quantity        Int
+  needToOrderMore Boolean @default(false)
+
+  createdByUserId String
+  createdByUser   User   @relation("CheckoutCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  createdByName   String
+
+  note String?
+
+  skuSnapshot        String
+  partNumberSnapshot String?
+  nameSnapshot       String
+  vendorSnapshot     InvoiceVendor @default(SUCCESS_PLUS)
+  costSnapshot       Decimal? @db.Decimal(10, 2)
+  priceSnapshot      Decimal? @db.Decimal(10, 2)
+  taxableSnapshot    Boolean
+
+  createdAt  DateTime  @default(now())
+  invoicedAt DateTime?
+  voidedAt   DateTime?
+  voidNote   String?
+
+  alerts InventoryAlert[]
+
+  @@index([status, createdAt])
+  @@index([storeId, createdAt])
+  @@index([itemId, createdAt])
+  @@index([invoiceId])
+  @@index([vendorSnapshot, createdAt])
+}
+
+model Invoice {
+  id String @id @default(cuid())
+
+  vendor InvoiceVendor
+
+  vendorNumber String
+  billedTo     String
+
+  storeId     String
+  store       Location @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  storeName   String
+  storeNumber String
+
+  periodStart DateTime
+  periodEnd   DateTime
+
+  invoiceDate DateTime
+  status      InvoiceStatus @default(DRAFT)
+
+  subtotal Decimal @db.Decimal(12, 2)
+  taxTotal  Decimal @db.Decimal(12, 2)
+  total     Decimal @db.Decimal(12, 2)
+
+  createdByUserId String?
+  createdByUser   User?   @relation("InvoiceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime  @default(now())
+  issuedAt  DateTime?
+  paidAt    DateTime?
+  voidedAt  DateTime?
+  voidNote  String?
+
+  lines   InvoiceLine[]
+  tickets PartsCheckoutTicket[]
+
+  @@index([storeId, invoiceDate])
+  @@index([vendor, invoiceDate])
+  @@index([status, createdAt])
+  @@index([storeId, periodStart, periodEnd])
+}
+
+model InvoiceLine {
+  id String @id @default(cuid())
+
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  checkoutId String              @unique
+  checkout   PartsCheckoutTicket @relation("InvoiceLineCheckout", fields: [checkoutId], references: [id], onDelete: Restrict)
+
+  submittedAt DateTime
+
+  sku        String
+  partNumber String?
+  name       String
+
+  quantity  Int
+  unitPrice Decimal @db.Decimal(10, 2)
+  taxable   Boolean
+
+  lineSubtotal Decimal @db.Decimal(12, 2)
+  lineTax      Decimal @db.Decimal(12, 2)
+  lineTotal    Decimal @db.Decimal(12, 2)
+
+  @@index([invoiceId])
+}
+
+model ImportJob {
+  id        String   @id @default(cuid())
+  type      String
+  createdAt DateTime @default(now())
+
+  total   Int @default(0)
+  created Int @default(0)
+  updated Int @default(0)
+  failed  Int @default(0)
+
+  errors ImportRowError[]
 }
 
 model ImportRowError {
-  id        String   @id @default(cuid())
-  jobId     String
-  job       ImportJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  id    String    @id @default(cuid())
+  jobId String
+  job   ImportJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   rowNumber Int
   sku       String?
@@ -99,7 +577,3 @@ model ImportRowError {
 
   @@index([jobId, rowNumber])
 }
-
-
-
-
