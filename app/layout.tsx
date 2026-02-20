@@ -1,16 +1,13 @@
 // app/layout.tsx
 import type { Metadata } from "next";
-import { getServerSession } from "next-auth";
 import { Geist, Geist_Mono } from "next/font/google";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { PHASE_PRODUCTION_BUILD } from "next/constants";
 import "./globals.css";
 
-import { authOptions } from "@/app/lib/auth";
 import AdminNav from "@/app/admin/components/AdminNav";
 import UserNav from "@/app/components/UserNav";
-import { Permission, Role } from "@prisma/client";
-import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -55,13 +52,34 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // ✅ During `next build`, Next may try to collect page data for special routes (e.g. /_not-found).
+  // If auth/prisma modules are imported/evaluated, they can crash the build (env/DB not ready).
+  // So we short-circuit the build phase with a minimal layout shell.
+  if (process.env.NEXT_PHASE === PHASE_PRODUCTION_BUILD) {
+    return (
+      <html lang="en">
+        <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>{children}</body>
+      </html>
+    );
+  }
+
+  // Import auth/permissions lazily so module evaluation during build phase doesn't touch Prisma.
+  const [{ getServerSession }, { authOptions }, permsMod, prismaEnums] = await Promise.all([
+    import("next-auth"),
+    import("@/app/lib/auth"),
+    import("@/app/lib/permissions"),
+    import("@prisma/client"),
+  ]);
+
+  const { hasAnyPermission, loadUserPermissions } = permsMod;
+  const { Permission, Role } = prismaEnums;
+
   const session = await getServerSession(authOptions);
 
   const role = (session?.user as unknown as { role?: unknown })?.role;
   const isAdmin = role === Role.ADMIN || role === "ADMIN";
 
   // ✅ Load per-user permissions server-side (single source of truth)
-  // - Admin treated as allow-all (handled inside loadUserPermissions, and also by role check above)
   const perms = await loadUserPermissions(session);
 
   // Cookie-backed preview (Admin-only). In your Next 16 runtime, cookies()/headers() are awaited.
@@ -71,6 +89,14 @@ export default async function RootLayout({
 
   async function setPreviewAction(formData: FormData) {
     "use server";
+
+    const [{ getServerSession }, { authOptions }, prismaEnums] = await Promise.all([
+      import("next-auth"),
+      import("@/app/lib/auth"),
+      import("@prisma/client"),
+    ]);
+
+    const { Role } = prismaEnums;
 
     const s = await getServerSession(authOptions);
     const r = (s?.user as unknown as { role?: unknown })?.role;
@@ -98,7 +124,6 @@ export default async function RootLayout({
   const showUserNav = !isAdmin || preview === "USER";
 
   // ✅ Minimal layout-level gating hook (nav-level links are gated inside nav components)
-  // If a non-admin has *zero* user-facing view permissions, hide UserNav entirely (prevents misleading nav).
   const hasAnyUserNavPermission =
     perms.allowAll ||
     hasAnyPermission(perms, [
