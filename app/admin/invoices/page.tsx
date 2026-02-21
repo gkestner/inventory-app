@@ -93,16 +93,6 @@ function safeReturnToPathFromReferer(referer: string | null): string {
 
 type CreateInvoicesResult = Awaited<ReturnType<typeof createInvoicesForWindow>>;
 
-function hasInvoiceModel() {
-  const delegate = (prisma as { invoice?: { findMany?: unknown } }).invoice;
-  return Boolean(delegate && typeof delegate.findMany === "function");
-}
-
-function hasInvoiceModel() {
-  const delegate = (prisma as { invoice?: { findMany?: unknown } }).invoice;
-  return Boolean(delegate && typeof delegate.findMany === "function");
-}
-
 export default async function AdminInvoicesPage({ searchParams }: { searchParams: SearchParams }) {
   await requireInvoicesView();
 
@@ -112,8 +102,6 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   if (!invoiceModelReady) {
     return (
       <main style={{ padding: 16 }}>
-        {/* ...existing fallback UI... */}
-
         <div style={{ padding: 16, maxWidth: 1400, margin: "0 auto", color: "var(--foreground)" }}>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <h1 style={{ fontSize: 26, fontWeight: 900, margin: 0 }}>Admin: Invoices</h1>
@@ -219,6 +207,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   const skip = (page - 1) * perPage;
 
   const err = String(searchParams.err ?? "").trim();
+  const cfg = String(searchParams.cfg ?? "").trim();
 
   const readyByStore = await prisma.partsCheckoutTicket.groupBy({
     by: ["storeId", "storeName"],
@@ -233,6 +222,14 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   });
 
   const readyTotal = readyByStore.reduce((acc, r) => acc + r._count._all, 0);
+
+  const vendorConfigs = await prisma.invoiceVendorConfig.findMany({
+    select: { vendor: true, taxFormula: true, taxRatePct: true },
+  });
+
+  const taxFormulaByVendor = new Map(vendorConfigs.map((c) => [c.vendor, c.taxFormula]));
+  const taxRateByVendor = new Map(vendorConfigs.map((c) => [c.vendor, c.taxRatePct]));
+  const defaultTaxFormula = "lineSubtotal * (taxRatePct / 100)";
 
   const [invoiceTotal, invoices] = await Promise.all([
     prisma.invoice.count(),
@@ -264,7 +261,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     const merged: SearchParams = { ...searchParams, ...patch };
 
     const qp = new URLSearchParams();
-    const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err"];
+    const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err", "cfg"];
 
     for (const k of keys) {
       const v = merged[k];
@@ -320,6 +317,35 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     redirect(safeReturnToPathFromReferer(h.get("referer")));
   }
 
+  async function updateVendorTaxFormulaAction(formData: FormData) {
+    "use server";
+    await requireInvoicesView();
+
+    const vendorRaw = String(formData.get("vendor") ?? "").trim().toUpperCase();
+    const vendor = vendorRaw === "AMERICAN_PLUS" ? InvoiceVendor.AMERICAN_PLUS : InvoiceVendor.SUCCESS_PLUS;
+
+    const formula = String(formData.get("taxFormula") ?? "").trim();
+    if (!formula) {
+      redirect("/admin/invoices?cfg=formula_required");
+    }
+
+    await prisma.invoiceVendorConfig.upsert({
+      where: { vendor },
+      create: {
+        vendor,
+        partsUpchargePct: 0,
+        taxRatePct: 0,
+        taxFormula: formula,
+      },
+      update: {
+        taxFormula: formula,
+      },
+    });
+
+    revalidatePath("/admin/invoices");
+    redirect("/admin/invoices?cfg=saved");
+  }
+
   async function hardDeleteSelectedInvoicesAction(formData: FormData) {
     "use server";
     await requireInvoicesView();
@@ -337,12 +363,13 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
         page: get("page"),
         perPage: get("perPage"),
         err: get("err"),
+        cfg: get("cfg"),
       };
 
       const merged: SearchParams = { ...base, ...patch };
 
       const qp = new URLSearchParams();
-      const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err"];
+      const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err", "cfg"];
       for (const k of keys) {
         const v = merged[k];
         if (typeof v !== "string") continue;
@@ -394,6 +421,13 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
         : err
           ? "Action could not be completed."
           : null;
+
+  const cfgBanner =
+    cfg === "saved"
+      ? "Tax formula saved. New invoices will use the updated formula for that vendor."
+      : cfg === "formula_required"
+        ? "Tax formula is required."
+        : null;
 
   return (
     <main style={{ padding: 16 }}>
@@ -449,6 +483,53 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
             </Link>
           </div>
         ) : null}
+
+        {cfgBanner ? (
+          <div
+            style={{
+              marginTop: 12,
+              padding: 12,
+              borderRadius: 14,
+              border: "1px solid rgba(33,150,243,0.55)",
+              background: "rgba(33,150,243,0.12)",
+              fontWeight: 900,
+            }}
+          >
+            {cfgBanner}
+          </div>
+        ) : null}
+
+        <div style={{ marginTop: 12, border, borderRadius: 14, background: surface, padding: 12 }}>
+          <div style={{ fontWeight: 900, marginBottom: 6 }}>Vendor tax formulas</div>
+          <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 10 }}>
+            Formula variables: <code>lineSubtotal</code>, <code>taxRatePct</code>, <code>quantity</code>, <code>unitPrice</code>. Allowed
+            helpers: <code>min</code>, <code>max</code>, <code>round</code>, <code>floor</code>, <code>ceil</code>, <code>abs</code>.
+          </div>
+
+          <div style={{ display: "grid", gap: 10 }}>
+            {[InvoiceVendor.SUCCESS_PLUS, InvoiceVendor.AMERICAN_PLUS].map((v) => (
+              <form key={v} action={updateVendorTaxFormulaAction} style={{ display: "grid", gap: 8, borderTop: border, paddingTop: 10 }}>
+                <input type="hidden" name="vendor" value={v} />
+                <div style={{ fontWeight: 900 }}>{vendorLabel(v)}</div>
+                <div style={{ fontSize: 12, opacity: 0.8 }}>
+                  Current tax rate: <b>{String(taxRateByVendor.get(v) ?? 0)}%</b>
+                </div>
+                <label style={controlLabel}>
+                  Tax formula
+                  <input
+                    name="taxFormula"
+                    defaultValue={String(taxFormulaByVendor.get(v) ?? defaultTaxFormula)}
+                    style={controlBase}
+                    placeholder={defaultTaxFormula}
+                  />
+                </label>
+                <div>
+                  <button type="submit" style={btnPrimary}>Save formula</button>
+                </div>
+              </form>
+            ))}
+          </div>
+        </div>
 
         <div style={{ marginTop: 12, border, borderRadius: 14, background: surface, padding: 12 }}>
           <div style={{ fontWeight: 900, marginBottom: 6 }}>Generate invoices</div>
