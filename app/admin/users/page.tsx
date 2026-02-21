@@ -1,5 +1,6 @@
 // app/admin/users/page.tsx
 import type { CSSProperties } from "react";
+import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
@@ -17,6 +18,8 @@ type SearchParams = {
   error?: string;
 
   created?: string; // userId
+  resetUser?: string; // userId
+  temp?: string; // temporary password (one-time display)
 };
 
 async function requireAdmin() {
@@ -69,6 +72,11 @@ function parseOrderedGroup(formData: FormData, ids: string[], orderPrefix: strin
     id,
     order: toPositiveIntOrNull(formData.get(`${orderPrefix}${id}`)),
   }));
+}
+
+function makeTempPassword(): string {
+  // URL-safe-ish and strong enough for one-time temp usage
+  return crypto.randomBytes(9).toString("base64url"); // ~12 chars
 }
 
 /**
@@ -134,6 +142,8 @@ export default async function AdminUsersPage({
   const ok = (sp.ok ?? "") === "1";
   const error = (sp.error ?? "").trim();
   const created = (sp.created ?? "").trim();
+  const resetUser = (sp.resetUser ?? "").trim();
+  const temp = (sp.temp ?? "").trim();
 
   const [locationsAll, users] = await Promise.all([
     db.location.findMany({
@@ -169,6 +179,9 @@ export default async function AdminUsersPage({
   ]);
 
   const activeLocations = locationsAll.filter((l) => l.active);
+  const hasActiveLocations = activeLocations.length > 0;
+  const locationChoicesForCreate = hasActiveLocations ? activeLocations : locationsAll;
+  const canCreateUser = locationChoicesForCreate.length > 0;
 
   async function createUserAction(formData: FormData) {
     "use server";
@@ -204,17 +217,36 @@ export default async function AdminUsersPage({
 
     const allSelected = Array.from(new Set([...primaryIds, ...optionalIds]));
 
-    // Enforce: create-user picklists are active-only (reject tampered POSTs selecting inactive)
+    // Enforce: prefer active-only selections. If there are zero active locations in the system,
+    // allow selecting existing inactive locations so admins can still bootstrap users.
     if (allSelected.length > 0) {
-      const existingActive = await db.location.findMany({
-        where: { id: { in: allSelected }, active: true },
-        select: { id: true, name: true, active: true },
-      } as unknown);
+      const [existingAll, activeCountRows] = await Promise.all([
+        db.location.findMany({
+          where: { id: { in: allSelected } },
+          select: { id: true, name: true, active: true },
+        } as unknown),
+        db.location.findMany({
+          where: { active: true },
+          select: { id: true },
+        } as unknown),
+      ]);
 
-      const found = new Set(existingActive.map((x) => x.id));
-      const missingOrInactive = allSelected.filter((id) => !found.has(id));
-      if (missingOrInactive.length > 0) {
-        redirect("/admin/users?error=" + encodeURIComponent("One or more selected locations are inactive or missing."));
+      const foundAll = new Set(existingAll.map((x) => x.id));
+      const missing = allSelected.filter((id) => !foundAll.has(id));
+      if (missing.length > 0) {
+        redirect("/admin/users?error=" + encodeURIComponent("One or more selected locations are missing."));
+      }
+
+      const hasAnyActiveLocations = activeCountRows.length > 0;
+      if (hasAnyActiveLocations) {
+        const activeIds = new Set(existingAll.filter((x) => x.active).map((x) => x.id));
+        const inactiveSelected = allSelected.filter((id) => !activeIds.has(id));
+        if (inactiveSelected.length > 0) {
+          redirect(
+            "/admin/users?error=" +
+              encodeURIComponent("Inactive locations cannot be newly assigned while active locations exist.")
+          );
+        }
       }
     }
 
@@ -331,24 +363,15 @@ export default async function AdminUsersPage({
     redirect("/admin/users?ok=1");
   }
 
-  async function setPasswordAction(formData: FormData) {
+  async function resetPasswordAction(formData: FormData) {
     "use server";
     await requireAdmin();
 
     const userId = nonEmpty(formData.get("userId"));
-    const password = nonEmpty(formData.get("password"));
-    const confirm = nonEmpty(formData.get("confirm"));
-
     if (!userId) redirect("/admin/users?error=" + encodeURIComponent("Missing userId"));
-    if (!password) redirect("/admin/users?error=" + encodeURIComponent("Password is required"));
-    if (password.length < 8) {
-      redirect("/admin/users?error=" + encodeURIComponent("Password must be at least 8 characters"));
-    }
-    if (password !== confirm) {
-      redirect("/admin/users?error=" + encodeURIComponent("Password and confirmation do not match"));
-    }
 
-    const passwordHash = await bcrypt.hash(password, 10);
+    const tempPassword = makeTempPassword();
+    const passwordHash = await bcrypt.hash(tempPassword, 10);
 
     try {
       await db.user.update({
@@ -356,12 +379,12 @@ export default async function AdminUsersPage({
         data: { passwordHash },
       });
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Password update failed";
+      const msg = e instanceof Error ? e.message : "Reset failed";
       redirect("/admin/users?error=" + encodeURIComponent(msg));
     }
 
     revalidatePath("/admin/users");
-    redirect("/admin/users?ok=1");
+    redirect(`/admin/users?ok=1&resetUser=${encodeURIComponent(userId)}&temp=${encodeURIComponent(tempPassword)}`);
   }
 
   async function assignLocationsAction(formData: FormData) {
@@ -536,8 +559,8 @@ export default async function AdminUsersPage({
     <div style={pageWrap}>
       <h1 style={{ fontSize: 20, fontWeight: 900, marginBottom: 6 }}>Admin Users</h1>
       <div style={{ opacity: 0.8, marginBottom: 16 }}>
-        Manage users, roles, and Primary/Optional locations (pick-lists show Active locations; assigned inactive are
-        still visible).
+        Manage users, roles, and Primary/Optional locations (active locations are preferred; when none are active,
+        inactive locations can be assigned for bootstrap).
       </div>
 
       {error ? (
@@ -551,113 +574,158 @@ export default async function AdminUsersPage({
         <div style={{ ...card, marginBottom: 12 }}>
           <div style={{ fontWeight: 900, marginBottom: 6 }}>✅ Saved</div>
           {created ? <div>Created user id: {created}</div> : null}
+          {resetUser && temp ? (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontWeight: 900 }}>Temporary password (show once):</div>
+              <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                {temp}
+              </div>
+              <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
+                This is only displayed via the URL after reset. Copy it now.
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
       {/* Create user */}
       <div style={{ ...card, marginBottom: 16 }}>
-        <details>
-          <summary style={{ cursor: "pointer", fontWeight: 900, fontSize: 16 }}>Create New User</summary>
-
-          <div style={{ marginTop: 12 }}>
-            <form action={createUserAction} style={{ display: "grid", gap: 12 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <label style={label}>
-                  <span style={{ fontWeight: 800 }}>Name</span>
-                  <input name="name" required style={field} />
-                </label>
-
-                <label style={label}>
-                  <span style={{ fontWeight: 800 }}>Email</span>
-                  <input name="email" type="email" required style={field} />
-                </label>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <label style={label}>
-                  <span style={{ fontWeight: 800 }}>Password</span>
-                  <input name="password" type="password" required style={field} />
-                </label>
-
-                <label style={label}>
-                  <span style={{ fontWeight: 800 }}>Role</span>
-                  <select name="role" defaultValue={Role.EMPLOYEE} style={field}>
-                    <option value={Role.EMPLOYEE}>EMPLOYEE</option>
-                    <option value={Role.MANAGER}>MANAGER</option>
-                    <option value={Role.ADMIN}>ADMIN</option>
-                  </select>
-                </label>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <div>
-                  <div style={{ fontWeight: 900, marginBottom: 6 }}>Primary Locations (Active only)</div>
-                  <div style={{ display: "grid", gap: 6, maxHeight: 240, overflow: "auto", paddingRight: 6 }}>
-                    {activeLocations.map((l) => (
-                      <label
-                        key={`cprim-${l.id}`}
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "20px 1fr 110px",
-                          gap: 10,
-                          alignItems: "center",
-                        }}
-                      >
-                        <input type="checkbox" name="primaryLocationIds" value={l.id} />
-                        <span>{l.name}</span>
-                        <input
-                          name={`primaryOrder_${l.id}`}
-                          type="number"
-                          min={1}
-                          step={1}
-                          placeholder="Order #"
-                          style={field}
-                        />
-                      </label>
-                    ))}
-                  </div>
-                  <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-                    Ordering: if you enter an Order #, we sort by it; blanks sort after (by name). We persist order
-                    within each group (1..N). Legacy <code>user.locationId</code> is set to the first Primary after
-                    ordering.
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ fontWeight: 900, marginBottom: 6 }}>Optional Locations (Active only)</div>
-                  <div style={{ display: "grid", gap: 6, maxHeight: 240, overflow: "auto", paddingRight: 6 }}>
-                    {activeLocations.map((l) => (
-                      <label
-                        key={`copt-${l.id}`}
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "20px 1fr 110px",
-                          gap: 10,
-                          alignItems: "center",
-                        }}
-                      >
-                        <input type="checkbox" name="optionalLocationIds" value={l.id} />
-                        <span>{l.name}</span>
-                        <input
-                          name={`optionalOrder_${l.id}`}
-                          type="number"
-                          min={1}
-                          step={1}
-                          placeholder="Order #"
-                          style={field}
-                        />
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <button type="submit" style={{ ...btn, width: 220 }}>
-                Create User
-              </button>
-            </form>
+        <h2 style={{ fontSize: 16, fontWeight: 900, marginBottom: 10 }}>Create User</h2>
+        {!hasActiveLocations && canCreateUser ? (
+          <div
+            style={{
+              marginBottom: 12,
+              padding: 10,
+              border: "1px solid rgba(255,180,0,0.5)",
+              borderRadius: 8,
+              opacity: 0.9,
+            }}
+          >
+            No active locations are available. You can still assign currently inactive locations below, or reactivate
+            one in{" "}
+            <a href="/admin/locations" style={{ textDecoration: "underline" }}>
+              Admin Locations
+            </a>
+            .
           </div>
-        </details>
+        ) : null}
+        {!canCreateUser ? (
+          <div
+            style={{
+              marginBottom: 12,
+              padding: 10,
+              border: "1px solid rgba(255,80,80,0.5)",
+              borderRadius: 8,
+              opacity: 0.95,
+            }}
+          >
+            No locations exist yet. Create a location in{" "}
+            <a href="/admin/locations" style={{ textDecoration: "underline" }}>
+              Admin Locations
+            </a>{" "}
+            before creating users.
+          </div>
+        ) : null}
+
+        <form action={createUserAction} style={{ display: "grid", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <label style={label}>
+              <span style={{ fontWeight: 800 }}>Name</span>
+              <input name="name" required style={field} />
+            </label>
+
+            <label style={label}>
+              <span style={{ fontWeight: 800 }}>Email</span>
+              <input name="email" type="email" required style={field} />
+            </label>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <label style={label}>
+              <span style={{ fontWeight: 800 }}>Password</span>
+              <input name="password" type="password" required style={field} />
+            </label>
+
+            <label style={label}>
+              <span style={{ fontWeight: 800 }}>Role</span>
+              <select name="role" defaultValue={Role.EMPLOYEE} style={field}>
+                <option value={Role.EMPLOYEE}>EMPLOYEE</option>
+                <option value={Role.MANAGER}>MANAGER</option>
+                <option value={Role.ADMIN}>ADMIN</option>
+              </select>
+            </label>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <div style={{ fontWeight: 900, marginBottom: 6 }}>Primary Locations (active preferred)</div>
+              <div style={{ display: "grid", gap: 6, maxHeight: 240, overflow: "auto", paddingRight: 6 }}>
+                {canCreateUser ? (
+                  locationChoicesForCreate.map((l) => (
+                    <label
+                      key={`cprim-${l.id}`}
+                      style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
+                    >
+                      <input type="checkbox" name="primaryLocationIds" value={l.id} />
+                      <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
+                      <input
+                        name={`primaryOrder_${l.id}`}
+                        type="number"
+                        min={1}
+                        step={1}
+                        placeholder="Order #"
+                        style={field}
+                      />
+                    </label>
+                  ))
+                ) : (
+                  <div style={{ opacity: 0.8, fontSize: 13 }}>No locations are available to select yet.</div>
+                )}
+              </div>
+              <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
+                Ordering: if you enter an Order #, we sort by it; blanks sort after (by name). We persist order within
+                each group (1..N). Legacy <code>user.locationId</code> is set to the first Primary after ordering.
+              </div>
+            </div>
+
+            <div>
+              <div style={{ fontWeight: 900, marginBottom: 6 }}>Optional Locations (active preferred)</div>
+              <div style={{ display: "grid", gap: 6, maxHeight: 240, overflow: "auto", paddingRight: 6 }}>
+                {canCreateUser ? (
+                  locationChoicesForCreate.map((l) => (
+                    <label
+                      key={`copt-${l.id}`}
+                      style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
+                    >
+                      <input type="checkbox" name="optionalLocationIds" value={l.id} />
+                      <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
+                      <input
+                        name={`optionalOrder_${l.id}`}
+                        type="number"
+                        min={1}
+                        step={1}
+                        placeholder="Order #"
+                        style={field}
+                      />
+                    </label>
+                  ))
+                ) : (
+                  <div style={{ opacity: 0.8, fontSize: 13 }}>
+                    No optional locations available until at least one location exists.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={!canCreateUser}
+            style={{ ...btn, width: 220, opacity: canCreateUser ? 1 : 0.5 }}
+          >
+            {canCreateUser ? "Create User" : "Create User (needs location)"}
+          </button>
+        </form>
       </div>
 
       {/* Users list */}
@@ -706,9 +774,7 @@ export default async function AdminUsersPage({
                     </div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>
                       Legacy locationId:{" "}
-                      <span style={{ fontWeight: 800 }}>
-                        {legacyName || (u.locationId ? u.locationId : "—")}
-                      </span>
+                      <span style={{ fontWeight: 800 }}>{legacyName || (u.locationId ? u.locationId : "—")}</span>
                     </div>
                   </div>
 
@@ -721,43 +787,12 @@ export default async function AdminUsersPage({
                       </button>
                     </form>
 
-                    <details>
-                      <summary
-                        style={{
-                          cursor: "pointer",
-                          fontWeight: 800,
-                          padding: "8px 10px",
-                          borderRadius: 10,
-                          border: "1px solid rgba(128,128,128,0.25)",
-                        }}
-                      >
-                        Set Password
-                      </summary>
-
-                      <div style={{ marginTop: 10, minWidth: 320 }}>
-                        <form action={setPasswordAction} style={{ display: "grid", gap: 10 }}>
-                          <input type="hidden" name="userId" value={u.id} />
-
-                          <label style={label}>
-                            <span style={{ fontWeight: 800 }}>New Password</span>
-                            <input name="password" type="password" required style={field} />
-                          </label>
-
-                          <label style={label}>
-                            <span style={{ fontWeight: 800 }}>Confirm Password</span>
-                            <input name="confirm" type="password" required style={field} />
-                          </label>
-
-                          <button type="submit" style={{ ...btn, width: 220 }}>
-                            Save Password
-                          </button>
-
-                          <div style={{ fontSize: 12, opacity: 0.75 }}>
-                            The current password cannot be viewed. Setting a new password replaces the old one.
-                          </div>
-                        </form>
-                      </div>
-                    </details>
+                    <form action={resetPasswordAction}>
+                      <input type="hidden" name="userId" value={u.id} />
+                      <button type="submit" style={btn}>
+                        Reset Password
+                      </button>
+                    </form>
                   </div>
                 </div>
 
@@ -900,5 +935,3 @@ export default async function AdminUsersPage({
     </div>
   );
 }
-
-
