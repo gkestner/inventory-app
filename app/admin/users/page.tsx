@@ -1,6 +1,5 @@
 // app/admin/users/page.tsx
 import type { CSSProperties } from "react";
-import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
@@ -18,8 +17,6 @@ type SearchParams = {
   error?: string;
 
   created?: string; // userId
-  resetUser?: string; // userId
-  temp?: string; // temporary password (one-time display)
 };
 
 async function requireAdmin() {
@@ -72,11 +69,6 @@ function parseOrderedGroup(formData: FormData, ids: string[], orderPrefix: strin
     id,
     order: toPositiveIntOrNull(formData.get(`${orderPrefix}${id}`)),
   }));
-}
-
-function makeTempPassword(): string {
-  // URL-safe-ish and strong enough for one-time temp usage
-  return crypto.randomBytes(9).toString("base64url"); // ~12 chars
 }
 
 /**
@@ -142,8 +134,6 @@ export default async function AdminUsersPage({
   const ok = (sp.ok ?? "") === "1";
   const error = (sp.error ?? "").trim();
   const created = (sp.created ?? "").trim();
-  const resetUser = (sp.resetUser ?? "").trim();
-  const temp = (sp.temp ?? "").trim();
 
   const [locationsAll, users] = await Promise.all([
     db.location.findMany({
@@ -341,15 +331,24 @@ export default async function AdminUsersPage({
     redirect("/admin/users?ok=1");
   }
 
-  async function resetPasswordAction(formData: FormData) {
+  async function setPasswordAction(formData: FormData) {
     "use server";
     await requireAdmin();
 
     const userId = nonEmpty(formData.get("userId"));
-    if (!userId) redirect("/admin/users?error=" + encodeURIComponent("Missing userId"));
+    const password = nonEmpty(formData.get("password"));
+    const confirm = nonEmpty(formData.get("confirm"));
 
-    const tempPassword = makeTempPassword();
-    const passwordHash = await bcrypt.hash(tempPassword, 10);
+    if (!userId) redirect("/admin/users?error=" + encodeURIComponent("Missing userId"));
+    if (!password) redirect("/admin/users?error=" + encodeURIComponent("Password is required"));
+    if (password.length < 8) {
+      redirect("/admin/users?error=" + encodeURIComponent("Password must be at least 8 characters"));
+    }
+    if (password !== confirm) {
+      redirect("/admin/users?error=" + encodeURIComponent("Password and confirmation do not match"));
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
 
     try {
       await db.user.update({
@@ -357,12 +356,12 @@ export default async function AdminUsersPage({
         data: { passwordHash },
       });
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Reset failed";
+      const msg = e instanceof Error ? e.message : "Password update failed";
       redirect("/admin/users?error=" + encodeURIComponent(msg));
     }
 
     revalidatePath("/admin/users");
-    redirect(`/admin/users?ok=1&resetUser=${encodeURIComponent(userId)}&temp=${encodeURIComponent(tempPassword)}`);
+    redirect("/admin/users?ok=1");
   }
 
   async function assignLocationsAction(formData: FormData) {
@@ -552,109 +551,113 @@ export default async function AdminUsersPage({
         <div style={{ ...card, marginBottom: 12 }}>
           <div style={{ fontWeight: 900, marginBottom: 6 }}>✅ Saved</div>
           {created ? <div>Created user id: {created}</div> : null}
-          {resetUser && temp ? (
-            <div style={{ marginTop: 8 }}>
-              <div style={{ fontWeight: 900 }}>Temporary password (show once):</div>
-              <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
-                {temp}
-              </div>
-              <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-                This is only displayed via the URL after reset. Copy it now.
-              </div>
-            </div>
-          ) : null}
         </div>
       ) : null}
 
       {/* Create user */}
       <div style={{ ...card, marginBottom: 16 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 900, marginBottom: 10 }}>Create User</h2>
+        <details>
+          <summary style={{ cursor: "pointer", fontWeight: 900, fontSize: 16 }}>Create New User</summary>
 
-        <form action={createUserAction} style={{ display: "grid", gap: 12 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <label style={label}>
-              <span style={{ fontWeight: 800 }}>Name</span>
-              <input name="name" required style={field} />
-            </label>
+          <div style={{ marginTop: 12 }}>
+            <form action={createUserAction} style={{ display: "grid", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <label style={label}>
+                  <span style={{ fontWeight: 800 }}>Name</span>
+                  <input name="name" required style={field} />
+                </label>
 
-            <label style={label}>
-              <span style={{ fontWeight: 800 }}>Email</span>
-              <input name="email" type="email" required style={field} />
-            </label>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <label style={label}>
-              <span style={{ fontWeight: 800 }}>Password</span>
-              <input name="password" type="password" required style={field} />
-            </label>
-
-            <label style={label}>
-              <span style={{ fontWeight: 800 }}>Role</span>
-              <select name="role" defaultValue={Role.EMPLOYEE} style={field}>
-                <option value={Role.EMPLOYEE}>EMPLOYEE</option>
-                <option value={Role.MANAGER}>MANAGER</option>
-                <option value={Role.ADMIN}>ADMIN</option>
-              </select>
-            </label>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div>
-              <div style={{ fontWeight: 900, marginBottom: 6 }}>Primary Locations (Active only)</div>
-              <div style={{ display: "grid", gap: 6, maxHeight: 240, overflow: "auto", paddingRight: 6 }}>
-                {activeLocations.map((l) => (
-                  <label
-                    key={`cprim-${l.id}`}
-                    style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
-                  >
-                    <input type="checkbox" name="primaryLocationIds" value={l.id} />
-                    <span>{l.name}</span>
-                    <input
-                      name={`primaryOrder_${l.id}`}
-                      type="number"
-                      min={1}
-                      step={1}
-                      placeholder="Order #"
-                      style={field}
-                    />
-                  </label>
-                ))}
+                <label style={label}>
+                  <span style={{ fontWeight: 800 }}>Email</span>
+                  <input name="email" type="email" required style={field} />
+                </label>
               </div>
-              <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-                Ordering: if you enter an Order #, we sort by it; blanks sort after (by name). We persist order within
-                each group (1..N). Legacy <code>user.locationId</code> is set to the first Primary after ordering.
-              </div>
-            </div>
 
-            <div>
-              <div style={{ fontWeight: 900, marginBottom: 6 }}>Optional Locations (Active only)</div>
-              <div style={{ display: "grid", gap: 6, maxHeight: 240, overflow: "auto", paddingRight: 6 }}>
-                {activeLocations.map((l) => (
-                  <label
-                    key={`copt-${l.id}`}
-                    style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
-                  >
-                    <input type="checkbox" name="optionalLocationIds" value={l.id} />
-                    <span>{l.name}</span>
-                    <input
-                      name={`optionalOrder_${l.id}`}
-                      type="number"
-                      min={1}
-                      step={1}
-                      placeholder="Order #"
-                      style={field}
-                    />
-                  </label>
-                ))}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <label style={label}>
+                  <span style={{ fontWeight: 800 }}>Password</span>
+                  <input name="password" type="password" required style={field} />
+                </label>
+
+                <label style={label}>
+                  <span style={{ fontWeight: 800 }}>Role</span>
+                  <select name="role" defaultValue={Role.EMPLOYEE} style={field}>
+                    <option value={Role.EMPLOYEE}>EMPLOYEE</option>
+                    <option value={Role.MANAGER}>MANAGER</option>
+                    <option value={Role.ADMIN}>ADMIN</option>
+                  </select>
+                </label>
               </div>
-            </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <div style={{ fontWeight: 900, marginBottom: 6 }}>Primary Locations (Active only)</div>
+                  <div style={{ display: "grid", gap: 6, maxHeight: 240, overflow: "auto", paddingRight: 6 }}>
+                    {activeLocations.map((l) => (
+                      <label
+                        key={`cprim-${l.id}`}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "20px 1fr 110px",
+                          gap: 10,
+                          alignItems: "center",
+                        }}
+                      >
+                        <input type="checkbox" name="primaryLocationIds" value={l.id} />
+                        <span>{l.name}</span>
+                        <input
+                          name={`primaryOrder_${l.id}`}
+                          type="number"
+                          min={1}
+                          step={1}
+                          placeholder="Order #"
+                          style={field}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
+                    Ordering: if you enter an Order #, we sort by it; blanks sort after (by name). We persist order
+                    within each group (1..N). Legacy <code>user.locationId</code> is set to the first Primary after
+                    ordering.
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontWeight: 900, marginBottom: 6 }}>Optional Locations (Active only)</div>
+                  <div style={{ display: "grid", gap: 6, maxHeight: 240, overflow: "auto", paddingRight: 6 }}>
+                    {activeLocations.map((l) => (
+                      <label
+                        key={`copt-${l.id}`}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "20px 1fr 110px",
+                          gap: 10,
+                          alignItems: "center",
+                        }}
+                      >
+                        <input type="checkbox" name="optionalLocationIds" value={l.id} />
+                        <span>{l.name}</span>
+                        <input
+                          name={`optionalOrder_${l.id}`}
+                          type="number"
+                          min={1}
+                          step={1}
+                          placeholder="Order #"
+                          style={field}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <button type="submit" style={{ ...btn, width: 220 }}>
+                Create User
+              </button>
+            </form>
           </div>
-
-          <button type="submit" style={{ ...btn, width: 220 }}>
-            Create User
-          </button>
-        </form>
+        </details>
       </div>
 
       {/* Users list */}
@@ -718,12 +721,43 @@ export default async function AdminUsersPage({
                       </button>
                     </form>
 
-                    <form action={resetPasswordAction}>
-                      <input type="hidden" name="userId" value={u.id} />
-                      <button type="submit" style={btn}>
-                        Reset Password
-                      </button>
-                    </form>
+                    <details>
+                      <summary
+                        style={{
+                          cursor: "pointer",
+                          fontWeight: 800,
+                          padding: "8px 10px",
+                          borderRadius: 10,
+                          border: "1px solid rgba(128,128,128,0.25)",
+                        }}
+                      >
+                        Set Password
+                      </summary>
+
+                      <div style={{ marginTop: 10, minWidth: 320 }}>
+                        <form action={setPasswordAction} style={{ display: "grid", gap: 10 }}>
+                          <input type="hidden" name="userId" value={u.id} />
+
+                          <label style={label}>
+                            <span style={{ fontWeight: 800 }}>New Password</span>
+                            <input name="password" type="password" required style={field} />
+                          </label>
+
+                          <label style={label}>
+                            <span style={{ fontWeight: 800 }}>Confirm Password</span>
+                            <input name="confirm" type="password" required style={field} />
+                          </label>
+
+                          <button type="submit" style={{ ...btn, width: 220 }}>
+                            Save Password
+                          </button>
+
+                          <div style={{ fontSize: 12, opacity: 0.75 }}>
+                            The current password cannot be viewed. Setting a new password replaces the old one.
+                          </div>
+                        </form>
+                      </div>
+                    </details>
                   </div>
                 </div>
 
