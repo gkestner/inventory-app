@@ -3,6 +3,7 @@ import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { revalidatePath } from "next/cache";
 import type { CSSProperties } from "react";
 import { Permission } from "@prisma/client";
@@ -338,6 +339,10 @@ export default async function MaintenanceCheckoutPage({
       // one-time submit UX: return to same page (no API response screen)
       redirect(`/maintenance/checkout?ok=1`);
     } catch (e: unknown) {
+      if (isRedirectError(e)) {
+        throw e;
+      }
+      
       const msg =
         typeof e === "object" && e !== null && "message" in e && typeof (e as { message: unknown }).message === "string"
           ? (e as { message: string }).message
