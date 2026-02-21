@@ -92,11 +92,15 @@ function safeReturnToPathFromReferer(referer: string | null): string {
 
 type CreateInvoicesResult = Awaited<ReturnType<typeof createInvoicesForWindow>>;
 
+function hasInvoiceModel() {
+  const delegate = (prisma as { invoice?: { findMany?: unknown } }).invoice;
+  return Boolean(delegate && typeof delegate.findMany === "function");
+}
+
 export default async function AdminInvoicesPage({ searchParams }: { searchParams: SearchParams }) {
   await requireInvoicesView();
 
-  const anyPrisma = prisma as unknown as { invoice?: unknown; invoiceLine?: unknown };
-  if (!("invoice" in anyPrisma) || !anyPrisma.invoice) {
+   if (!hasInvoiceModel()) {
     return (
       <main style={{ padding: 16 }}>
         <div style={{ padding: 16, maxWidth: 1400, margin: "0 auto", color: "var(--foreground)" }}>
