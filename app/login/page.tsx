@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { signIn } from "next-auth/react";
 import { useState } from "react";
 
@@ -39,6 +40,30 @@ export default function LoginPage() {
         >
           Sign in
         </button>
+
+        <div
+          style={{
+            textAlign: "center",
+            marginTop: 8,
+            padding: 12,
+            border: "1px solid var(--foreground)",
+            borderRadius: 8,
+          }}
+        >
+          <p style={{ margin: 0, marginBottom: 8, fontSize: 13 }}>Can&apos;t access your account?</p>
+          <Link
+            href="/forgot-password"
+            style={{
+              fontSize: 14,
+              textDecoration: "underline",
+              textUnderlineOffset: 2,
+              color: "var(--foreground)",
+              fontWeight: 700,
+            }}
+          >
+            Forgot password? Get help signing in ?
+          </Link>
+        </div>
       </div>
     </main>
   );
