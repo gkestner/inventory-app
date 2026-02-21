@@ -106,9 +106,14 @@ function hasInvoiceModel() {
 export default async function AdminInvoicesPage({ searchParams }: { searchParams: SearchParams }) {
   await requireInvoicesView();
 
-   if (!hasInvoiceModel()) {
+  const invoiceDelegate = (prisma as { invoice?: { findMany?: unknown } }).invoice;
+  const invoiceModelReady = Boolean(invoiceDelegate && typeof invoiceDelegate.findMany === "function");
+
+  if (!invoiceModelReady) {
     return (
       <main style={{ padding: 16 }}>
+        {/* ...existing fallback UI... */}
+
         <div style={{ padding: 16, maxWidth: 1400, margin: "0 auto", color: "var(--foreground)" }}>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <h1 style={{ fontSize: 26, fontWeight: 900, margin: 0 }}>Admin: Invoices</h1>
