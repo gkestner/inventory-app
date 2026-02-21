@@ -77,6 +77,7 @@ type SearchParams = {
   page?: string;
   perPage?: string;
   err?: string;
+  cfg?: string;
 };
 
 function safeReturnToPathFromReferer(referer: string | null): string {
@@ -91,6 +92,11 @@ function safeReturnToPathFromReferer(referer: string | null): string {
 }
 
 type CreateInvoicesResult = Awaited<ReturnType<typeof createInvoicesForWindow>>;
+
+function hasInvoiceModel() {
+  const delegate = (prisma as { invoice?: { findMany?: unknown } }).invoice;
+  return Boolean(delegate && typeof delegate.findMany === "function");
+}
 
 function hasInvoiceModel() {
   const delegate = (prisma as { invoice?: { findMany?: unknown } }).invoice;

@@ -49,6 +49,64 @@ function roundMoney(d: Decimal): Decimal {
   return new Decimal(d.toFixed(2));
 }
 
+const DEFAULT_TAX_FORMULA = "lineSubtotal * (taxRatePct / 100)";
+const ALLOWED_TAX_FORMULA_VARS = new Set(["lineSubtotal", "taxRatePct", "quantity", "unitPrice"]);
+const ALLOWED_TAX_FORMULA_FNS = new Set(["min", "max", "round", "floor", "ceil", "abs"]);
+
+type TaxFormulaContext = {
+  lineSubtotal: Decimal;
+  taxRatePct: Decimal;
+  quantity: number;
+  unitPrice: Decimal;
+};
+
+function evaluateTaxFormula(formulaRaw: string | null | undefined, ctx: TaxFormulaContext): Decimal {
+  const formula = String(formulaRaw || DEFAULT_TAX_FORMULA).trim() || DEFAULT_TAX_FORMULA;
+
+  if (!/^[\w\s+\-*/().,]+$/.test(formula)) {
+    throw new Error(`Tax formula contains unsupported characters: ${formula}`);
+  }
+
+  const tokens = formula.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? [];
+  for (const token of tokens) {
+    if (ALLOWED_TAX_FORMULA_VARS.has(token) || ALLOWED_TAX_FORMULA_FNS.has(token)) continue;
+    throw new Error(`Tax formula contains unsupported identifier: ${token}`);
+  }
+
+  const fn = new Function(
+    "lineSubtotal",
+    "taxRatePct",
+    "quantity",
+    "unitPrice",
+    "min",
+    "max",
+    "round",
+    "floor",
+    "ceil",
+    "abs",
+    `return (${formula});`
+    ) as (...args: any[]) => number;
+
+  const raw = fn(
+    Number(ctx.lineSubtotal),
+    Number(ctx.taxRatePct),
+    ctx.quantity,
+    Number(ctx.unitPrice),
+    Math.min,
+    Math.max,
+    Math.round,
+    Math.floor,
+    Math.ceil,
+    Math.abs
+  );
+
+  if (!Number.isFinite(raw)) {
+    throw new Error(`Tax formula returned a non-finite value: ${formula}`);
+  }
+
+  return roundMoney(new Decimal(raw));
+}
+
 /**
  * createInvoicesForWindow
  * - Manual trigger.
@@ -72,15 +130,16 @@ export async function createInvoicesForWindow(args: CreateInvoicesForWindowArgs)
   // Load vendor config (defaults to 0% if missing)
   const cfg = await prisma.invoiceVendorConfig.findUnique({
     where: { vendor },
-    select: { partsUpchargePct: true, taxRatePct: true },
+    select: { partsUpchargePct: true, taxRatePct: true, taxFormula: true },
   });
 
   // Avoid `any` by converting unknown-ish Prisma field values via toDecimal().
   const partsUpchargePct = cfg?.partsUpchargePct ? toDecimal(cfg.partsUpchargePct) : new Decimal(0);
   const taxRatePct = cfg?.taxRatePct ? toDecimal(cfg.taxRatePct) : new Decimal(0);
+  const taxFormula = String(cfg?.taxFormula || DEFAULT_TAX_FORMULA).trim() || DEFAULT_TAX_FORMULA;
 
   const upchargeMult = pctToMultiplier(partsUpchargePct);
-  const taxMult = taxRatePct.div(new Decimal(100));
+
 
   // Find all candidate tickets in the window that are not yet invoiced, filtered by vendorSnapshot.
   // We use BOTH guards: invoiceId null + invoicedAt null, for safety.
@@ -215,10 +274,15 @@ export async function createInvoicesForWindow(args: CreateInvoicesForWindowArgs)
         const unitPrice = roundMoney(baseUnit.mul(upchargeMult));
 
         const lineSubtotal = roundMoney(unitPrice.mul(new Decimal(qty)));
-
         const taxable = Boolean(t.taxableSnapshot);
-        const lineTax = taxable ? roundMoney(lineSubtotal.mul(taxMult)) : new Decimal(0);
-
+        const lineTax = taxable
+          ? evaluateTaxFormula(taxFormula, {
+              lineSubtotal,
+              taxRatePct,
+              quantity: qty,
+              unitPrice,
+            })
+          : new Decimal(0);
         const lineTotal = lineSubtotal.add(lineTax);
 
         subtotal = subtotal.add(lineSubtotal);

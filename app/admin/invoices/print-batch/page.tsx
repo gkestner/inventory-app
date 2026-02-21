@@ -198,20 +198,24 @@ export default async function PrintInvoiceBatchPage({
           padding: 24px 32px;
           max-width: 1100px;
           margin: 0 auto;
+          min-height: calc(100vh - 1in);
+          display: flex;
+          flex-direction: column;
+          font-size: 22px;
         }
 
         h2 {
           margin: 0;
-          font-size: 18px;
+          font-size: 36px;
         }
 
         .meta {
-          font-size: 12px;
+          font-size: 24px;
           line-height: 1.4;
         }
 
         .store-line {
-          font-size: 24px; /* 2x */
+          font-size: 48px;
           font-weight: 900;
           margin-top: 14px;
           margin-bottom: 10px;
@@ -226,7 +230,7 @@ export default async function PrintInvoiceBatchPage({
         th, td {
           border: 1px solid #000;
           padding: 6px;
-          font-size: 11px;
+          font-size: 22px;
           vertical-align: top;
         }
 
@@ -237,10 +241,12 @@ export default async function PrintInvoiceBatchPage({
         }
 
         .totals {
-          margin-top: 14px;
+          margin-top: auto;
+          margin-left: auto;
           text-align: right;
-          font-size: 12px;
+          font-size: 24px;
           line-height: 1.5;
+          padding-top: 16px;
         }
       `}</style>
 

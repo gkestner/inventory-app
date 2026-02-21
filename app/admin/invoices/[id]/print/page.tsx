@@ -65,6 +65,10 @@ export default async function PrintInvoicePage({
           font-family: Arial, sans-serif;
           max-width: 1100px;
           margin: 0 auto;
+          min-height: calc(100vh - 1in);
+          display: flex;
+          flex-direction: column;
+          font-size: 22px;
         }
 
         table {
@@ -76,7 +80,7 @@ export default async function PrintInvoicePage({
         th, td {
           border: 1px solid #000;
           padding: 6px;
-          font-size: 11px;
+          font-size: 22px;
           vertical-align: top;
         }
 
@@ -87,23 +91,25 @@ export default async function PrintInvoicePage({
         }
 
         .meta {
-          font-size: 12px;
+          font-size: 24px;
           line-height: 1.4;
         }
 
         /* 🔥 Now 2x instead of 3x */
         .store-large {
-          font-size: 24px;   /* ~2x normal size */
+          font-size: 48px;   /* ~2x normal size */
           font-weight: 900;
           margin-top: 14px;
           margin-bottom: 10px;
         }
 
         .totals {
-          margin-top: 14px;
+          margin-top: auto;
+          margin-left: auto;
           text-align: right;
-          font-size: 12px;
+          font-size: 24px;
           line-height: 1.5;
+          padding-top: 16px;
         }
       `}</style>
 
@@ -115,7 +121,7 @@ export default async function PrintInvoicePage({
             alignItems: "baseline",
           }}
         >
-          <h2 style={{ margin: 0, fontSize: 18 }}>
+          <h2 style={{ margin: 0, fontSize: 36 }}>
             {invoice.vendor === "SUCCESS_PLUS"
               ? "Success Plus"
               : "American Plus"}{" "}
