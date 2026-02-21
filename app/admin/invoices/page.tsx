@@ -93,6 +93,71 @@ function safeReturnToPathFromReferer(referer: string | null): string {
 
 type CreateInvoicesResult = Awaited<ReturnType<typeof createInvoicesForWindow>>;
 
+type VendorTaxSettings = {
+  vendor: InvoiceVendor;
+  taxRatePct: unknown;
+  taxFormula: string;
+};
+
+const DEFAULT_TAX_FORMULA = "lineSubtotal * (taxRatePct / 100)";
+
+function isMissingTaxFormulaFieldError(error: unknown): boolean {
+  const message =
+    typeof error === "object" && error !== null && "message" in error && typeof (error as { message?: unknown }).message === "string"
+      ? ((error as { message: string }).message ?? "")
+      : "";
+
+  return message.includes("Unknown field `taxFormula`") || message.includes("taxFormula does not exist");
+}
+
+async function loadVendorTaxSettings(): Promise<VendorTaxSettings[]> {
+  try {
+    const rows = await prisma.invoiceVendorConfig.findMany({
+      select: { vendor: true, taxFormula: true, taxRatePct: true },
+    });
+    return rows.map((r) => ({ vendor: r.vendor, taxRatePct: r.taxRatePct, taxFormula: String(r.taxFormula || DEFAULT_TAX_FORMULA) }));
+  } catch (error) {
+    if (!isMissingTaxFormulaFieldError(error)) throw error;
+
+    const rows = await prisma.invoiceVendorConfig.findMany({
+      select: { vendor: true, taxRatePct: true },
+    });
+    return rows.map((r) => ({ vendor: r.vendor, taxRatePct: r.taxRatePct, taxFormula: DEFAULT_TAX_FORMULA }));
+  }
+}
+
+async function saveVendorTaxSettings(vendor: InvoiceVendor, taxRate: number, formula: string) {
+  try {
+    await prisma.invoiceVendorConfig.upsert({
+      where: { vendor },
+      create: {
+        vendor,
+        partsUpchargePct: 0,
+        taxRatePct: taxRate,
+        taxFormula: formula,
+      },
+      update: {
+        taxRatePct: taxRate,
+        taxFormula: formula,
+      },
+    });
+  } catch (error) {
+    if (!isMissingTaxFormulaFieldError(error)) throw error;
+
+    await prisma.invoiceVendorConfig.upsert({
+      where: { vendor },
+      create: {
+        vendor,
+        partsUpchargePct: 0,
+        taxRatePct: taxRate,
+      },
+      update: {
+        taxRatePct: taxRate,
+      },
+    });
+  }
+}
+
 export default async function AdminInvoicesPage({ searchParams }: { searchParams: SearchParams }) {
   await requireInvoicesView();
 
@@ -223,13 +288,10 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
   const readyTotal = readyByStore.reduce((acc, r) => acc + r._count._all, 0);
 
-  const vendorConfigs = await prisma.invoiceVendorConfig.findMany({
-    select: { vendor: true, taxFormula: true, taxRatePct: true },
-  });
+  const vendorConfigs = await loadVendorTaxSettings();
 
   const taxFormulaByVendor = new Map(vendorConfigs.map((c) => [c.vendor, c.taxFormula]));
   const taxRateByVendor = new Map(vendorConfigs.map((c) => [c.vendor, c.taxRatePct]));
-  const defaultTaxFormula = "lineSubtotal * (taxRatePct / 100)";
 
   const [invoiceTotal, invoices] = await Promise.all([
     prisma.invoice.count(),
@@ -329,18 +391,13 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
       redirect("/admin/invoices?cfg=formula_required");
     }
 
-    await prisma.invoiceVendorConfig.upsert({
-      where: { vendor },
-      create: {
-        vendor,
-        partsUpchargePct: 0,
-        taxRatePct: 0,
-        taxFormula: formula,
-      },
-      update: {
-        taxFormula: formula,
-      },
-    });
+    const taxRateRaw = String(formData.get("taxRatePct") ?? "").trim();
+    const taxRate = Number(taxRateRaw);
+    if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) {
+      redirect("/admin/invoices?cfg=tax_rate_invalid");
+    }
+
+    await saveVendorTaxSettings(vendor, taxRate, formula);
 
     revalidatePath("/admin/invoices");
     redirect("/admin/invoices?cfg=saved");
@@ -424,10 +481,12 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
   const cfgBanner =
     cfg === "saved"
-      ? "Tax formula saved. New invoices will use the updated formula for that vendor."
+      ? "Tax settings saved. New invoices will use the updated settings for that vendor."
       : cfg === "formula_required"
         ? "Tax formula is required."
-        : null;
+        : cfg === "tax_rate_invalid"
+          ? "Tax rate must be a valid number between 0 and 100."
+          : null;
 
   return (
     <main style={{ padding: 16 }}>
@@ -511,16 +570,23 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
               <form key={v} action={updateVendorTaxFormulaAction} style={{ display: "grid", gap: 8, borderTop: border, paddingTop: 10 }}>
                 <input type="hidden" name="vendor" value={v} />
                 <div style={{ fontWeight: 900 }}>{vendorLabel(v)}</div>
-                <div style={{ fontSize: 12, opacity: 0.8 }}>
-                  Current tax rate: <b>{String(taxRateByVendor.get(v) ?? 0)}%</b>
-                </div>
+                <label style={controlLabel}>
+                  Tax rate (%)
+                  <input
+                    name="taxRatePct"
+                    defaultValue={String(taxRateByVendor.get(v) ?? 0)}
+                    style={controlBase}
+                    inputMode="decimal"
+                    placeholder="0"
+                  />
+                </label>
                 <label style={controlLabel}>
                   Tax formula
                   <input
                     name="taxFormula"
-                    defaultValue={String(taxFormulaByVendor.get(v) ?? defaultTaxFormula)}
+                    defaultValue={String(taxFormulaByVendor.get(v) ?? DEFAULT_TAX_FORMULA)}
                     style={controlBase}
-                    placeholder={defaultTaxFormula}
+                    placeholder={DEFAULT_TAX_FORMULA}
                   />
                 </label>
                 <div>
