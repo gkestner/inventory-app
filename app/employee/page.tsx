@@ -2,11 +2,10 @@
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { Permission, Role } from "@prisma/client";
+import { Role } from "@prisma/client";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
-import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -26,15 +25,8 @@ export default async function EmployeeHomePage() {
   // This dashboard is intended for regular employees.
   if (user.role !== Role.EMPLOYEE) redirect("/maintenance");
 
-  const perms = await loadUserPermissions(session);
-
-  const canWorkOrders = hasAnyPermission(perms, [
-    Permission.VIEW_WORK_ORDERS,
-    Permission.CREATE_WORK_ORDERS,
-    Permission.UPDATE_OWN_WORK_ORDERS,
-    Permission.SUBMIT_OWN_WORK_ORDERS,
-  ]);
-  const canTravelLog = hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
+  const canWorkOrders = true;
+  const canTravelLog = true;
 
   const dbUser = await prisma.user.findUnique({
     where: { email },

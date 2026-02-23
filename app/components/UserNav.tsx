@@ -74,15 +74,17 @@ export default async function UserNav() {
     whiteSpace: "nowrap",
   };
 
-  const canWorkOrders = hasAnyPermission(perms, [
-    Permission.VIEW_WORK_ORDERS,
-    Permission.CREATE_WORK_ORDERS,
-    Permission.UPDATE_OWN_WORK_ORDERS,
-    Permission.SUBMIT_OWN_WORK_ORDERS,
-  ]);
+  const canWorkOrders =
+    isEmployee ||
+    hasAnyPermission(perms, [
+      Permission.VIEW_WORK_ORDERS,
+      Permission.CREATE_WORK_ORDERS,
+      Permission.UPDATE_OWN_WORK_ORDERS,
+      Permission.SUBMIT_OWN_WORK_ORDERS,
+    ]);
 
   // Travel Log is derived from Work Orders, so gate it the same way (view permission is sufficient).
-  const canTravelLog = hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
+  const canTravelLog = isEmployee || hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
 
   // Employees should not see Parts Checkout in nav.
   const canCheckout =
