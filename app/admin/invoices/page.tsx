@@ -116,7 +116,6 @@ function isMissingModelError(error: unknown): boolean {
       ? ((error as { message: string }).message ?? "")
       : "";
 
-  // Prisma runtime errors vary by version; keep this broad but safe.
   return (
     message.includes("is not a function") ||
     message.includes("Cannot read properties of undefined") ||
@@ -141,13 +140,12 @@ async function loadVendorTaxSettings(vendorConfigReady: boolean): Promise<Vendor
       select: { vendor: true, taxFormula: true, taxRatePct: true },
     });
 
-    // Ensure both vendors always exist in UI even if DB table is missing one row.
     const byVendor = new Map<InvoiceVendor, VendorTaxSettings>();
     for (const r of rows) {
       byVendor.set(r.vendor, {
         vendor: r.vendor,
         taxRatePct: r.taxRatePct,
-        taxFormula: String(r.taxFormula || DEFAULT_TAX_FORMULA),
+        taxFormula: String((r as any).taxFormula || DEFAULT_TAX_FORMULA),
       });
     }
 
@@ -219,8 +217,6 @@ async function saveVendorTaxSettings(vendorConfigReady: boolean, vendor: Invoice
 export default async function AdminInvoicesPage({ searchParams }: { searchParams?: SearchParams }) {
   await requireInvoicesView();
 
-  // IMPORTANT: searchParams can be undefined on some Next/Vercel paths.
-  // Defaulting prevents runtime crashes like "Cannot read properties of undefined (reading 'vendor')".
   const sp: SearchParams = searchParams ?? {};
 
   const pAny = prisma as any;
@@ -230,7 +226,6 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   const ticketModelReady = typeof pAny.partsCheckoutTicket?.groupBy === "function";
   const vendorConfigReady = typeof pAny.invoiceVendorConfig?.findMany === "function" && typeof pAny.invoiceVendorConfig?.upsert === "function";
 
-  // If core invoice models are missing, do NOT touch invoice tables (avoid crashes).
   if (!invoiceModelReady || !invoiceLineReady) {
     return (
       <main style={{ padding: 16 }}>
@@ -270,7 +265,9 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
               Fix checklist:
               <ul style={{ marginTop: 8, paddingLeft: 18 }}>
                 <li>Run Prisma migrations against Neon (or apply the SQL in Neon).</li>
-                <li>Run: <code>npx prisma generate</code></li>
+                <li>
+                  Run: <code>npx prisma generate</code>
+                </li>
                 <li>Redeploy (or restart) so Vercel picks up the updated Prisma Client.</li>
               </ul>
             </div>
@@ -346,14 +343,14 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   const err = String(sp.err ?? "").trim();
   const cfg = String(sp.cfg ?? "").trim();
 
-  // These can crash if the ticket model/columns aren’t deployed yet.
-  // Guard them so the invoices page still loads.
   let readyByStore: Array<{ storeId: string; storeName: string; _count: { _all: number } }> = [];
   let readyTotal = 0;
 
   if (ticketModelReady) {
     try {
-      readyByStore = await prisma.partsCheckoutTicket.groupBy({
+      // IMPORTANT: this is intentionally `any` to avoid Prisma groupBy type mismatches in builds
+      // when Prisma Client types are out of sync across environments.
+      readyByStore = (await (prisma as any).partsCheckoutTicket.groupBy({
         by: ["storeId", "storeName"],
         where: {
           status: PartsCheckoutStatus.OPEN,
@@ -362,8 +359,8 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
           createdAt: { gte: from, lte: to },
         },
         _count: { _all: true },
-        orderBy: { storeName: "asc" },
-      });
+        orderBy: [{ storeName: "asc" }],
+      })) as Array<{ storeId: string; storeName: string; _count: { _all: number } }>;
 
       readyTotal = readyByStore.reduce((acc, r) => acc + r._count._all, 0);
     } catch (e) {
@@ -664,11 +661,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
           <div style={{ display: "grid", gap: 10 }}>
             {[InvoiceVendor.SUCCESS_PLUS, InvoiceVendor.AMERICAN_PLUS].map((v) => (
-              <form
-                key={v}
-                action={updateVendorTaxFormulaAction}
-                style={{ display: "grid", gap: 8, borderTop: border, paddingTop: 10 }}
-              >
+              <form key={v} action={updateVendorTaxFormulaAction} style={{ display: "grid", gap: 8, borderTop: border, paddingTop: 10 }}>
                 <input type="hidden" name="vendor" value={v} />
                 <div style={{ fontWeight: 900 }}>{vendorLabel(v)}</div>
                 <label style={controlLabel}>
@@ -708,7 +701,6 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
             Ready tickets in window: <b>{readyTotal}</b> • Vendor format: <b>{vendorLabel(vendor)}</b>
           </div>
 
-          {/* Pending generation */}
           <div style={{ marginTop: 10, border, borderRadius: 14, padding: 12, background: surface }}>
             <div style={{ fontWeight: 900, marginBottom: 6 }}>Pending invoice generation (by store)</div>
             <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 8 }}>
@@ -806,7 +798,6 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
           </div>
 
           <form action={hardDeleteSelectedInvoicesAction}>
-            {/* Preserve current listing state so errors return to same view */}
             <input type="hidden" name="vendor" value={vendor} />
             <input type="hidden" name="from" value={fromStr} />
             <input type="hidden" name="to" value={toStr} />
