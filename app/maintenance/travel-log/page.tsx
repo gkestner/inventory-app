@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
-import { Permission } from "@prisma/client";
+import { Permission, Role } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +19,21 @@ function requireSession(session: SessionShape) {
   if (!session) redirect("/login");
   const email = session.user?.email ?? null;
   if (!email) redirect("/login");
+}
+
+async function isEmployeeSession(session: SessionShape): Promise<boolean> {
+  const role = (session?.user as { role?: Role | null } | undefined)?.role ?? null;
+  if (role === Role.EMPLOYEE) return true;
+
+  const email = (session?.user?.email ?? "").toLowerCase().trim();
+  if (!email) return false;
+
+  const me = await prisma.user.findUnique({
+    where: { email },
+    select: { role: true },
+  });
+
+  return me?.role === Role.EMPLOYEE;
 }
 
 function fmtLocalTime(d: Date | null): string {
@@ -143,10 +158,13 @@ export default async function MaintenanceTravelLogPage({
   const session = (await getServerSession(authOptions)) as SessionShape;
   requireSession(session);
 
-  // Permission gate (admin allowAll handled in loadUserPermissions)
-  const perms = await loadUserPermissions(session);
-  if (!perms.allowAll && !hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS])) {
-    redirect("/");
+  // Permission gate (admin allowAll handled in loadUserPermissions).
+  // Employees are always allowed to view their own travel log.
+  if (!(await isEmployeeSession(session))) {
+    const perms = await loadUserPermissions(session);
+    if (!perms.allowAll && !hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS])) {
+      redirect("/");
+    }
   }
 
   const email = (session?.user?.email ?? "").toLowerCase().trim();
@@ -272,299 +290,144 @@ export default async function MaintenanceTravelLogPage({
     fmtISODateNY(lastWeekToUtc)
   )}&locationId=${encodeURIComponent(locationId)}`;
 
-  // ===== Styles (keep current look; no redesign) =====
-  const shell: CSSProperties = { padding: 16, maxWidth: 1200, margin: "0 auto" };
-
-  const sheet: CSSProperties = {
-    border: "1px solid rgba(128,128,128,0.35)",
-    borderRadius: 0,
-    padding: 0,
-    background: "var(--background)",
-    color: "var(--foreground)",
-  };
-
-  const titleBar: CSSProperties = {
-    borderBottom: "1px solid rgba(128,128,128,0.35)",
-    background: "rgba(128,128,128,0.10)",
-    padding: "10px 12px",
-    textAlign: "center",
-    fontWeight: 900,
-    fontSize: 28,
-    letterSpacing: 0.2,
-  };
-
-  const headerBlock: CSSProperties = {
-    padding: "10px 12px 12px 12px",
-    borderBottom: "2px solid rgba(128,128,128,0.6)",
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: 18,
-  };
-
-  const fieldRow: CSSProperties = {
-    display: "flex",
-    alignItems: "flex-end",
-    gap: 10,
-    width: "100%",
-  };
-
-  const fieldLabel: CSSProperties = {
-    fontSize: 13,
-    fontWeight: 900,
-    width: 64,
-    whiteSpace: "nowrap",
-  };
-
-  const fieldLine: CSSProperties = {
-    borderBottom: "1px solid rgba(128,128,128,0.75)",
-    height: 18,
-    flex: 1,
-    minWidth: 40,
-  };
-
-  const fieldValueRow: CSSProperties = {
-    marginTop: 6,
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    fontSize: 12,
-    opacity: 0.92,
-    width: "100%",
-  };
-
-  const fieldValueSpacer: CSSProperties = { width: 64 };
-
-  const filterCard: CSSProperties = {
-    borderTop: "1px solid rgba(128,128,128,0.18)",
-    borderBottom: "1px solid rgba(128,128,128,0.18)",
-    padding: "10px 12px",
-    display: "grid",
-    gap: 10,
-  };
-
-  const label: CSSProperties = { display: "grid", gap: 4, fontSize: 12, opacity: 0.9, fontWeight: 800 };
-  const input: CSSProperties = {
-    padding: "8px 10px",
-    borderRadius: 10,
+  const card: CSSProperties = {
     border: "1px solid rgba(128,128,128,0.25)",
+    borderRadius: 12,
+    padding: 16,
     background: "var(--background)",
     color: "var(--foreground)",
-    outline: "none",
   };
-  const btn: CSSProperties = {
+
+  const buttonLike: CSSProperties = {
+    display: "inline-block",
+    textDecoration: "none",
     padding: "8px 12px",
     borderRadius: 10,
     border: "1px solid rgba(128,128,128,0.25)",
-    background: "var(--background)",
     color: "var(--foreground)",
-    fontWeight: 900,
-    cursor: "pointer",
-    width: 140,
+    fontWeight: 800,
   };
 
-  const tableWrap: CSSProperties = { overflowX: "auto" };
-
-  const th: CSSProperties = {
-    textAlign: "center",
+  const thtd: CSSProperties = {
+    textAlign: "left",
     padding: 8,
-    border: "1px solid rgba(128,128,128,0.55)",
-    fontSize: 12,
-    fontWeight: 900,
-    background: "rgba(128,128,128,0.10)",
+    borderBottom: "1px solid rgba(128,128,128,0.2)",
     whiteSpace: "nowrap",
-  };
-
-  const td: CSSProperties = {
-    padding: 8,
-    border: "1px solid rgba(128,128,128,0.35)",
-    fontSize: 12,
-    verticalAlign: "top",
-    whiteSpace: "nowrap",
-  };
-
-  const tdNotes: CSSProperties = {
-    ...td,
-    whiteSpace: "normal",
-    minWidth: 220,
-    maxWidth: 420,
   };
 
   return (
-    <main>
-      <div style={shell}>
-        <div style={sheet}>
-          <div style={titleBar}>Travel Logs</div>
+    <main style={{ padding: 24, maxWidth: 1200, margin: "0 auto" }}>
+      <h1 style={{ fontSize: 24, fontWeight: 900, marginBottom: 10 }}>Travel Log</h1>
 
-          {/* Name / Date header */}
-          <div style={headerBlock}>
-            {/* Name */}
-            <div style={{ width: "100%" }}>
-              <div style={fieldRow}>
-                <div style={fieldLabel}>Name</div>
-                <div style={fieldLine} />
-              </div>
-              <div style={fieldValueRow}>
-                <div style={fieldValueSpacer} />
-                <div style={{ fontWeight: 900 }}>{me.name}</div>
-              </div>
-            </div>
+      <div style={{ ...card, marginBottom: 12 }}>
+        <form method="get" style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span style={{ fontWeight: 800 }}>From</span>
+            <input type="date" name="from" defaultValue={fromStr} />
+          </label>
 
-            {/* Date */}
-            <div style={{ width: "100%", justifySelf: "end" }}>
-              <div style={{ ...fieldRow, justifyContent: "flex-end" }}>
-                <div style={{ ...fieldLabel, textAlign: "right" }}>Date</div>
-                <div style={fieldLine} />
-              </div>
-              <div style={{ ...fieldValueRow, justifyContent: "flex-end" }}>
-                <div style={fieldValueSpacer} />
-                <div style={{ fontWeight: 900 }}>{rangeLabel}</div>
-              </div>
-            </div>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span style={{ fontWeight: 800 }}>To</span>
+            <input type="date" name="to" defaultValue={toStr} />
+          </label>
+
+          <label style={{ display: "grid", gap: 6 }}>
+            <span style={{ fontWeight: 800 }}>Location</span>
+            <select name="locationId" defaultValue={locationId}>
+              <option value="ALL">All allowed locations</option>
+              {allowedLocations.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                  {l.source === "PRIMARY" ? " (Primary)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
+            <button type="submit" style={{ ...buttonLike, background: "var(--background)", cursor: "pointer" }}>
+              Apply
+            </button>
+            <a href={thisWeekUrl} style={buttonLike}>
+              This Week
+            </a>
+            <a href={lastWeekUrl} style={buttonLike}>
+              Last Week
+            </a>
+            <a href={printUrl} target="_blank" rel="noreferrer" style={buttonLike}>
+              Print
+            </a>
           </div>
+        </form>
 
-          <div style={filterCard}>
-            <form method="get" style={{ display: "grid", gap: 10 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto auto", gap: 10 }}>
-                <label style={label}>
-                  From
-                  <input name="from" type="date" defaultValue={fromStr} style={input} />
-                </label>
+        <div style={{ marginTop: 10, opacity: 0.8 }}>
+          Range: <b>{rangeLabel}</b>
+        </div>
+      </div>
 
-                <label style={label}>
-                  To
-                  <input name="to" type="date" defaultValue={toStr} style={input} />
-                </label>
-
-                <label style={label}>
-                  Location
-                  <select name="locationId" defaultValue={locationId} style={input}>
-                    <option value="ALL">All locations</option>
-                    {allowedLocations.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.name}
-                        {l.source === "PRIMARY" ? " (Primary)" : ""}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <div style={{ display: "flex", alignItems: "end" }}>
-                  <button type="submit" style={btn}>
-                    Apply
-                  </button>
-                </div>
-
-                <div style={{ display: "flex", alignItems: "end" }}>
-                  <a
-                    href={printUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{
-                      ...btn,
-                      textDecoration: "none",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    Print
-                  </a>
-                </div>
-              </div>
-
-              {/* Weekly presets (Mon–Sun) */}
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <a
-                  href={thisWeekUrl}
-                  style={{
-                    ...btn,
-                    width: 160,
-                    textDecoration: "none",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  This Week (Mon–Sun)
-                </a>
-                <a
-                  href={lastWeekUrl}
-                  style={{
-                    ...btn,
-                    width: 160,
-                    textDecoration: "none",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  Last Week (Mon–Sun)
-                </a>
-              </div>
-
-              <div style={{ fontSize: 12, opacity: 0.85 }}>
-                Showing <b>{rows.length}</b> submitted entries. &nbsp; Totals: <b>{fmtFixed2(totalHours)}</b> hours{" "}
-                {milesCounted > 0 ? (
-                  <>
-                    • <b>{totalMiles}</b> miles
-                  </>
-                ) : (
-                  <>• miles: —</>
-                )}
-              </div>
-            </form>
+      <div style={{ ...card, marginBottom: 12 }}>
+        <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ opacity: 0.7, fontSize: 12 }}>Entries</div>
+            <div style={{ fontWeight: 900, fontSize: 20 }}>{rows.length}</div>
           </div>
-
-          <div style={tableWrap}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr>
-                  <th style={th}>Date</th>
-                  <th style={th}>Location</th>
-                  <th style={th}>Departure Mileage</th>
-                  <th style={th}>Arrival Mileage</th>
-                  <th style={th}>Arrival Time</th>
-                  <th style={th}>Departure Time</th>
-                  <th style={th}>Hours</th>
-                  <th style={th}>Notes</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {rows.map((wo) => {
-                  // Semantics: Departure = startTime + startingMileage; Arrival = endTime + endingMileage
-                  const date = wo.startTime ?? wo.createdAt;
-
-                  return (
-                    <tr key={wo.id}>
-                      <td style={td}>{fmtLocalDateOnly(date)}</td>
-                      <td style={td}>{wo.location?.name ?? "—"}</td>
-                      <td style={td}>{wo.startingMileage ?? "—"}</td>
-                      <td style={td}>{wo.endingMileage ?? "—"}</td>
-                      <td style={td}>{fmtLocalTime(wo.endTime)}</td>
-                      <td style={td}>{fmtLocalTime(wo.startTime)}</td>
-                      <td style={td}>{hoursBetween(wo.startTime, wo.endTime)}</td>
-                      <td style={tdNotes}>{wo.notes?.trim() ? wo.notes.trim() : "—"}</td>
-                    </tr>
-                  );
-                })}
-
-                {rows.length === 0 ? (
-                  <tr>
-                    <td style={{ ...td, textAlign: "left" }} colSpan={8}>
-                      No entries in this date range.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
+          <div>
+            <div style={{ opacity: 0.7, fontSize: 12 }}>Total Hours</div>
+            <div style={{ fontWeight: 900, fontSize: 20 }}>{fmtFixed2(totalHours)}</div>
           </div>
-
-          <div style={{ padding: "10px 12px", fontSize: 12, opacity: 0.8 }}>
-            This report is derived from <b>SUBMITTED</b> Work Orders only. Date filtering is based on <b>Departure
-            (Start)</b>.
+          <div>
+            <div style={{ opacity: 0.7, fontSize: 12 }}>Total Miles</div>
+            <div style={{ fontWeight: 900, fontSize: 20 }}>{fmtFixed2(totalMiles)}</div>
+          </div>
+          <div>
+            <div style={{ opacity: 0.7, fontSize: 12 }}>Mileage Entries Counted</div>
+            <div style={{ fontWeight: 900, fontSize: 20 }}>{milesCounted}</div>
           </div>
         </div>
+      </div>
+
+      <div style={{ ...card, overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              {["Date", "Location", "Departure", "Return", "Hours", "Start Mi", "End Mi", "Miles", "Notes"].map((h) => (
+                <th key={h} style={thtd}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const miles =
+                typeof r.startingMileage === "number" && typeof r.endingMileage === "number"
+                  ? Math.max(0, r.endingMileage - r.startingMileage)
+                  : null;
+
+              return (
+                <tr key={r.id}>
+                  <td style={thtd}>{fmtLocalDateOnly(r.startTime)}</td>
+                  <td style={thtd}>{r.location?.name ?? "—"}</td>
+                  <td style={thtd}>{fmtLocalTime(r.startTime)}</td>
+                  <td style={thtd}>{fmtLocalTime(r.endTime)}</td>
+                  <td style={thtd}>{hoursBetween(r.startTime, r.endTime)}</td>
+                  <td style={thtd}>{r.startingMileage ?? "—"}</td>
+                  <td style={thtd}>{r.endingMileage ?? "—"}</td>
+                  <td style={thtd}>{miles ?? "—"}</td>
+                  <td style={{ ...thtd, whiteSpace: "normal", minWidth: 260 }}>{r.notes?.trim() || "—"}</td>
+                </tr>
+              );
+            })}
+
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={9} style={{ ...thtd, opacity: 0.8 }}>
+                  No submitted work orders found for this range/location.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
       </div>
     </main>
   );

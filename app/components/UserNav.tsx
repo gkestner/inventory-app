@@ -6,6 +6,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/lib/auth";
 import { Permission, Role } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import LogoutButton from "@/app/components/LogoutButton";
 
 export const dynamic = "force-dynamic";
 
@@ -122,7 +123,17 @@ export default async function UserNav() {
         </div>
 
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          {/* intentionally minimal; add more links as permission map expands */}
+          <LogoutButton
+            style={{
+              padding: "6px 12px",
+              borderRadius: 10,
+              border: "1px solid rgba(128,128,128,0.25)",
+              background: "var(--background)",
+              color: "var(--foreground)",
+              fontWeight: 800,
+              cursor: "pointer",
+            }}
+          />
         </div>
       </div>
     </div>

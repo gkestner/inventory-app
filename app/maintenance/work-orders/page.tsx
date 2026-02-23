@@ -23,8 +23,25 @@ function requireSession(session: SessionShape) {
   if (!email) redirect("/login");
 }
 
+async function isEmployeeSession(session: SessionShape): Promise<boolean> {
+  const role = (session?.user as { role?: Role | null } | undefined)?.role ?? null;
+  if (role === Role.EMPLOYEE) return true;
+
+  const email = (session?.user?.email ?? "").toLowerCase().trim();
+  if (!email) return false;
+
+  const me = await prisma.user.findUnique({
+    where: { email },
+    select: { role: true },
+  });
+
+  return me?.role === Role.EMPLOYEE;
+}
+
 async function requireWorkOrdersView(session: SessionShape) {
   requireSession(session);
+
+  if (await isEmployeeSession(session)) return;
 
   const perms = await loadUserPermissions(session);
   if (perms.allowAll) return;
@@ -36,6 +53,8 @@ async function requireWorkOrdersView(session: SessionShape) {
 async function requireWorkOrdersCreate(session: SessionShape) {
   requireSession(session);
 
+  if (await isEmployeeSession(session)) return;
+
   const perms = await loadUserPermissions(session);
   if (perms.allowAll) return;
 
@@ -45,6 +64,8 @@ async function requireWorkOrdersCreate(session: SessionShape) {
 
 async function requireWorkOrdersSubmitOwn(session: SessionShape) {
   requireSession(session);
+
+  if (await isEmployeeSession(session)) return;
 
   const perms = await loadUserPermissions(session);
   if (perms.allowAll) return;
@@ -453,17 +474,23 @@ export default async function MaintenanceWorkOrdersPage() {
       // Ensure it still belongs to this user and is still open
       const wo = await tx.workOrder.findUnique({
         where: { id },
-        select: { id: true, createdByUserId: true, status: true, endTime: true },
+        select: { id: true, createdByUserId: true, status: true, endTime: true, startTime: true, startingMileage: true },
       });
-      if (!wo || wo.createdByUserId !== me.id) throw new Error("Work order not found.");
-      if (wo.status !== "DRAFT" || wo.endTime !== null) throw new Error("Work order is already ended.");
+
+      if (!wo) throw new Error("Work order not found");
+      if (wo.createdByUserId !== me.id) throw new Error("Not allowed");
+      if (wo.status !== "DRAFT" || wo.endTime) throw new Error("Work order is not in progress");
+
+      if (typeof wo.startingMileage === "number" && endingMileage < wo.startingMileage) {
+        throw new Error("Ending mileage cannot be less than starting mileage.");
+      }
 
       await tx.workOrder.update({
         where: { id },
         data: {
-          endTime: new Date(),
-          endingMileage,
           notes,
+          endingMileage,
+          endTime: new Date(), // End sets endTime
           status: "SUBMITTED", // End auto-submits
         },
       });
@@ -614,36 +641,30 @@ export default async function MaintenanceWorkOrdersPage() {
                 </div>
 
                 <button type="submit" style={{ ...btnEndTime, width: 340 }}>
-                  End (sets End Time + Submits)
+                  End (sets End Time + Submit)
                 </button>
-
-                <div style={{ fontSize: 14, opacity: 0.85 }}>
-                  This will set <b>end time</b>, save mileage/notes/areas, mark the work order <b>SUBMITTED</b>, and
-                  return you to the Start screen.
-                </div>
               </form>
             </>
           )}
         </div>
 
-        {/* LIST */}
+        {/* BOTTOM CARD: Recent list */}
         <div style={{ ...card, ...pageWidth, marginTop: 14 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>My Recent Work Orders</h2>
+          <h2 style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>Recent Work Orders</h2>
 
-          <div style={{ overflowX: "auto", marginTop: 12 }}>
+          <div style={{ marginTop: 12, overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 15 }}>
               <thead>
                 <tr>
-                  {["Created", "Status", "Location", "Start/End", "Mileage", "Areas"].map((h) => (
+                  {["When", "Location", "Status", "Areas", "Start", "End", "Mileage"].map((h) => (
                     <th
                       key={h}
                       style={{
                         textAlign: "left",
-                        padding: "10px 10px",
+                        padding: "10px 8px",
                         borderBottom: "1px solid rgba(128,128,128,0.25)",
                         fontSize: 13,
-                        opacity: 0.9,
-                        whiteSpace: "nowrap",
+                        opacity: 0.85,
                       }}
                     >
                       {h}
@@ -651,48 +672,37 @@ export default async function MaintenanceWorkOrdersPage() {
                   ))}
                 </tr>
               </thead>
-
               <tbody>
-                {workOrders.map((wo) => {
-                  const areas = wo.equipmentAreas?.length
-                    ? wo.equipmentAreas.map((a) => formatAreaLabelWithLegacy(a.area as EquipmentAreaDb)).join(", ")
-                    : "—";
+                {workOrders.map((w) => {
+                  const mileageText =
+                    typeof w.startingMileage === "number" || typeof w.endingMileage === "number"
+                      ? `${w.startingMileage ?? "—"} → ${w.endingMileage ?? "—"}`
+                      : "—";
 
-                  const hasLegacy = wo.equipmentAreas?.some((a) => isLegacyArea(a.area as EquipmentAreaDb)) ?? false;
+                  const areas = (w.equipmentAreas ?? []).map((a) => String(a.area) as EquipmentAreaDb);
 
                   return (
-                    <tr key={wo.id}>
-                      <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)" }}>
-                        <div style={{ fontWeight: 900 }}>{fmtLocal(wo.createdAt)}</div>
-                        <div style={{ fontSize: 13, opacity: 0.85 }}>id: {wo.id}</div>
+                    <tr key={w.id}>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid rgba(128,128,128,0.15)" }}>
+                        {fmtLocal(w.createdAt)}
                       </td>
-
-                      <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)" }}>
-                        <span style={{ fontWeight: 900 }}>{statusLabel(wo.status as WorkOrderStatus)}</span>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid rgba(128,128,128,0.15)" }}>
+                        {w.location?.name ?? "—"}
                       </td>
-
-                      <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)" }}>
-                        {wo.location?.name ?? "—"}
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid rgba(128,128,128,0.15)", fontWeight: 900 }}>
+                        {statusLabel(w.status as WorkOrderStatus)}
                       </td>
-
-                      <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)" }}>
-                        {fmtLocal(wo.startTime)} → {fmtLocal(wo.endTime)}
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid rgba(128,128,128,0.15)" }}>
+                        {areas.length ? areas.map(formatAreaLabelWithLegacy).join(", ") : "—"}
                       </td>
-
-                      <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)" }}>
-                        <span style={{ fontWeight: 900 }}>{wo.startingMileage ?? "—"}</span> →{" "}
-                        <span style={{ fontWeight: 900 }}>{wo.endingMileage ?? "—"}</span>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid rgba(128,128,128,0.15)" }}>
+                        {fmtLocal(w.startTime)}
                       </td>
-
-                      <td
-                        style={{
-                          padding: "12px 10px",
-                          borderBottom: "1px solid rgba(128,128,128,0.18)",
-                          maxWidth: 560,
-                        }}
-                      >
-                        {areas}
-                        {hasLegacy ? <div style={{ fontSize: 13, opacity: 0.85 }}>(contains legacy values)</div> : null}
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid rgba(128,128,128,0.15)" }}>
+                        {fmtLocal(w.endTime)}
+                      </td>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid rgba(128,128,128,0.15)" }}>
+                        {mileageText}
                       </td>
                     </tr>
                   );
@@ -700,17 +710,20 @@ export default async function MaintenanceWorkOrdersPage() {
 
                 {workOrders.length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ padding: 14, opacity: 0.85 }}>
+                    <td
+                      colSpan={7}
+                      style={{
+                        padding: 12,
+                        borderBottom: "1px solid rgba(128,128,128,0.15)",
+                        opacity: 0.8,
+                      }}
+                    >
                       No work orders yet.
                     </td>
                   </tr>
                 ) : null}
               </tbody>
             </table>
-          </div>
-
-          <div style={{ marginTop: 12, fontSize: 14, opacity: 0.85 }}>
-            This page uses a simple Start → End flow (no separate Submit screen).
           </div>
         </div>
       </div>
