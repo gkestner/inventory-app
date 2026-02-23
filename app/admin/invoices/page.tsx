@@ -114,7 +114,6 @@ function getErrorMessage(error: unknown): string {
 }
 
 function getPrismaErrorCode(error: unknown): string | null {
-  // PrismaClientKnownRequestError has "code"
   if (error && typeof error === "object" && "code" in error && typeof (error as any).code === "string") {
     return String((error as any).code);
   }
@@ -128,14 +127,9 @@ function isMissingTaxFormulaFieldError(error: unknown): boolean {
 
 function isSchemaOrDbNotReadyError(error: unknown): boolean {
   const code = getPrismaErrorCode(error);
-  // Common “schema not applied” / missing table/column codes:
-  // P2021: table does not exist
-  // P2022: column does not exist
-  // P2003: foreign key constraint (can happen on deletes; not a “not ready” signal)
   if (code === "P2021" || code === "P2022") return true;
 
   const msg = getErrorMessage(error).toLowerCase();
-
   return (
     msg.includes("does not exist") ||
     msg.includes("unknown column") ||
@@ -177,7 +171,6 @@ async function loadVendorTaxSettings(vendorConfigReady: boolean): Promise<Vendor
 
     return [byVendor.get(InvoiceVendor.SUCCESS_PLUS)!, byVendor.get(InvoiceVendor.AMERICAN_PLUS)!];
   } catch (error) {
-    // If config table exists but taxFormula column doesn't, fall back to defaults.
     if (isMissingTaxFormulaFieldError(error)) {
       const rows = await prisma.invoiceVendorConfig.findMany({
         select: { vendor: true, taxRatePct: true },
@@ -368,7 +361,6 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   const err = String(sp.err ?? "").trim();
   const cfg = String(sp.cfg ?? "").trim();
 
-  // ===== Load “ready tickets” summary (optional; never crash page) =====
   let readyByStore: Array<{ storeId: string; storeName: string; _count: { _all: number } }> = [];
   let readyTotal = 0;
 
@@ -388,14 +380,12 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
       readyTotal = readyByStore.reduce((acc, r) => acc + r._count._all, 0);
     } catch (e) {
-      // ignore if not ready in DB yet
       if (!isSchemaOrDbNotReadyError(e)) throw e;
       readyByStore = [];
       readyTotal = 0;
     }
   }
 
-  // ===== Load vendor tax settings (optional; never crash page) =====
   let vendorConfigs: VendorTaxSettings[] = [
     { vendor: InvoiceVendor.SUCCESS_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA },
     { vendor: InvoiceVendor.AMERICAN_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA },
@@ -405,13 +395,11 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     vendorConfigs = await loadVendorTaxSettings(vendorConfigReady);
   } catch (e) {
     if (!isSchemaOrDbNotReadyError(e)) throw e;
-    // keep defaults
   }
 
   const taxFormulaByVendor = new Map(vendorConfigs.map((c) => [c.vendor, c.taxFormula]));
   const taxRateByVendor = new Map(vendorConfigs.map((c) => [c.vendor, c.taxRatePct]));
 
-  // ===== Load invoices list (REQUIRED). If DB not ready, show NotReady instead of crashing. =====
   let invoiceTotal = 0;
   let invoices: Array<{
     id: string;
@@ -647,6 +635,16 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
             ? "Vendor tax settings are not available yet on this deployment (missing invoiceVendorConfig)."
             : null;
 
+  const detailsSummaryStyle: CSSProperties = {
+    cursor: "pointer",
+    fontWeight: 900,
+    padding: "10px 12px",
+    borderRadius: 12,
+    border,
+    background: surface,
+    userSelect: "none",
+  };
+
   return (
     <main style={{ padding: 16 }}>
       <div style={{ padding: 16, maxWidth: 1400, margin: "0 auto", color: fg }}>
@@ -717,6 +715,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
           </div>
         ) : null}
 
+        {/* Vendor tax formulas (collapsed per vendor) */}
         <div style={{ marginTop: 12, border, borderRadius: 14, background: surface, padding: 12 }}>
           <div style={{ fontWeight: 900, marginBottom: 6 }}>Vendor tax formulas</div>
           <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 10 }}>
@@ -726,46 +725,61 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
           {!vendorConfigReady ? (
             <div style={{ fontSize: 12, opacity: 0.85, borderTop: border, paddingTop: 10 }}>
-              Vendor config table not available on this deployment yet. Formulas are shown with defaults but saving is disabled.
+              Vendor config table not available on this deployment yet. Defaults are shown; saving is disabled.
             </div>
           ) : null}
 
           <div style={{ display: "grid", gap: 10 }}>
             {[InvoiceVendor.SUCCESS_PLUS, InvoiceVendor.AMERICAN_PLUS].map((v) => (
-              <form key={v} action={updateVendorTaxFormulaAction} style={{ display: "grid", gap: 8, borderTop: border, paddingTop: 10 }}>
-                <input type="hidden" name="vendor" value={v} />
-                <div style={{ fontWeight: 900 }}>{vendorLabel(v)}</div>
-                <label style={controlLabel}>
-                  Tax rate (%)
-                  <input
-                    name="taxRatePct"
-                    defaultValue={String(taxRateByVendor.get(v) ?? 0)}
-                    style={controlBase}
-                    inputMode="decimal"
-                    placeholder="0"
-                    disabled={!vendorConfigReady}
-                  />
-                </label>
-                <label style={controlLabel}>
-                  Tax formula
-                  <input
-                    name="taxFormula"
-                    defaultValue={String(taxFormulaByVendor.get(v) ?? DEFAULT_TAX_FORMULA)}
-                    style={controlBase}
-                    placeholder={DEFAULT_TAX_FORMULA}
-                    disabled={!vendorConfigReady}
-                  />
-                </label>
-                <div>
-                  <button type="submit" style={btnPrimary} disabled={!vendorConfigReady}>
-                    Save formula
-                  </button>
-                </div>
-              </form>
+              <details
+                key={v}
+                style={{
+                  borderTop: border,
+                  paddingTop: 10,
+                }}
+              >
+                <summary style={detailsSummaryStyle}>
+                  {vendorLabel(v)} — click to edit
+                </summary>
+
+                <form action={updateVendorTaxFormulaAction} style={{ display: "grid", gap: 8, marginTop: 10 }}>
+                  <input type="hidden" name="vendor" value={v} />
+
+                  <label style={controlLabel}>
+                    Tax rate (%)
+                    <input
+                      name="taxRatePct"
+                      defaultValue={String(taxRateByVendor.get(v) ?? 0)}
+                      style={controlBase}
+                      inputMode="decimal"
+                      placeholder="0"
+                      disabled={!vendorConfigReady}
+                    />
+                  </label>
+
+                  <label style={controlLabel}>
+                    Tax formula
+                    <input
+                      name="taxFormula"
+                      defaultValue={String(taxFormulaByVendor.get(v) ?? DEFAULT_TAX_FORMULA)}
+                      style={controlBase}
+                      placeholder={DEFAULT_TAX_FORMULA}
+                      disabled={!vendorConfigReady}
+                    />
+                  </label>
+
+                  <div>
+                    <button type="submit" style={btnPrimary} disabled={!vendorConfigReady}>
+                      Save
+                    </button>
+                  </div>
+                </form>
+              </details>
             ))}
           </div>
         </div>
 
+        {/* Generate invoices */}
         <div style={{ marginTop: 12, border, borderRadius: 14, background: surface, padding: 12 }}>
           <div style={{ fontWeight: 900, marginBottom: 6 }}>Generate invoices</div>
           <div style={{ fontSize: 12, opacity: 0.8 }}>
@@ -860,18 +874,14 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
           </div>
         </div>
 
+        {/* Recent invoices */}
         <div style={{ marginTop: 12, border, borderRadius: 14, background: surface, padding: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "baseline" }}>
             <div style={{ fontWeight: 900 }}>Recent invoices</div>
             <div style={{ fontSize: 12, opacity: 0.8 }}>
-              Showing <b>{invoices.length}</b> of <b>{invoiceTotal}</b> • Page <b>{page}</b> /{" "}
-              <b>{Math.max(1, Math.ceil(invoiceTotal / perPage))}</b>
+              Showing <b>{invoices.length}</b> of <b>{invoiceTotal}</b> • Page <b>{page}</b> / <b>{pageCount}</b>
             </div>
           </div>
-
-          <form action={async (fd) => { "use server"; await (async () => {})(); }}>
-            {/* noop placeholder - kept structure stable */}
-          </form>
 
           <form action={hardDeleteSelectedInvoicesAction}>
             <input type="hidden" name="vendor" value={vendor} />
@@ -1027,7 +1037,11 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
               <label style={{ ...controlLabel, margin: 0, minWidth: 140 }}>
                 Per page
-                <select name="perPage" defaultValue={String(perPage)} style={{ ...controlBase, padding: "8px 10px", borderRadius: 10, fontSize: 13 }}>
+                <select
+                  name="perPage"
+                  defaultValue={String(perPage)}
+                  style={{ ...controlBase, padding: "8px 10px", borderRadius: 10, fontSize: 13 }}
+                >
                   {[10, 25, 50].map((n) => (
                     <option key={n} value={String(n)}>
                       {n}
