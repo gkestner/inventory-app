@@ -30,12 +30,24 @@ async function requireAdmin(): Promise<AppSession> {
   const session = (await getServerSession(authOptions)) as AppSession;
   if (!session) redirect("/login");
 
-  const role = session.user?.role ?? null;
-  const isAdmin = role === Role.ADMIN;
-  if (!isAdmin) redirect("/");
+  const sessionRole = session.user?.role ?? null;
+  const email = (session.user?.email ?? "").trim().toLowerCase();
+
+  const dbRole = email
+    ? (
+        await prisma.user.findUnique({
+          where: { email },
+          select: { role: true },
+        })
+      )?.role ?? null
+    : null;
+
+  const effectiveRole = sessionRole ?? dbRole;
+  if (effectiveRole !== Role.ADMIN) redirect("/");
 
   return session;
 }
+
 
 function norm(v: string | undefined) {
   return (v ?? "").trim();
