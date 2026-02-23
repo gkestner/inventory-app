@@ -4,10 +4,14 @@ import type { Session } from "next-auth";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../../../../lib/auth";
 import { prisma } from "../../../../lib/prisma";
-import { Prisma, Role, InvoiceVendor } from "@prisma/client";
+import { Prisma, Role } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 
 export const dynamic = "force-dynamic";
+
+const V_SUCCESS = "SUCCESS_PLUS" as const;
+const V_AMERICAN = "AMERICAN_PLUS" as const;
+type ItemVendor = typeof V_SUCCESS | typeof V_AMERICAN;
 
 function json(body: unknown, status: number) {
   return new Response(JSON.stringify(body), {
@@ -68,11 +72,11 @@ function parseBoolStrict(input: unknown): boolean | null {
   return null;
 }
 
-function parseVendorStrict(input: unknown): InvoiceVendor | null {
+function parseVendorStrict(input: unknown): ItemVendor | null {
   if (input === null || input === undefined) return null;
   const s = String(input).trim().toUpperCase();
-  if (s === InvoiceVendor.SUCCESS_PLUS) return InvoiceVendor.SUCCESS_PLUS;
-  if (s === InvoiceVendor.AMERICAN_PLUS) return InvoiceVendor.AMERICAN_PLUS;
+  if (s === V_SUCCESS) return V_SUCCESS;
+  if (s === V_AMERICAN) return V_AMERICAN;
   return null;
 }
 
@@ -103,19 +107,13 @@ function getErrorMessage(error: unknown): string {
   }
 }
 
-function getPrismaErrorCode(error: unknown): string | null {
-  if (error && typeof error === "object" && "code" in error && typeof (error as any).code === "string") {
-    return String((error as any).code);
-  }
-  return null;
-}
-
 function isMissingCostPlusFormulaFieldError(error: unknown): boolean {
   const msg = getErrorMessage(error);
+  const lower = msg.toLowerCase();
   return (
     msg.includes("Unknown argument `costPlusFormula`") ||
     msg.includes("Unknown field `costPlusFormula`") ||
-    msg.toLowerCase().includes("costplusformula") && (msg.toLowerCase().includes("does not exist") || msg.toLowerCase().includes("unknown column"))
+    (lower.includes("costplusformula") && (lower.includes("does not exist") || lower.includes("unknown column")))
   );
 }
 
@@ -389,11 +387,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     data.partNumber = body.partNumber ? String(body.partNumber).trim() : null;
   }
 
-  // ✅ vendor support
   if (body.vendor !== undefined) {
     const v = parseVendorStrict(body.vendor);
     if (v === null) return json({ error: "Invalid vendor." }, 400);
-    data.vendor = v;
+    // Prisma will accept enum-as-string if your schema vendor is an enum with same labels.
+    (data as any).vendor = v;
   }
 
   if (body.name !== undefined) {
@@ -409,8 +407,6 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (body.category !== undefined) {
     data.category = body.category ? String(body.category).trim() : null;
   }
-
-  // ✅ UOM removed: do NOT accept/update `unit`
 
   if (body.manufacturer !== undefined) {
     data.manufacturer = parseNullableTrimmedString(body.manufacturer);
@@ -431,9 +427,12 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     }
   }
 
-  // Capture a candidate formula (trimmed). We'll try to persist it if schema supports it.
   const requestedCostPlusFormula =
-    body.costPlusFormula !== undefined ? (typeof body.costPlusFormula === "string" ? body.costPlusFormula.trim() : String(body.costPlusFormula ?? "").trim()) : undefined;
+    body.costPlusFormula !== undefined
+      ? (typeof body.costPlusFormula === "string"
+          ? body.costPlusFormula.trim()
+          : String(body.costPlusFormula ?? "").trim())
+      : undefined;
 
   if (body.cost !== undefined) {
     if (body.cost === null) data.cost = null;
@@ -465,10 +464,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     data.active = b;
   }
 
-  // We only allow cost-plus computation for these vendors.
-  // We'll compute in-transaction using current + incoming values.
-  const wantCostPlus =
-    requestedCostPlusFormula !== undefined && requestedCostPlusFormula.length > 0;
+  const wantCostPlus = requestedCostPlusFormula !== undefined && requestedCostPlusFormula.length > 0;
 
   if (Object.keys(data).length === 0 && requestedCostPlusFormula === undefined) {
     return json({ error: "No fields to update." }, 400);
@@ -502,43 +498,28 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
           createdAt: true,
           updatedAt: true,
-
-          // NOTE: costPlusFormula may not exist yet in schema; we never select it here.
         } as any,
       });
 
       if (!current) return null;
 
-      // Determine effective vendor/cost for cost-plus calculation
-      const effectiveVendor =
-        (data.vendor as InvoiceVendor | undefined) ?? (current.vendor as InvoiceVendor);
+      const effectiveVendor = ((data as any).vendor ?? (current as any).vendor) as string;
 
-      // If request wants to set formula, attempt to store it (if column exists)
       const dataAny: any = { ...data };
 
       if (requestedCostPlusFormula !== undefined) {
-        // allow clearing by sending empty string
         dataAny.costPlusFormula = requestedCostPlusFormula.length ? requestedCostPlusFormula : null;
       }
 
-      // If formula provided and vendor is eligible, compute price from formula + cost.
-      if (
-        wantCostPlus &&
-        (effectiveVendor === InvoiceVendor.SUCCESS_PLUS || effectiveVendor === InvoiceVendor.AMERICAN_PLUS)
-      ) {
-        const effectiveCostDecimal =
-          (data.cost as any) !== undefined ? (data.cost as any) : (current.cost as any);
-
+      if (wantCostPlus && (effectiveVendor === V_SUCCESS || effectiveVendor === V_AMERICAN)) {
+        const effectiveCostDecimal = (data as any).cost !== undefined ? (data as any).cost : (current as any).cost;
         const costNum = toNumberMaybeDecimal(effectiveCostDecimal);
 
         if (costNum === null) {
-          // If cost is missing, we can't compute. Treat as validation error.
           throw new Error("Cost-plus formula provided but cost is empty/invalid.");
         }
 
         const computed = evaluateCostPlusFormula(requestedCostPlusFormula!, costNum);
-
-        // Computed price wins when formula is supplied (this is the point of cost-plus).
         dataAny.price = new Decimal(String(computed));
       }
 
@@ -548,7 +529,6 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       });
       const nextVersion = (agg._max.version ?? 0) + 1;
 
-      // snapshot (pre-mutation)
       await tx.itemVersion.create({
         data: {
           itemId: id,
@@ -556,7 +536,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
           sku: current.sku,
           partNumber: current.partNumber,
-          vendor: current.vendor,
+          vendor: (current as any).vendor,
           name: current.name,
           description: current.description,
           category: current.category,
@@ -576,7 +556,6 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
         },
       });
 
-      // Attempt update WITH costPlusFormula (if present). If schema doesn't support it, retry without it.
       try {
         const u = await (tx.item as any).update({
           where: { id },
@@ -601,7 +580,6 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
             createdAt: true,
             updatedAt: true,
 
-            // Select costPlusFormula if schema supports it; if not, Prisma will throw and we retry below.
             costPlusFormula: true,
           },
         });
@@ -610,7 +588,6 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       } catch (e) {
         if (!isMissingCostPlusFormulaFieldError(e)) throw e;
 
-        // Retry without costPlusFormula fields (but keep computed price if we set it)
         const retryData: any = { ...dataAny };
         delete retryData.costPlusFormula;
 
@@ -639,7 +616,6 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
           },
         });
 
-        // Return without costPlusFormula field
         return u;
       }
     });
@@ -651,7 +627,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
         id: updated.id,
         sku: updated.sku,
         partNumber: updated.partNumber,
-        vendor: updated.vendor,
+        vendor: (updated as any).vendor ?? null,
         name: updated.name,
         description: updated.description,
         category: updated.category,
@@ -664,7 +640,6 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
         orderFrom: updated.orderFrom,
         webUrl: updated.webUrl,
 
-        // Only present if schema supports it AND Prisma select succeeded above
         costPlusFormula: (updated as any).costPlusFormula ?? null,
 
         createdAt: updated.createdAt.toISOString(),
@@ -677,7 +652,6 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       return json({ error: "SKU already exists." }, 409);
     }
 
-    // If we threw our own validation error (cost-plus / formula parsing), return 400 with message
     if (e instanceof Error && e.message) {
       const msg = e.message.trim();
       if (msg.toLowerCase().includes("cost-plus") || msg.toLowerCase().includes("formula")) {

@@ -3,11 +3,234 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 
+type Vendor = "SUCCESS_PLUS" | "AMERICAN_PLUS";
+function isCostPlusVendor(v: unknown): v is Vendor {
+  return v === "SUCCESS_PLUS" || v === "AMERICAN_PLUS";
+}
+
+// ✅ Safe client-side formula evaluator (matches server rules: numbers, + - * /, parentheses, "cost")
+type Tok =
+  | { t: "num"; v: number }
+  | { t: "var" }
+  | { t: "op"; v: "+" | "-" | "*" | "/" }
+  | { t: "lp" }
+  | { t: "rp" };
+
+function isDigit(ch: string) {
+  return ch >= "0" && ch <= "9";
+}
+
+function tokenizeFormula(input: string): Tok[] {
+  const s = String(input ?? "").trim();
+  if (!s) throw new Error("Formula is empty.");
+
+  const out: Tok[] = [];
+  let i = 0;
+
+  while (i < s.length) {
+    const c = s[i];
+
+    if (c === " " || c === "\t" || c === "\n" || c === "\r") {
+      i++;
+      continue;
+    }
+
+    if (c === "(") {
+      out.push({ t: "lp" });
+      i++;
+      continue;
+    }
+    if (c === ")") {
+      out.push({ t: "rp" });
+      i++;
+      continue;
+    }
+
+    if (c === "+" || c === "-" || c === "*" || c === "/") {
+      out.push({ t: "op", v: c });
+      i++;
+      continue;
+    }
+
+    if (isDigit(c) || c === ".") {
+      let j = i;
+      let seenDot = false;
+
+      if (s[j] === ".") {
+        seenDot = true;
+        j++;
+        if (j >= s.length || !isDigit(s[j])) throw new Error(`Invalid number near "." at position ${i + 1}.`);
+      }
+
+      while (j < s.length) {
+        const ch = s[j];
+        if (isDigit(ch)) {
+          j++;
+          continue;
+        }
+        if (ch === ".") {
+          if (seenDot) break;
+          seenDot = true;
+          j++;
+          continue;
+        }
+        break;
+      }
+
+      const raw = s.slice(i, j);
+      const n = Number(raw);
+      if (!Number.isFinite(n)) throw new Error(`Invalid number: ${raw}`);
+      out.push({ t: "num", v: n });
+      i = j;
+      continue;
+    }
+
+    if (/[a-zA-Z]/.test(c)) {
+      let j = i;
+      while (j < s.length && /[a-zA-Z]/.test(s[j])) j++;
+      const raw = s.slice(i, j).toLowerCase();
+      if (raw !== "cost") throw new Error(`Unknown identifier "${raw}". Only "cost" is allowed.`);
+      out.push({ t: "var" });
+      i = j;
+      continue;
+    }
+
+    throw new Error(`Invalid character "${c}".`);
+  }
+
+  return out;
+}
+
+function normalizeUnary(tokens: Tok[]): Tok[] {
+  const out: Tok[] = [];
+  for (const tok of tokens) {
+    if (tok.t === "op" && tok.v === "-") {
+      const prev = out[out.length - 1];
+      const isUnary = !prev || prev.t === "op" || prev.t === "lp";
+      if (isUnary) {
+        out.push({ t: "num", v: 0 });
+        out.push({ t: "op", v: "-" });
+        continue;
+      }
+    }
+    out.push(tok);
+  }
+  return out;
+}
+
+function prec(op: "+" | "-" | "*" | "/") {
+  return op === "*" || op === "/" ? 2 : 1;
+}
+
+function toRpn(tokens: Tok[]): Tok[] {
+  const out: Tok[] = [];
+  const stack: Tok[] = [];
+
+  for (const tok of tokens) {
+    if (tok.t === "num" || tok.t === "var") {
+      out.push(tok);
+      continue;
+    }
+
+    if (tok.t === "op") {
+      while (stack.length) {
+        const top = stack[stack.length - 1];
+        if (top.t === "op" && prec(top.v) >= prec(tok.v)) out.push(stack.pop()!);
+        else break;
+      }
+      stack.push(tok);
+      continue;
+    }
+
+    if (tok.t === "lp") {
+      stack.push(tok);
+      continue;
+    }
+
+    if (tok.t === "rp") {
+      let matched = false;
+      while (stack.length) {
+        const top = stack.pop()!;
+        if (top.t === "lp") {
+          matched = true;
+          break;
+        }
+        out.push(top);
+      }
+      if (!matched) throw new Error("Mismatched parentheses.");
+      continue;
+    }
+  }
+
+  while (stack.length) {
+    const top = stack.pop()!;
+    if (top.t === "lp" || top.t === "rp") throw new Error("Mismatched parentheses.");
+    out.push(top);
+  }
+
+  return out;
+}
+
+function evalRpn(rpn: Tok[], cost: number): number {
+  const st: number[] = [];
+
+  for (const tok of rpn) {
+    if (tok.t === "num") {
+      st.push(tok.v);
+      continue;
+    }
+    if (tok.t === "var") {
+      st.push(cost);
+      continue;
+    }
+    if (tok.t === "op") {
+      const b = st.pop();
+      const a = st.pop();
+      if (a === undefined || b === undefined) throw new Error("Invalid formula.");
+
+      let r = 0;
+      if (tok.v === "+") r = a + b;
+      else if (tok.v === "-") r = a - b;
+      else if (tok.v === "*") r = a * b;
+      else {
+        if (b === 0) throw new Error("Division by zero.");
+        r = a / b;
+      }
+
+      if (!Number.isFinite(r)) throw new Error("Formula result is not finite.");
+      st.push(r);
+      continue;
+    }
+
+    throw new Error("Invalid token.");
+  }
+
+  if (st.length !== 1) throw new Error("Invalid formula.");
+  return st[0];
+}
+
+function evaluateCostPlusFormula(formula: string, cost: number): number {
+  if (!Number.isFinite(cost) || cost < 0) throw new Error("Cost must be a valid non-negative number.");
+  const tokens = normalizeUnary(tokenizeFormula(formula));
+  const rpn = toRpn(tokens);
+  const result = evalRpn(rpn, cost);
+  return Number(result.toFixed(4));
+}
+
+function parseMoneyToNumber(s: string): number | null {
+  const v = (s || "").trim();
+  if (!v) return null;
+  const cleaned = v.replace(/\$/g, "").replace(/,/g, "").trim();
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+
 type ItemRow = {
   id: string;
   sku: string;
   partNumber: string | null;
-  vendor?: "SUCCESS_PLUS" | "AMERICAN_PLUS" | null;
+  vendor?: Vendor | null;
   name: string;
   description: string | null;
   category: string | null;
@@ -18,6 +241,9 @@ type ItemRow = {
   active: boolean;
   createdAt: string; // ISO
   updatedAt: string; // ISO
+
+  // ✅ NEW (optional, server may or may not return it)
+  costPlusFormula?: string | null;
 
   // qty fields (included by page.tsx)
   onHandQty?: number;
@@ -34,7 +260,7 @@ type ItemRow = {
 type Draft = {
   sku: string;
   partNumber: string;
-  vendor: "SUCCESS_PLUS" | "AMERICAN_PLUS";
+  vendor: Vendor;
   name: string;
   description: string;
   category: string;
@@ -44,7 +270,13 @@ type Draft = {
   webUrl: string;
 
   cost: string;
+
+  // ✅ price remains but may be auto-driven
   price: string;
+
+  // ✅ NEW
+  costPlusFormula: string;
+
   taxable: boolean;
   active: boolean;
 };
@@ -56,7 +288,7 @@ type ItemVersion = {
   itemId: string;
   sku: string;
   partNumber: string | null;
-  vendor?: "SUCCESS_PLUS" | "AMERICAN_PLUS" | null;
+  vendor?: Vendor | null;
   name: string;
   description: string | null;
   category: string | null;
@@ -68,6 +300,10 @@ type ItemVersion = {
 
   cost: string | null;
   price: string | null;
+
+  // ✅ NEW (if your versions endpoint includes it, we’ll compare it; otherwise it will be blank)
+  costPlusFormula?: string | null;
+
   taxable: boolean;
   active: boolean;
   version: number;
@@ -93,7 +329,7 @@ function normalizeDraftFromRow(row: ItemRow): Draft {
   return {
     sku: row.sku,
     partNumber: row.partNumber ?? "",
-    vendor: (row.vendor ?? "SUCCESS_PLUS") as "SUCCESS_PLUS" | "AMERICAN_PLUS",
+    vendor: (row.vendor ?? "SUCCESS_PLUS") as Vendor,
     name: row.name ?? "",
     description: row.description ?? "",
     category: row.category ?? "",
@@ -104,6 +340,10 @@ function normalizeDraftFromRow(row: ItemRow): Draft {
 
     cost: row.cost ?? "",
     price: row.price ?? "",
+
+    // ✅ NEW: tolerate missing server field
+    costPlusFormula: row.costPlusFormula ?? "",
+
     taxable: !!row.taxable,
     active: !!row.active,
   };
@@ -126,6 +366,10 @@ function diffRowToVersion(current: ItemRow, v: ItemVersion) {
 
     cost: () => current.cost ?? "",
     price: () => current.price ?? "",
+
+    // ✅ NEW
+    costPlusFormula: () => current.costPlusFormula ?? "",
+
     taxable: () => String(current.taxable),
     active: () => String(current.active),
   };
@@ -146,6 +390,10 @@ function diffRowToVersion(current: ItemRow, v: ItemVersion) {
 
     cost: v.cost ?? "",
     price: v.price ?? "",
+
+    // ✅ NEW (tolerate missing)
+    costPlusFormula: v.costPlusFormula ?? "",
+
     taxable: String(v.taxable),
     active: String(v.active),
   };
@@ -240,6 +488,10 @@ export default function ItemsTableClient({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // ✅ NEW: cost-plus preview
+  const [formulaPreview, setFormulaPreview] = useState<string | null>(null);
+  const [formulaError, setFormulaError] = useState<string | null>(null);
+
   // Multi-select + bulk actions (selection is page-scoped)
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -266,6 +518,8 @@ export default function ItemsTableClient({
     setDraft(null);
     setErrors({});
     setSaveError(null);
+    setFormulaPreview(null);
+    setFormulaError(null);
   }
 
   function closeHistory() {
@@ -474,6 +728,8 @@ export default function ItemsTableClient({
     setErrors({});
     setEditingId(row.id);
     setDraft(normalizeDraftFromRow(row));
+    setFormulaPreview(null);
+    setFormulaError(null);
   }
 
   function validate(d: Draft): FieldErrors {
@@ -481,13 +737,55 @@ export default function ItemsTableClient({
     if (!d.sku.trim()) e.sku = "SKU is required.";
     if (!d.name.trim()) e.name = "Name is required.";
     if (d.cost.trim() && !isValidMoney(d.cost)) e.cost = "Invalid money (max 2 decimals).";
-    if (d.price.trim() && !isValidMoney(d.price)) e.price = "Invalid money (max 2 decimals).";
+
+    const costPlus = isCostPlusVendor(d.vendor) && d.costPlusFormula.trim();
+    if (!costPlus) {
+      if (d.price.trim() && !isValidMoney(d.price)) e.price = "Invalid money (max 2 decimals).";
+    }
 
     const web = d.webUrl.trim();
     if (web && !safeUrl(web)) e.webUrl = "Invalid URL (use https://… or a domain like example.com).";
 
     return e;
   }
+
+  // ✅ cost-plus preview when editing
+  useEffect(() => {
+    if (!draft) {
+      setFormulaPreview(null);
+      setFormulaError(null);
+      return;
+    }
+
+    if (!isCostPlusVendor(draft.vendor)) {
+      setFormulaPreview(null);
+      setFormulaError(null);
+      return;
+    }
+
+    const f = (draft.costPlusFormula || "").trim();
+    if (!f) {
+      setFormulaPreview(null);
+      setFormulaError(null);
+      return;
+    }
+
+    const c = parseMoneyToNumber(draft.cost || "");
+    if (c === null) {
+      setFormulaPreview(null);
+      setFormulaError("Enter a valid Cost to preview.");
+      return;
+    }
+
+    try {
+      const computed = evaluateCostPlusFormula(f, c);
+      setFormulaPreview(computed.toFixed(2));
+      setFormulaError(null);
+    } catch (err: unknown) {
+      setFormulaPreview(null);
+      setFormulaError(getErrorMessage(err, "Invalid formula."));
+    }
+  }, [draft]);
 
   async function saveEdit(id: string) {
     if (!draft) return;
@@ -499,6 +797,8 @@ export default function ItemsTableClient({
 
     setSaving(true);
     try {
+      const usingCostPlus = isCostPlusVendor(draft.vendor) && draft.costPlusFormula.trim().length > 0;
+
       const res = await fetch(`/api/admin/items/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -515,7 +815,13 @@ export default function ItemsTableClient({
           webUrl: draft.webUrl.trim() || null,
 
           cost: draft.cost.trim() || null,
-          price: draft.price.trim() || null,
+
+          // ✅ If using cost-plus, server will compute price. Otherwise allow manual price.
+          price: usingCostPlus ? null : draft.price.trim() || null,
+
+          // ✅ NEW
+          costPlusFormula: isCostPlusVendor(draft.vendor) ? draft.costPlusFormula.trim() || null : null,
+
           taxable: !!draft.taxable,
           active: !!draft.active,
         }),
@@ -528,22 +834,23 @@ export default function ItemsTableClient({
 
       const updated: ItemRow = (await res.json()) as ItemRow;
 
-      const prevVendor = (rows.find((r) => r.id === id)?.vendor ?? "SUCCESS_PLUS") as
-        | "SUCCESS_PLUS"
-        | "AMERICAN_PLUS";
+      const prevVendor = (rows.find((r) => r.id === id)?.vendor ?? "SUCCESS_PLUS") as Vendor;
 
       const shaped: ItemRow = {
         ...updated,
         cost: updated.cost ?? null,
         price: updated.price ?? null,
         partNumber: updated.partNumber ?? null,
-        vendor: (updated.vendor ?? prevVendor) as "SUCCESS_PLUS" | "AMERICAN_PLUS",
+        vendor: (updated.vendor ?? prevVendor) as Vendor,
         description: updated.description ?? null,
         category: updated.category ?? null,
 
         manufacturer: updated.manufacturer ?? null,
         orderFrom: updated.orderFrom ?? null,
         webUrl: updated.webUrl ?? null,
+
+        // ✅ NEW (tolerate server not returning it)
+        costPlusFormula: (updated as any).costPlusFormula ?? rows.find((r) => r.id === id)?.costPlusFormula ?? null,
 
         // Keep qty fields if the API returns them; otherwise keep existing values
         onHandQty:
@@ -636,6 +943,8 @@ export default function ItemsTableClient({
         manufacturer: updated.manufacturer ?? null,
         orderFrom: updated.orderFrom ?? null,
         webUrl: updated.webUrl ?? null,
+
+        costPlusFormula: (updated as any).costPlusFormula ?? null,
 
         createdAt: updated.createdAt,
         updatedAt: updated.updatedAt,
@@ -773,7 +1082,8 @@ export default function ItemsTableClient({
       <div style={{ padding: 10, borderBottom: "1px solid var(--border)", background: surface }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <div style={{ fontSize: 12, opacity: 0.85 }}>
-            {(total ?? 0).toLocaleString()} results • page {page ?? 1} / {Math.max(1, Math.ceil((total || 0) / (perPage || 25)))}
+            {(total ?? 0).toLocaleString()} results • page {page ?? 1} /{" "}
+            {Math.max(1, Math.ceil((total || 0) / (perPage || 25)))}
           </div>
 
           <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
@@ -801,7 +1111,8 @@ export default function ItemsTableClient({
                 border: "1px solid var(--border)",
                 background: surface,
                 color: "var(--text)",
-                cursor: page >= Math.max(1, Math.ceil((total || 0) / (perPage || 25))) ? "not-allowed" : "pointer",
+                cursor:
+                  page >= Math.max(1, Math.ceil((total || 0) / (perPage || 25))) ? "not-allowed" : "pointer",
                 opacity: page >= Math.max(1, Math.ceil((total || 0) / (perPage || 25))) ? 0.6 : 1,
               }}
             >
@@ -948,6 +1259,10 @@ export default function ItemsTableClient({
                 keep: keep(row) ?? "—",
                 webLabel: web ? "link" : "—",
               };
+
+              const currentVendor = (isEditing ? draft?.vendor : (row.vendor ?? "SUCCESS_PLUS")) as Vendor;
+              const editingUsesCostPlus =
+                isEditing && draft ? isCostPlusVendor(draft.vendor) && draft.costPlusFormula.trim().length > 0 : false;
 
               return (
                 <Fragment key={row.id}>
@@ -1119,6 +1434,8 @@ export default function ItemsTableClient({
                           <input
                             value={draft?.price ?? ""}
                             onChange={(e) => setDraft((d) => (d ? { ...d, price: e.target.value } : d))}
+                            disabled={editingUsesCostPlus}
+                            title={editingUsesCostPlus ? "Price is computed from cost-plus formula" : undefined}
                             style={{
                               width: 110,
                               padding: "6px 8px",
@@ -1126,9 +1443,18 @@ export default function ItemsTableClient({
                               borderRadius: 8,
                               background: surface,
                               color: "var(--text)",
+                              opacity: editingUsesCostPlus ? 0.65 : 1,
+                              cursor: editingUsesCostPlus ? "not-allowed" : "text",
                             }}
                           />
-                          {errors.price ? <span style={{ fontSize: 12, color: danger }}>{errors.price}</span> : null}
+                          {editingUsesCostPlus ? (
+                            <span style={{ fontSize: 12, opacity: 0.85 }}>
+                              Auto{formulaPreview ? ` • preview: $${formulaPreview}` : ""}
+                            </span>
+                          ) : null}
+                          {!editingUsesCostPlus && errors.price ? (
+                            <span style={{ fontSize: 12, color: danger }}>{errors.price}</span>
+                          ) : null}
                         </div>
                       ) : (
                         row.price ?? ""
@@ -1379,9 +1705,45 @@ export default function ItemsTableClient({
                                   color: "var(--text)",
                                 }}
                               />
-                              {errors.webUrl ? <span style={{ fontSize: 12, color: danger }}>{errors.webUrl}</span> : null}
+                              {errors.webUrl ? (
+                                <span style={{ fontSize: 12, color: danger }}>{errors.webUrl}</span>
+                              ) : null}
                             </div>
                           </div>
+
+                          {/* ✅ NEW: Cost Plus Formula (only for cost-plus vendors) */}
+                          {isCostPlusVendor(currentVendor) ? (
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-start" }}>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: "1 1 320px" }}>
+                                <span style={{ fontSize: 12, opacity: 0.85 }}>
+                                  <strong>Cost Plus Formula</strong>{" "}
+                                  <span style={{ opacity: 0.75 }}>(use: cost, + - * /, parentheses)</span>
+                                </span>
+                                <input
+                                  value={draft?.costPlusFormula ?? ""}
+                                  onChange={(e) =>
+                                    setDraft((d) => (d ? { ...d, costPlusFormula: e.target.value } : d))
+                                  }
+                                  placeholder='Example: (cost * 1.10) + 2'
+                                  style={{
+                                    width: "min(520px, 100%)",
+                                    padding: "6px 8px",
+                                    border: "1px solid var(--border)",
+                                    borderRadius: 8,
+                                    background: surface,
+                                    color: "var(--text)",
+                                  }}
+                                />
+                                {formulaError ? <span style={{ fontSize: 12, color: danger }}>{formulaError}</span> : null}
+                                {!formulaError && formulaPreview ? (
+                                  <span style={{ fontSize: 12, opacity: 0.85 }}>Preview price: ${formulaPreview}</span>
+                                ) : null}
+                                <span style={{ fontSize: 12, opacity: 0.75 }}>
+                                  Leave blank to use manual price.
+                                </span>
+                              </div>
+                            </div>
+                          ) : null}
 
                           <div style={{ fontSize: 12, opacity: 0.85, display: "flex", flexWrap: "wrap", gap: 12 }}>
                             <span>
@@ -1412,6 +1774,14 @@ export default function ItemsTableClient({
                           <span>
                             <strong>Keep on hand:</strong> {detailText.keep}
                           </span>
+
+                          {/* ✅ NEW: Show formula when present */}
+                          {isCostPlusVendor(row.vendor ?? "SUCCESS_PLUS") && (row.costPlusFormula ?? "").trim() ? (
+                            <span>
+                              <strong>Cost Plus:</strong> <span style={{ fontFamily: "monospace" }}>{row.costPlusFormula}</span>
+                            </span>
+                          ) : null}
+
                           <span>
                             <strong>Web:</strong>{" "}
                             {web ? (
@@ -1516,7 +1886,9 @@ export default function ItemsTableClient({
               {!historyLoading && versions.length > 0 && activeRow ? (
                 <div style={{ display: "grid", gap: 12 }}>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-                    <div style={{ fontSize: 13, opacity: 0.85 }}>Select a version to compare and rollback (if needed).</div>
+                    <div style={{ fontSize: 13, opacity: 0.85 }}>
+                      Select a version to compare and rollback (if needed).
+                    </div>
 
                     <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                       <input
