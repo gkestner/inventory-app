@@ -4,7 +4,8 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
-import { Role } from "@prisma/client";
+import { Permission, Role } from "@prisma/client";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,16 @@ export default async function MaintenanceHomePage() {
   if (!email) redirect("/");
 
   if (!isAllowed(user.role)) redirect("/");
+
+  const perms = await loadUserPermissions(session);
+
+  const canCheckout = hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
+  const canWorkOrders = hasAnyPermission(perms, [
+    Permission.VIEW_WORK_ORDERS,
+    Permission.CREATE_WORK_ORDERS,
+    Permission.UPDATE_OWN_WORK_ORDERS,
+    Permission.SUBMIT_OWN_WORK_ORDERS,
+  ]);
 
   // ✅ Don’t rely on session.user.id (may not exist). Resolve user id from DB by email.
   const dbUser = await prisma.user.findUnique({
@@ -71,37 +82,47 @@ export default async function MaintenanceHomePage() {
         <h2 style={{ fontSize: 16, fontWeight: 800 }}>Quick Actions</h2>
 
         <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <Link
-            href="/maintenance/checkout"
-            style={{
-              display: "inline-block",
-              padding: "8px 14px",
-              borderRadius: 10,
-              border,
-              background: surface,
-              color: fg,
-              fontWeight: 800,
-              textDecoration: "none",
-            }}
-          >
-            Checkout Parts
-          </Link>
+          {canCheckout ? (
+            <Link
+              href="/maintenance/checkout"
+              style={{
+                display: "inline-block",
+                padding: "8px 14px",
+                borderRadius: 10,
+                border,
+                background: surface,
+                color: fg,
+                fontWeight: 800,
+                textDecoration: "none",
+              }}
+            >
+              Checkout Parts
+            </Link>
+          ) : null}
 
-          <Link
-            href="/maintenance/work-orders"
-            style={{
-              display: "inline-block",
-              padding: "8px 14px",
-              borderRadius: 10,
-              border,
-              background: surface,
-              color: fg,
-              fontWeight: 800,
-              textDecoration: "none",
-            }}
-          >
-            Work Orders
-          </Link>
+          {canWorkOrders ? (
+            <Link
+              href="/maintenance/work-orders"
+              style={{
+                display: "inline-block",
+                padding: "8px 14px",
+                borderRadius: 10,
+                border,
+                background: surface,
+                color: fg,
+                fontWeight: 800,
+                textDecoration: "none",
+              }}
+            >
+              Work Orders
+            </Link>
+          ) : null}
+
+          {!canCheckout && !canWorkOrders ? (
+            <p style={{ margin: 0, opacity: 0.75, fontSize: 14 }}>
+              You currently do not have permission to open Checkout or Work Orders.
+            </p>
+          ) : null}
         </div>
       </div>
 
