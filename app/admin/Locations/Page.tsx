@@ -1,10 +1,13 @@
 // app/admin/locations/page.tsx
-import { prisma } from "@/app/lib/prisma";
-import { authOptions } from "@/app/lib/auth";
+import type { CSSProperties } from "react";
+import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import Link from "next/link";
+
+import { prisma } from "@/app/lib/prisma";
+import { authOptions } from "@/app/lib/auth";
+
 import { Prisma, Role } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -47,7 +50,6 @@ async function requireAdmin(): Promise<AppSession> {
 
   return session;
 }
-
 
 function norm(v: string | undefined) {
   return (v ?? "").trim();
@@ -164,10 +166,10 @@ function normalizeLocationNumber(raw: string): string | null {
   return v;
 }
 
-export default async function AdminLocationsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+export default async function AdminLocationsPage({ searchParams }: { searchParams?: SearchParams }) {
   await requireAdmin();
 
-  const sp = await searchParams;
+  const sp = searchParams ?? {};
   const q = norm(sp.q);
   const okMsg = norm(sp.ok);
   const errMsg = norm(sp.err);
@@ -504,7 +506,7 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
     select: { id: true, name: true, locationNumber: true, createdAt: true, active: true },
   });
 
-  const thStyle: React.CSSProperties = {
+  const thStyle: CSSProperties = {
     textAlign: "left",
     padding: 10,
     borderBottom: "1px solid rgba(128,128,128,0.25)",
@@ -513,7 +515,7 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
     whiteSpace: "nowrap",
   };
 
-  const tdStyle: React.CSSProperties = { padding: 10, whiteSpace: "nowrap" };
+  const tdStyle: CSSProperties = { padding: 10, whiteSpace: "nowrap" };
 
   return (
     <div style={{ padding: 16, width: "100%", margin: "0 auto" }}>
@@ -753,7 +755,9 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
         <div style={{ fontSize: 12, opacity: 0.75, marginTop: 8 }}>
           Supported formats:
           <ul style={{ marginTop: 6, marginBottom: 0, paddingLeft: 18 }}>
-            <li>Header CSV: <code>name</code></li>
+            <li>
+              Header CSV: <code>name</code>
+            </li>
             <li>Single column CSV</li>
             <li>Newline list (no commas)</li>
           </ul>
@@ -788,9 +792,7 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
                   <input type="checkbox" name="deleteIds" value={l.id} form={bulkFormId} />
                 </td>
 
-                <td style={{ ...tdStyle, fontWeight: 900, width: 90 }}>
-                  {l.locationNumber ? l.locationNumber : "—"}
-                </td>
+                <td style={{ ...tdStyle, fontWeight: 900, width: 90 }}>{l.locationNumber ? l.locationNumber : "—"}</td>
 
                 <td style={{ ...tdStyle, fontWeight: 800, minWidth: 180 }}>{l.name}</td>
 
@@ -822,7 +824,10 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
                 </td>
 
                 <td style={{ padding: 10, minWidth: 240 }}>
-                  <form action={setLocationNumberAction} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <form
+                    action={setLocationNumberAction}
+                    style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}
+                  >
                     <input type="hidden" name="id" value={l.id} />
                     <input
                       name="locationNumber"
@@ -842,9 +847,7 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
                       Save
                     </button>
                   </form>
-                  <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-                    Used for invoicing. Blank = not ready.
-                  </div>
+                  <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>Used for invoicing. Blank = not ready.</div>
                 </td>
 
                 <td style={tdStyle}>
@@ -897,7 +900,8 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
       </div>
 
       <div style={{ fontSize: 12, opacity: 0.75, marginTop: 10 }}>
-        Tip: if actions are off-screen, scroll horizontally inside the table area. Inactive locations are hidden from assignment pick-lists and maintenance checkout store selection.
+        Tip: if actions are off-screen, scroll horizontally inside the table area. Inactive locations are hidden from
+        assignment pick-lists and maintenance checkout store selection.
       </div>
     </div>
   );
