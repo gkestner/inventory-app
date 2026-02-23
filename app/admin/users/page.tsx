@@ -131,11 +131,7 @@ const db = prisma as unknown as {
   $transaction: <T>(fn: (tx: PrismaTx) => Promise<T>) => Promise<T>;
 };
 
-export default async function AdminUsersPage({
-  searchParams,
-}: {
-  searchParams: Promise<SearchParams>;
-}) {
+export default async function AdminUsersPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
 
   const sp = await searchParams;
@@ -445,9 +441,7 @@ export default async function AdminUsersPage({
         if (!u) throw new Error("User not found");
 
         const previouslyAssigned = new Set<string>(
-          ((u as unknown as { allowedLocations?: Array<{ locationId: string }> }).allowedLocations ?? []).map(
-            (r) => r.locationId
-          )
+          ((u as unknown as { allowedLocations?: Array<{ locationId: string }> }).allowedLocations ?? []).map((r) => r.locationId)
         );
 
         // Validate: selected ids must exist
@@ -541,7 +535,7 @@ export default async function AdminUsersPage({
 
   const pageWrap: CSSProperties = { padding: 24, maxWidth: 1200, margin: "0 auto" };
   const card: CSSProperties = {
-    border: "1px solid rgba(128,128,128,0.25)",
+    border: "1px solid rgba(128, 128, 128, 0.25)",
     borderRadius: 10,
     padding: 16,
     background: "var(--background)",
@@ -550,7 +544,7 @@ export default async function AdminUsersPage({
   const field: CSSProperties = {
     padding: "8px 10px",
     borderRadius: 8,
-    border: "1px solid rgba(128,128,128,0.25)",
+    border: "1px solid rgba(128, 128, 128, 0.25)",
     background: "var(--background)",
     color: "var(--foreground)",
     outline: "none",
@@ -559,7 +553,7 @@ export default async function AdminUsersPage({
   const btn: CSSProperties = {
     padding: "8px 10px",
     borderRadius: 10,
-    border: "1px solid rgba(128,128,128,0.25)",
+    border: "1px solid rgba(128, 128, 128, 0.25)",
     background: "var(--background)",
     color: "var(--foreground)",
     cursor: "pointer",
@@ -578,12 +572,14 @@ export default async function AdminUsersPage({
     return l.active ? l.name : `${l.name} (Inactive)`;
   }
 
+  const createOpen = Boolean(error || created);
+
   return (
     <div style={pageWrap}>
       <h1 style={{ fontSize: 20, fontWeight: 900, marginBottom: 6 }}>Admin Users</h1>
       <div style={{ opacity: 0.8, marginBottom: 16 }}>
-        Manage users, roles, and Primary/Optional locations (active locations are preferred; when none are active,
-        inactive locations can be assigned for bootstrap).
+        Manage users, roles, and Primary/Optional locations (active locations are preferred; when none are active, inactive
+        locations can be assigned for bootstrap).
       </div>
 
       {error ? (
@@ -600,156 +596,151 @@ export default async function AdminUsersPage({
           {resetUser && temp ? (
             <div style={{ marginTop: 8 }}>
               <div style={{ fontWeight: 900 }}>Temporary password (show once):</div>
-              <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
-                {temp}
-              </div>
-              <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-                This is only displayed via the URL after reset. Copy it now.
-              </div>
+              <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>{temp}</div>
+              <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>This is only displayed via the URL after reset. Copy it now.</div>
             </div>
           ) : null}
         </div>
       ) : null}
 
-      {/* Create user */}
-      <div style={{ ...card, marginBottom: 16 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 900, marginBottom: 10 }}>Create User</h2>
-        {!hasActiveLocations && canCreateUser ? (
-          <div
-            style={{
-              marginBottom: 12,
-              padding: 10,
-              border: "1px solid rgba(255,180,0,0.5)",
-              borderRadius: 8,
-              opacity: 0.9,
-            }}
-          >
-            No active locations are available. You can still assign currently inactive locations below, or reactivate
-            one in{" "}
-            <a href="/admin/locations" style={{ textDecoration: "underline" }}>
-              Admin Locations
-            </a>
-            .
-          </div>
-        ) : null}
-        {!canCreateUser ? (
-          <div
-            style={{
-              marginBottom: 12,
-              padding: 10,
-              border: "1px solid rgba(255,80,80,0.5)",
-              borderRadius: 8,
-              opacity: 0.95,
-            }}
-          >
-            No locations exist yet. Create a location in{" "}
-            <a href="/admin/locations" style={{ textDecoration: "underline" }}>
-              Admin Locations
-            </a>{" "}
-            before creating users.
-          </div>
-        ) : null}
+      {/* Create user (collapsed) */}
+      <details style={{ ...card, marginBottom: 16 }} open={createOpen}>
+        <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside", fontSize: 16 }}>
+          Create User
+        </summary>
 
-        <form action={createUserAction} style={{ display: "grid", gap: 12 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <label style={label}>
-              <span style={{ fontWeight: 800 }}>Name</span>
-              <input name="name" required style={field} />
-            </label>
+        <div style={{ marginTop: 10 }}>
+          {!hasActiveLocations && canCreateUser ? (
+            <div
+              style={{
+                marginBottom: 12,
+                padding: 10,
+                border: "1px solid rgba(255,180,0,0.5)",
+                borderRadius: 8,
+                opacity: 0.9,
+              }}
+            >
+              No active locations are available. You can still assign currently inactive locations below, or reactivate one in{" "}
+              <a href="/admin/locations" style={{ textDecoration: "underline" }}>
+                Admin Locations
+              </a>
+              .
+            </div>
+          ) : null}
 
-            <label style={label}>
-              <span style={{ fontWeight: 800 }}>Email</span>
-              <input name="email" type="email" required style={field} />
-            </label>
-          </div>
+          {!canCreateUser ? (
+            <div
+              style={{
+                marginBottom: 12,
+                padding: 10,
+                border: "1px solid rgba(255,80,80,0.5)",
+                borderRadius: 8,
+                opacity: 0.95,
+              }}
+            >
+              No locations exist yet. Create a location in{" "}
+              <a href="/admin/locations" style={{ textDecoration: "underline" }}>
+                Admin Locations
+              </a>{" "}
+              before creating users.
+            </div>
+          ) : null}
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <label style={label}>
-              <span style={{ fontWeight: 800 }}>Password</span>
-              <input name="password" type="password" required style={field} />
-            </label>
+          <form action={createUserAction} style={{ display: "grid", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <label style={label}>
+                <span style={{ fontWeight: 800 }}>Name</span>
+                <input name="name" required style={field} />
+              </label>
 
-            <label style={label}>
-              <span style={{ fontWeight: 800 }}>Role</span>
-              <select name="role" defaultValue={Role.EMPLOYEE} style={field}>
-                <option value={Role.EMPLOYEE}>EMPLOYEE</option>
-                <option value={Role.MANAGER}>MANAGER</option>
-                <option value={Role.ADMIN}>ADMIN</option>
-              </select>
-            </label>
-          </div>
+              <label style={label}>
+                <span style={{ fontWeight: 800 }}>Email</span>
+                <input name="email" type="email" required style={field} />
+              </label>
+            </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div>
-              <div style={{ fontWeight: 900, marginBottom: 6 }}>Primary Locations (active preferred)</div>
-              <div style={{ display: "grid", gap: 6, maxHeight: 240, overflow: "auto", paddingRight: 6 }}>
-                {canCreateUser ? (
-                  locationChoicesForCreate.map((l) => (
-                    <label
-                      key={`cprim-${l.id}`}
-                      style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
-                    >
-                      <input type="checkbox" name="primaryLocationIds" value={l.id} />
-                      <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
-                      <input
-                        name={`primaryOrder_${l.id}`}
-                        type="number"
-                        min={1}
-                        step={1}
-                        placeholder="Order #"
-                        style={field}
-                      />
-                    </label>
-                  ))
-                ) : (
-                  <div style={{ opacity: 0.8, fontSize: 13 }}>No locations are available to select yet.</div>
-                )}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <label style={label}>
+                <span style={{ fontWeight: 800 }}>Password</span>
+                <input name="password" type="password" required style={field} />
+              </label>
+
+              <label style={label}>
+                <span style={{ fontWeight: 800 }}>Role</span>
+                <select name="role" defaultValue={Role.EMPLOYEE} style={field}>
+                  <option value={Role.EMPLOYEE}>EMPLOYEE</option>
+                  <option value={Role.MANAGER}>MANAGER</option>
+                  <option value={Role.ADMIN}>ADMIN</option>
+                </select>
+              </label>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <div style={{ fontWeight: 900, marginBottom: 6 }}>Primary Locations (active preferred)</div>
+                <div style={{ display: "grid", gap: 6, maxHeight: 240, overflow: "auto", paddingRight: 6 }}>
+                  {canCreateUser ? (
+                    locationChoicesForCreate.map((l) => (
+                      <label
+                        key={`cprim-${l.id}`}
+                        style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
+                      >
+                        <input type="checkbox" name="primaryLocationIds" value={l.id} />
+                        <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
+                        <input
+                          name={`primaryOrder_${l.id}`}
+                          type="number"
+                          min={1}
+                          step={1}
+                          placeholder="Order #"
+                          style={field}
+                        />
+                      </label>
+                    ))
+                  ) : (
+                    <div style={{ opacity: 0.8, fontSize: 13 }}>No locations are available to select yet.</div>
+                  )}
+                </div>
+                <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
+                  Ordering: if you enter an Order #, we sort by it; blanks sort after (by name). We persist order within each group (1..N).
+                  Legacy <code>user.locationId</code> is set to the first Primary after ordering.
+                </div>
               </div>
-              <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-                Ordering: if you enter an Order #, we sort by it; blanks sort after (by name). We persist order within
-                each group (1..N). Legacy <code>user.locationId</code> is set to the first Primary after ordering.
+
+              <div>
+                <div style={{ fontWeight: 900, marginBottom: 6 }}>Optional Locations (active preferred)</div>
+                <div style={{ display: "grid", gap: 6, maxHeight: 240, overflow: "auto", paddingRight: 6 }}>
+                  {canCreateUser ? (
+                    locationChoicesForCreate.map((l) => (
+                      <label
+                        key={`copt-${l.id}`}
+                        style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
+                      >
+                        <input type="checkbox" name="optionalLocationIds" value={l.id} />
+                        <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
+                        <input
+                          name={`optionalOrder_${l.id}`}
+                          type="number"
+                          min={1}
+                          step={1}
+                          placeholder="Order #"
+                          style={field}
+                        />
+                      </label>
+                    ))
+                  ) : (
+                    <div style={{ opacity: 0.8, fontSize: 13 }}>No optional locations available until at least one location exists.</div>
+                  )}
+                </div>
               </div>
             </div>
 
-            <div>
-              <div style={{ fontWeight: 900, marginBottom: 6 }}>Optional Locations (active preferred)</div>
-              <div style={{ display: "grid", gap: 6, maxHeight: 240, overflow: "auto", paddingRight: 6 }}>
-                {canCreateUser ? (
-                  locationChoicesForCreate.map((l) => (
-                    <label
-                      key={`copt-${l.id}`}
-                      style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
-                    >
-                      <input type="checkbox" name="optionalLocationIds" value={l.id} />
-                      <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
-                      <input
-                        name={`optionalOrder_${l.id}`}
-                        type="number"
-                        min={1}
-                        step={1}
-                        placeholder="Order #"
-                        style={field}
-                      />
-                    </label>
-                  ))
-                ) : (
-                  <div style={{ opacity: 0.8, fontSize: 13 }}>
-                    No optional locations available until at least one location exists.
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={!canCreateUser}
-            style={{ ...btn, width: 220, opacity: canCreateUser ? 1 : 0.5 }}
-          >
-            {canCreateUser ? "Create User" : "Create User (needs location)"}
-          </button>
-        </form>
-      </div>
+            <button type="submit" disabled={!canCreateUser} style={{ ...btn, width: 220, opacity: canCreateUser ? 1 : 0.5 }}>
+              {canCreateUser ? "Create User" : "Create User (needs location)"}
+            </button>
+          </form>
+        </div>
+      </details>
 
       {/* Users list */}
       <div style={card}>
@@ -781,7 +772,10 @@ export default async function AdminUsersPage({
                 }}
               >
                 <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside" }}>
-                  {u.name} <span style={{ opacity: 0.75, fontWeight: 700 }}>({u.role}) {u.active ? "• Active" : "• Disabled"}</span>
+                  {u.name}{" "}
+                  <span style={{ opacity: 0.75, fontWeight: 700 }}>
+                    ({u.role}) {u.active ? "• Active" : "• Disabled"}
+                  </span>
                 </summary>
 
                 <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
@@ -789,13 +783,10 @@ export default async function AdminUsersPage({
                     <div style={{ opacity: 0.85 }}>{u.email}</div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>
                       id:{" "}
-                      <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
-                        {u.id}
-                      </span>
+                      <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>{u.id}</span>
                     </div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>
-                      Legacy locationId:{" "}
-                      <span style={{ fontWeight: 800 }}>{legacyName || (u.locationId ? u.locationId : "—")}</span>
+                      Legacy locationId: <span style={{ fontWeight: 800 }}>{legacyName || (u.locationId ? u.locationId : "—")}</span>
                     </div>
                   </div>
 
@@ -879,19 +870,9 @@ export default async function AdminUsersPage({
                               return (
                                 <label
                                   key={`prim-${u.id}-${l.id}`}
-                                  style={{
-                                    display: "grid",
-                                    gridTemplateColumns: "20px 1fr 110px",
-                                    gap: 10,
-                                    alignItems: "center",
-                                  }}
+                                  style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
                                 >
-                                  <input
-                                    type="checkbox"
-                                    name="primaryLocationIds"
-                                    value={l.id}
-                                    defaultChecked={checked}
-                                  />
+                                  <input type="checkbox" name="primaryLocationIds" value={l.id} defaultChecked={checked} />
                                   <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
                                   <input
                                     name={`primaryOrder_${l.id}`}
@@ -916,19 +897,9 @@ export default async function AdminUsersPage({
                               return (
                                 <label
                                   key={`opt-${u.id}-${l.id}`}
-                                  style={{
-                                    display: "grid",
-                                    gridTemplateColumns: "20px 1fr 110px",
-                                    gap: 10,
-                                    alignItems: "center",
-                                  }}
+                                  style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
                                 >
-                                  <input
-                                    type="checkbox"
-                                    name="optionalLocationIds"
-                                    value={l.id}
-                                    defaultChecked={checked}
-                                  />
+                                  <input type="checkbox" name="optionalLocationIds" value={l.id} defaultChecked={checked} />
                                   <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
                                   <input
                                     name={`optionalOrder_${l.id}`}
@@ -951,10 +922,9 @@ export default async function AdminUsersPage({
                           Save Locations
                         </button>
                         <div style={{ fontSize: 12, opacity: 0.75 }}>
-                          Pick-lists show active locations; inactive locations can only remain if already assigned.
-                          Ordering: we sort by Order # (ascending) then by name; blanks sort after by name. We persist
-                          order within each group (1..N). Legacy <code>user.locationId</code> becomes the first Primary
-                          after ordering.
+                          Pick-lists show active locations; inactive locations can only remain if already assigned. Ordering: we sort by Order #
+                          (ascending) then by name; blanks sort after by name. We persist order within each group (1..N). Legacy{" "}
+                          <code>user.locationId</code> becomes the first Primary after ordering.
                         </div>
                       </div>
                     </form>
