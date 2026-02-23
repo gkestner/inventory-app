@@ -33,12 +33,7 @@ export default async function MaintenanceHomePage() {
   const perms = await loadUserPermissions(session);
 
   const canCheckout = hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
-  const canWorkOrders = hasAnyPermission(perms, [
-    Permission.VIEW_WORK_ORDERS,
-    Permission.CREATE_WORK_ORDERS,
-    Permission.UPDATE_OWN_WORK_ORDERS,
-    Permission.SUBMIT_OWN_WORK_ORDERS,
-  ]);
+  const canWorkOrders = hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
 
   // ✅ Don’t rely on session.user.id (may not exist). Resolve user id from DB by email.
   const dbUser = await prisma.user.findUnique({
