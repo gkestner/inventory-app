@@ -904,5 +904,6 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
         assignment pick-lists and maintenance checkout store selection.
       </div>
     </div>
+    
   );
 }

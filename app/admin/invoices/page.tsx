@@ -110,23 +110,81 @@ function isMissingTaxFormulaFieldError(error: unknown): boolean {
   return message.includes("Unknown field `taxFormula`") || message.includes("taxFormula does not exist");
 }
 
-async function loadVendorTaxSettings(): Promise<VendorTaxSettings[]> {
+function isMissingModelError(error: unknown): boolean {
+  const message =
+    typeof error === "object" && error !== null && "message" in error && typeof (error as { message?: unknown }).message === "string"
+      ? ((error as { message: string }).message ?? "")
+      : "";
+
+  // Prisma runtime errors vary by version; keep this broad but safe.
+  return (
+    message.includes("is not a function") ||
+    message.includes("Cannot read properties of undefined") ||
+    message.includes("Unknown arg") ||
+    message.includes("Unknown field") ||
+    message.includes("Unknown model") ||
+    message.includes("Invalid `prisma.") ||
+    message.includes("does not exist in the current database")
+  );
+}
+
+async function loadVendorTaxSettings(vendorConfigReady: boolean): Promise<VendorTaxSettings[]> {
+  if (!vendorConfigReady) {
+    return [
+      { vendor: InvoiceVendor.SUCCESS_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA },
+      { vendor: InvoiceVendor.AMERICAN_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA },
+    ];
+  }
+
   try {
     const rows = await prisma.invoiceVendorConfig.findMany({
       select: { vendor: true, taxFormula: true, taxRatePct: true },
     });
-    return rows.map((r) => ({ vendor: r.vendor, taxRatePct: r.taxRatePct, taxFormula: String(r.taxFormula || DEFAULT_TAX_FORMULA) }));
+
+    // Ensure both vendors always exist in UI even if DB table is missing one row.
+    const byVendor = new Map<InvoiceVendor, VendorTaxSettings>();
+    for (const r of rows) {
+      byVendor.set(r.vendor, {
+        vendor: r.vendor,
+        taxRatePct: r.taxRatePct,
+        taxFormula: String(r.taxFormula || DEFAULT_TAX_FORMULA),
+      });
+    }
+
+    if (!byVendor.has(InvoiceVendor.SUCCESS_PLUS)) {
+      byVendor.set(InvoiceVendor.SUCCESS_PLUS, { vendor: InvoiceVendor.SUCCESS_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA });
+    }
+    if (!byVendor.has(InvoiceVendor.AMERICAN_PLUS)) {
+      byVendor.set(InvoiceVendor.AMERICAN_PLUS, { vendor: InvoiceVendor.AMERICAN_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA });
+    }
+
+    return [byVendor.get(InvoiceVendor.SUCCESS_PLUS)!, byVendor.get(InvoiceVendor.AMERICAN_PLUS)!];
   } catch (error) {
     if (!isMissingTaxFormulaFieldError(error)) throw error;
 
     const rows = await prisma.invoiceVendorConfig.findMany({
       select: { vendor: true, taxRatePct: true },
     });
-    return rows.map((r) => ({ vendor: r.vendor, taxRatePct: r.taxRatePct, taxFormula: DEFAULT_TAX_FORMULA }));
+
+    const byVendor = new Map<InvoiceVendor, VendorTaxSettings>();
+    for (const r of rows) {
+      byVendor.set(r.vendor, { vendor: r.vendor, taxRatePct: r.taxRatePct, taxFormula: DEFAULT_TAX_FORMULA });
+    }
+
+    if (!byVendor.has(InvoiceVendor.SUCCESS_PLUS)) {
+      byVendor.set(InvoiceVendor.SUCCESS_PLUS, { vendor: InvoiceVendor.SUCCESS_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA });
+    }
+    if (!byVendor.has(InvoiceVendor.AMERICAN_PLUS)) {
+      byVendor.set(InvoiceVendor.AMERICAN_PLUS, { vendor: InvoiceVendor.AMERICAN_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA });
+    }
+
+    return [byVendor.get(InvoiceVendor.SUCCESS_PLUS)!, byVendor.get(InvoiceVendor.AMERICAN_PLUS)!];
   }
 }
 
-async function saveVendorTaxSettings(vendor: InvoiceVendor, taxRate: number, formula: string) {
+async function saveVendorTaxSettings(vendorConfigReady: boolean, vendor: InvoiceVendor, taxRate: number, formula: string) {
+  if (!vendorConfigReady) return;
+
   try {
     await prisma.invoiceVendorConfig.upsert({
       where: { vendor },
@@ -158,13 +216,22 @@ async function saveVendorTaxSettings(vendor: InvoiceVendor, taxRate: number, for
   }
 }
 
-export default async function AdminInvoicesPage({ searchParams }: { searchParams: SearchParams }) {
+export default async function AdminInvoicesPage({ searchParams }: { searchParams?: SearchParams }) {
   await requireInvoicesView();
 
-  const invoiceDelegate = (prisma as { invoice?: { findMany?: unknown } }).invoice;
-  const invoiceModelReady = Boolean(invoiceDelegate && typeof invoiceDelegate.findMany === "function");
+  // IMPORTANT: searchParams can be undefined on some Next/Vercel paths.
+  // Defaulting prevents runtime crashes like "Cannot read properties of undefined (reading 'vendor')".
+  const sp: SearchParams = searchParams ?? {};
 
-  if (!invoiceModelReady) {
+  const pAny = prisma as any;
+
+  const invoiceModelReady = typeof pAny.invoice?.findMany === "function" && typeof pAny.invoice?.count === "function";
+  const invoiceLineReady = typeof pAny.invoiceLine?.deleteMany === "function";
+  const ticketModelReady = typeof pAny.partsCheckoutTicket?.groupBy === "function";
+  const vendorConfigReady = typeof pAny.invoiceVendorConfig?.findMany === "function" && typeof pAny.invoiceVendorConfig?.upsert === "function";
+
+  // If core invoice models are missing, do NOT touch invoice tables (avoid crashes).
+  if (!invoiceModelReady || !invoiceLineReady) {
     return (
       <main style={{ padding: 16 }}>
         <div style={{ padding: 16, maxWidth: 1400, margin: "0 auto", color: "var(--foreground)" }}>
@@ -197,10 +264,15 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
           >
             <div style={{ fontWeight: 900, marginBottom: 6 }}>Not ready yet</div>
             <div style={{ opacity: 0.85, lineHeight: 1.5 }}>
-              Your app is running with a Prisma Client that does not include <code>invoice</code> yet, so this page would
-              crash.
+              Your deployment is running with a Prisma Client (or database) that does not include the invoice models yet,
+              so this page would crash.
               <br />
-              Fix: run migration + regenerate Prisma Client (or restart dev server after <code>prisma generate</code>).
+              Fix checklist:
+              <ul style={{ marginTop: 8, paddingLeft: 18 }}>
+                <li>Run Prisma migrations against Neon (or apply the SQL in Neon).</li>
+                <li>Run: <code>npx prisma generate</code></li>
+                <li>Redeploy (or restart) so Vercel picks up the updated Prisma Client.</li>
+              </ul>
             </div>
           </div>
         </div>
@@ -253,42 +325,55 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   defaultFromDate.setDate(defaultFromDate.getDate() - 6);
   const defaultFrom = fmtForDateInput(defaultFromDate);
 
-  const vendorRaw = String(searchParams.vendor ?? "SUCCESS_PLUS").trim().toUpperCase();
+  const vendorRaw = String(sp.vendor ?? "SUCCESS_PLUS").trim().toUpperCase();
   const vendor: InvoiceVendor = vendorRaw === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS";
 
-  const fromStr = String(searchParams.from ?? defaultFrom).trim();
-  const toStr = String(searchParams.to ?? defaultTo).trim();
+  const fromStr = String(sp.from ?? defaultFrom).trim();
+  const toStr = String(sp.to ?? defaultTo).trim();
 
   const from = parseDateOnlyToDate(fromStr, false) ?? parseDateOnlyToDate(defaultFrom, false)!;
   const to = parseDateOnlyToDate(toStr, true) ?? parseDateOnlyToDate(defaultTo, true)!;
 
-  const invoiceDateRaw = String(searchParams.invoiceDate ?? "").trim();
+  const invoiceDateRaw = String(sp.invoiceDate ?? "").trim();
   const invoiceDate = invoiceDateRaw ? new Date(invoiceDateRaw) : new Date();
   const invoiceDateSafe = Number.isNaN(invoiceDate.getTime()) ? new Date() : invoiceDate;
 
-  const page = clamp(Number(searchParams.page ?? "1") || 1, 1, 9999);
+  const page = clamp(Number(sp.page ?? "1") || 1, 1, 9999);
   const perPageAllowed = new Set([10, 25, 50]);
-  const perPage = perPageAllowed.has(Number(searchParams.perPage)) ? Number(searchParams.perPage) : 25;
+  const perPage = perPageAllowed.has(Number(sp.perPage)) ? Number(sp.perPage) : 25;
   const skip = (page - 1) * perPage;
 
-  const err = String(searchParams.err ?? "").trim();
-  const cfg = String(searchParams.cfg ?? "").trim();
+  const err = String(sp.err ?? "").trim();
+  const cfg = String(sp.cfg ?? "").trim();
 
-  const readyByStore = await prisma.partsCheckoutTicket.groupBy({
-    by: ["storeId", "storeName"],
-    where: {
-      status: PartsCheckoutStatus.OPEN,
-      invoicedAt: null,
-      voidedAt: null,
-      createdAt: { gte: from, lte: to },
-    },
-    _count: { _all: true },
-    orderBy: { storeName: "asc" },
-  });
+  // These can crash if the ticket model/columns aren’t deployed yet.
+  // Guard them so the invoices page still loads.
+  let readyByStore: Array<{ storeId: string; storeName: string; _count: { _all: number } }> = [];
+  let readyTotal = 0;
 
-  const readyTotal = readyByStore.reduce((acc, r) => acc + r._count._all, 0);
+  if (ticketModelReady) {
+    try {
+      readyByStore = await prisma.partsCheckoutTicket.groupBy({
+        by: ["storeId", "storeName"],
+        where: {
+          status: PartsCheckoutStatus.OPEN,
+          invoicedAt: null,
+          voidedAt: null,
+          createdAt: { gte: from, lte: to },
+        },
+        _count: { _all: true },
+        orderBy: { storeName: "asc" },
+      });
 
-  const vendorConfigs = await loadVendorTaxSettings();
+      readyTotal = readyByStore.reduce((acc, r) => acc + r._count._all, 0);
+    } catch (e) {
+      if (!isMissingModelError(e)) throw e;
+      readyByStore = [];
+      readyTotal = 0;
+    }
+  }
+
+  const vendorConfigs = await loadVendorTaxSettings(vendorConfigReady);
 
   const taxFormulaByVendor = new Map(vendorConfigs.map((c) => [c.vendor, c.taxFormula]));
   const taxRateByVendor = new Map(vendorConfigs.map((c) => [c.vendor, c.taxRatePct]));
@@ -320,7 +405,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   const pageCount = Math.max(1, Math.ceil(invoiceTotal / perPage));
 
   function buildHref(patch: Partial<SearchParams>) {
-    const merged: SearchParams = { ...searchParams, ...patch };
+    const merged: SearchParams = { ...sp, ...patch };
 
     const qp = new URLSearchParams();
     const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err", "cfg"];
@@ -383,6 +468,10 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     "use server";
     await requireInvoicesView();
 
+    if (!vendorConfigReady) {
+      redirect("/admin/invoices?cfg=config_not_ready");
+    }
+
     const vendorRaw = String(formData.get("vendor") ?? "").trim().toUpperCase();
     const vendor = vendorRaw === "AMERICAN_PLUS" ? InvoiceVendor.AMERICAN_PLUS : InvoiceVendor.SUCCESS_PLUS;
 
@@ -397,7 +486,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
       redirect("/admin/invoices?cfg=tax_rate_invalid");
     }
 
-    await saveVendorTaxSettings(vendor, taxRate, formula);
+    await saveVendorTaxSettings(vendorConfigReady, vendor, taxRate, formula);
 
     revalidatePath("/admin/invoices");
     redirect("/admin/invoices?cfg=saved");
@@ -407,8 +496,6 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     "use server";
     await requireInvoicesView();
 
-    // IMPORTANT: server actions cannot close over local functions from the page component.
-    // Build return URL entirely inside the server action.
     const buildReturnTo = (patch: Partial<SearchParams>) => {
       const get = (k: keyof SearchParams) => String(formData.get(k) ?? "").trim();
 
@@ -486,7 +573,11 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
         ? "Tax formula is required."
         : cfg === "tax_rate_invalid"
           ? "Tax rate must be a valid number between 0 and 100."
-          : null;
+          : cfg === "config_not_ready"
+            ? "Vendor tax settings are not available yet on this deployment (missing invoiceVendorConfig)."
+            : !ticketModelReady
+              ? "Ticket summary is unavailable on this deployment (missing partsCheckoutTicket.groupBy)."
+              : null;
 
   return (
     <main style={{ padding: 16 }}>
@@ -565,9 +656,19 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
             helpers: <code>min</code>, <code>max</code>, <code>round</code>, <code>floor</code>, <code>ceil</code>, <code>abs</code>.
           </div>
 
+          {!vendorConfigReady ? (
+            <div style={{ fontSize: 12, opacity: 0.85, borderTop: border, paddingTop: 10 }}>
+              Vendor config table not available on this deployment yet. Formulas are shown with defaults but saving is disabled.
+            </div>
+          ) : null}
+
           <div style={{ display: "grid", gap: 10 }}>
             {[InvoiceVendor.SUCCESS_PLUS, InvoiceVendor.AMERICAN_PLUS].map((v) => (
-              <form key={v} action={updateVendorTaxFormulaAction} style={{ display: "grid", gap: 8, borderTop: border, paddingTop: 10 }}>
+              <form
+                key={v}
+                action={updateVendorTaxFormulaAction}
+                style={{ display: "grid", gap: 8, borderTop: border, paddingTop: 10 }}
+              >
                 <input type="hidden" name="vendor" value={v} />
                 <div style={{ fontWeight: 900 }}>{vendorLabel(v)}</div>
                 <label style={controlLabel}>
@@ -578,6 +679,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                     style={controlBase}
                     inputMode="decimal"
                     placeholder="0"
+                    disabled={!vendorConfigReady}
                   />
                 </label>
                 <label style={controlLabel}>
@@ -587,10 +689,13 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                     defaultValue={String(taxFormulaByVendor.get(v) ?? DEFAULT_TAX_FORMULA)}
                     style={controlBase}
                     placeholder={DEFAULT_TAX_FORMULA}
+                    disabled={!vendorConfigReady}
                   />
                 </label>
                 <div>
-                  <button type="submit" style={btnPrimary}>Save formula</button>
+                  <button type="submit" style={btnPrimary} disabled={!vendorConfigReady}>
+                    Save formula
+                  </button>
                 </div>
               </form>
             ))}
@@ -610,7 +715,11 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
               Stores with OPEN tickets not yet invoiced in this window ({fromStr} → {toStr}).
             </div>
 
-            {readyByStore.length === 0 ? (
+            {!ticketModelReady ? (
+              <div style={{ fontSize: 12, opacity: 0.85 }}>
+                Ticket summary is unavailable on this deployment yet (missing <code>partsCheckoutTicket.groupBy</code>).
+              </div>
+            ) : readyByStore.length === 0 ? (
               <div style={{ fontSize: 12, opacity: 0.8 }}>No pending tickets for invoice generation in this window.</div>
             ) : (
               <div style={{ overflowX: "auto", border, borderRadius: 14, background: surface }}>
@@ -670,12 +779,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
                 <label style={{ ...controlLabel, flex: "0 1 260px", minWidth: 0 }}>
                   Invoice date (admin preference)
-                  <input
-                    type="datetime-local"
-                    name="invoiceDate"
-                    defaultValue={fmtForDatetimeLocal(invoiceDateSafe)}
-                    style={controlBase}
-                  />
+                  <input type="datetime-local" name="invoiceDate" defaultValue={fmtForDatetimeLocal(invoiceDateSafe)} style={controlBase} />
                 </label>
 
                 <div style={{ flex: "1 1 220px", display: "flex", justifyContent: "flex-end" }}>
@@ -687,23 +791,14 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
               <div style={{ fontSize: 12, opacity: 0.8 }}>
                 Manual trigger. Submitted checkouts are immediately “ready” (OPEN, not invoiced). Generating creates{" "}
-                <b>one invoice per store</b> in the window for the selected vendor, then marks those tickets{" "}
-                <b>INVOICED</b>.
+                <b>one invoice per store</b> in the window for the selected vendor, then marks those tickets <b>INVOICED</b>.
               </div>
             </form>
           </div>
         </div>
 
         <div style={{ marginTop: 12, border, borderRadius: 14, background: surface, padding: 12 }}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: 10,
-              flexWrap: "wrap",
-              alignItems: "baseline",
-            }}
-          >
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "baseline" }}>
             <div style={{ fontWeight: 900 }}>Recent invoices</div>
             <div style={{ fontSize: 12, opacity: 0.8 }}>
               Showing <b>{invoices.length}</b> of <b>{invoiceTotal}</b> • Page <b>{page}</b> / <b>{pageCount}</b>
@@ -724,33 +819,23 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    {[
-                      "Select",
-                      "Created",
-                      "Vendor",
-                      "Vendor #",
-                      "Store",
-                      "Invoice date",
-                      "Window",
-                      "Lines",
-                      "Total",
-                      "Status",
-                      "Print",
-                    ].map((h) => (
-                      <th
-                        key={h}
-                        style={{
-                          textAlign: "left",
-                          padding: 10,
-                          borderBottom: border,
-                          fontSize: 12,
-                          opacity: 0.85,
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {h}
-                      </th>
-                    ))}
+                    {["Select", "Created", "Vendor", "Vendor #", "Store", "Invoice date", "Window", "Lines", "Total", "Status", "Print"].map(
+                      (h) => (
+                        <th
+                          key={h}
+                          style={{
+                            textAlign: "left",
+                            padding: 10,
+                            borderBottom: border,
+                            fontSize: 12,
+                            opacity: 0.85,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {h}
+                        </th>
+                      )
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -774,16 +859,11 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                       </td>
                       <td style={{ padding: 10, whiteSpace: "nowrap" }}>{inv._count.lines}</td>
                       <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>
-                        {inv.total
-                          ? Number(inv.total).toLocaleString(undefined, { style: "currency", currency: "USD" })
-                          : "—"}
+                        {inv.total ? Number(inv.total).toLocaleString(undefined, { style: "currency", currency: "USD" }) : "—"}
                       </td>
                       <td style={{ padding: 10, whiteSpace: "nowrap" }}>{inv.status}</td>
                       <td style={{ padding: 10, whiteSpace: "nowrap" }}>
-                        <Link
-                          href={`/admin/invoices/${inv.id}/print`}
-                          style={{ ...btn, textDecoration: "none", display: "inline-block" }}
-                        >
+                        <Link href={`/admin/invoices/${inv.id}/print`} style={{ ...btn, textDecoration: "none", display: "inline-block" }}>
                           Print
                         </Link>
                       </td>
@@ -814,11 +894,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
             >
               <label style={{ ...controlLabel, minWidth: 240 }}>
                 Type DELETE to confirm hard delete
-                <input
-                  name="confirm"
-                  placeholder="DELETE"
-                  style={{ ...controlBase, padding: "8px 10px", borderRadius: 10, fontSize: 13 }}
-                />
+                <input name="confirm" placeholder="DELETE" style={{ ...controlBase, padding: "8px 10px", borderRadius: 10, fontSize: 13 }} />
               </label>
 
               <button type="submit" style={btnDanger}>
@@ -826,8 +902,8 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
               </button>
 
               <div style={{ fontSize: 12, opacity: 0.75, maxWidth: 700 }}>
-                Hard delete permanently removes invoices and their line items. If the delete fails, your database likely has
-                a foreign key reference (ex: tickets linked to invoices).
+                Hard delete permanently removes invoices and their line items. If the delete fails, your database likely has a foreign key
+                reference (ex: tickets linked to invoices).
               </div>
             </div>
           </form>
@@ -875,11 +951,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
               Next
             </Link>
 
-            <form
-              action="/admin/invoices"
-              method="get"
-              style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "end" }}
-            >
+            <form action="/admin/invoices" method="get" style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "end" }}>
               <input type="hidden" name="vendor" value={vendor} />
               <input type="hidden" name="from" value={fromStr} />
               <input type="hidden" name="to" value={toStr} />
@@ -889,11 +961,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
               <label style={{ ...controlLabel, margin: 0, minWidth: 140 }}>
                 Per page
-                <select
-                  name="perPage"
-                  defaultValue={String(perPage)}
-                  style={{ ...controlBase, padding: "8px 10px", borderRadius: 10, fontSize: 13 }}
-                >
+                <select name="perPage" defaultValue={String(perPage)} style={{ ...controlBase, padding: "8px 10px", borderRadius: 10, fontSize: 13 }}>
                   {[10, 25, 50].map((n) => (
                     <option key={n} value={String(n)}>
                       {n}
