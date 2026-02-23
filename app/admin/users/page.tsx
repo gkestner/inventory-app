@@ -339,6 +339,29 @@ export default async function AdminUsersPage({
     redirect(`/admin/users?ok=1&created=${encodeURIComponent(createdUserId)}`);
   }
 
+  async function updateRoleAction(formData: FormData) {
+    "use server";
+    await requireAdmin();
+
+    const userId = nonEmpty(formData.get("userId"));
+    const nextRole = pickRole(nonEmpty(formData.get("role")));
+
+    if (!userId) redirect("/admin/users?error=" + encodeURIComponent("Missing userId"));
+
+    try {
+      await db.user.update({
+        where: { id: userId },
+        data: { role: nextRole },
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Role update failed";
+      redirect("/admin/users?error=" + encodeURIComponent(msg));
+    }
+
+    revalidatePath("/admin/users");
+    redirect("/admin/users?ok=1");
+  }
+
   async function toggleActiveAction(formData: FormData) {
     "use server";
     await requireAdmin();
@@ -747,7 +770,7 @@ export default async function AdminUsersPage({
             const optionalChoices = locationsAll.filter((l) => l.active || checkedOptional.has(l.id));
 
             return (
-              <div
+              <details
                 key={u.id}
                 style={{
                   border: "1px solid rgba(128,128,128,0.25)",
@@ -757,14 +780,12 @@ export default async function AdminUsersPage({
                   color: "var(--foreground)",
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+                <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside" }}>
+                  {u.name} <span style={{ opacity: 0.75, fontWeight: 700 }}>({u.role}) {u.active ? "• Active" : "• Disabled"}</span>
+                </summary>
+
+                <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
                   <div style={{ display: "grid", gap: 4 }}>
-                    <div style={{ fontWeight: 900 }}>
-                      {u.name}{" "}
-                      <span style={{ opacity: 0.75, fontWeight: 700 }}>
-                        ({u.role}) {u.active ? "• Active" : "• Disabled"}
-                      </span>
-                    </div>
                     <div style={{ opacity: 0.85 }}>{u.email}</div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>
                       id:{" "}
@@ -779,6 +800,18 @@ export default async function AdminUsersPage({
                   </div>
 
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <form action={updateRoleAction} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <input type="hidden" name="userId" value={u.id} />
+                      <select name="role" defaultValue={u.role} style={field}>
+                        <option value={Role.EMPLOYEE}>EMPLOYEE</option>
+                        <option value={Role.MANAGER}>MANAGER</option>
+                        <option value={Role.ADMIN}>ADMIN</option>
+                      </select>
+                      <button type="submit" style={btn}>
+                        Update Role
+                      </button>
+                    </form>
+
                     <form action={toggleActiveAction}>
                       <input type="hidden" name="userId" value={u.id} />
                       <input type="hidden" name="nextActive" value={u.active ? "false" : "true"} />
@@ -927,7 +960,7 @@ export default async function AdminUsersPage({
                     </form>
                   </div>
                 </details>
-              </div>
+              </details>
             );
           })}
         </div>
