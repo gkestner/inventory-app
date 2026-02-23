@@ -64,20 +64,37 @@ export default async function RootLayout({
   }
 
   // Import auth/permissions lazily so module evaluation during build phase doesn't touch Prisma.
-  const [{ getServerSession }, { authOptions }, permsMod, prismaEnums] = await Promise.all([
+  const [{ getServerSession }, { authOptions }, permsMod, prismaEnums, prismaModule] = await Promise.all([
     import("next-auth"),
     import("@/app/lib/auth"),
     import("@/app/lib/permissions"),
     import("@prisma/client"),
+    import("@/app/lib/prisma"),
   ]);
 
   const { hasAnyPermission, loadUserPermissions } = permsMod;
   const { Permission, Role } = prismaEnums;
+  const { prisma } = prismaModule;
 
   const session = await getServerSession(authOptions);
 
-  const role = (session?.user as unknown as { role?: unknown })?.role;
-  const isAdmin = role === Role.ADMIN || role === "ADMIN";
+  const sessionRole = (session?.user as unknown as { role?: unknown })?.role;
+
+  const sessionEmail = (session?.user as { email?: string | null } | null)?.email?.trim().toLowerCase() ?? "";
+
+  const dbUserRole =
+    sessionEmail.length > 0
+      ? (
+          await prisma.user.findUnique({
+            where: { email: sessionEmail },
+            select: { role: true },
+          })
+        )?.role ?? null
+      : null;
+
+  const effectiveRole = sessionRole ?? dbUserRole;
+  const isAdmin = effectiveRole === Role.ADMIN || effectiveRole === "ADMIN";
+  const isEmployee = effectiveRole === Role.EMPLOYEE || effectiveRole === "EMPLOYEE";
 
   // ✅ Load per-user permissions server-side (single source of truth)
   const perms = await loadUserPermissions(session);
@@ -132,7 +149,7 @@ export default async function RootLayout({
       Permission.VIEW_WORK_ORDERS,
     ]);
 
-  const shouldRenderUserNav = showUserNav && hasAnyUserNavPermission;
+  const shouldRenderUserNav = showUserNav && (hasAnyUserNavPermission || isEmployee);
 
   const border = "1px solid rgba(128,128,128,0.25)";
   const bg = "var(--card, var(--background))";
