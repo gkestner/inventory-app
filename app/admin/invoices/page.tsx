@@ -101,29 +101,48 @@ type VendorTaxSettings = {
 
 const DEFAULT_TAX_FORMULA = "lineSubtotal * (taxRatePct / 100)";
 
-function isMissingTaxFormulaFieldError(error: unknown): boolean {
-  const message =
-    typeof error === "object" && error !== null && "message" in error && typeof (error as { message?: unknown }).message === "string"
-      ? ((error as { message: string }).message ?? "")
-      : "";
+function getErrorMessage(error: unknown): string {
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object" && "message" in error && typeof (error as any).message === "string") {
+    return String((error as any).message);
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return "Unknown error";
+  }
+}
 
+function getPrismaErrorCode(error: unknown): string | null {
+  // PrismaClientKnownRequestError has "code"
+  if (error && typeof error === "object" && "code" in error && typeof (error as any).code === "string") {
+    return String((error as any).code);
+  }
+  return null;
+}
+
+function isMissingTaxFormulaFieldError(error: unknown): boolean {
+  const message = getErrorMessage(error);
   return message.includes("Unknown field `taxFormula`") || message.includes("taxFormula does not exist");
 }
 
-function isMissingModelError(error: unknown): boolean {
-  const message =
-    typeof error === "object" && error !== null && "message" in error && typeof (error as { message?: unknown }).message === "string"
-      ? ((error as { message: string }).message ?? "")
-      : "";
+function isSchemaOrDbNotReadyError(error: unknown): boolean {
+  const code = getPrismaErrorCode(error);
+  // Common “schema not applied” / missing table/column codes:
+  // P2021: table does not exist
+  // P2022: column does not exist
+  // P2003: foreign key constraint (can happen on deletes; not a “not ready” signal)
+  if (code === "P2021" || code === "P2022") return true;
+
+  const msg = getErrorMessage(error).toLowerCase();
 
   return (
-    message.includes("is not a function") ||
-    message.includes("Cannot read properties of undefined") ||
-    message.includes("Unknown arg") ||
-    message.includes("Unknown field") ||
-    message.includes("Unknown model") ||
-    message.includes("Invalid `prisma.") ||
-    message.includes("does not exist in the current database")
+    msg.includes("does not exist") ||
+    msg.includes("unknown column") ||
+    msg.includes("unknown field") ||
+    msg.includes("invalid `prisma.") ||
+    msg.includes("cannot read properties of undefined") ||
+    msg.includes("is not a function")
   );
 }
 
@@ -158,25 +177,28 @@ async function loadVendorTaxSettings(vendorConfigReady: boolean): Promise<Vendor
 
     return [byVendor.get(InvoiceVendor.SUCCESS_PLUS)!, byVendor.get(InvoiceVendor.AMERICAN_PLUS)!];
   } catch (error) {
-    if (!isMissingTaxFormulaFieldError(error)) throw error;
+    // If config table exists but taxFormula column doesn't, fall back to defaults.
+    if (isMissingTaxFormulaFieldError(error)) {
+      const rows = await prisma.invoiceVendorConfig.findMany({
+        select: { vendor: true, taxRatePct: true },
+      });
 
-    const rows = await prisma.invoiceVendorConfig.findMany({
-      select: { vendor: true, taxRatePct: true },
-    });
+      const byVendor = new Map<InvoiceVendor, VendorTaxSettings>();
+      for (const r of rows) {
+        byVendor.set(r.vendor, { vendor: r.vendor, taxRatePct: r.taxRatePct, taxFormula: DEFAULT_TAX_FORMULA });
+      }
 
-    const byVendor = new Map<InvoiceVendor, VendorTaxSettings>();
-    for (const r of rows) {
-      byVendor.set(r.vendor, { vendor: r.vendor, taxRatePct: r.taxRatePct, taxFormula: DEFAULT_TAX_FORMULA });
+      if (!byVendor.has(InvoiceVendor.SUCCESS_PLUS)) {
+        byVendor.set(InvoiceVendor.SUCCESS_PLUS, { vendor: InvoiceVendor.SUCCESS_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA });
+      }
+      if (!byVendor.has(InvoiceVendor.AMERICAN_PLUS)) {
+        byVendor.set(InvoiceVendor.AMERICAN_PLUS, { vendor: InvoiceVendor.AMERICAN_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA });
+      }
+
+      return [byVendor.get(InvoiceVendor.SUCCESS_PLUS)!, byVendor.get(InvoiceVendor.AMERICAN_PLUS)!];
     }
 
-    if (!byVendor.has(InvoiceVendor.SUCCESS_PLUS)) {
-      byVendor.set(InvoiceVendor.SUCCESS_PLUS, { vendor: InvoiceVendor.SUCCESS_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA });
-    }
-    if (!byVendor.has(InvoiceVendor.AMERICAN_PLUS)) {
-      byVendor.set(InvoiceVendor.AMERICAN_PLUS, { vendor: InvoiceVendor.AMERICAN_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA });
-    }
-
-    return [byVendor.get(InvoiceVendor.SUCCESS_PLUS)!, byVendor.get(InvoiceVendor.AMERICAN_PLUS)!];
+    throw error;
   }
 }
 
@@ -214,13 +236,55 @@ async function saveVendorTaxSettings(vendorConfigReady: boolean, vendor: Invoice
   }
 }
 
+function NotReadyPanel({ title, details }: { title: string; details: string[] }) {
+  return (
+    <main style={{ padding: 16 }}>
+      <div style={{ padding: 16, maxWidth: 1400, margin: "0 auto", color: "var(--foreground)" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <h1 style={{ fontSize: 26, fontWeight: 900, margin: 0 }}>Admin: Invoices</h1>
+          <Link
+            href="/admin/items"
+            style={{
+              padding: "10px 14px",
+              borderRadius: 12,
+              border: "1px solid rgba(128,128,128,0.25)",
+              background: "var(--background)",
+              color: "var(--foreground)",
+              textDecoration: "none",
+              fontWeight: 900,
+            }}
+          >
+            ← Items
+          </Link>
+        </div>
+
+        <div
+          style={{
+            marginTop: 12,
+            padding: 14,
+            borderRadius: 14,
+            border: "1px solid rgba(128,128,128,0.25)",
+            background: "var(--background)",
+          }}
+        >
+          <div style={{ fontWeight: 900, marginBottom: 6 }}>{title}</div>
+          <ul style={{ margin: 0, paddingLeft: 18, opacity: 0.9, lineHeight: 1.5 }}>
+            {details.map((d) => (
+              <li key={d}>{d}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </main>
+  );
+}
+
 export default async function AdminInvoicesPage({ searchParams }: { searchParams?: SearchParams }) {
   await requireInvoicesView();
 
   const sp: SearchParams = searchParams ?? {};
 
   const pAny = prisma as any;
-
   const invoiceModelReady = typeof pAny.invoice?.findMany === "function" && typeof pAny.invoice?.count === "function";
   const invoiceLineReady = typeof pAny.invoiceLine?.deleteMany === "function";
   const ticketModelReady = typeof pAny.partsCheckoutTicket?.groupBy === "function";
@@ -228,52 +292,13 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
   if (!invoiceModelReady || !invoiceLineReady) {
     return (
-      <main style={{ padding: 16 }}>
-        <div style={{ padding: 16, maxWidth: 1400, margin: "0 auto", color: "var(--foreground)" }}>
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <h1 style={{ fontSize: 26, fontWeight: 900, margin: 0 }}>Admin: Invoices</h1>
-            <Link
-              href="/admin/items"
-              style={{
-                padding: "10px 14px",
-                borderRadius: 12,
-                border: "1px solid rgba(128,128,128,0.25)",
-                background: "var(--background)",
-                color: "var(--foreground)",
-                textDecoration: "none",
-                fontWeight: 900,
-              }}
-            >
-              ← Items
-            </Link>
-          </div>
-
-          <div
-            style={{
-              marginTop: 12,
-              padding: 14,
-              borderRadius: 14,
-              border: "1px solid rgba(128,128,128,0.25)",
-              background: "var(--background)",
-            }}
-          >
-            <div style={{ fontWeight: 900, marginBottom: 6 }}>Not ready yet</div>
-            <div style={{ opacity: 0.85, lineHeight: 1.5 }}>
-              Your deployment is running with a Prisma Client (or database) that does not include the invoice models yet,
-              so this page would crash.
-              <br />
-              Fix checklist:
-              <ul style={{ marginTop: 8, paddingLeft: 18 }}>
-                <li>Run Prisma migrations against Neon (or apply the SQL in Neon).</li>
-                <li>
-                  Run: <code>npx prisma generate</code>
-                </li>
-                <li>Redeploy (or restart) so Vercel picks up the updated Prisma Client.</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </main>
+      <NotReadyPanel
+        title="Not ready yet"
+        details={[
+          "This deployment’s Prisma Client does not include invoice models.",
+          "Fix: run migrations + prisma generate, then redeploy.",
+        ]}
+      />
     );
   }
 
@@ -343,13 +368,12 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   const err = String(sp.err ?? "").trim();
   const cfg = String(sp.cfg ?? "").trim();
 
+  // ===== Load “ready tickets” summary (optional; never crash page) =====
   let readyByStore: Array<{ storeId: string; storeName: string; _count: { _all: number } }> = [];
   let readyTotal = 0;
 
   if (ticketModelReady) {
     try {
-      // IMPORTANT: this is intentionally `any` to avoid Prisma groupBy type mismatches in builds
-      // when Prisma Client types are out of sync across environments.
       readyByStore = (await (prisma as any).partsCheckoutTicket.groupBy({
         by: ["storeId", "storeName"],
         where: {
@@ -364,40 +388,89 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
       readyTotal = readyByStore.reduce((acc, r) => acc + r._count._all, 0);
     } catch (e) {
-      if (!isMissingModelError(e)) throw e;
+      // ignore if not ready in DB yet
+      if (!isSchemaOrDbNotReadyError(e)) throw e;
       readyByStore = [];
       readyTotal = 0;
     }
   }
 
-  const vendorConfigs = await loadVendorTaxSettings(vendorConfigReady);
+  // ===== Load vendor tax settings (optional; never crash page) =====
+  let vendorConfigs: VendorTaxSettings[] = [
+    { vendor: InvoiceVendor.SUCCESS_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA },
+    { vendor: InvoiceVendor.AMERICAN_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA },
+  ];
+
+  try {
+    vendorConfigs = await loadVendorTaxSettings(vendorConfigReady);
+  } catch (e) {
+    if (!isSchemaOrDbNotReadyError(e)) throw e;
+    // keep defaults
+  }
 
   const taxFormulaByVendor = new Map(vendorConfigs.map((c) => [c.vendor, c.taxFormula]));
   const taxRateByVendor = new Map(vendorConfigs.map((c) => [c.vendor, c.taxRatePct]));
 
-  const [invoiceTotal, invoices] = await Promise.all([
-    prisma.invoice.count(),
-    prisma.invoice.findMany({
-      orderBy: { createdAt: "desc" },
-      take: perPage,
-      skip,
-      select: {
-        id: true,
-        vendor: true,
-        vendorNumber: true,
-        billedTo: true,
-        storeName: true,
-        storeNumber: true,
-        invoiceDate: true,
-        periodStart: true,
-        periodEnd: true,
-        status: true,
-        total: true,
-        createdAt: true,
-        _count: { select: { lines: true } },
-      },
-    }),
-  ]);
+  // ===== Load invoices list (REQUIRED). If DB not ready, show NotReady instead of crashing. =====
+  let invoiceTotal = 0;
+  let invoices: Array<{
+    id: string;
+    vendor: InvoiceVendor;
+    vendorNumber: string | null;
+    billedTo: string | null;
+    storeName: string;
+    storeNumber: string;
+    invoiceDate: Date | null;
+    periodStart: Date;
+    periodEnd: Date;
+    status: string;
+    total: any;
+    createdAt: Date;
+    _count: { lines: number };
+  }> = [];
+
+  try {
+    const [count, rows] = await Promise.all([
+      prisma.invoice.count(),
+      prisma.invoice.findMany({
+        orderBy: { createdAt: "desc" },
+        take: perPage,
+        skip,
+        select: {
+          id: true,
+          vendor: true,
+          vendorNumber: true,
+          billedTo: true,
+          storeName: true,
+          storeNumber: true,
+          invoiceDate: true,
+          periodStart: true,
+          periodEnd: true,
+          status: true,
+          total: true,
+          createdAt: true,
+          _count: { select: { lines: true } },
+        },
+      }),
+    ]);
+
+    invoiceTotal = count;
+    invoices = rows as any;
+  } catch (e) {
+    if (isSchemaOrDbNotReadyError(e)) {
+      return (
+        <NotReadyPanel
+          title="Invoices tables not ready in the database"
+          details={[
+            "This deployment can compile, but Neon is missing one or more invoice tables/columns (migrations not applied).",
+            "Fix: run `npx prisma migrate deploy` against Neon (or apply the SQL), then redeploy.",
+            "If you recently added invoice models/fields, also run `npx prisma generate` before deploying.",
+          ]}
+        />
+      );
+    }
+    throw e;
+  }
 
   const pageCount = Math.max(1, Math.ceil(invoiceTotal / perPage));
 
@@ -572,9 +645,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
           ? "Tax rate must be a valid number between 0 and 100."
           : cfg === "config_not_ready"
             ? "Vendor tax settings are not available yet on this deployment (missing invoiceVendorConfig)."
-            : !ticketModelReady
-              ? "Ticket summary is unavailable on this deployment (missing partsCheckoutTicket.groupBy)."
-              : null;
+            : null;
 
   return (
     <main style={{ padding: 16 }}>
@@ -793,9 +864,14 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "baseline" }}>
             <div style={{ fontWeight: 900 }}>Recent invoices</div>
             <div style={{ fontSize: 12, opacity: 0.8 }}>
-              Showing <b>{invoices.length}</b> of <b>{invoiceTotal}</b> • Page <b>{page}</b> / <b>{pageCount}</b>
+              Showing <b>{invoices.length}</b> of <b>{invoiceTotal}</b> • Page <b>{page}</b> /{" "}
+              <b>{Math.max(1, Math.ceil(invoiceTotal / perPage))}</b>
             </div>
           </div>
+
+          <form action={async (fd) => { "use server"; await (async () => {})(); }}>
+            {/* noop placeholder - kept structure stable */}
+          </form>
 
           <form action={hardDeleteSelectedInvoicesAction}>
             <input type="hidden" name="vendor" value={vendor} />
@@ -837,12 +913,12 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                       </td>
                       <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocalDate(inv.createdAt)}</td>
                       <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{vendorLabel(inv.vendor)}</td>
-                      <td style={{ padding: 10, whiteSpace: "nowrap" }}>{inv.vendorNumber}</td>
+                      <td style={{ padding: 10, whiteSpace: "nowrap" }}>{inv.vendorNumber ?? "—"}</td>
                       <td style={{ padding: 10, whiteSpace: "nowrap" }}>
                         <div style={{ fontWeight: 900 }}>
                           {inv.storeNumber} {inv.storeName}
                         </div>
-                        <div style={{ fontSize: 12, opacity: 0.75 }}>{inv.billedTo}</div>
+                        <div style={{ fontSize: 12, opacity: 0.75 }}>{inv.billedTo ?? "—"}</div>
                       </td>
                       <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocalDate(inv.invoiceDate)}</td>
                       <td style={{ padding: 10, whiteSpace: "nowrap" }}>
@@ -893,8 +969,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
               </button>
 
               <div style={{ fontSize: 12, opacity: 0.75, maxWidth: 700 }}>
-                Hard delete permanently removes invoices and their line items. If the delete fails, your database likely has a foreign key
-                reference (ex: tickets linked to invoices).
+                Hard delete permanently removes invoices and their line items.
               </div>
             </div>
           </form>
