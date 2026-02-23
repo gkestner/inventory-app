@@ -14,5 +14,9 @@ export default async function Home() {
     redirect("/admin/users");
   }
 
+  if (role === Role.EMPLOYEE) {
+    redirect("/employee");
+  }
+
   redirect("/maintenance");
 }

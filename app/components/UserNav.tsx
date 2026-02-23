@@ -4,7 +4,7 @@ import type { CSSProperties } from "react";
 import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/app/lib/auth";
-import { Permission } from "@prisma/client";
+import { Permission, Role } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
@@ -13,12 +13,13 @@ export const dynamic = "force-dynamic";
  * UserNav
  * - ADMIN role => allow-all (via loadUserPermissions) though typically swapped in via preview mode
  * - Non-admin => permission-gated
- *
- * No UI redesign; only conditional rendering changes.
  */
 export default async function UserNav() {
   const session = await getServerSession(authOptions);
   const perms = await loadUserPermissions(session);
+
+  const role = (session?.user as { role?: Role | null } | undefined)?.role ?? null;
+  const isEmployee = role === Role.EMPLOYEE;
 
   const shell: CSSProperties = {
     borderBottom: "1px solid rgba(128,128,128,0.25)",
@@ -80,16 +81,20 @@ export default async function UserNav() {
     Permission.SUBMIT_OWN_WORK_ORDERS,
   ]);
 
-  const canCheckout = hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
-
   // Travel Log is derived from Work Orders, so gate it the same way (view permission is sufficient).
   const canTravelLog = hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
+
+  // Employees should not see Parts Checkout in nav.
+  const canCheckout =
+    !isEmployee && hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
+
+  const homeHref = isEmployee ? "/employee" : "/maintenance";
 
   return (
     <div style={shell}>
       <div style={inner}>
         <div style={left}>
-          <Link href="/maintenance" style={brand}>
+          <Link href={homeHref} style={brand}>
             Maintenance
           </Link>
 
