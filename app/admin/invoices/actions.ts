@@ -357,7 +357,10 @@ function evaluateExpression(formula: string, allowedVars: Set<string>, vars: Rec
 // Public helpers used by invoice creation
 // -----------------------------
 
-export function evaluatePartsPriceFormula(formula: string, input: { cost: number; partsUpchargePct: number }): number {
+export async function evaluatePartsPriceFormula(
+  formula: string,
+  input: { cost: number; partsUpchargePct: number }
+): Promise<number> {
   const { cost, partsUpchargePct } = input;
   if (!Number.isFinite(cost) || cost < 0) throw new Error("Cost must be a valid non-negative number.");
   if (!Number.isFinite(partsUpchargePct) || partsUpchargePct < 0)
@@ -366,10 +369,10 @@ export function evaluatePartsPriceFormula(formula: string, input: { cost: number
   return evaluateExpression(formula, new Set(["cost", "partsUpchargePct"]), { cost, partsUpchargePct });
 }
 
-export function evaluateTaxFormula(
+export async function evaluateTaxFormula(
   formula: string,
   input: { lineSubtotal: number; taxRatePct: number; quantity: number; unitPrice: number }
-): number {
+): Promise<number> {
   const { lineSubtotal, taxRatePct, quantity, unitPrice } = input;
 
   for (const [k, v] of Object.entries({ lineSubtotal, taxRatePct, quantity, unitPrice })) {
@@ -588,46 +591,48 @@ export async function createInvoicesForWindow(args: {
         }
 
         // Build lines + totals
-        const lineBuild = fresh.map((t) => {
-          const cost = Math.max(0, toNumberLoose(t.costSnapshot));
-          const qty = Math.max(0, Number(t.quantity || 0));
+        const lineBuild = await Promise.all(
+          fresh.map(async (t) => {
+            const cost = Math.max(0, toNumberLoose(t.costSnapshot));
+            const qty = Math.max(0, Number(t.quantity || 0));
 
-          const unitPriceRaw = evaluatePartsPriceFormula(cfg.partsPriceFormula, {
-            cost,
-            partsUpchargePct: cfg.partsUpchargePct,
-          });
+            const unitPriceRaw = await evaluatePartsPriceFormula(cfg.partsPriceFormula, {
+              cost,
+              partsUpchargePct: cfg.partsUpchargePct,
+            });
 
-          const unitPrice = round2(unitPriceRaw);
-          const lineSubtotal = round2(unitPrice * qty);
+            const unitPrice = round2(unitPriceRaw);
+            const lineSubtotal = round2(unitPrice * qty);
 
-          const taxable = !!t.taxableSnapshot;
-          const lineTax = taxable
-            ? round2(
-                evaluateTaxFormula(cfg.taxFormula, {
-                  lineSubtotal,
-                  taxRatePct: cfg.taxRatePct,
-                  quantity: qty,
-                  unitPrice,
-                })
-              )
-            : 0;
+            const taxable = !!t.taxableSnapshot;
+            const lineTax = taxable
+              ? round2(
+                  await evaluateTaxFormula(cfg.taxFormula, {
+                    lineSubtotal,
+                    taxRatePct: cfg.taxRatePct,
+                    quantity: qty,
+                    unitPrice,
+                  })
+                )
+              : 0;
 
-          const lineTotal = round2(lineSubtotal + lineTax);
+            const lineTotal = round2(lineSubtotal + lineTax);
 
-          return {
-            checkoutId: t.id,
-            submittedAt: t.createdAt,
-            sku: t.skuSnapshot,
-            partNumber: t.partNumberSnapshot ?? null,
-            name: t.nameSnapshot,
-            quantity: qty,
-            unitPrice,
-            taxable,
-            lineSubtotal,
-            lineTax,
-            lineTotal,
-          };
-        });
+            return {
+              checkoutId: t.id,
+              submittedAt: t.createdAt,
+              sku: t.skuSnapshot,
+              partNumber: t.partNumberSnapshot ?? null,
+              name: t.nameSnapshot,
+              quantity: qty,
+              unitPrice,
+              taxable,
+              lineSubtotal,
+              lineTax,
+              lineTotal,
+            };
+          })
+        );
 
         const subtotal = round2(lineBuild.reduce((acc, l) => acc + l.lineSubtotal, 0));
         const taxTotal = round2(lineBuild.reduce((acc, l) => acc + l.lineTax, 0));
