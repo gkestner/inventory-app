@@ -110,18 +110,100 @@ function parseOptionalDateTimeLocal(v: FormDataEntryValue | null): Date | null {
   if (!v || typeof v !== "string") return null;
   const s = v.trim();
   if (!s) return null;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
+
+  // HTML <input type="datetime-local"> submits a string like "YYYY-MM-DDTHH:mm" with **no timezone**.
+  // Node's Date parsing is not consistent across runtimes for this format, and server timezone can differ
+  // from the user's. We treat these values as America/New_York wall time and convert to an absolute Date.
+  const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2})$/.exec(s);
+  if (!m) return null;
+
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const hour = Number(m[4]);
+  const minute = Number(m[5]);
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute)
+  ) {
+    return null;
+  }
+
+  const TZ = "America/New_York";
+
+  function tzOffsetMinutes(at: Date, timeZone: string): number {
+    // Offset in minutes where: localTime(timeZone) = UTC + offset
+    const dtf = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hour12: false,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    const parts = dtf.formatToParts(at);
+    const get = (type: string) => {
+      const p = parts.find((x) => x.type === type)?.value;
+      return p ? Number(p) : NaN;
+    };
+    const y = get("year");
+    const mo = get("month");
+    const da = get("day");
+    const h = get("hour");
+    const mi = get("minute");
+    const se = get("second");
+    const asUTC = Date.UTC(y, mo - 1, da, h, mi, se);
+    return Math.round((asUTC - at.getTime()) / 60000);
+  }
+
+  // Start with a UTC guess for the same wall-clock components, then shift by the timezone offset.
+  const naiveUTC = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const guess = new Date(naiveUTC);
+  const offsetMin = tzOffsetMinutes(guess, TZ);
+  const out = new Date(naiveUTC - offsetMin * 60000);
+  return Number.isNaN(out.getTime()) ? null : out;
 }
 
 function fmtLocal(d: Date | null): string {
   if (!d) return "—";
-  return new Date(d).toLocaleString();
+
+  // Render in business timezone for consistent UX regardless of server/runtime timezone.
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(d));
 }
 
 function fmtForDatetimeLocal(d: Date | null): string {
   if (!d) return "";
-  return new Date(d).toISOString().slice(0, 16);
+
+  // datetime-local expects a value in *local wall time* (no timezone). We format in business timezone.
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(new Date(d));
+
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  const y = get("year");
+  const mo = get("month");
+  const da = get("day");
+  const h = get("hour");
+  const mi = get("minute");
+  return `${y}-${mo}-${da}T${h}:${mi}`;
 }
 
 function formatAreaLabel(area: string): string {
@@ -266,35 +348,38 @@ export default async function MaintenanceWorkOrderDetailPage({
   };
 
   const btn: CSSProperties = {
-    padding: "14px 18px",
+    padding: "12px 16px",
     borderRadius: 14,
     border,
     background: surface,
     color: fg,
     fontWeight: 900,
-    fontSize: 17,
     cursor: "pointer",
+    fontSize: 16,
+    lineHeight: 1.1,
   };
-
-  const checkbox: CSSProperties = { width: 18, height: 18 };
 
   const gridWrap: CSSProperties = {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
-    gap: 12,
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: 10,
     marginTop: 10,
   };
 
   const gridItem: CSSProperties = {
     display: "flex",
+    gap: 10,
     alignItems: "center",
-    gap: 12,
-    padding: "12px 14px",
+    padding: "10px 12px",
     border,
     borderRadius: 14,
-    fontSize: 15,
     background: soft,
+    fontSize: 14,
+    fontWeight: 800,
+    minHeight: 44,
   };
+
+  const checkbox: CSSProperties = { width: 18, height: 18 };
 
   async function startNowAction() {
     "use server";
@@ -370,42 +455,52 @@ export default async function MaintenanceWorkOrderDetailPage({
 
     const wo = await prisma.workOrder.findUnique({
       where: { id },
-      select: { createdByUserId: true },
+      select: {
+        createdByUserId: true,
+        locationId: true,
+      },
     });
     if (!wo) notFound();
     if (!isAdmin && wo.createdByUserId !== me.id) redirect("/maintenance/work-orders");
 
-    const locationId = String(formData.get("locationId") ?? "").trim();
-    if (!locationId) throw new Error("Location is required");
+    const locationIdRaw = formData.get("locationId");
+    const locationId = typeof locationIdRaw === "string" ? locationIdRaw : "";
 
-    // enforce chosen location within user's allowed locations (unless admin)
-    if (!isAdmin) {
+    if (isAdmin) {
+      // admin can set any locationId (validated by FK)
+    } else {
+      // regular user can only set their primary/allowed locations
       const allowed = new Set<string>();
       if (me.locationId) allowed.add(me.locationId);
-      for (const ul of me.allowedLocations) allowed.add(ul.locationId);
-      if (!allowed.has(locationId)) throw new Error("You are not allowed to use that location.");
+      for (const a of me.allowedLocations) allowed.add(a.locationId);
+      if (!allowed.has(locationId)) {
+        throw new Error("Invalid location selection.");
+      }
     }
 
-    const statusRaw = String(formData.get("status") ?? "").trim().toUpperCase();
-    const status: WorkOrderStatus | null = (STATUSES as readonly string[]).includes(statusRaw)
-      ? (statusRaw as WorkOrderStatus)
-      : null;
-    if (!status) throw new Error("Invalid status");
+    const statusRaw = formData.get("status");
+    const status = typeof statusRaw === "string" ? statusRaw : "";
+    if (!(STATUSES as readonly string[]).includes(status)) throw new Error("Invalid status");
 
-    const notes = String(formData.get("notes") ?? "");
+    const notesRaw = formData.get("notes");
+    const notes = typeof notesRaw === "string" ? notesRaw.trim() : "";
+    const notesValue = notes.length > 0 ? notes : null;
+
     const startTime = parseOptionalDateTimeLocal(formData.get("startTime"));
     const endTime = parseOptionalDateTimeLocal(formData.get("endTime"));
+
     const startingMileage = parseOptionalInt(formData.get("startingMileage"));
     const endingMileage = parseOptionalInt(formData.get("endingMileage"));
-    const areas = parseAreas(formData); // pizza list only
+
+    const areas = parseAreas(formData);
 
     await prisma.$transaction(async (tx) => {
       await tx.workOrder.update({
         where: { id },
         data: {
           locationId,
-          status,
-          notes,
+          status: status as any,
+          notes: notesValue,
           startTime,
           endTime,
           startingMileage,

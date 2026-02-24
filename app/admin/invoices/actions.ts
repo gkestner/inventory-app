@@ -2,42 +2,22 @@
 "use server";
 
 import { prisma } from "@/app/lib/prisma";
-import { InvoiceStatus, InvoiceVendor, PartsCheckoutStatus } from "@prisma/client";
-
-type CreateInvoicesArgs = {
-  vendor: InvoiceVendor;
-  periodStart: Date;
-  periodEnd: Date;
-  invoiceDate: Date;
-};
-
-type CreateInvoicesResult = {
-  vendor: InvoiceVendor;
-  periodStart: Date;
-  periodEnd: Date;
-  invoiceDate: Date;
-  results: Array<{
-    storeId: string;
-    storeName: string;
-    invoiceId?: string;
-    createdLines?: number;
-    reason?: string;
-  }>;
-};
+import { InvoiceVendor, PartsCheckoutStatus } from "@prisma/client";
 
 /**
- * ===========================
- * Safe formula evaluator (server)
- * ===========================
- * - Whitelisted variables only
- * - Whitelisted helpers only
- * - Supports: numbers, + - * /, parentheses, commas, function calls
- * - No property access, no strings, no comparisons, no assignments
+ * Safe expression evaluator:
+ * - supports numbers, + - * /, parentheses
+ * - supports variables (whitelisted per evaluator)
+ * - supports helpers: min,max,round,floor,ceil,abs
+ * - NO property access, NO strings, NO arbitrary identifiers
  */
+
+type Op = "+" | "-" | "*" | "/";
+
 type Tok =
   | { t: "num"; v: number }
-  | { t: "ident"; v: string }
-  | { t: "op"; v: "+" | "-" | "*" | "/" }
+  | { t: "id"; v: string }
+  | { t: "op"; v: Op }
   | { t: "lp" }
   | { t: "rp" }
   | { t: "comma" };
@@ -45,13 +25,11 @@ type Tok =
 function isDigit(ch: string) {
   return ch >= "0" && ch <= "9";
 }
-
 function isAlpha(ch: string) {
-  return /[a-zA-Z_]/.test(ch);
+  return (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || ch === "_";
 }
-
 function isAlphaNum(ch: string) {
-  return /[a-zA-Z0-9_]/.test(ch);
+  return isAlpha(ch) || isDigit(ch);
 }
 
 function tokenize(input: string): Tok[] {
@@ -98,7 +76,9 @@ function tokenize(input: string): Tok[] {
       if (s[j] === ".") {
         seenDot = true;
         j++;
-        if (j >= s.length || !isDigit(s[j])) throw new Error(`Invalid number near "." at position ${i + 1}.`);
+        if (j >= s.length || !isDigit(s[j])) {
+          throw new Error(`Invalid number near "." at position ${i + 1}.`);
+        }
       }
 
       while (j < s.length) {
@@ -128,7 +108,7 @@ function tokenize(input: string): Tok[] {
       let j = i;
       while (j < s.length && isAlphaNum(s[j])) j++;
       const raw = s.slice(i, j);
-      out.push({ t: "ident", v: raw });
+      out.push({ t: "id", v: raw });
       i = j;
       continue;
     }
@@ -156,156 +136,145 @@ function normalizeUnary(tokens: Tok[]): Tok[] {
   return out;
 }
 
-function prec(op: "+" | "-" | "*" | "/") {
+function prec(op: Op) {
   return op === "*" || op === "/" ? 2 : 1;
 }
 
-type RpnTok =
+type Rpn =
   | { t: "num"; v: number }
   | { t: "var"; v: string }
-  | { t: "op"; v: "+" | "-" | "*" | "/" }
+  | { t: "op"; v: Op }
   | { t: "fn"; v: string; argc: number };
 
-function toRpn(tokens: Tok[], allowedVars: Set<string>, allowedFns: Set<string>): RpnTok[] {
-  const out: RpnTok[] = [];
-  const opStack: Array<Tok | { t: "fn"; name: string; argc: number }> = [];
-  const argcStack: number[] = [];
-  let lastWasValue = false;
+const HELPERS = new Set(["min", "max", "round", "floor", "ceil", "abs"]);
 
-  const pushIdent = (name: string) => {
-    const lower = name.toLowerCase();
-    // function call if next token is '(' handled in loop by peeking
-    if (allowedVars.has(lower)) {
-      out.push({ t: "var", v: lower });
-      lastWasValue = true;
-      return;
-    }
-    if (allowedFns.has(lower)) {
-      // will be converted to fn when we see '('
-      opStack.push({ t: "fn", name: lower, argc: 0 });
-      lastWasValue = false;
-      return;
-    }
-    throw new Error(`Unknown identifier "${name}".`);
-  };
+function toRpn(tokens: Tok[], allowedVars: Set<string>): Rpn[] {
+  const out: Rpn[] = [];
+  const stack: Array<
+    | { k: "op"; v: Op }
+    | { k: "lp" }
+    | { k: "fn"; name: string; argc: number; seenArg: boolean }
+  > = [];
+
+  const peekTok = (idx: number) => (idx >= 0 && idx < tokens.length ? tokens[idx] : null);
 
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i];
 
     if (tok.t === "num") {
       out.push({ t: "num", v: tok.v });
-      lastWasValue = true;
+      const top = stack[stack.length - 1];
+      if (top?.k === "fn") top.seenArg = true;
       continue;
     }
 
-    if (tok.t === "ident") {
-      // If it's a function name, we push as fn marker now; '(' will follow.
-      pushIdent(tok.v);
+    if (tok.t === "id") {
+      const next = peekTok(i + 1);
+      const name = tok.v;
+
+      if (next?.t === "lp") {
+        const lname = name.toLowerCase();
+        if (!HELPERS.has(lname)) {
+          throw new Error(`Unknown function "${name}". Allowed: ${Array.from(HELPERS).join(", ")}`);
+        }
+        stack.push({ k: "fn", name: lname, argc: 0, seenArg: false });
+        continue;
+      }
+
+      const vname = name;
+      if (!allowedVars.has(vname)) {
+        throw new Error(`Unknown identifier "${vname}".`);
+      }
+      out.push({ t: "var", v: vname });
+      const top = stack[stack.length - 1];
+      if (top?.k === "fn") top.seenArg = true;
       continue;
     }
 
     if (tok.t === "lp") {
-      // If the previous thing on opStack is a fn marker, this '(' starts its arg list.
-      const top = opStack[opStack.length - 1];
-      if (top && (top as any).t === "fn") {
-        // Start counting args; argc is 1 if next token produces a value, but we count commas +1.
-        argcStack.push(0);
-      }
-      opStack.push(tok);
-      lastWasValue = false;
+      stack.push({ k: "lp" });
       continue;
     }
 
     if (tok.t === "comma") {
-      // Pop operators until '('
-      while (opStack.length) {
-        const top = opStack[opStack.length - 1];
-        if ((top as Tok).t === "lp") break;
-        const popped = opStack.pop()!;
-        if ((popped as Tok).t === "op") out.push({ t: "op", v: (popped as Tok).v as any });
-        else if ((popped as any).t === "fn") {
-          // shouldn't happen here
-        }
-      }
-      if (!opStack.length) throw new Error("Misplaced comma.");
-
-      // increment current function argc counter
-      if (argcStack.length === 0) throw new Error("Comma outside function call.");
-      argcStack[argcStack.length - 1] += 1;
-      lastWasValue = false;
-      continue;
-    }
-
-    if (tok.t === "op") {
-      while (opStack.length) {
-        const top = opStack[opStack.length - 1] as any;
-        if (top.t === "op" && prec(top.v) >= prec(tok.v)) {
+      while (stack.length) {
+        const top = stack[stack.length - 1];
+        if (top.k === "lp") break;
+        if (top.k === "op") {
           out.push({ t: "op", v: top.v });
-          opStack.pop();
+          stack.pop();
           continue;
         }
         break;
       }
-      opStack.push(tok);
-      lastWasValue = false;
+      for (let j = stack.length - 1; j >= 0; j--) {
+        const x = stack[j];
+        if (x.k === "fn") {
+          x.argc += 1;
+          x.seenArg = false;
+          break;
+        }
+      }
+      continue;
+    }
+
+    if (tok.t === "op") {
+      while (stack.length) {
+        const top = stack[stack.length - 1];
+        if (top.k === "op" && prec(top.v) >= prec(tok.v)) {
+          out.push({ t: "op", v: top.v });
+          stack.pop();
+          continue;
+        }
+        break;
+      }
+      stack.push({ k: "op", v: tok.v });
       continue;
     }
 
     if (tok.t === "rp") {
       let matched = false;
-      while (opStack.length) {
-        const top = opStack.pop() as any;
-
-        if (top.t === "lp") {
+      while (stack.length) {
+        const top = stack.pop()!;
+        if (top.k === "lp") {
           matched = true;
           break;
         }
-
-        if (top.t === "op") out.push({ t: "op", v: top.v });
-        else if (top.t === "fn") {
-          // shouldn't happen
-        }
+        if (top.k === "op") out.push({ t: "op", v: top.v });
       }
       if (!matched) throw new Error("Mismatched parentheses.");
 
-      // If the thing before this ')' is a function marker, emit it.
-      const maybeFn = opStack[opStack.length - 1] as any;
-      if (maybeFn && maybeFn.t === "fn") {
-        opStack.pop();
-        const commas = argcStack.pop() ?? 0;
-
-        // If we had any value inside parens, argc = commas+1, else 0 (empty call)
-        // We'll treat empty call as invalid.
-        const argc = lastWasValue ? commas + 1 : 0;
-        if (argc <= 0) throw new Error(`Function "${maybeFn.name}" requires arguments.`);
-        out.push({ t: "fn", v: maybeFn.name, argc });
+      const fnTop = stack[stack.length - 1];
+      if (fnTop?.k === "fn") {
+        const argc = fnTop.argc + (fnTop.seenArg ? 1 : 0);
+        if (argc <= 0) throw new Error(`Function "${fnTop.name}" requires arguments.`);
+        out.push({ t: "fn", v: fnTop.name, argc });
+        stack.pop();
+        const parent = stack[stack.length - 1];
+        if (parent?.k === "fn") parent.seenArg = true;
       }
 
-      lastWasValue = true;
       continue;
     }
   }
 
-  while (opStack.length) {
-    const top = opStack.pop() as any;
-    if (top.t === "lp" || top.t === "rp") throw new Error("Mismatched parentheses.");
-    if (top.t === "op") out.push({ t: "op", v: top.v });
-    else if (top.t === "fn") throw new Error("Function call missing parentheses.");
+  while (stack.length) {
+    const top = stack.pop()!;
+    if (top.k === "lp") throw new Error("Mismatched parentheses.");
+    if (top.k === "op") out.push({ t: "op", v: top.v });
+    else throw new Error("Invalid formula.");
   }
 
   return out;
 }
 
-function evalRpn(rpn: RpnTok[], vars: Record<string, number>): number {
+function evalRpn(rpn: Rpn[], vars: Record<string, number>): number {
   const st: number[] = [];
 
-  const fns: Record<string, (...args: number[]) => number> = {
-    min: (...a) => Math.min(...a),
-    max: (...a) => Math.max(...a),
-    round: (x) => Math.round(x),
-    floor: (x) => Math.floor(x),
-    ceil: (x) => Math.ceil(x),
-    abs: (x) => Math.abs(x),
+  const popN = () => {
+    const v = st.pop();
+    if (v === undefined) throw new Error("Invalid formula.");
+    return v;
   };
 
   for (const tok of rpn) {
@@ -313,19 +282,15 @@ function evalRpn(rpn: RpnTok[], vars: Record<string, number>): number {
       st.push(tok.v);
       continue;
     }
-
     if (tok.t === "var") {
       const v = vars[tok.v];
       if (!Number.isFinite(v)) throw new Error(`Variable "${tok.v}" is not a valid number.`);
       st.push(v);
       continue;
     }
-
     if (tok.t === "op") {
-      const b = st.pop();
-      const a = st.pop();
-      if (a === undefined || b === undefined) throw new Error("Invalid formula.");
-
+      const b = popN();
+      const a = popN();
       let r = 0;
       if (tok.v === "+") r = a + b;
       else if (tok.v === "-") r = a - b;
@@ -334,32 +299,46 @@ function evalRpn(rpn: RpnTok[], vars: Record<string, number>): number {
         if (b === 0) throw new Error("Division by zero.");
         r = a / b;
       }
-
       if (!Number.isFinite(r)) throw new Error("Formula result is not finite.");
       st.push(r);
       continue;
     }
-
     if (tok.t === "fn") {
-      const fn = fns[tok.v];
-      if (!fn) throw new Error(`Function "${tok.v}" is not allowed.`);
       const argc = tok.argc;
-      if (argc <= 0) throw new Error("Invalid function call.");
 
       const args: number[] = [];
-      for (let i = 0; i < argc; i++) {
-        const v = st.pop();
-        if (v === undefined) throw new Error("Invalid function arguments.");
-        args.push(v);
-      }
+      for (let i = 0; i < argc; i++) args.push(popN());
       args.reverse();
 
-      const r = fn(...args);
+      const name = tok.v;
+      let r = 0;
+
+      if (name === "min") r = Math.min(...args);
+      else if (name === "max") r = Math.max(...args);
+      else if (name === "abs") {
+        if (args.length !== 1) throw new Error("abs(x) expects 1 argument.");
+        r = Math.abs(args[0]);
+      } else if (name === "round") {
+        if (args.length === 1) r = Math.round(args[0]);
+        else if (args.length === 2) {
+          const [x, d] = args;
+          const p = Math.pow(10, d);
+          r = Math.round(x * p) / p;
+        } else throw new Error("round(x) or round(x, decimals).");
+      } else if (name === "floor") {
+        if (args.length !== 1) throw new Error("floor(x) expects 1 argument.");
+        r = Math.floor(args[0]);
+      } else if (name === "ceil") {
+        if (args.length !== 1) throw new Error("ceil(x) expects 1 argument.");
+        r = Math.ceil(args[0]);
+      } else {
+        throw new Error(`Unknown function "${name}".`);
+      }
+
       if (!Number.isFinite(r)) throw new Error("Formula result is not finite.");
       st.push(r);
       continue;
     }
-
     throw new Error("Invalid token.");
   }
 
@@ -367,95 +346,143 @@ function evalRpn(rpn: RpnTok[], vars: Record<string, number>): number {
   return st[0];
 }
 
-function evaluateFormula(
-  formula: string,
-  vars: Record<string, number>,
-  allowedVars: string[],
-  allowedFns: string[]
-): number {
-  const av = new Set(allowedVars.map((s) => s.toLowerCase()));
-  const af = new Set(allowedFns.map((s) => s.toLowerCase()));
+function evaluateExpression(formula: string, allowedVars: Set<string>, vars: Record<string, number>) {
   const tokens = normalizeUnary(tokenize(formula));
-  const rpn = toRpn(tokens, av, af);
-  const out = evalRpn(rpn, Object.fromEntries(Object.entries(vars).map(([k, v]) => [k.toLowerCase(), v])));
-  return out;
+  const rpn = toRpn(tokens, allowedVars);
+  const result = evalRpn(rpn, vars);
+  return Number(result.toFixed(6));
 }
 
-function roundMoney(n: number): number {
-  // stable, invoice-safe rounding
-  return Math.round((n + Number.EPSILON) * 100) / 100;
+// -----------------------------
+// Public helpers used by invoice creation
+// -----------------------------
+
+export function evaluatePartsPriceFormula(formula: string, input: { cost: number; partsUpchargePct: number }): number {
+  const { cost, partsUpchargePct } = input;
+  if (!Number.isFinite(cost) || cost < 0) throw new Error("Cost must be a valid non-negative number.");
+  if (!Number.isFinite(partsUpchargePct) || partsUpchargePct < 0)
+    throw new Error("partsUpchargePct must be non-negative.");
+
+  return evaluateExpression(formula, new Set(["cost", "partsUpchargePct"]), { cost, partsUpchargePct });
 }
 
-async function loadVendorConfigForPricingAndTax(vendor: InvoiceVendor) {
-  // Defaults if config table/fields aren't ready.
-  const DEFAULTS = {
-    partsUpchargePct: 0,
-    partsPriceFormula: "cost * (1 + (partsUpchargePct / 100))",
-    taxRatePct: 0,
-    taxFormula: "lineSubtotal * (taxRatePct / 100)",
-  };
+export function evaluateTaxFormula(
+  formula: string,
+  input: { lineSubtotal: number; taxRatePct: number; quantity: number; unitPrice: number }
+): number {
+  const { lineSubtotal, taxRatePct, quantity, unitPrice } = input;
 
-  const pAny = prisma as any;
-  const vendorConfigReady =
-    typeof pAny.invoiceVendorConfig?.findUnique === "function" || typeof pAny.invoiceVendorConfig?.findFirst === "function";
+  for (const [k, v] of Object.entries({ lineSubtotal, taxRatePct, quantity, unitPrice })) {
+    if (!Number.isFinite(v)) throw new Error(`${k} must be a valid number.`);
+  }
 
-  if (!vendorConfigReady) return DEFAULTS;
+  return evaluateExpression(
+    formula,
+    new Set(["lineSubtotal", "taxRatePct", "quantity", "unitPrice"]),
+    { lineSubtotal, taxRatePct, quantity, unitPrice }
+  );
+}
 
+// -----------------------------
+// Vendor config loader (safe for older schema)
+// -----------------------------
+
+const DEFAULTS = {
+  taxRatePct: 0,
+  taxFormula: "lineSubtotal * (taxRatePct / 100)",
+  partsUpchargePct: 0,
+  partsPriceFormula: "cost * (1 + (partsUpchargePct / 100))",
+};
+
+export async function loadVendorPricingAndTaxConfig(vendor: InvoiceVendor): Promise<{
+  vendor: InvoiceVendor;
+  taxRatePct: number;
+  taxFormula: string;
+  partsUpchargePct: number;
+  partsPriceFormula: string;
+}> {
   try {
-    const row =
-      (await pAny.invoiceVendorConfig.findUnique?.({
-        where: { vendor },
-        select: {
-          partsUpchargePct: true,
-          partsPriceFormula: true,
-          taxRatePct: true,
-          taxFormula: true,
-        },
-      })) ??
-      (await pAny.invoiceVendorConfig.findFirst?.({
-        where: { vendor },
-        select: {
-          partsUpchargePct: true,
-          partsPriceFormula: true,
-          taxRatePct: true,
-          taxFormula: true,
-        },
-      }));
+    const row = await (prisma as any).invoiceVendorConfig.findUnique({
+      where: { vendor },
+      select: {
+        vendor: true,
+        taxRatePct: true,
+        taxFormula: true,
+        partsUpchargePct: true,
+        partsPriceFormula: true,
+      },
+    });
 
-    if (!row) return DEFAULTS;
+    if (!row) return { vendor, ...DEFAULTS };
 
     return {
-      partsUpchargePct: Number(row.partsUpchargePct ?? 0),
-      partsPriceFormula: String(row.partsPriceFormula ?? DEFAULTS.partsPriceFormula),
-      taxRatePct: Number(row.taxRatePct ?? 0),
-      taxFormula: String(row.taxFormula ?? DEFAULTS.taxFormula),
+      vendor,
+      taxRatePct: Number(row.taxRatePct ?? DEFAULTS.taxRatePct),
+      taxFormula: String(row.taxFormula || DEFAULTS.taxFormula),
+      partsUpchargePct: Number(row.partsUpchargePct ?? DEFAULTS.partsUpchargePct),
+      partsPriceFormula: String(row.partsPriceFormula || DEFAULTS.partsPriceFormula),
     };
   } catch {
-    return DEFAULTS;
+    try {
+      const row = await (prisma as any).invoiceVendorConfig.findUnique({
+        where: { vendor },
+        select: {
+          vendor: true,
+          taxRatePct: true,
+          partsUpchargePct: true,
+        },
+      });
+
+      if (!row) return { vendor, ...DEFAULTS };
+
+      return {
+        vendor,
+        taxRatePct: Number(row.taxRatePct ?? DEFAULTS.taxRatePct),
+        taxFormula: DEFAULTS.taxFormula,
+        partsUpchargePct: Number(row.partsUpchargePct ?? DEFAULTS.partsUpchargePct),
+        partsPriceFormula: DEFAULTS.partsPriceFormula,
+      };
+    } catch {
+      return { vendor, ...DEFAULTS };
+    }
   }
 }
 
-export async function createInvoicesForWindow(args: CreateInvoicesArgs): Promise<CreateInvoicesResult> {
-  const vendor = args.vendor;
+// -----------------------------
+// Invoice generation
+// -----------------------------
+
+function round2(n: number) {
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100) / 100;
+}
+
+function toNumberLoose(v: any): number {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+export async function createInvoicesForWindow(args: {
+  vendor: InvoiceVendor;
+  periodStart: Date;
+  periodEnd: Date;
+  invoiceDate: Date;
+}): Promise<{ results: Array<{ storeId: string; invoiceId?: string; created?: boolean; reason?: string }> }> {
+  const vendor = args.vendor === "AMERICAN_PLUS" ? InvoiceVendor.AMERICAN_PLUS : InvoiceVendor.SUCCESS_PLUS;
   const periodStart = new Date(args.periodStart);
   const periodEnd = new Date(args.periodEnd);
   const invoiceDate = new Date(args.invoiceDate);
 
-  if (Number.isNaN(periodStart.getTime()) || Number.isNaN(periodEnd.getTime()) || Number.isNaN(invoiceDate.getTime())) {
-    throw new Error("Invalid dates.");
+  if (Number.isNaN(periodStart.getTime()) || Number.isNaN(periodEnd.getTime())) {
+    throw new Error("Invalid periodStart/periodEnd");
   }
-  if (periodEnd < periodStart) throw new Error("periodEnd must be >= periodStart.");
+  if (Number.isNaN(invoiceDate.getTime())) {
+    throw new Error("Invalid invoiceDate");
+  }
 
-  // ✅ Load vendor-level pricing + tax configuration (1 formula per vendor)
-  const cfg = await loadVendorConfigForPricingAndTax(vendor);
+  const cfg = await loadVendorPricingAndTaxConfig(vendor);
 
-  const partsUpchargePct = Number.isFinite(cfg.partsUpchargePct) ? cfg.partsUpchargePct : 0;
-  const partsPriceFormula = (cfg.partsPriceFormula || "").trim() || "cost * (1 + (partsUpchargePct / 100))";
-  const taxRatePct = Number.isFinite(cfg.taxRatePct) ? cfg.taxRatePct : 0;
-  const taxFormula = (cfg.taxFormula || "").trim() || "lineSubtotal * (taxRatePct / 100)";
-
-  // Pull all eligible OPEN tickets for this vendor within window.
-  // NOTE: tickets snapshot vendorSnapshot is the source of truth for vendor selection.
+  // Pull OPEN tickets in window, matching vendor snapshot, not already invoiced/voided
   const tickets = await prisma.partsCheckoutTicket.findMany({
     where: {
       status: PartsCheckoutStatus.OPEN,
@@ -463,204 +490,210 @@ export async function createInvoicesForWindow(args: CreateInvoicesArgs): Promise
       voidedAt: null,
       createdAt: { gte: periodStart, lte: periodEnd },
       vendorSnapshot: vendor,
-      invoiceId: null,
     },
     select: {
       id: true,
       storeId: true,
       storeName: true,
       quantity: true,
-      createdAt: true,
-
-      // snapshot pricing inputs
+      taxableSnapshot: true,
       costSnapshot: true,
       skuSnapshot: true,
       partNumberSnapshot: true,
       nameSnapshot: true,
-      taxableSnapshot: true,
+      createdAt: true,
     },
     orderBy: [{ storeName: "asc" }, { createdAt: "asc" }],
+    take: 20000,
   });
 
-  const byStore = new Map<string, { storeId: string; storeName: string; tickets: typeof tickets }>();
+  if (tickets.length === 0) {
+    return { results: [] };
+  }
+
+  // Group by storeId
+  const byStore = new Map<string, typeof tickets>();
   for (const t of tickets) {
-    const key = t.storeId;
-    const existing = byStore.get(key);
-    if (existing) existing.tickets.push(t as any);
-    else byStore.set(key, { storeId: t.storeId, storeName: t.storeName, tickets: [t as any] as any });
+    const arr = byStore.get(t.storeId) ?? [];
+    arr.push(t);
+    byStore.set(t.storeId, arr);
   }
 
-  const results: CreateInvoicesResult["results"] = [];
-
-  // If no stores, return quickly (caller can show empty).
-  if (byStore.size === 0) {
-    return { vendor, periodStart, periodEnd, invoiceDate, results };
-  }
-
-  // Preload store numbers and billedTo/vendorNumber data from Location (if available).
   const storeIds = Array.from(byStore.keys());
+
   const locations = await prisma.location.findMany({
     where: { id: { in: storeIds } },
     select: { id: true, name: true, locationNumber: true },
   });
+
   const locById = new Map(locations.map((l) => [l.id, l]));
 
-  for (const store of byStore.values()) {
+  const results: Array<{ storeId: string; invoiceId?: string; created?: boolean; reason?: string }> = [];
+
+  // Process each store in its own transaction (keeps failures isolated)
+  for (const storeId of storeIds) {
+    const storeTickets = byStore.get(storeId) ?? [];
+    const loc = locById.get(storeId);
+
+    if (!loc) {
+      results.push({ storeId, created: false, reason: "Store not found" });
+      continue;
+    }
+
+    const storeNumber = String(loc.locationNumber ?? "").trim();
+    if (!storeNumber) {
+      results.push({
+        storeId,
+        created: false,
+        reason: `Missing store number for location "${loc.name}"`,
+      });
+      continue;
+    }
+
+    if (storeTickets.length === 0) {
+      results.push({ storeId, created: false, reason: "No tickets" });
+      continue;
+    }
+
     try {
-      const loc = locById.get(store.storeId);
-      const storeNumber = (loc?.locationNumber || "").trim() || "0";
+      const created = await prisma.$transaction(async (tx) => {
+        // Re-read the same tickets inside the transaction to avoid racing with another generation run.
+        const ids = storeTickets.map((t) => t.id);
 
-      // Build lines with vendor-level price formula (uses costSnapshot)
-      const linesToCreate: Array<{
-        checkoutId: string;
-        submittedAt: Date;
-        sku: string;
-        partNumber: string | null;
-        name: string;
-        quantity: number;
-        unitPrice: number;
-        taxable: boolean;
-        lineSubtotal: number;
-        lineTax: number;
-        lineTotal: number;
-      }> = [];
+        const fresh = await tx.partsCheckoutTicket.findMany({
+          where: {
+            id: { in: ids },
+            status: PartsCheckoutStatus.OPEN,
+            invoicedAt: null,
+            voidedAt: null,
+            vendorSnapshot: vendor,
+          },
+          select: {
+            id: true,
+            storeId: true,
+            storeName: true,
+            quantity: true,
+            taxableSnapshot: true,
+            costSnapshot: true,
+            skuSnapshot: true,
+            partNumberSnapshot: true,
+            nameSnapshot: true,
+            createdAt: true,
+          },
+          orderBy: [{ createdAt: "asc" }],
+        });
 
-      let subtotal = 0;
-      let taxTotal = 0;
-      let total = 0;
-
-      for (const t of store.tickets) {
-        const qty = Number(t.quantity || 0);
-        if (!Number.isFinite(qty) || qty <= 0) continue;
-
-        const cost = t.costSnapshot === null || t.costSnapshot === undefined ? 0 : Number(t.costSnapshot);
-        if (!Number.isFinite(cost) || cost < 0) {
-          // bad data; skip but record later if needed
-          continue;
+        if (fresh.length === 0) {
+          return { invoiceId: undefined as string | undefined, created: false, reason: "No eligible tickets" };
         }
 
-        // ✅ Vendor-level pricing formula: cost -> unitPrice
-        const unitPriceRaw = evaluateFormula(
-          partsPriceFormula,
-          { cost, partsUpchargePct },
-          ["cost", "partsUpchargePct"],
-          ["min", "max", "round", "floor", "ceil", "abs"]
-        );
-        const unitPrice = roundMoney(unitPriceRaw);
+        // Build lines + totals
+        const lineBuild = fresh.map((t) => {
+          const cost = Math.max(0, toNumberLoose(t.costSnapshot));
+          const qty = Math.max(0, Number(t.quantity || 0));
 
-        const lineSubtotal = roundMoney(unitPrice * qty);
-        const taxable = !!t.taxableSnapshot;
+          const unitPriceRaw = evaluatePartsPriceFormula(cfg.partsPriceFormula, {
+            cost,
+            partsUpchargePct: cfg.partsUpchargePct,
+          });
 
-        // ✅ Vendor-level tax formula applies to the lineSubtotal (and can use qty/unitPrice)
-        const lineTaxRaw = taxable
-          ? evaluateFormula(
-              taxFormula,
-              { lineSubtotal, taxRatePct, quantity: qty, unitPrice },
-              ["lineSubtotal", "taxRatePct", "quantity", "unitPrice"],
-              ["min", "max", "round", "floor", "ceil", "abs"]
-            )
-          : 0;
+          const unitPrice = round2(unitPriceRaw);
+          const lineSubtotal = round2(unitPrice * qty);
 
-        const lineTax = roundMoney(lineTaxRaw);
-        const lineTotal = roundMoney(lineSubtotal + lineTax);
+          const taxable = !!t.taxableSnapshot;
+          const lineTax = taxable
+            ? round2(
+                evaluateTaxFormula(cfg.taxFormula, {
+                  lineSubtotal,
+                  taxRatePct: cfg.taxRatePct,
+                  quantity: qty,
+                  unitPrice,
+                })
+              )
+            : 0;
 
-        subtotal = roundMoney(subtotal + lineSubtotal);
-        taxTotal = roundMoney(taxTotal + lineTax);
-        total = roundMoney(total + lineTotal);
+          const lineTotal = round2(lineSubtotal + lineTax);
 
-        linesToCreate.push({
-          checkoutId: t.id,
-          submittedAt: t.createdAt,
-          sku: t.skuSnapshot,
-          partNumber: t.partNumberSnapshot ?? null,
-          name: t.nameSnapshot,
-          quantity: qty,
-          unitPrice,
-          taxable,
-          lineSubtotal,
-          lineTax,
-          lineTotal,
+          return {
+            checkoutId: t.id,
+            submittedAt: t.createdAt,
+            sku: t.skuSnapshot,
+            partNumber: t.partNumberSnapshot ?? null,
+            name: t.nameSnapshot,
+            quantity: qty,
+            unitPrice,
+            taxable,
+            lineSubtotal,
+            lineTax,
+            lineTotal,
+          };
         });
-      }
 
-      if (linesToCreate.length === 0) {
-        results.push({
-          storeId: store.storeId,
-          storeName: store.storeName,
-          reason: "No valid lines (quantity/cost issues).",
-        });
-        continue;
-      }
+        const subtotal = round2(lineBuild.reduce((acc, l) => acc + l.lineSubtotal, 0));
+        const taxTotal = round2(lineBuild.reduce((acc, l) => acc + l.lineTax, 0));
+        const total = round2(subtotal + taxTotal);
 
-      // ✅ Create invoice + lines + mark tickets invoiced atomically per store
-      const created = await prisma.$transaction(async (tx) => {
-        const inv = await tx.invoice.create({
+        // Create invoice
+        const invoice = await tx.invoice.create({
           data: {
             vendor,
-            vendorNumber: "", // keep safe; your print UI already tolerates null-ish/empty
-            billedTo: "",
-            storeId: store.storeId,
-            storeName: store.storeName,
+            vendorNumber: "N/A",
+            billedTo: `${storeNumber} ${loc.name}`,
+            storeId,
+            storeName: loc.name,
             storeNumber,
             periodStart,
             periodEnd,
             invoiceDate,
-            status: InvoiceStatus.ISSUED,
-            subtotal: subtotal as any,
-            taxTotal: taxTotal as any,
-            total: total as any,
-          } as any,
+            subtotal,
+            taxTotal,
+            total,
+            // createdByUserId is optional; handled elsewhere if you want to pass it in
+          },
           select: { id: true },
         });
 
-        // Create lines
-        for (const l of linesToCreate) {
-          await tx.invoiceLine.create({
-            data: {
-              invoiceId: inv.id,
-              checkoutId: l.checkoutId,
-              submittedAt: l.submittedAt,
-              sku: l.sku,
-              partNumber: l.partNumber,
-              name: l.name,
-              quantity: l.quantity,
-              unitPrice: l.unitPrice as any,
-              taxable: l.taxable,
-              lineSubtotal: l.lineSubtotal as any,
-              lineTax: l.lineTax as any,
-              lineTotal: l.lineTotal as any,
-            } as any,
-            select: { id: true },
-          });
-        }
+        // Create invoice lines
+        await tx.invoiceLine.createMany({
+          data: lineBuild.map((l) => ({
+            invoiceId: invoice.id,
+            checkoutId: l.checkoutId,
+            submittedAt: l.submittedAt,
+            sku: l.sku,
+            partNumber: l.partNumber,
+            name: l.name,
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+            taxable: l.taxable,
+            lineSubtotal: l.lineSubtotal,
+            lineTax: l.lineTax,
+            lineTotal: l.lineTotal,
+          })),
+        });
 
-        // Mark tickets as invoiced + attach invoiceId/invoicedAt/status
+        // Mark tickets invoiced + link invoice
+        const now = new Date();
         await tx.partsCheckoutTicket.updateMany({
-          where: { id: { in: linesToCreate.map((x) => x.checkoutId) } },
+          where: { id: { in: lineBuild.map((l) => l.checkoutId) } },
           data: {
             status: PartsCheckoutStatus.INVOICED,
-            invoiceId: inv.id,
-            invoicedAt: new Date(),
+            invoiceId: invoice.id,
+            invoicedAt: now,
           },
         });
 
-        return { invoiceId: inv.id, createdLines: linesToCreate.length };
+        return { invoiceId: invoice.id, created: true, reason: undefined as string | undefined };
       });
 
+      results.push({ storeId, invoiceId: created.invoiceId, created: created.created, reason: created.reason });
+    } catch (e: any) {
       results.push({
-        storeId: store.storeId,
-        storeName: store.storeName,
-        invoiceId: created.invoiceId,
-        createdLines: created.createdLines,
-      });
-    } catch (e: unknown) {
-      results.push({
-        storeId: store.storeId,
-        storeName: store.storeName,
-        reason: e instanceof Error ? e.message : "Failed to create invoice for store.",
+        storeId,
+        created: false,
+        reason: e?.message ? String(e.message) : "Failed to create invoice",
       });
     }
   }
 
-  return { vendor, periodStart, periodEnd, invoiceDate, results };
+  return { results };
 }
