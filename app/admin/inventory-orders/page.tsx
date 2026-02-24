@@ -167,8 +167,16 @@ function isChecked(v: FormDataEntryValue | null): boolean {
   return s === "on" || s === "true" || s === "1" || s === "yes";
 }
 
+function appendAuditNote(userNote: string, auditLines: string[]): string | null {
+  const base = String(userNote ?? "").trim();
+  if (auditLines.length === 0) return base ? base : null;
+  const auditBlock = auditLines.map((l) => `AUDIT: ${l}`).join("\n");
+  if (!base) return auditBlock;
+  return `${base}\n${auditBlock}`;
+}
+
 export default async function AdminInventoryOrdersPage({ searchParams }: { searchParams: SearchParams }) {
-  const { session } = await requireOrderHistoryView();
+  await requireOrderHistoryView();
 
   // If Prisma Client isn't regenerated yet, avoid crashing.
   const anyPrisma = prisma as unknown as { inventoryOrder?: unknown };
@@ -272,7 +280,6 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     background: "var(--order-submit-bg, rgba(76, 175, 80, 0.18))",
     border: "1px solid var(--order-submit-border, rgba(76, 175, 80, 0.45))",
   };
-
   const checkboxLabel: CSSProperties = {
     display: "flex",
     alignItems: "center",
@@ -394,7 +401,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     const forUserId = String(formData.get("forUserId") ?? "").trim();
 
     const orderedAt = parseOptionalDateTimeLocal(formData.get("orderedAt")) ?? new Date();
-    const note = String(formData.get("note") ?? "").trim();
+    const noteInput = String(formData.get("note") ?? "").trim();
 
     const updateItemCost = isChecked(formData.get("updateItemCost"));
     const updateItemOrderFrom = isChecked(formData.get("updateItemOrderFrom"));
@@ -411,9 +418,45 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     await prisma.$transaction(async (tx) => {
       const item = await tx.item.findUnique({
         where: { id: itemId },
-        select: { id: true },
+        select: { id: true, cost: true, orderFrom: true },
       });
       if (!item) throw new Error("Item not found");
+
+      const audit: string[] = [];
+
+      // Ordered amount should be added to item.orderedQty immediately.
+      // Optionally also update item.cost and item.orderFrom to match the order.
+      const itemUpdate: Record<string, any> = {
+        orderedQty: { increment: qty },
+      };
+
+      if (updateItemCost) {
+        const nextCost = new Decimal(unitPriceStr);
+        itemUpdate.cost = nextCost;
+        if (item.cost !== null && typeof item.cost !== "undefined") {
+          const prev = Number(item.cost);
+          const next = Number(nextCost);
+          if (Number.isFinite(prev) && Number.isFinite(next) && prev !== next) {
+            audit.push(`Item.cost updated ${money(prev)} → ${money(next)}`);
+          } else {
+            audit.push(`Item.cost set to ${money(next)}`);
+          }
+        } else {
+          audit.push(`Item.cost set to ${money(Number(nextCost))}`);
+        }
+      }
+
+      if (updateItemOrderFrom && supplierName) {
+        const prev = (item as any).orderFrom ?? null;
+        itemUpdate.orderFrom = supplierName;
+        if (prev && String(prev).trim() && String(prev).trim() !== supplierName) {
+          audit.push(`Item.orderFrom updated "${String(prev).trim()}" → "${supplierName}"`);
+        } else {
+          audit.push(`Item.orderFrom set to "${supplierName}"`);
+        }
+      }
+
+      const finalNote = appendAuditNote(noteInput, audit);
 
       await tx.inventoryOrder.create({
         data: {
@@ -429,23 +472,9 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           forStoreId: forStoreId || null,
           forUserId: forUserId || null,
           createdByUserId,
-          note: note || null,
+          note: finalNote,
         },
       });
-
-      // Ordered amount should be added to item.orderedQty immediately.
-      // Optionally also update item.cost and item.orderFrom to match the order.
-      const itemUpdate: Record<string, any> = {
-        orderedQty: { increment: qty },
-      };
-
-      if (updateItemCost) {
-        itemUpdate.cost = new Decimal(unitPriceStr);
-      }
-
-      if (updateItemOrderFrom && supplierName) {
-        itemUpdate.orderFrom = supplierName;
-      }
 
       await tx.item.update({
         where: { id: itemId },
@@ -482,7 +511,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     const forUserId = String(formData.get("forUserId") ?? "").trim();
 
     const orderedAt = parseOptionalDateTimeLocal(formData.get("orderedAt"));
-    const note = String(formData.get("note") ?? "").trim();
+    const noteInput = String(formData.get("note") ?? "").trim();
 
     const updateItemCost = isChecked(formData.get("updateItemCost"));
     const updateItemOrderFrom = isChecked(formData.get("updateItemOrderFrom"));
@@ -492,11 +521,12 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     await prisma.$transaction(async (tx) => {
       const existing = await tx.inventoryOrder.findUnique({
         where: { id },
-        select: { id: true, status: true, itemId: true, quantity: true },
+        select: { id: true, status: true, itemId: true, quantity: true, note: true },
       });
       if (!existing) throw new Error("Order not found");
 
       const delta = qty - existing.quantity;
+      const audit: string[] = [];
 
       // Keep inventory consistent when changing qty:
       // - ORDERED / ARRIVED => adjust Item.orderedQty by delta
@@ -510,7 +540,6 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
         if (!item) throw new Error("Item not found");
 
         if (existing.status === "ADDED_TO_INVENTORY") {
-          // delta < 0 means decreasing on-hand; ensure it won't go negative
           if (delta < 0 && item.onHandQty + delta < 0) {
             throw new Error(
               `Cannot change qty: Item.onHandQty (${item.onHandQty}) would go negative by applying delta (${delta}).`
@@ -520,8 +549,8 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
             where: { id: existing.itemId },
             data: { onHandQty: { increment: delta } },
           });
+          audit.push(`Adjusted Item.onHandQty by ${delta > 0 ? "+" : ""}${delta} due to qty edit`);
         } else {
-          // delta < 0 means decreasing ordered; ensure it won't go negative
           if (delta < 0 && item.orderedQty + delta < 0) {
             throw new Error(
               `Cannot change qty: Item.orderedQty (${item.orderedQty}) would go negative by applying delta (${delta}).`
@@ -531,8 +560,50 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
             where: { id: existing.itemId },
             data: { orderedQty: { increment: delta } },
           });
+          audit.push(`Adjusted Item.orderedQty by ${delta > 0 ? "+" : ""}${delta} due to qty edit`);
         }
       }
+
+      // Optionally update current item fields to match edited order details.
+      // (Cost uses unit price; Order From uses supplier name when provided.)
+      if (updateItemCost || (updateItemOrderFrom && supplierName)) {
+        const item = await tx.item.findUnique({
+          where: { id: existing.itemId },
+          select: { id: true, cost: true, orderFrom: true },
+        });
+        if (!item) throw new Error("Item not found");
+
+        const itemUpdate: Record<string, any> = {};
+
+        if (updateItemCost) {
+          const nextCost = new Decimal(unitPriceStr);
+          itemUpdate.cost = nextCost;
+          const prev = (item as any).cost;
+          const prevNum = prev === null || typeof prev === "undefined" ? NaN : Number(prev);
+          const nextNum = Number(nextCost);
+          if (Number.isFinite(prevNum) && prevNum !== nextNum) {
+            audit.push(`Item.cost updated ${money(prevNum)} → ${money(nextNum)}`);
+          } else {
+            audit.push(`Item.cost set to ${money(nextNum)}`);
+          }
+        }
+
+        if (updateItemOrderFrom && supplierName) {
+          const prev = (item as any).orderFrom ?? null;
+          itemUpdate.orderFrom = supplierName;
+          if (prev && String(prev).trim() && String(prev).trim() !== supplierName) {
+            audit.push(`Item.orderFrom updated "${String(prev).trim()}" → "${supplierName}"`);
+          } else {
+            audit.push(`Item.orderFrom set to "${supplierName}"`);
+          }
+        }
+
+        if (Object.keys(itemUpdate).length > 0) {
+          await tx.item.update({ where: { id: existing.itemId }, data: itemUpdate });
+        }
+      }
+
+      const finalNote = appendAuditNote(noteInput, audit);
 
       await tx.inventoryOrder.update({
         where: { id },
@@ -546,22 +617,9 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           orderedAt: orderedAt ?? undefined,
           forStoreId: forStoreId || null,
           forUserId: forUserId || null,
-          note: note || null,
+          note: finalNote,
         },
       });
-
-      // Optionally update current item fields to match edited order details.
-      // (Cost uses unit price; Order From uses supplier name when provided.)
-      const itemUpdate: Record<string, any> = {};
-      if (updateItemCost) itemUpdate.cost = new Decimal(unitPriceStr);
-      if (updateItemOrderFrom && supplierName) itemUpdate.orderFrom = supplierName;
-
-      if (Object.keys(itemUpdate).length > 0) {
-        await tx.item.update({
-          where: { id: existing.itemId },
-          data: itemUpdate,
-        });
-      }
     });
 
     revalidatePath("/admin/inventory-orders");
@@ -753,6 +811,23 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           >
             ← Items
           </Link>
+
+          <Link
+            href="/admin/inventory-receiving"
+            style={{
+              padding: "10px 14px",
+              borderRadius: 12,
+              border,
+              background: surface,
+              color: fg,
+              textDecoration: "none",
+              fontWeight: 900,
+              opacity: 0.92,
+            }}
+            title="Orders Received / Processing"
+          >
+            Receiving →
+          </Link>
         </div>
 
         {/* CREATE ORDER */}
@@ -865,8 +940,8 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
             </div>
 
             <div style={{ fontSize: 12, opacity: 0.8 }}>
-              Creating an order immediately increments <b>Item.orderedQty</b> by the order quantity. With the toggles
-              enabled, it also updates <b>Item.cost</b> and <b>Item.orderFrom</b>.
+              Creating an order immediately increments <b>Item.orderedQty</b>. Audit lines are appended into the order{" "}
+              <b>Note</b> when it updates <b>Item.cost</b> and/or <b>Item.orderFrom</b>.
             </div>
           </form>
         </div>
@@ -974,7 +1049,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
             </div>
 
             <div style={{ fontSize: 12, opacity: 0.8 }}>
-              Showing <b>{orders.length}</b> of <b>{total}</b> results • Page <b>{page}</b> / <b>{pageCount}</b>
+              Showing <b>{orders.length}</b> of <b>{total}</b> results
             </div>
           </form>
         </div>
@@ -1222,7 +1297,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                           </div>
 
                           <label style={controlLabel}>
-                            Note
+                            Note (including audit lines)
                             <input name="note" defaultValue={o.note ?? ""} placeholder="Optional note…" style={controlBase} />
                           </label>
 
