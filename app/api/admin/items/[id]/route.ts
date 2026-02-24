@@ -1,202 +1,174 @@
 // app/api/admin/items/[id]/route.ts
-import type { NextRequest } from "next/server";
-import type { Session } from "next-auth";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../../../../lib/auth";
-import { prisma } from "../../../../lib/prisma";
-import { Prisma, Role, InvoiceVendor } from "@prisma/client";
-import { Decimal } from "@prisma/client/runtime/library";
+import { Prisma, InvoiceVendor, Permission, Role } from "@prisma/client";
+
+import { prisma } from "@/app/lib/prisma";
+import { authOptions } from "@/app/lib/auth";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
-function json(body: unknown, status: number) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-      "Cache-Control": "no-store",
-    },
-  });
+type AdminSession = {
+  user?: { id?: string | null; email?: string | null; role?: Role | null } | null;
+} | null;
+
+async function requireAdminEditItems() {
+  const session = (await getServerSession(authOptions)) as AdminSession;
+  if (!session) throw new Error("UNAUTHENTICATED");
+
+  const perms = await loadUserPermissions(session);
+  if (perms.allowAll) return { session, perms };
+
+  const ok = hasAnyPermission(perms, [Permission.ADMIN_EDIT_ITEMS]);
+  if (!ok) throw new Error("FORBIDDEN");
+
+  return { session, perms };
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
+function jsonError(status: number, message: string) {
+  return NextResponse.json({ error: message }, { status });
 }
 
-function asNonEmptyString(v: unknown): string | null {
+function parseMoneyOrNull(v: unknown): Prisma.Decimal | null {
+  if (v == null) return null;
+  if (typeof v !== "string") return null;
+  const s = v.trim();
+  if (!s) return null;
+
+  // Keep it strict-ish: numbers only, optional 2 decimals
+  if (!/^-?\d+(\.\d{1,2})?$/.test(s)) return null;
+
+  try {
+    return new Prisma.Decimal(s);
+  } catch {
+    return null;
+  }
+}
+
+function parseOptionalString(v: unknown): string | null {
+  if (v == null) return null;
   if (typeof v !== "string") return null;
   const s = v.trim();
   return s ? s : null;
 }
 
-function getUserRole(session: Session | null): Role | null {
-  const u = session?.user as unknown;
-  if (!u || typeof u !== "object") return null;
-  const role = (u as { role?: unknown }).role;
-  return typeof role === "string" && (role === Role.ADMIN || role === Role.EMPLOYEE || role === Role.MANAGER)
-    ? (role as Role)
-    : null;
+function parseRequiredString(v: unknown): string {
+  if (typeof v !== "string") return "";
+  return v.trim();
 }
 
-function parseMoneyToDecimal(input: unknown): Decimal | null {
-  if (input === null || input === undefined) return null;
-
-  if (typeof input === "number") {
-    if (!Number.isFinite(input)) return null;
-    return new Decimal(String(input));
-  }
-
-  const s = String(input).trim();
-  if (!s) return null;
-
-  const cleaned = s.replace(/\$/g, "").replace(/,/g, "").trim();
-  if (!cleaned) return null;
-
-  const n = Number(cleaned);
-  if (!Number.isFinite(n)) return null;
-
-  return new Decimal(cleaned);
-}
-
-function parseBoolStrict(input: unknown): boolean | null {
-  if (typeof input === "boolean") return input;
-  if (input === null || input === undefined) return null;
-
-  const s = String(input).trim().toLowerCase();
-  if (["true", "t", "yes", "y", "1", "on"].includes(s)) return true;
-  if (["false", "f", "no", "n", "0", "off"].includes(s)) return false;
+function parseBool(v: unknown): boolean | null {
+  if (typeof v === "boolean") return v;
   return null;
 }
 
-function parseVendorStrict(input: unknown): InvoiceVendor | null {
-  if (input === null || input === undefined) return null;
-  const s = String(input).trim().toUpperCase();
-  if (s === InvoiceVendor.SUCCESS_PLUS) return InvoiceVendor.SUCCESS_PLUS;
-  if (s === InvoiceVendor.AMERICAN_PLUS) return InvoiceVendor.AMERICAN_PLUS;
+function parseVendor(v: unknown): InvoiceVendor | null {
+  if (v === "SUCCESS_PLUS") return InvoiceVendor.SUCCESS_PLUS;
+  if (v === "AMERICAN_PLUS") return InvoiceVendor.AMERICAN_PLUS;
   return null;
 }
 
-function parseNullableTrimmedString(input: unknown): string | null {
-  if (input === null || input === undefined) return null;
-  const s = String(input).trim();
-  return s ? s : null;
-}
+function shapeItemForClient(item: {
+  id: string;
+  sku: string;
+  partNumber: string | null;
+  vendor: InvoiceVendor;
+  name: string;
+  description: string | null;
+  category: string | null;
+  cost: Prisma.Decimal | null;
+  price: Prisma.Decimal | null;
+  taxable: boolean;
+  active: boolean;
+  createdAt: Date;
+  updatedAt: Date;
 
-function safeUrl(raw: string | null): string | null {
-  const v = (raw || "").trim();
-  if (!v) return null;
+  onHandQty: number;
+  orderedQty: number;
+  usedQty: number;
+  minQty: number;
 
-  if (/^https?:\/\//i.test(v)) return v;
-  if (/^[a-z0-9.-]+\.[a-z]{2,}([/].*)?$/i.test(v)) return `https://${v}`;
-  return null;
+  manufacturer: string | null;
+  orderFrom: string | null;
+  webUrl: string | null;
+}) {
+  return {
+    id: item.id,
+    sku: item.sku,
+    partNumber: item.partNumber,
+    vendor: item.vendor,
+    name: item.name,
+    description: item.description,
+    category: item.category,
+    unit: null as string | null, // tolerated legacy prop
+    cost: item.cost == null ? null : item.cost.toString(),
+    price: item.price == null ? null : item.price.toString(),
+    taxable: item.taxable,
+    active: item.active,
+    createdAt: item.createdAt.toISOString(),
+    updatedAt: item.updatedAt.toISOString(),
+
+    onHandQty: item.onHandQty,
+    orderedQty: item.orderedQty,
+    usedQty: item.usedQty,
+    minQty: item.minQty,
+
+    manufacturer: item.manufacturer,
+    orderFrom: item.orderFrom,
+    webUrl: item.webUrl,
+  };
 }
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const session = await getServerSession(authOptions);
-  if (!session) return json({ error: "Unauthorized" }, 401);
-  if (getUserRole(session) !== Role.ADMIN) return json({ error: "Forbidden" }, 403);
-
-  const params = await ctx.params;
-  const id = asNonEmptyString(params?.id);
-  if (!id) return json({ error: "Missing id." }, 400);
-
-  let raw: unknown;
   try {
-    raw = await req.json();
+    await requireAdminEditItems();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "FORBIDDEN";
+    if (msg === "UNAUTHENTICATED") return jsonError(401, "Unauthorized");
+    if (msg === "FORBIDDEN") return jsonError(403, "Forbidden");
+    return jsonError(500, "Auth error");
+  }
+
+  const { id } = await ctx.params;
+  if (!id) return jsonError(400, "Missing id");
+
+  let body: any = null;
+  try {
+    body = await req.json();
   } catch {
-    return json({ error: "Invalid JSON body." }, 400);
+    return jsonError(400, "Invalid JSON");
   }
 
-  if (!isRecord(raw)) return json({ error: "Invalid JSON body." }, 400);
-  const body = raw;
+  const sku = parseRequiredString(body?.sku);
+  const name = parseRequiredString(body?.name);
 
-  const data: Prisma.ItemUpdateInput = {};
+  if (!sku) return jsonError(400, "SKU is required");
+  if (!name) return jsonError(400, "Name is required");
 
-  if (body.sku !== undefined) {
-    const v = String(body.sku).trim();
-    if (!v) return json({ error: "SKU is required." }, 400);
-    data.sku = v;
-  }
+  const partNumber = parseOptionalString(body?.partNumber);
+  const description = parseOptionalString(body?.description);
+  const category = parseOptionalString(body?.category);
 
-  if (body.partNumber !== undefined) {
-    data.partNumber = body.partNumber ? String(body.partNumber).trim() : null;
-  }
+  const manufacturer = parseOptionalString(body?.manufacturer);
+  const orderFrom = parseOptionalString(body?.orderFrom);
+  const webUrl = parseOptionalString(body?.webUrl);
 
-  // ✅ vendor support
-  if (body.vendor !== undefined) {
-    const v = parseVendorStrict(body.vendor);
-    if (v === null) return json({ error: "Invalid vendor." }, 400);
-    data.vendor = v;
-  }
+  const cost = body?.cost === null || body?.cost === "" ? null : parseMoneyOrNull(body?.cost);
+  const price = body?.price === null || body?.price === "" ? null : parseMoneyOrNull(body?.price);
 
-  if (body.name !== undefined) {
-    const v = String(body.name).trim();
-    if (!v) return json({ error: "Name is required." }, 400);
-    data.name = v;
-  }
+  // If provided but invalid format, reject (so we don’t silently null it)
+  if (body?.cost != null && body?.cost !== "" && cost == null) return jsonError(400, "Invalid cost");
+  if (body?.price != null && body?.price !== "" && price == null) return jsonError(400, "Invalid price");
 
-  if (body.description !== undefined) {
-    data.description = body.description ? String(body.description).trim() : null;
-  }
+  const taxable = parseBool(body?.taxable);
+  const active = parseBool(body?.active);
 
-  if (body.category !== undefined) {
-    data.category = body.category ? String(body.category).trim() : null;
-  }
+  if (taxable == null) return jsonError(400, "Invalid taxable");
+  if (active == null) return jsonError(400, "Invalid active");
 
-  // ✅ UOM removed: do NOT accept/update `unit`
-
-  if (body.manufacturer !== undefined) {
-    data.manufacturer = parseNullableTrimmedString(body.manufacturer);
-  }
-
-  if (body.orderFrom !== undefined) {
-    data.orderFrom = parseNullableTrimmedString(body.orderFrom);
-  }
-
-  if (body.webUrl !== undefined) {
-    const rawWeb = parseNullableTrimmedString(body.webUrl);
-    if (rawWeb) {
-      const normalized = safeUrl(rawWeb);
-      if (!normalized) return json({ error: "Invalid URL (use https://… or a domain like example.com)." }, 400);
-      data.webUrl = normalized;
-    } else {
-      data.webUrl = null;
-    }
-  }
-
-  if (body.cost !== undefined) {
-    if (body.cost === null) data.cost = null;
-    else {
-      const d = parseMoneyToDecimal(body.cost);
-      if (d === null) return json({ error: "Invalid cost." }, 400);
-      data.cost = d;
-    }
-  }
-
-  if (body.price !== undefined) {
-    if (body.price === null) data.price = null;
-    else {
-      const d = parseMoneyToDecimal(body.price);
-      if (d === null) return json({ error: "Invalid price." }, 400);
-      data.price = d;
-    }
-  }
-
-  if (body.taxable !== undefined) {
-    const b = parseBoolStrict(body.taxable);
-    if (b === null) return json({ error: "Invalid taxable." }, 400);
-    data.taxable = b;
-  }
-
-  if (body.active !== undefined) {
-    const b = parseBoolStrict(body.active);
-    if (b === null) return json({ error: "Invalid active." }, 400);
-    data.active = b;
-  }
-
-  if (Object.keys(data).length === 0) {
-    return json({ error: "No fields to update." }, 400);
-  }
+  const vendor = body?.vendor == null ? null : parseVendor(body?.vendor);
+  if (body?.vendor != null && vendor == null) return jsonError(400, "Invalid vendor");
 
   try {
     const updated = await prisma.$transaction(async (tx) => {
@@ -210,66 +182,45 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
           name: true,
           description: true,
           category: true,
-          // unit removed
           cost: true,
           price: true,
           taxable: true,
           active: true,
-
-          manufacturer: true,
-          orderFrom: true,
-          webUrl: true,
+          createdAt: true,
+          updatedAt: true,
 
           onHandQty: true,
           orderedQty: true,
           usedQty: true,
           minQty: true,
 
-          createdAt: true,
-          updatedAt: true,
+          manufacturer: true,
+          orderFrom: true,
+          webUrl: true,
         },
       });
 
-      if (!current) return null;
+      if (!current) throw new Error("NOT_FOUND");
 
-      const agg = await tx.itemVersion.aggregate({
-        where: { itemId: id },
-        _max: { version: true },
-      });
-      const nextVersion = (agg._max.version ?? 0) + 1;
-
-      // snapshot (pre-mutation)
-      await tx.itemVersion.create({
-        data: {
-          itemId: id,
-          version: nextVersion,
-
-          sku: current.sku,
-          partNumber: current.partNumber,
-          vendor: current.vendor,
-          name: current.name,
-          description: current.description,
-          category: current.category,
-          // unit removed
-          cost: current.cost,
-          price: current.price,
-          taxable: current.taxable,
-          active: current.active,
-
-          manufacturer: current.manufacturer,
-          orderFrom: current.orderFrom,
-          webUrl: current.webUrl,
-
-          onHandQty: current.onHandQty,
-          orderedQty: current.orderedQty,
-          usedQty: current.usedQty,
-          minQty: current.minQty,
-        },
-      });
-
-      const u = await tx.item.update({
+      const updatedItem = await tx.item.update({
         where: { id },
-        data,
+        data: {
+          sku,
+          partNumber,
+          vendor: vendor ?? current.vendor,
+          name,
+          description,
+          category,
+
+          manufacturer,
+          orderFrom,
+          webUrl,
+
+          cost,
+          price,
+          taxable,
+          active,
+        },
         select: {
           id: true,
           sku: true,
@@ -278,54 +229,99 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
           name: true,
           description: true,
           category: true,
-          // unit removed
           cost: true,
           price: true,
           taxable: true,
           active: true,
+          createdAt: true,
+          updatedAt: true,
+
+          onHandQty: true,
+          orderedQty: true,
+          usedQty: true,
+          minQty: true,
 
           manufacturer: true,
           orderFrom: true,
           webUrl: true,
-
-          createdAt: true,
-          updatedAt: true,
         },
       });
 
-      return u;
+      const last = await tx.itemVersion.findFirst({
+        where: { itemId: id },
+        orderBy: { version: "desc" },
+        select: { version: true },
+      });
+
+      const nextVersion = (last?.version ?? 0) + 1;
+
+      await tx.itemVersion.create({
+        data: {
+          itemId: id,
+          version: nextVersion,
+
+          sku: updatedItem.sku,
+          partNumber: updatedItem.partNumber,
+          vendor: updatedItem.vendor,
+
+          name: updatedItem.name,
+          description: updatedItem.description,
+          category: updatedItem.category,
+
+          unit: null,
+
+          cost: updatedItem.cost,
+          price: updatedItem.price,
+          taxable: updatedItem.taxable,
+          active: updatedItem.active,
+
+          manufacturer: updatedItem.manufacturer,
+          orderFrom: updatedItem.orderFrom,
+          webUrl: updatedItem.webUrl,
+
+          onHandQty: updatedItem.onHandQty,
+          orderedQty: updatedItem.orderedQty,
+          usedQty: updatedItem.usedQty,
+          minQty: updatedItem.minQty,
+        },
+      });
+
+      return updatedItem;
     });
 
-    if (!updated) return json({ error: "Item not found." }, 404);
+    return NextResponse.json(shapeItemForClient(updated));
+  } catch (e: any) {
+    const msg = e instanceof Error ? e.message : "";
+    if (msg === "NOT_FOUND") return jsonError(404, "Item not found");
+    return jsonError(500, "Failed to update item");
+  }
+}
 
-    return json(
-      {
-        id: updated.id,
-        sku: updated.sku,
-        partNumber: updated.partNumber,
-        vendor: updated.vendor,
-        name: updated.name,
-        description: updated.description,
-        category: updated.category,
-        // unit removed
-        cost: updated.cost == null ? null : updated.cost.toString(),
-        price: updated.price == null ? null : updated.price.toString(),
-        taxable: updated.taxable,
-        active: updated.active,
+export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  try {
+    await requireAdminEditItems();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "FORBIDDEN";
+    if (msg === "UNAUTHENTICATED") return jsonError(401, "Unauthorized");
+    if (msg === "FORBIDDEN") return jsonError(403, "Forbidden");
+    return jsonError(500, "Auth error");
+  }
 
-        manufacturer: updated.manufacturer,
-        orderFrom: updated.orderFrom,
-        webUrl: updated.webUrl,
+  const { id } = await ctx.params;
+  if (!id) return jsonError(400, "Missing id");
 
-        createdAt: updated.createdAt.toISOString(),
-        updatedAt: updated.updatedAt.toISOString(),
-      },
-      200
-    );
-  } catch (e: unknown) {
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-      return json({ error: "SKU already exists." }, 409);
+  try {
+    await prisma.item.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    // Prisma FK violations often surface as P2003
+    if (e?.code === "P2025") return jsonError(404, "Item not found");
+    if (e?.code === "P2003") {
+      return NextResponse.json(
+        { error: "Delete blocked: item has related records (tickets/orders/alerts/versions). Use PURGE if you intend to remove everything." },
+        { status: 409 }
+      );
     }
-    return json({ error: "Update failed." }, 500);
+    return jsonError(500, "Failed to delete item");
   }
 }
