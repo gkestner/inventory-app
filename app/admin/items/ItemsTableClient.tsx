@@ -8,7 +8,7 @@ function isCostPlusVendor(v: unknown): v is Vendor {
   return v === "SUCCESS_PLUS" || v === "AMERICAN_PLUS";
 }
 
-// ✅ Safe client-side formula evaluator (matches server rules: numbers, + - * /, parentheses, "cost")
+// ✅ Safe client-side formula evaluator (numbers, + - * /, parentheses, "cost")
 type Tok =
   | { t: "num"; v: number }
   | { t: "var" }
@@ -242,9 +242,6 @@ type ItemRow = {
   createdAt: string; // ISO
   updatedAt: string; // ISO
 
-  // ✅ NEW (optional, server may or may not return it)
-  costPlusFormula?: string | null;
-
   // qty fields (included by page.tsx)
   onHandQty?: number;
   orderedQty?: number;
@@ -270,12 +267,7 @@ type Draft = {
   webUrl: string;
 
   cost: string;
-
-  // ✅ price remains but may be auto-driven
-  price: string;
-
-  // ✅ NEW
-  costPlusFormula: string;
+  price: string; // manual when vendor formula blank
 
   taxable: boolean;
   active: boolean;
@@ -300,9 +292,6 @@ type ItemVersion = {
 
   cost: string | null;
   price: string | null;
-
-  // ✅ NEW (if your versions endpoint includes it, we’ll compare it; otherwise it will be blank)
-  costPlusFormula?: string | null;
 
   taxable: boolean;
   active: boolean;
@@ -341,9 +330,6 @@ function normalizeDraftFromRow(row: ItemRow): Draft {
     cost: row.cost ?? "",
     price: row.price ?? "",
 
-    // ✅ NEW: tolerate missing server field
-    costPlusFormula: row.costPlusFormula ?? "",
-
     taxable: !!row.taxable,
     active: !!row.active,
   };
@@ -367,9 +353,6 @@ function diffRowToVersion(current: ItemRow, v: ItemVersion) {
     cost: () => current.cost ?? "",
     price: () => current.price ?? "",
 
-    // ✅ NEW
-    costPlusFormula: () => current.costPlusFormula ?? "",
-
     taxable: () => String(current.taxable),
     active: () => String(current.active),
   };
@@ -390,9 +373,6 @@ function diffRowToVersion(current: ItemRow, v: ItemVersion) {
 
     cost: v.cost ?? "",
     price: v.price ?? "",
-
-    // ✅ NEW (tolerate missing)
-    costPlusFormula: v.costPlusFormula ?? "",
 
     taxable: String(v.taxable),
     active: String(v.active),
@@ -466,12 +446,16 @@ export default function ItemsTableClient({
   page,
   perPage,
   total,
+  vendorFormulas,
 }: {
   initialItems: ItemRow[];
   createdSku: string | null;
   page: number;
   perPage: number;
   total: number;
+
+  // ✅ NEW: ONE formula per vendor (passed from server)
+  vendorFormulas: Record<Vendor, string>;
 }) {
   const [rows, setRows] = useState<ItemRow[]>(initialItems ?? []);
 
@@ -488,7 +472,7 @@ export default function ItemsTableClient({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // ✅ NEW: cost-plus preview
+  // ✅ Cost-plus preview (vendor-level formula)
   const [formulaPreview, setFormulaPreview] = useState<string | null>(null);
   const [formulaError, setFormulaError] = useState<string | null>(null);
 
@@ -539,6 +523,7 @@ export default function ItemsTableClient({
     clearSelection();
     cancelEdit();
     closeHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialItems, page, perPage]);
 
   useEffect(() => {
@@ -738,8 +723,11 @@ export default function ItemsTableClient({
     if (!d.name.trim()) e.name = "Name is required.";
     if (d.cost.trim() && !isValidMoney(d.cost)) e.cost = "Invalid money (max 2 decimals).";
 
-    const costPlus = isCostPlusVendor(d.vendor) && d.costPlusFormula.trim();
-    if (!costPlus) {
+    const vendorKey = (d.vendor ?? "SUCCESS_PLUS") as Vendor;
+    const vendorFormula = (vendorFormulas?.[vendorKey] ?? "").trim();
+    const usingCostPlus = isCostPlusVendor(vendorKey) && vendorFormula.length > 0;
+
+    if (!usingCostPlus) {
       if (d.price.trim() && !isValidMoney(d.price)) e.price = "Invalid money (max 2 decimals).";
     }
 
@@ -749,7 +737,7 @@ export default function ItemsTableClient({
     return e;
   }
 
-  // ✅ cost-plus preview when editing
+  // ✅ cost-plus preview (vendor-level) when editing
   useEffect(() => {
     if (!draft) {
       setFormulaPreview(null);
@@ -757,14 +745,11 @@ export default function ItemsTableClient({
       return;
     }
 
-    if (!isCostPlusVendor(draft.vendor)) {
-      setFormulaPreview(null);
-      setFormulaError(null);
-      return;
-    }
+    const vendorKey = (draft.vendor ?? "SUCCESS_PLUS") as Vendor;
+    const vendorFormula = (vendorFormulas?.[vendorKey] ?? "").trim();
 
-    const f = (draft.costPlusFormula || "").trim();
-    if (!f) {
+    const usingCostPlus = isCostPlusVendor(vendorKey) && vendorFormula.length > 0;
+    if (!usingCostPlus) {
       setFormulaPreview(null);
       setFormulaError(null);
       return;
@@ -778,14 +763,14 @@ export default function ItemsTableClient({
     }
 
     try {
-      const computed = evaluateCostPlusFormula(f, c);
+      const computed = evaluateCostPlusFormula(vendorFormula, c);
       setFormulaPreview(computed.toFixed(2));
       setFormulaError(null);
     } catch (err: unknown) {
       setFormulaPreview(null);
-      setFormulaError(getErrorMessage(err, "Invalid formula."));
+      setFormulaError(getErrorMessage(err, "Invalid vendor formula."));
     }
-  }, [draft]);
+  }, [draft, vendorFormulas]);
 
   async function saveEdit(id: string) {
     if (!draft) return;
@@ -797,7 +782,9 @@ export default function ItemsTableClient({
 
     setSaving(true);
     try {
-      const usingCostPlus = isCostPlusVendor(draft.vendor) && draft.costPlusFormula.trim().length > 0;
+      const vendorKey = (draft.vendor ?? "SUCCESS_PLUS") as Vendor;
+      const vendorFormula = (vendorFormulas?.[vendorKey] ?? "").trim();
+      const usingCostPlus = isCostPlusVendor(vendorKey) && vendorFormula.length > 0;
 
       const res = await fetch(`/api/admin/items/${id}`, {
         method: "PATCH",
@@ -816,11 +803,8 @@ export default function ItemsTableClient({
 
           cost: draft.cost.trim() || null,
 
-          // ✅ If using cost-plus, server will compute price. Otherwise allow manual price.
+          // ✅ If vendor formula is set, server computes price. Otherwise allow manual price.
           price: usingCostPlus ? null : draft.price.trim() || null,
-
-          // ✅ NEW
-          costPlusFormula: isCostPlusVendor(draft.vendor) ? draft.costPlusFormula.trim() || null : null,
 
           taxable: !!draft.taxable,
           active: !!draft.active,
@@ -849,22 +833,23 @@ export default function ItemsTableClient({
         orderFrom: updated.orderFrom ?? null,
         webUrl: updated.webUrl ?? null,
 
-        // ✅ NEW (tolerate server not returning it)
-        costPlusFormula: (updated as any).costPlusFormula ?? rows.find((r) => r.id === id)?.costPlusFormula ?? null,
-
         // Keep qty fields if the API returns them; otherwise keep existing values
         onHandQty:
-          typeof updated.onHandQty === "number"
-            ? updated.onHandQty
+          typeof (updated as any).onHandQty === "number"
+            ? (updated as any).onHandQty
             : rows.find((r) => r.id === id)?.onHandQty ?? undefined,
         orderedQty:
-          typeof updated.orderedQty === "number"
-            ? updated.orderedQty
+          typeof (updated as any).orderedQty === "number"
+            ? (updated as any).orderedQty
             : rows.find((r) => r.id === id)?.orderedQty ?? undefined,
         usedQty:
-          typeof updated.usedQty === "number" ? updated.usedQty : rows.find((r) => r.id === id)?.usedQty ?? undefined,
+          typeof (updated as any).usedQty === "number"
+            ? (updated as any).usedQty
+            : rows.find((r) => r.id === id)?.usedQty ?? undefined,
         minQty:
-          typeof updated.minQty === "number" ? updated.minQty : rows.find((r) => r.id === id)?.minQty ?? undefined,
+          typeof (updated as any).minQty === "number"
+            ? (updated as any).minQty
+            : rows.find((r) => r.id === id)?.minQty ?? undefined,
 
         createdAt: updated.createdAt,
         updatedAt: updated.updatedAt,
@@ -944,8 +929,6 @@ export default function ItemsTableClient({
         orderFrom: updated.orderFrom ?? null,
         webUrl: updated.webUrl ?? null,
 
-        costPlusFormula: (updated as any).costPlusFormula ?? null,
-
         createdAt: updated.createdAt,
         updatedAt: updated.updatedAt,
       };
@@ -987,7 +970,7 @@ export default function ItemsTableClient({
         background: surface,
       }}
     >
-      {/* Global bulk error banner (so failures are visible even with no selection strip) */}
+      {/* Global bulk error banner */}
       {bulkError ? (
         <div style={{ padding: 12, borderBottom: "1px solid var(--border)", color: danger, background: surface }}>
           {bulkError}
@@ -1111,8 +1094,7 @@ export default function ItemsTableClient({
                 border: "1px solid var(--border)",
                 background: surface,
                 color: "var(--text)",
-                cursor:
-                  page >= Math.max(1, Math.ceil((total || 0) / (perPage || 25))) ? "not-allowed" : "pointer",
+                cursor: page >= Math.max(1, Math.ceil((total || 0) / (perPage || 25))) ? "not-allowed" : "pointer",
                 opacity: page >= Math.max(1, Math.ceil((total || 0) / (perPage || 25))) ? 0.6 : 1,
               }}
             >
@@ -1261,8 +1243,8 @@ export default function ItemsTableClient({
               };
 
               const currentVendor = (isEditing ? draft?.vendor : (row.vendor ?? "SUCCESS_PLUS")) as Vendor;
-              const editingUsesCostPlus =
-                isEditing && draft ? isCostPlusVendor(draft.vendor) && draft.costPlusFormula.trim().length > 0 : false;
+              const vendorFormula = (vendorFormulas?.[currentVendor] ?? "").trim();
+              const editingUsesCostPlus = isEditing && isCostPlusVendor(currentVendor) && vendorFormula.length > 0;
 
               return (
                 <Fragment key={row.id}>
@@ -1335,10 +1317,7 @@ export default function ItemsTableClient({
                           onChange={(e) =>
                             setDraft((d) =>
                               d
-                                ? {
-                                    ...d,
-                                    vendor: e.target.value === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS",
-                                  }
+                                ? { ...d, vendor: e.target.value === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS" }
                                 : d
                             )
                           }
@@ -1435,7 +1414,7 @@ export default function ItemsTableClient({
                             value={draft?.price ?? ""}
                             onChange={(e) => setDraft((d) => (d ? { ...d, price: e.target.value } : d))}
                             disabled={editingUsesCostPlus}
-                            title={editingUsesCostPlus ? "Price is computed from cost-plus formula" : undefined}
+                            title={editingUsesCostPlus ? "Price is computed from vendor cost-plus formula" : undefined}
                             style={{
                               width: 110,
                               padding: "6px 8px",
@@ -1705,43 +1684,34 @@ export default function ItemsTableClient({
                                   color: "var(--text)",
                                 }}
                               />
-                              {errors.webUrl ? (
-                                <span style={{ fontSize: 12, color: danger }}>{errors.webUrl}</span>
-                              ) : null}
+                              {errors.webUrl ? <span style={{ fontSize: 12, color: danger }}>{errors.webUrl}</span> : null}
                             </div>
                           </div>
 
-                          {/* ✅ NEW: Cost Plus Formula (only for cost-plus vendors) */}
-                          {isCostPlusVendor(currentVendor) ? (
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-start" }}>
-                              <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: "1 1 320px" }}>
-                                <span style={{ fontSize: 12, opacity: 0.85 }}>
-                                  <strong>Cost Plus Formula</strong>{" "}
-                                  <span style={{ opacity: 0.75 }}>(use: cost, + - * /, parentheses)</span>
-                                </span>
-                                <input
-                                  value={draft?.costPlusFormula ?? ""}
-                                  onChange={(e) =>
-                                    setDraft((d) => (d ? { ...d, costPlusFormula: e.target.value } : d))
-                                  }
-                                  placeholder='Example: (cost * 1.10) + 2'
-                                  style={{
-                                    width: "min(520px, 100%)",
-                                    padding: "6px 8px",
-                                    border: "1px solid var(--border)",
-                                    borderRadius: 8,
-                                    background: surface,
-                                    color: "var(--text)",
-                                  }}
-                                />
-                                {formulaError ? <span style={{ fontSize: 12, color: danger }}>{formulaError}</span> : null}
-                                {!formulaError && formulaPreview ? (
-                                  <span style={{ fontSize: 12, opacity: 0.85 }}>Preview price: ${formulaPreview}</span>
-                                ) : null}
-                                <span style={{ fontSize: 12, opacity: 0.75 }}>
-                                  Leave blank to use manual price.
-                                </span>
+                          {/* ✅ Vendor-level formula (read-only) */}
+                          {isCostPlusVendor(currentVendor) && vendorFormula ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                              <span style={{ fontSize: 12, opacity: 0.85 }}>
+                                <strong>Vendor Cost-Plus Formula</strong>{" "}
+                                <span style={{ opacity: 0.75 }}>(Success Plus / American Plus global setting)</span>
+                              </span>
+                              <div
+                                style={{
+                                  padding: "6px 8px",
+                                  border: "1px solid var(--border)",
+                                  borderRadius: 8,
+                                  background: surface2,
+                                  fontFamily: "monospace",
+                                  width: "min(820px, 100%)",
+                                }}
+                              >
+                                {vendorFormula}
                               </div>
+
+                              {formulaError ? <span style={{ fontSize: 12, color: danger }}>{formulaError}</span> : null}
+                              {!formulaError && formulaPreview ? (
+                                <span style={{ fontSize: 12, opacity: 0.85 }}>Preview price: ${formulaPreview}</span>
+                              ) : null}
                             </div>
                           ) : null}
 
@@ -1775,10 +1745,11 @@ export default function ItemsTableClient({
                             <strong>Keep on hand:</strong> {detailText.keep}
                           </span>
 
-                          {/* ✅ NEW: Show formula when present */}
-                          {isCostPlusVendor(row.vendor ?? "SUCCESS_PLUS") && (row.costPlusFormula ?? "").trim() ? (
+                          {/* ✅ Show vendor formula used by this item */}
+                          {isCostPlusVendor(currentVendor) && vendorFormula ? (
                             <span>
-                              <strong>Cost Plus:</strong> <span style={{ fontFamily: "monospace" }}>{row.costPlusFormula}</span>
+                              <strong>Cost Plus:</strong>{" "}
+                              <span style={{ fontFamily: "monospace" }}>{vendorFormula}</span>
                             </span>
                           ) : null}
 
@@ -1886,9 +1857,7 @@ export default function ItemsTableClient({
               {!historyLoading && versions.length > 0 && activeRow ? (
                 <div style={{ display: "grid", gap: 12 }}>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-                    <div style={{ fontSize: 13, opacity: 0.85 }}>
-                      Select a version to compare and rollback (if needed).
-                    </div>
+                    <div style={{ fontSize: 13, opacity: 0.85 }}>Select a version to compare and rollback (if needed).</div>
 
                     <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                       <input

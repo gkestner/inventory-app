@@ -3,7 +3,7 @@ import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { Prisma, Permission } from "@prisma/client";
+import { Prisma, Permission, InvoiceVendor } from "@prisma/client";
 
 import ItemsToolbar from "./ItemsToolbar";
 import ItemsTableClient from "./ItemsTableClient";
@@ -160,7 +160,7 @@ export default async function ItemsAdminPage({ searchParams }: { searchParams: P
   // ✅ Stable pagination ordering: primary sort + deterministic tie-breaker
   const orderBy: Prisma.ItemOrderByWithRelationInput[] = [{ [sort]: dir }, { id: dir }];
 
-  const [total, items] = await Promise.all([
+  const [total, items, vendorConfigs] = await Promise.all([
     prisma.item.count({ where }),
     prisma.item.findMany({
       where,
@@ -171,10 +171,10 @@ export default async function ItemsAdminPage({ searchParams }: { searchParams: P
         id: true,
         sku: true,
         partNumber: true,
+        vendor: true,
         name: true,
         description: true,
         category: true,
-        // unit removed (sold per-each)
         cost: true,
         price: true,
         taxable: true,
@@ -192,17 +192,30 @@ export default async function ItemsAdminPage({ searchParams }: { searchParams: P
         webUrl: true,
       },
     }),
+    prisma.invoiceVendorConfig.findMany({
+      select: { vendor: true, taxFormula: true },
+    }),
   ]);
+
+  const vendorFormulas: Record<"SUCCESS_PLUS" | "AMERICAN_PLUS", string> = {
+    SUCCESS_PLUS: "lineSubtotal * (taxRatePct / 100)",
+    AMERICAN_PLUS: "lineSubtotal * (taxRatePct / 100)",
+  };
+
+  for (const vc of vendorConfigs) {
+    if (vc.vendor === InvoiceVendor.SUCCESS_PLUS) vendorFormulas.SUCCESS_PLUS = vc.taxFormula;
+    if (vc.vendor === InvoiceVendor.AMERICAN_PLUS) vendorFormulas.AMERICAN_PLUS = vc.taxFormula;
+  }
 
   const initialItems = items.map((it) => ({
     id: it.id,
     sku: it.sku,
     partNumber: it.partNumber,
+    vendor: it.vendor,
     name: it.name,
     description: it.description,
     category: it.category,
-    // Keep prop for now so ItemsTableClient compiles; we'll remove the UOM UI next.
-    unit: null as string | null,
+    unit: null as string | null, // legacy tolerated
     cost: it.cost == null ? null : it.cost.toString(),
     price: it.price == null ? null : it.price.toString(),
     taxable: it.taxable,
@@ -225,13 +238,13 @@ export default async function ItemsAdminPage({ searchParams }: { searchParams: P
       <ItemsToolbar />
       <div style={{ height: 12 }} />
 
-      {/* ✅ IMPORTANT: ItemsTableClient REQUIRES props. Do not render without them. */}
       <ItemsTableClient
         initialItems={initialItems}
         createdSku={createdSku}
         page={page}
         perPage={perPage}
         total={total}
+        vendorFormulas={vendorFormulas}
       />
     </div>
   );
