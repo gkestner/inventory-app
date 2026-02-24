@@ -161,6 +161,12 @@ function rowPhaseStyle(phase: InventoryOrderPhase): CSSProperties {
   return { background: addedBg, borderLeft: `6px solid ${addedBar}` };
 }
 
+function isChecked(v: FormDataEntryValue | null): boolean {
+  if (v === null) return false;
+  const s = String(v).toLowerCase().trim();
+  return s === "on" || s === "true" || s === "1" || s === "yes";
+}
+
 export default async function AdminInventoryOrdersPage({ searchParams }: { searchParams: SearchParams }) {
   const { session } = await requireOrderHistoryView();
 
@@ -265,6 +271,22 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     ...btn,
     background: "var(--order-submit-bg, rgba(76, 175, 80, 0.18))",
     border: "1px solid var(--order-submit-border, rgba(76, 175, 80, 0.45))",
+  };
+
+  const checkboxLabel: CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    fontSize: 12,
+    fontWeight: 900,
+    opacity: 0.9,
+    userSelect: "none",
+    padding: "10px 12px",
+    borderRadius: 12,
+    border,
+    background: surface,
+    color: fg,
+    width: "fit-content",
   };
 
   // Wrap-friendly rows (prevents overflow on smaller screens)
@@ -374,6 +396,9 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     const orderedAt = parseOptionalDateTimeLocal(formData.get("orderedAt")) ?? new Date();
     const note = String(formData.get("note") ?? "").trim();
 
+    const updateItemCost = isChecked(formData.get("updateItemCost"));
+    const updateItemOrderFrom = isChecked(formData.get("updateItemOrderFrom"));
+
     if (!itemId) throw new Error("Missing item");
     if (!Number.isFinite(qty) || qty <= 0) throw new Error("Invalid quantity");
     if (!unitPriceStr) throw new Error("Unit price is required");
@@ -384,7 +409,10 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     if (!createdByUserId) throw new Error("Missing session user id");
 
     await prisma.$transaction(async (tx) => {
-      const item = await tx.item.findUnique({ where: { id: itemId }, select: { id: true } });
+      const item = await tx.item.findUnique({
+        where: { id: itemId },
+        select: { id: true },
+      });
       if (!item) throw new Error("Item not found");
 
       await tx.inventoryOrder.create({
@@ -406,9 +434,22 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
       });
 
       // Ordered amount should be added to item.orderedQty immediately.
+      // Optionally also update item.cost and item.orderFrom to match the order.
+      const itemUpdate: Record<string, any> = {
+        orderedQty: { increment: qty },
+      };
+
+      if (updateItemCost) {
+        itemUpdate.cost = new Decimal(unitPriceStr);
+      }
+
+      if (updateItemOrderFrom && supplierName) {
+        itemUpdate.orderFrom = supplierName;
+      }
+
       await tx.item.update({
         where: { id: itemId },
-        data: { orderedQty: { increment: qty } },
+        data: itemUpdate,
       });
     });
 
@@ -442,6 +483,9 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
 
     const orderedAt = parseOptionalDateTimeLocal(formData.get("orderedAt"));
     const note = String(formData.get("note") ?? "").trim();
+
+    const updateItemCost = isChecked(formData.get("updateItemCost"));
+    const updateItemOrderFrom = isChecked(formData.get("updateItemOrderFrom"));
 
     if (!unitPriceStr) throw new Error("Unit price is required");
 
@@ -505,6 +549,19 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           note: note || null,
         },
       });
+
+      // Optionally update current item fields to match edited order details.
+      // (Cost uses unit price; Order From uses supplier name when provided.)
+      const itemUpdate: Record<string, any> = {};
+      if (updateItemCost) itemUpdate.cost = new Decimal(unitPriceStr);
+      if (updateItemOrderFrom && supplierName) itemUpdate.orderFrom = supplierName;
+
+      if (Object.keys(itemUpdate).length > 0) {
+        await tx.item.update({
+          where: { id: existing.itemId },
+          data: itemUpdate,
+        });
+      }
     });
 
     revalidatePath("/admin/inventory-orders");
@@ -795,8 +852,21 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
               </div>
             </div>
 
+            <div style={{ ...wrapRow, alignItems: "center" }}>
+              <label style={checkboxLabel} title="Updates Item.cost to match Unit price">
+                <input type="checkbox" name="updateItemCost" defaultChecked />
+                Update item cost from unit price
+              </label>
+
+              <label style={checkboxLabel} title="Updates Item.orderFrom to match Supplier (when provided)">
+                <input type="checkbox" name="updateItemOrderFrom" defaultChecked />
+                Update item “order from” from supplier
+              </label>
+            </div>
+
             <div style={{ fontSize: 12, opacity: 0.8 }}>
-              Creating an order immediately increments <b>Item.orderedQty</b> by the order quantity.
+              Creating an order immediately increments <b>Item.orderedQty</b> by the order quantity. With the toggles
+              enabled, it also updates <b>Item.cost</b> and <b>Item.orderFrom</b>.
             </div>
           </form>
         </div>
@@ -979,9 +1049,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                       ) : null}
                     </td>
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.unitPrice ? money(Number(o.unitPrice)) : "—"}</td>
-                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>
-                      {o.shippingCost ? money(Number(o.shippingCost)) : "—"}
-                    </td>
+                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.shippingCost ? money(Number(o.shippingCost)) : "—"}</td>
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.taxCost ? money(Number(o.taxCost)) : "—"}</td>
                     <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{money(totalCost)}</td>
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.forUser?.name ?? "—"}</td>
@@ -1041,13 +1109,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                             <b>{o.status === "ADDED_TO_INVENTORY" ? "on-hand" : "ordered"}</b>.
                           </div>
 
-                          <div
-                            style={{
-                              display: "flex",
-                              flexWrap: "wrap",
-                              gap: 10,
-                            }}
-                          >
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                             <label style={controlLabel}>
                               Ordered at
                               <input
@@ -1092,13 +1154,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                             </label>
                           </div>
 
-                          <div
-                            style={{
-                              display: "flex",
-                              flexWrap: "wrap",
-                              gap: 10,
-                            }}
-                          >
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                             <label style={controlLabel}>
                               Unit price
                               <input
@@ -1150,6 +1206,18 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                                   </option>
                                 ))}
                               </select>
+                            </label>
+                          </div>
+
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                            <label style={checkboxLabel} title="Updates Item.cost to match Unit price">
+                              <input type="checkbox" name="updateItemCost" defaultChecked />
+                              Update item cost from unit price
+                            </label>
+
+                            <label style={checkboxLabel} title="Updates Item.orderFrom to match Supplier (when provided)">
+                              <input type="checkbox" name="updateItemOrderFrom" defaultChecked />
+                              Update item “order from” from supplier
                             </label>
                           </div>
 
