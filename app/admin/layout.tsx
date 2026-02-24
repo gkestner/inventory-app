@@ -3,11 +3,10 @@ import type { ReactNode, CSSProperties } from "react";
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
+import { Role, Permission } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
 import { loadUserPermissions, hasAnyPermission } from "@/app/lib/permissions";
-import { Permission } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,19 +19,29 @@ type AdminSession = {
   } | null;
 } | null;
 
+type PermissionsResult = {
+  allowAll: boolean;
+  permissions: Set<Permission>;
+};
+
 async function requireAdmin() {
   const session = (await getServerSession(authOptions)) as AdminSession;
   if (!session) redirect("/login");
+
   const role = (session.user as unknown as { role?: Role | null } | null)?.role ?? null;
   if (role !== Role.ADMIN) redirect("/");
+
   return session;
 }
 
 export default async function AdminLayout({ children }: { children: ReactNode }) {
   const session = await requireAdmin();
-  const perms = await loadUserPermissions(session as any);
 
-  const allowAll = !!perms?.allowAll;
+  // loadUserPermissions expects your session type; cast via parameter type (no `any`)
+  const sessionArg = session as unknown as Parameters<typeof loadUserPermissions>[0];
+  const perms = (await loadUserPermissions(sessionArg)) as unknown as PermissionsResult;
+
+  const allowAll = !!perms.allowAll;
 
   const canItems =
     allowAll ||
@@ -42,11 +51,10 @@ export default async function AdminLayout({ children }: { children: ReactNode })
       Permission.ADMIN_IMPORT_EXPORT_ITEMS,
     ]);
 
-  const canOrders =
-    allowAll ||
-    hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
+  const canOrders = allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
 
-  const canUsers = allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_USERS, Permission.ADMIN_EDIT_USERS]);
+  const canUsers =
+    allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_USERS, Permission.ADMIN_EDIT_USERS]);
 
   const canLocations =
     allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_LOCATIONS, Permission.ADMIN_EDIT_LOCATIONS]);
@@ -61,7 +69,10 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   const canTickets =
     allowAll ||
-    hasAnyPermission(perms, [Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS, Permission.ADMIN_VIEW_MAINTENANCE_TICKETS]);
+    hasAnyPermission(perms, [
+      Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS,
+      Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
+    ]);
 
   const wrap: CSSProperties = {
     display: "grid",
@@ -136,12 +147,14 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     padding: 16,
   };
 
+  const email = (session.user as unknown as { email?: string | null } | null)?.email ?? "—";
+
   return (
     <div style={wrap}>
       <aside style={sidebar}>
         <div style={brand}>Admin</div>
         <div style={meta}>
-          <div>{(session.user as any)?.email ?? "—"}</div>
+          <div>{email}</div>
           <div style={{ marginTop: 2 }}>Role: ADMIN</div>
         </div>
 

@@ -245,6 +245,10 @@ function safeReturnToPathFromReferer(referer: string | null, fallback: string) {
   }
 }
 
+function isWorkOrderStatus(v: string): v is WorkOrderStatus {
+  return (STATUSES as readonly string[]).includes(v);
+}
+
 export default async function MaintenanceWorkOrderDetailPage({
   params,
 }: {
@@ -479,8 +483,9 @@ export default async function MaintenanceWorkOrderDetailPage({
     }
 
     const statusRaw = formData.get("status");
-    const status = typeof statusRaw === "string" ? statusRaw : "";
-    if (!(STATUSES as readonly string[]).includes(status)) throw new Error("Invalid status");
+    const statusStr = typeof statusRaw === "string" ? statusRaw : "";
+    if (!isWorkOrderStatus(statusStr)) throw new Error("Invalid status");
+    const status: WorkOrderStatus = statusStr;
 
     const notesRaw = formData.get("notes");
     const notes = typeof notesRaw === "string" ? notesRaw.trim() : "";
@@ -499,7 +504,7 @@ export default async function MaintenanceWorkOrderDetailPage({
         where: { id },
         data: {
           locationId,
-          status: status as any,
+          status,
           notes: notesValue,
           startTime,
           endTime,
@@ -768,7 +773,13 @@ export default async function MaintenanceWorkOrderDetailPage({
 
             <label style={label}>
               Ending Mileage
-              <input type="number" name="endingMileage" defaultValue={workOrder.endingMileage ?? ""} style={input} required />
+              <input
+                type="number"
+                name="endingMileage"
+                defaultValue={workOrder.endingMileage ?? ""}
+                style={input}
+                required
+              />
             </label>
 
             <button type="submit" style={{ ...btn, width: 300 }}>

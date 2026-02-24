@@ -120,6 +120,32 @@ function shapeItemForClient(item: {
   };
 }
 
+type PatchBody = {
+  sku?: unknown;
+  name?: unknown;
+
+  partNumber?: unknown;
+  description?: unknown;
+  category?: unknown;
+
+  manufacturer?: unknown;
+  orderFrom?: unknown;
+  webUrl?: unknown;
+
+  cost?: unknown;
+  price?: unknown;
+
+  taxable?: unknown;
+  active?: unknown;
+
+  vendor?: unknown;
+};
+
+type PrismaErrorLike = {
+  code?: string;
+  message?: string;
+};
+
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
     await requireAdminEditItems();
@@ -133,9 +159,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   const { id } = await ctx.params;
   if (!id) return jsonError(400, "Missing id");
 
-  let body: any = null;
+  let body: PatchBody | null = null;
   try {
-    body = await req.json();
+    body = (await req.json()) as PatchBody;
   } catch {
     return jsonError(400, "Invalid JSON");
   }
@@ -290,7 +316,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     });
 
     return NextResponse.json(shapeItemForClient(updated));
-  } catch (e: any) {
+  } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "";
     if (msg === "NOT_FOUND") return jsonError(404, "Item not found");
     return jsonError(500, "Failed to update item");
@@ -313,12 +339,17 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
   try {
     await prisma.item.delete({ where: { id } });
     return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    // Prisma FK violations often surface as P2003
-    if (e?.code === "P2025") return jsonError(404, "Item not found");
-    if (e?.code === "P2003") {
+  } catch (e: unknown) {
+    const err = e as PrismaErrorLike | null;
+
+    // Prisma not-found / FK violations
+    if (err?.code === "P2025") return jsonError(404, "Item not found");
+    if (err?.code === "P2003") {
       return NextResponse.json(
-        { error: "Delete blocked: item has related records (tickets/orders/alerts/versions). Use PURGE if you intend to remove everything." },
+        {
+          error:
+            "Delete blocked: item has related records (tickets/orders/alerts/versions). Use PURGE if you intend to remove everything.",
+        },
         { status: 409 }
       );
     }

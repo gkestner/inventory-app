@@ -29,7 +29,7 @@ function getClient(): PrismaClient {
 }
 
 export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
-  get(_target, prop) {
+  get(_target, prop: PropertyKey) {
     // If anything attempts to use Prisma during build-time evaluation,
     // throw a crisp error so we can find the offending module.
     if (isBuildTimeEvaluation) {
@@ -41,10 +41,15 @@ export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
     }
 
     const c = getClient();
-    const value = (c as any)[prop];
+
+    // Avoid `any` while still allowing dynamic property access.
+    const value = (c as unknown as Record<PropertyKey, unknown>)[prop];
 
     // Ensure methods keep correct `this` binding.
-    if (typeof value === "function") return value.bind(c);
+    if (typeof value === "function") {
+      return (value as (...args: unknown[]) => unknown).bind(c);
+    }
+
     return value;
   },
 });

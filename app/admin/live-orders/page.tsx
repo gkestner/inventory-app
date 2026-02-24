@@ -8,7 +8,9 @@ import { headers } from "next/headers";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { loadUserPermissions } from "@/app/lib/permissions";
-import { Permission, Role } from "@prisma/client";
+import { Permission, Prisma, Role } from "@prisma/client";
+
+import AutoRefreshClient from "./AutoRefreshClient";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -21,6 +23,28 @@ type AdminSession = {
   } | null;
 } | null;
 
+type PermissionsResult = {
+  allowAll: boolean;
+  permissions: Set<Permission>;
+};
+
+type OrderWithLines = Prisma.InventoryOrderGetPayload<{
+  include: {
+    lines: {
+      include: {
+        item: true;
+      };
+    };
+  };
+}>;
+
+type LineWithItemAndOrder = Prisma.InventoryOrderLineGetPayload<{
+  include: {
+    item: true;
+    order: true;
+  };
+}>;
+
 async function requireLiveOrdersView() {
   const session = (await getServerSession(authOptions)) as AdminSession;
   if (!session) redirect("/login");
@@ -28,24 +52,24 @@ async function requireLiveOrdersView() {
   const role = (session.user as unknown as { role?: Role | null } | null)?.role ?? null;
   if (role !== Role.ADMIN) redirect("/");
 
-  // If your app uses fine-grained perms, keep this check.
-  // (Admins often have allowAll; this is consistent with your other admin pages.)
-  const perms = await loadUserPermissions(session as any);
-  if (!perms?.allowAll) {
+  const arg = session as unknown as Parameters<typeof loadUserPermissions>[0];
+  const perms = (await loadUserPermissions(arg)) as unknown as PermissionsResult;
+
+  if (!perms.allowAll) {
     const ok =
-      perms?.permissions?.includes(Permission.ADMIN_VIEW_ITEMS) ||
-      perms?.permissions?.includes(Permission.ADMIN_VIEW_WORK_ORDERS) ||
-      perms?.permissions?.includes(Permission.ADMIN_IMPORT_EXPORT_ITEMS);
+      perms.permissions.has(Permission.ADMIN_VIEW_ITEMS) ||
+      perms.permissions.has(Permission.ADMIN_VIEW_WORK_ORDERS) ||
+      perms.permissions.has(Permission.ADMIN_IMPORT_EXPORT_ITEMS);
+
     if (!ok) redirect("/");
   }
 
   return session;
 }
 
-function fmtDate(iso: string | Date | null | undefined) {
+function fmtDate(iso: Date | null | undefined) {
   if (!iso) return "";
-  const d = typeof iso === "string" ? new Date(iso) : iso;
-  return d.toLocaleString("en-US", {
+  return iso.toLocaleString("en-US", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -61,32 +85,34 @@ function normalizePhase(v: unknown): "ORDERED" | "ARRIVED" | "COMPLETED" {
   return "ORDERED";
 }
 
-async function getClientIp() {
+function getClientIp() {
   const h = headers();
   return h.get("x-forwarded-for")?.split(",")[0]?.trim() ?? h.get("x-real-ip") ?? "";
 }
 
-/**
- * NOTE:
- * This page is intentionally server-first and self-contained.
- * It expects your existing Inventory Orders schema:
- * - inventoryOrder (id, vendor/orderFrom?, phase, createdAt, note?)
- * - inventoryOrderLine (id, orderId, itemId, qty, qtyForTech?, qtyForStore?, createdAt?)
- * - item (id, sku, name, orderFrom, orderedQty, onHandQty, cost, etc.)
- *
- * If any field names differ slightly in your schema, adjust ONLY the Prisma select/include blocks below.
- */
+type LiveOrderCard = {
+  phase: "ORDERED" | "ARRIVED" | "COMPLETED";
+  orderId: string;
+  lineId: string;
+  itemId: string;
+  sku: string;
+  name: string;
+  qty: number;
+  forTech: number;
+  forStore: number;
+  supplier: string;
+  orderedAt: Date | null;
+};
+
 export default async function LiveOrdersPage() {
   await requireLiveOrdersView();
 
-  // Pull recent operational work. Keep it bounded so the board stays fast.
-  // If you want a longer window, increase daysBack.
   const daysBack = 120;
+
+  // eslint-disable-next-line react-hooks/purity
   const minDate = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000);
 
-  // We fetch orders + lines + item and then render “cards” per line.
-  // If your relation names differ, update include keys accordingly.
-  const orders = (await prisma.inventoryOrder.findMany({
+  const orders: OrderWithLines[] = await prisma.inventoryOrder.findMany({
     where: {
       createdAt: { gte: minDate },
     },
@@ -98,35 +124,47 @@ export default async function LiveOrdersPage() {
         },
       },
     },
-  })) as any[];
+  });
 
-  const cards = orders.flatMap((o) => {
+  const cards: LiveOrderCard[] = orders.flatMap((o) => {
     const phase = normalizePhase(o.phase);
     const orderedAt = o.createdAt ?? null;
 
-    const vendor = o.vendor ?? o.orderFrom ?? o.supplier ?? null;
+    const vendorOrSupplier =
+      (o as unknown as { vendor?: string | null; orderFrom?: string | null; supplier?: string | null }).vendor ??
+      (o as unknown as { vendor?: string | null; orderFrom?: string | null; supplier?: string | null }).orderFrom ??
+      (o as unknown as { vendor?: string | null; orderFrom?: string | null; supplier?: string | null }).supplier ??
+      null;
 
-    const lines: any[] = Array.isArray(o.lines) ? o.lines : [];
-    return lines.map((ln) => {
-      const item = ln.item ?? null;
+    return o.lines.map((ln) => {
+      const item = ln.item;
 
-      const qty = Number(ln.qty ?? ln.quantity ?? 0);
-      const forTech = Number(ln.qtyForTech ?? ln.forTechQty ?? 0);
-      const forStore = Number(ln.qtyForStore ?? ln.forStoreQty ?? 0);
+      const qty = Number((ln as unknown as { qty?: number | null; quantity?: number | null }).qty ?? (ln as unknown as { quantity?: number | null }).quantity ?? 0);
+      const forTech = Number(
+        (ln as unknown as { qtyForTech?: number | null; forTechQty?: number | null }).qtyForTech ??
+          (ln as unknown as { forTechQty?: number | null }).forTechQty ??
+          0
+      );
+      const forStore = Number(
+        (ln as unknown as { qtyForStore?: number | null; forStoreQty?: number | null }).qtyForStore ??
+          (ln as unknown as { forStoreQty?: number | null }).forStoreQty ??
+          0
+      );
 
-      const sku = String(item?.sku ?? "");
-      const name = String(item?.name ?? "");
-
-      const supplier =
-        String(item?.orderFrom ?? vendor ?? item?.vendor ?? "").trim() || "—";
+      const supplier = String(
+        (item as unknown as { orderFrom?: string | null }).orderFrom ??
+          vendorOrSupplier ??
+          (item as unknown as { vendor?: string | null }).vendor ??
+          ""
+      ).trim() || "—";
 
       return {
         phase,
         orderId: String(o.id),
         lineId: String(ln.id),
-        itemId: String(item?.id ?? ln.itemId ?? ""),
-        sku,
-        name,
+        itemId: String(item.id),
+        sku: String((item as unknown as { sku?: string | null }).sku ?? ""),
+        name: String((item as unknown as { name?: string | null }).name ?? ""),
         qty,
         forTech,
         forStore,
@@ -147,19 +185,17 @@ export default async function LiveOrdersPage() {
     if (!orderId) return;
 
     await prisma.$transaction(async (tx) => {
-      const existing = (await tx.inventoryOrder.findUnique({
+      const existing = await tx.inventoryOrder.findUnique({
         where: { id: orderId },
         select: { id: true, phase: true, note: true },
-      })) as any;
+      });
 
       if (!existing) return;
 
-      // Idempotent-ish: if already arrived/completed, do nothing.
       const current = normalizePhase(existing.phase);
       if (current !== "ORDERED") return;
 
-      const ip = await getClientIp();
-
+      const ip = getClientIp();
       const stamp = `[LIVE-ORDERS] Mark Arrived @ ${new Date().toISOString()} ip=${ip}`;
       const note = existing.note ? `${existing.note}\n${stamp}` : stamp;
 
@@ -168,7 +204,7 @@ export default async function LiveOrdersPage() {
         data: {
           phase: "ARRIVED",
           note,
-        } as any,
+        },
       });
     });
 
@@ -183,97 +219,82 @@ export default async function LiveOrdersPage() {
     if (!lineId) return;
 
     await prisma.$transaction(async (tx) => {
-      const ln = (await tx.inventoryOrderLine.findUnique({
+      const ln: LineWithItemAndOrder | null = await tx.inventoryOrderLine.findUnique({
         where: { id: lineId },
         include: { item: true, order: true },
-      })) as any;
+      });
 
-      if (!ln || !ln.item) return;
+      if (!ln) return;
 
-      const orderId = String(ln.order?.id ?? ln.orderId ?? "");
-      const itemId = String(ln.item.id ?? ln.itemId ?? "");
-      const moveQty = Number(ln.qty ?? ln.quantity ?? 0);
+      const orderId = String(ln.order?.id ?? ln.orderId);
+      const itemId = String(ln.item.id);
+
+      const moveQty = Number(
+        (ln as unknown as { qty?: number | null; quantity?: number | null }).qty ??
+          (ln as unknown as { quantity?: number | null }).quantity ??
+          0
+      );
 
       if (!orderId || !itemId || !Number.isFinite(moveQty) || moveQty <= 0) return;
 
-      // Ensure the order is at least ARRIVED before adding to inventory.
       const phase = normalizePhase(ln.order?.phase);
       if (phase === "ORDERED") return;
 
-      const item = (await tx.item.findUnique({
+      const item = await tx.item.findUnique({
         where: { id: itemId },
-        select: {
-          id: true,
-          orderedQty: true,
-          onHandQty: true,
-          cost: true,
-          orderFrom: true,
-        },
-      })) as any;
+        select: { id: true, orderedQty: true, onHandQty: true },
+      });
 
       if (!item) return;
 
       const orderedQty = Number(item.orderedQty ?? 0);
       const onHandQty = Number(item.onHandQty ?? 0);
 
-      // Safe inventory guards
       if (!Number.isFinite(orderedQty) || !Number.isFinite(onHandQty)) return;
-      if (orderedQty < moveQty) {
-        // Guard against going negative — do nothing if out of sync.
-        return;
-      }
+      if (orderedQty < moveQty) return; // guard: don’t go negative
 
-      const ip = await getClientIp();
+      const ip = getClientIp();
       const stamp = `[LIVE-ORDERS] Add to Inventory line=${lineId} qty=${moveQty} @ ${new Date().toISOString()} ip=${ip}`;
 
-      // Atomic move:
-      // - onHandQty += moveQty
-      // - orderedQty -= moveQty
-      // - mark order completed if all lines are effectively processed (best-effort)
       await tx.item.update({
         where: { id: itemId },
         data: {
           onHandQty: onHandQty + moveQty,
           orderedQty: orderedQty - moveQty,
-        } as any,
+        },
       });
 
-      // Append audit to order note (keeps your “full audit lines in note” pattern)
-      const existingOrder = (await tx.inventoryOrder.findUnique({
+      const existingOrder = await tx.inventoryOrder.findUnique({
         where: { id: orderId },
         select: { id: true, note: true },
-      })) as any;
+      });
 
       if (existingOrder) {
         const note = existingOrder.note ? `${existingOrder.note}\n${stamp}` : stamp;
         await tx.inventoryOrder.update({
           where: { id: orderId },
-          data: { note } as any,
+          data: { note },
         });
       }
 
-      // Best-effort completion:
-      // If the *sum of remaining orderedQty on items for this order* is 0, set COMPLETED.
-      // (This avoids relying on extra per-line fields; adjust if you track received/added per line.)
-      const orderWithLines = (await tx.inventoryOrder.findUnique({
+      // Best-effort completion heuristic (stable, no schema changes):
+      // if no line has qty>0 AND its item orderedQty>0, mark COMPLETED.
+      const orderWithLines = await tx.inventoryOrder.findUnique({
         where: { id: orderId },
         include: { lines: { include: { item: true } } },
-      })) as any;
+      });
 
       if (orderWithLines) {
-        const anyRemaining = (orderWithLines.lines ?? []).some((l: any) => {
-          const it = l.item;
-          const q = Number(l.qty ?? l.quantity ?? 0);
-          const itOrdered = Number(it?.orderedQty ?? 0);
-          // Heuristic: if the item still has any orderedQty, treat as remaining.
-          // If you want strict per-order tracking, replace this with your per-line “remaining” field.
+        const anyRemaining = orderWithLines.lines.some((l) => {
+          const q = Number((l as unknown as { qty?: number | null; quantity?: number | null }).qty ?? (l as unknown as { quantity?: number | null }).quantity ?? 0);
+          const itOrdered = Number(l.item.orderedQty ?? 0);
           return q > 0 && itOrdered > 0;
         });
 
         if (!anyRemaining) {
           await tx.inventoryOrder.update({
             where: { id: orderId },
-            data: { phase: "COMPLETED" } as any,
+            data: { phase: "COMPLETED" },
           });
         }
       }
@@ -295,6 +316,7 @@ export default async function LiveOrdersPage() {
     gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
     gap: 12,
     alignItems: "start",
+    marginTop: 12,
   };
 
   const colStyle: CSSProperties = {
@@ -332,23 +354,9 @@ export default async function LiveOrdersPage() {
     marginBottom: 10,
   };
 
-  const cardOrdered: CSSProperties = {
-    ...cardBase,
-    borderLeft: "6px solid #f59e0b",
-    background: "#fffbeb",
-  };
-
-  const cardArrived: CSSProperties = {
-    ...cardBase,
-    borderLeft: "6px solid #3b82f6",
-    background: "#eff6ff",
-  };
-
-  const cardCompleted: CSSProperties = {
-    ...cardBase,
-    borderLeft: "6px solid #10b981",
-    background: "#ecfdf5",
-  };
+  const cardOrdered: CSSProperties = { ...cardBase, borderLeft: "6px solid #f59e0b", background: "#fffbeb" };
+  const cardArrived: CSSProperties = { ...cardBase, borderLeft: "6px solid #3b82f6", background: "#eff6ff" };
+  const cardCompleted: CSSProperties = { ...cardBase, borderLeft: "6px solid #10b981", background: "#ecfdf5" };
 
   const row: CSSProperties = { display: "flex", gap: 10, flexWrap: "wrap" };
   const meta: CSSProperties = { fontSize: 12, color: "#374151" };
@@ -384,15 +392,8 @@ export default async function LiveOrdersPage() {
     background: "#fafafa",
   };
 
-  function Card({
-    c,
-    variant,
-  }: {
-    c: any;
-    variant: "ORDERED" | "ARRIVED" | "COMPLETED";
-  }) {
-    const style =
-      variant === "ORDERED" ? cardOrdered : variant === "ARRIVED" ? cardArrived : cardCompleted;
+  function Card({ c, variant }: { c: LiveOrderCard; variant: LiveOrderCard["phase"] }) {
+    const style = variant === "ORDERED" ? cardOrdered : variant === "ARRIVED" ? cardArrived : cardCompleted;
 
     return (
       <div style={style} key={c.lineId}>
@@ -457,13 +458,12 @@ export default async function LiveOrdersPage() {
     <main style={pageWrap}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
         <h1 style={{ margin: 0, fontSize: 22 }}>Live Orders Board</h1>
-        <div style={{ fontSize: 12, color: "#6b7280" }}>
-          Window: last {daysBack} days • Refreshes on action
-        </div>
+        <div style={{ fontSize: 12, color: "#6b7280" }}>Window: last {daysBack} days • Actions revalidate</div>
       </div>
 
-      <div style={{ marginTop: 12, ...colsWrap }}>
-        {/* ORDERED */}
+      <AutoRefreshClient defaultEnabled={true} defaultIntervalSec={30} />
+
+      <div style={colsWrap}>
         <section style={colStyle}>
           <div style={colHeader}>
             <div style={{ fontWeight: 800 }}>ORDERED</div>
@@ -476,7 +476,6 @@ export default async function LiveOrdersPage() {
           )}
         </section>
 
-        {/* ARRIVED / PROCESSING */}
         <section style={colStyle}>
           <div style={colHeader}>
             <div style={{ fontWeight: 800 }}>ARRIVED / PROCESSING</div>
@@ -489,7 +488,6 @@ export default async function LiveOrdersPage() {
           )}
         </section>
 
-        {/* COMPLETED */}
         <section style={colStyle}>
           <div style={colHeader}>
             <div style={{ fontWeight: 800 }}>COMPLETED</div>

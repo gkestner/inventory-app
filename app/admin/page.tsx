@@ -3,11 +3,10 @@ import type { CSSProperties } from "react";
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
+import { Role, Permission } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
 import { loadUserPermissions, hasAnyPermission } from "@/app/lib/permissions";
-import { Permission } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,21 +19,29 @@ type AdminSession = {
   } | null;
 } | null;
 
+type PermissionsResult = {
+  allowAll: boolean;
+  permissions: Set<Permission>;
+};
+
 async function requireAdmin() {
   const session = (await getServerSession(authOptions)) as AdminSession;
   if (!session) redirect("/login");
+
   const role = (session.user as unknown as { role?: Role | null } | null)?.role ?? null;
   if (role !== Role.ADMIN) redirect("/");
+
   return session;
 }
 
 export default async function AdminHomePage() {
   const session = await requireAdmin();
 
-  const perms = await loadUserPermissions(session as any);
+  const sessionArg = session as unknown as Parameters<typeof loadUserPermissions>[0];
+  const perms = (await loadUserPermissions(sessionArg)) as unknown as PermissionsResult;
 
   const canItems =
-    perms?.allowAll ||
+    perms.allowAll ||
     hasAnyPermission(perms, [
       Permission.ADMIN_VIEW_ITEMS,
       Permission.ADMIN_EDIT_ITEMS,
@@ -42,10 +49,36 @@ export default async function AdminHomePage() {
     ]);
 
   const canOrders =
-    perms?.allowAll ||
-    hasAnyPermission(perms, [Permission.ADMIN_VIEW_LOCATIONS, Permission.ADMIN_VIEW_WORK_ORDERS]) ||
-    // inventory orders historically piggy-backed on items permissions in many setups
+    perms.allowAll ||
+    hasAnyPermission(perms, [
+      Permission.ADMIN_VIEW_WORK_ORDERS,
+      Permission.ADMIN_EDIT_WORK_ORDERS,
+      Permission.ADMIN_DELETE_WORK_ORDERS,
+    ]) ||
+    // inventory orders often align with items permissions
     hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
+
+  const canUsers =
+    perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_USERS, Permission.ADMIN_EDIT_USERS]);
+
+  const canLocations =
+    perms.allowAll ||
+    hasAnyPermission(perms, [Permission.ADMIN_VIEW_LOCATIONS, Permission.ADMIN_EDIT_LOCATIONS]);
+
+  const canWorkOrders =
+    perms.allowAll ||
+    hasAnyPermission(perms, [
+      Permission.ADMIN_VIEW_WORK_ORDERS,
+      Permission.ADMIN_EDIT_WORK_ORDERS,
+      Permission.ADMIN_DELETE_WORK_ORDERS,
+    ]);
+
+  const canTickets =
+    perms.allowAll ||
+    hasAnyPermission(perms, [
+      Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
+      Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS,
+    ]);
 
   const wrap: CSSProperties = {
     padding: 16,
@@ -68,7 +101,12 @@ export default async function AdminHomePage() {
   };
 
   const title: CSSProperties = { fontSize: 18, fontWeight: 800, margin: 0 };
-  const desc: CSSProperties = { margin: "8px 0 0 0", color: "#4b5563", fontSize: 13, lineHeight: 1.35 };
+  const desc: CSSProperties = {
+    margin: "8px 0 0 0",
+    color: "#4b5563",
+    fontSize: 13,
+    lineHeight: 1.35,
+  };
 
   const linkStyle: CSSProperties = {
     display: "inline-flex",
@@ -91,12 +129,12 @@ export default async function AdminHomePage() {
     color: "#111827",
   };
 
+  const email = (session.user as unknown as { email?: string | null } | null)?.email ?? "—";
+
   return (
     <main style={wrap}>
       <h1 style={{ margin: 0, fontSize: 22 }}>Admin</h1>
-      <div style={{ marginTop: 6, color: "#6b7280", fontSize: 13 }}>
-        Signed in: {(session.user as any)?.email ?? "—"}
-      </div>
+      <div style={{ marginTop: 6, color: "#6b7280", fontSize: 13 }}>Signed in: {email}</div>
 
       <div style={grid}>
         <div style={card}>
@@ -146,37 +184,65 @@ export default async function AdminHomePage() {
           </div>
         )}
 
-        <div style={card}>
-          <h2 style={title}>Users</h2>
-          <p style={desc}>Create and manage users (admin-only).</p>
-          <Link href="/admin/users" style={linkStyle}>
-            Open Users →
-          </Link>
-        </div>
+        {canUsers ? (
+          <div style={card}>
+            <h2 style={title}>Users</h2>
+            <p style={desc}>Create and manage users (admin-only).</p>
+            <Link href="/admin/users" style={linkStyle}>
+              Open Users →
+            </Link>
+          </div>
+        ) : (
+          <div style={card}>
+            <h2 style={title}>Users</h2>
+            <p style={desc}>You don’t have access to view this module.</p>
+          </div>
+        )}
 
-        <div style={card}>
-          <h2 style={title}>Locations</h2>
-          <p style={desc}>Manage location list used across modules.</p>
-          <Link href="/admin/locations" style={linkStyle}>
-            Open Locations →
-          </Link>
-        </div>
+        {canLocations ? (
+          <div style={card}>
+            <h2 style={title}>Locations</h2>
+            <p style={desc}>Manage location list used across modules.</p>
+            <Link href="/admin/locations" style={linkStyle}>
+              Open Locations →
+            </Link>
+          </div>
+        ) : (
+          <div style={card}>
+            <h2 style={title}>Locations</h2>
+            <p style={desc}>You don’t have access to view this module.</p>
+          </div>
+        )}
 
-        <div style={card}>
-          <h2 style={title}>Work Orders</h2>
-          <p style={desc}>Admin view/edit of work orders.</p>
-          <Link href="/admin/work-orders" style={linkStyle}>
-            Open Work Orders →
-          </Link>
-        </div>
+        {canWorkOrders ? (
+          <div style={card}>
+            <h2 style={title}>Work Orders</h2>
+            <p style={desc}>Admin view/edit of work orders.</p>
+            <Link href="/admin/work-orders" style={linkStyle}>
+              Open Work Orders →
+            </Link>
+          </div>
+        ) : (
+          <div style={card}>
+            <h2 style={title}>Work Orders</h2>
+            <p style={desc}>You don’t have access to view this module.</p>
+          </div>
+        )}
 
-        <div style={card}>
-          <h2 style={title}>Maintenance Tickets</h2>
-          <p style={desc}>Admin export + reporting for maintenance tickets.</p>
-          <Link href="/admin/maintenance-tickets" style={linkStyle}>
-            Open Tickets →
-          </Link>
-        </div>
+        {canTickets ? (
+          <div style={card}>
+            <h2 style={title}>Maintenance Tickets</h2>
+            <p style={desc}>Admin export + reporting for maintenance tickets.</p>
+            <Link href="/admin/maintenance-tickets" style={linkStyle}>
+              Open Tickets →
+            </Link>
+          </div>
+        ) : (
+          <div style={card}>
+            <h2 style={title}>Maintenance Tickets</h2>
+            <p style={desc}>You don’t have access to view this module.</p>
+          </div>
+        )}
       </div>
     </main>
   );
