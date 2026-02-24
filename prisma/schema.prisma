@@ -5,8 +5,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
@@ -77,7 +77,15 @@ model InvoiceVendorConfig {
   // Percent values stored as whole percent (e.g., 10.00 = 10%)
   partsUpchargePct Decimal @db.Decimal(5, 2) @default(0)
   taxRatePct       Decimal @db.Decimal(5, 2) @default(0)
-  taxFormula       String  @default("lineSubtotal * (taxRatePct / 100)")
+
+  // ✅ NEW: formula used to calculate unit price from a base cost
+  // Variables intended to be available in code:
+  // - baseCost (Decimal)
+  // - partsUpchargePct (Decimal, whole percent)
+  costFormula String @default("baseCost * (1 + partsUpchargePct / 100)")
+
+  // Existing: formula used to calculate tax from line subtotal and taxRatePct
+  taxFormula String @default("lineSubtotal * (taxRatePct / 100)")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -372,11 +380,11 @@ model ItemVersion {
   itemId String
   item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
-  sku         String
-  partNumber  String?
+  sku        String
+  partNumber String?
 
   // ✅ FIX: default allows migration to backfill existing rows
-  vendor      InvoiceVendor @default(SUCCESS_PLUS)
+  vendor InvoiceVendor @default(SUCCESS_PLUS)
 
   name        String
   description String?
