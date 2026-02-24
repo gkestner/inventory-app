@@ -835,21 +835,21 @@ export default function ItemsTableClient({
 
         // Keep qty fields if the API returns them; otherwise keep existing values
         onHandQty:
-          typeof (updated as any).onHandQty === "number"
-            ? (updated as any).onHandQty
-            : rows.find((r) => r.id === id)?.onHandQty ?? undefined,
+          typeof updated.onHandQty === "number"
+            ? updated.onHandQty
+            : rows.find((r) => r.id === id)?.onHandQty,
         orderedQty:
-          typeof (updated as any).orderedQty === "number"
-            ? (updated as any).orderedQty
-            : rows.find((r) => r.id === id)?.orderedQty ?? undefined,
+          typeof updated.orderedQty === "number"
+            ? updated.orderedQty
+            : rows.find((r) => r.id === id)?.orderedQty,
         usedQty:
-          typeof (updated as any).usedQty === "number"
-            ? (updated as any).usedQty
-            : rows.find((r) => r.id === id)?.usedQty ?? undefined,
+          typeof updated.usedQty === "number"
+            ? updated.usedQty
+            : rows.find((r) => r.id === id)?.usedQty,
         minQty:
-          typeof (updated as any).minQty === "number"
-            ? (updated as any).minQty
-            : rows.find((r) => r.id === id)?.minQty ?? undefined,
+          typeof updated.minQty === "number"
+            ? updated.minQty
+            : rows.find((r) => r.id === id)?.minQty,
 
         createdAt: updated.createdAt,
         updatedAt: updated.updatedAt,
@@ -1748,8 +1748,7 @@ export default function ItemsTableClient({
                           {/* ✅ Show vendor formula used by this item */}
                           {isCostPlusVendor(currentVendor) && vendorFormula ? (
                             <span>
-                              <strong>Cost Plus:</strong>{" "}
-                              <span style={{ fontFamily: "monospace" }}>{vendorFormula}</span>
+                              <strong>Cost Plus:</strong> <span style={{ fontFamily: "monospace" }}>{vendorFormula}</span>
                             </span>
                           ) : null}
 

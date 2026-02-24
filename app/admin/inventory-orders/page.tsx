@@ -8,7 +8,7 @@ import { headers } from "next/headers";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
-import { Permission, Role, InventoryOrderStatus } from "@prisma/client";
+import { Permission, Role, InventoryOrderStatus, Prisma } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { Decimal } from "@prisma/client/runtime/library";
 
@@ -195,8 +195,17 @@ function buildSystemAuditLine(args: {
   return parts.join(" ");
 }
 
+const ORDER_INCLUDE = {
+  item: { select: { id: true, sku: true, partNumber: true, name: true } },
+  forStore: { select: { id: true, name: true } },
+  forUser: { select: { id: true, name: true } },
+  createdByUser: { select: { id: true, name: true, email: true } },
+} satisfies Prisma.InventoryOrderInclude;
+
+type OrderRow = Prisma.InventoryOrderGetPayload<{ include: typeof ORDER_INCLUDE }>;
+
 export default async function AdminInventoryOrdersPage({ searchParams }: { searchParams: SearchParams }) {
-  const { session } = await requireOrderHistoryView();
+  await requireOrderHistoryView();
 
   // If Prisma Client isn't regenerated yet, avoid crashing.
   const anyPrisma = prisma as unknown as { inventoryOrder?: unknown };
@@ -233,8 +242,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           >
             <div style={{ fontWeight: 900, marginBottom: 6 }}>Not ready yet</div>
             <div style={{ opacity: 0.85, lineHeight: 1.5 }}>
-              Your app is running with a Prisma Client that does not include <code>inventoryOrder</code> yet, so this page
-              would crash.
+              Your app is running with a Prisma Client that does not include <code>inventoryOrder</code> yet, so this page would crash.
               <br />
               Fix: run migration + regenerate Prisma Client (or restart dev server after <code>prisma generate</code>).
             </div>
@@ -247,9 +255,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
   const q = (searchParams.q ?? "").trim();
 
   const phaseRaw = (searchParams.phase ?? "").trim().toUpperCase();
-  const phase: InventoryOrderPhase | "" = (PHASES as readonly string[]).includes(phaseRaw)
-    ? (phaseRaw as InventoryOrderPhase)
-    : "";
+  const phase: InventoryOrderPhase | "" = (PHASES as readonly string[]).includes(phaseRaw) ? (phaseRaw as InventoryOrderPhase) : "";
 
   const itemId = (searchParams.itemId ?? "").trim();
   const supplier = (searchParams.supplier ?? "").trim();
@@ -315,19 +321,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     minWidth: 0,
   });
 
-  const { inventoryOrder } = prisma as unknown as {
-    inventoryOrder: {
-      count: (args: unknown) => Promise<number>;
-      findMany: (args: unknown) => Promise<any[]>;
-      create: (args: unknown) => Promise<any>;
-      update: (args: unknown) => Promise<any>;
-      delete: (args: unknown) => Promise<any>;
-      findUnique: (args: unknown) => Promise<any>;
-      findFirst: (args: unknown) => Promise<any>;
-    };
-  };
-
-  const where: Record<string, unknown> = {};
+  const where: Prisma.InventoryOrderWhereInput = {};
   if (phase) where.status = phase;
   if (itemId) where.itemId = itemId;
   if (supplier) where.supplierName = { contains: supplier, mode: "insensitive" };
@@ -372,29 +366,24 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
       orderBy: { name: "asc" },
       select: { id: true, name: true, email: true, role: true },
     }),
-    inventoryOrder.count({ where }),
-    inventoryOrder.findMany({
+    prisma.inventoryOrder.count({ where }),
+    prisma.inventoryOrder.findMany({
       where,
       orderBy: { orderedAt: "desc" },
       take: perPage,
       skip,
-      include: {
-        item: { select: { id: true, sku: true, partNumber: true, name: true } },
-        forStore: { select: { id: true, name: true } },
-        forUser: { select: { id: true, name: true } },
-        createdByUser: { select: { id: true, name: true, email: true } },
-      },
+      include: ORDER_INCLUDE,
     }),
   ]);
 
   const pageCount = Math.max(1, Math.ceil(total / perPage));
 
-  async function syncItemCostAndOrderFromFromLatestOrder(tx: any, itemId: string) {
+  async function syncItemCostAndOrderFromFromLatestOrder(tx: Prisma.TransactionClient, itemId: string) {
     // set Item.cost + Item.orderFrom from the most recent order (by orderedAt desc)
     const latest = await tx.inventoryOrder.findFirst({
       where: { itemId },
       orderBy: { orderedAt: "desc" },
-      select: { id: true, unitPrice: true, supplierName: true, orderedAt: true },
+      select: { id: true, unitPrice: true, supplierName: true, orderedAt: true, note: true },
     });
 
     if (!latest) return;
@@ -464,8 +453,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     if (!Number.isFinite(qty) || qty <= 0) throw new Error("Invalid quantity");
     if (!unitPriceStr) throw new Error("Unit price is required");
 
-    const createdByUserId =
-      typeof (s?.user as unknown as { id?: unknown })?.id === "string" ? ((s?.user as any).id as string) : "";
+    const createdByUserId = s?.user?.id ?? "";
     if (!createdByUserId) throw new Error("Missing session user id");
 
     await prisma.$transaction(async (tx) => {
@@ -529,7 +517,6 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
       // If for any reason orderedAt is not the latest, keep item cost/orderFrom in sync with the latest order row.
       // (This makes edits/late entries safe.)
       if (created.orderedAt.getTime() !== orderedAt.getTime()) {
-        // unlikely, but safe
         await syncItemCostAndOrderFromFromLatestOrder(tx, itemId);
       }
     });
@@ -656,8 +643,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
         },
       });
 
-      // Keep the Item's cost + orderFrom synced to the *latest* order for the item,
-      // so "cost comparison now vs months/years ago" stays meaningful and edits don't corrupt current cost.
+      // Keep the Item's cost + orderFrom synced to the *latest* order for the item
       await syncItemCostAndOrderFromFromLatestOrder(tx, existing.itemId);
     });
 
@@ -753,7 +739,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
         newOrderedQty,
         prevOnHandQty: prevOnHand,
         newOnHandQty: newOnHand,
-        itemSku: (existing.item as any)?.sku ?? null,
+        itemSku: existing.item?.sku ?? null,
         note: `order=${id}`,
       });
 
@@ -967,12 +953,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
 
               <label style={{ ...controlLabel, ...flexItem(220, 0) }}>
                 Ordered at
-                <input
-                  name="orderedAt"
-                  type="datetime-local"
-                  defaultValue={fmtForDatetimeLocal(new Date())}
-                  style={controlBase}
-                />
+                <input name="orderedAt" type="datetime-local" defaultValue={fmtForDatetimeLocal(new Date())} style={controlBase} />
               </label>
             </div>
 
@@ -1131,10 +1112,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                 <button type="submit" style={btn}>
                   Apply
                 </button>
-                <Link
-                  href="/admin/inventory-orders"
-                  style={{ ...btn, textDecoration: "none", display: "inline-block", opacity: 0.92 }}
-                >
+                <Link href="/admin/inventory-orders" style={{ ...btn, textDecoration: "none", display: "inline-block", opacity: 0.92 }}>
                   Clear
                 </Link>
               </div>
@@ -1187,7 +1165,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
             </thead>
 
             <tbody>
-              {orders.map((o: any) => {
+              {orders.map((o: OrderRow) => {
                 const unit = o.unitPrice ? Number(o.unitPrice) : 0;
                 const ship = o.shippingCost ? Number(o.shippingCost) : 0;
                 const tax = o.taxCost ? Number(o.taxCost) : 0;
@@ -1203,7 +1181,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                 return (
                   <tr key={o.id} style={{ borderBottom: border, ...rowPhaseStyle(o.status as InventoryOrderPhase) }}>
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocal(o.orderedAt)}</td>
-                    <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{phaseLabel(o.status)}</td>
+                    <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{phaseLabel(o.status as InventoryOrderPhase)}</td>
                     <td style={{ padding: 10, minWidth: 320 }}>
                       <div style={{ fontWeight: 900 }}>{itemLabel}</div>
                       <div style={{ fontSize: 12, opacity: 0.75 }}>id: {o.id}</div>
@@ -1211,9 +1189,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.quantity}</td>
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>
                       {o.supplierName ?? "—"}
-                      {o.supplierPartNumber ? (
-                        <div style={{ fontSize: 12, opacity: 0.75 }}>Part #: {o.supplierPartNumber}</div>
-                      ) : null}
+                      {o.supplierPartNumber ? <div style={{ fontSize: 12, opacity: 0.75 }}>Part #: {o.supplierPartNumber}</div> : null}
                     </td>
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.unitPrice ? money(Number(o.unitPrice)) : "—"}</td>
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.shippingCost ? money(Number(o.shippingCost)) : "—"}</td>
@@ -1275,19 +1251,13 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                             Item is not changeable (keeps inventory adjustments safe). Quantity edits are applied to{" "}
                             <b>{o.status === "ADDED_TO_INVENTORY" ? "on-hand" : "ordered"}</b>.
                             <br />
-                            After saving, the system will sync <b>Item.cost</b> + <b>Item.orderFrom</b> from the latest order
-                            for that item.
+                            After saving, the system will sync <b>Item.cost</b> + <b>Item.orderFrom</b> from the latest order for that item.
                           </div>
 
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                             <label style={controlLabel}>
                               Ordered at
-                              <input
-                                name="orderedAt"
-                                type="datetime-local"
-                                defaultValue={fmtForDatetimeLocal(o.orderedAt)}
-                                style={controlBase}
-                              />
+                              <input name="orderedAt" type="datetime-local" defaultValue={fmtForDatetimeLocal(o.orderedAt)} style={controlBase} />
                             </label>
 
                             <label style={controlLabel}>
@@ -1305,12 +1275,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
 
                             <label style={controlLabel}>
                               Supplier
-                              <input
-                                name="supplierName"
-                                defaultValue={o.supplierName ?? ""}
-                                placeholder="Supplier…"
-                                style={controlBase}
-                              />
+                              <input name="supplierName" defaultValue={o.supplierName ?? ""} placeholder="Supplier…" style={controlBase} />
                             </label>
 
                             <label style={controlLabel}>
@@ -1346,12 +1311,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                             </label>
                             <label style={controlLabel}>
                               Tax
-                              <input
-                                name="taxCost"
-                                defaultValue={o.taxCost ? String(o.taxCost) : ""}
-                                placeholder="0.00"
-                                style={controlBase}
-                              />
+                              <input name="taxCost" defaultValue={o.taxCost ? String(o.taxCost) : ""} placeholder="0.00" style={controlBase} />
                             </label>
 
                             <label style={controlLabel}>
@@ -1410,8 +1370,8 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                         >
                           <input type="hidden" name="id" value={o.id} />
                           <div style={{ fontSize: 12, opacity: 0.9 }}>
-                            Type <code>DELETE</code> to confirm deletion. This reverses inventory effects for the current
-                            phase, then syncs <b>Item.cost</b>/<b>Item.orderFrom</b> from the latest remaining order.
+                            Type <code>DELETE</code> to confirm deletion. This reverses inventory effects for the current phase, then syncs{" "}
+                            <b>Item.cost</b>/<b>Item.orderFrom</b> from the latest remaining order.
                           </div>
                           <input name="confirm" placeholder="DELETE" style={controlBase} />
                           <button type="submit" style={btn}>
@@ -1481,8 +1441,8 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
         </div>
 
         <div style={{ marginTop: 10, fontSize: 12, opacity: 0.8 }}>
-          Phases: <b>ORDERED</b> → <b>ARRIVED</b> → <b>ADDED TO INVENTORY</b>. Row color indicates phase. Creating an
-          order increments <b>Item.orderedQty</b>. “Add to Inventory” moves qty from <b>orderedQty</b> to <b>onHandQty</b>.
+          Phases: <b>ORDERED</b> → <b>ARRIVED</b> → <b>ADDED TO INVENTORY</b>. Row color indicates phase. Creating an order increments{" "}
+          <b>Item.orderedQty</b>. “Add to Inventory” moves qty from <b>orderedQty</b> to <b>onHandQty</b>.
         </div>
       </div>
     </main>

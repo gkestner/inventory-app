@@ -10,6 +10,7 @@ import { InvoiceVendor, PartsCheckoutStatus } from "@prisma/client";
  * - supports variables (whitelisted per evaluator)
  * - supports helpers: min,max,round,floor,ceil,abs
  * - NO property access, NO strings, NO arbitrary identifiers
+ * - hard limits on formula size/complexity
  */
 
 type Op = "+" | "-" | "*" | "/";
@@ -21,6 +22,9 @@ type Tok =
   | { t: "lp" }
   | { t: "rp" }
   | { t: "comma" };
+
+const MAX_FORMULA_CHARS = 400;
+const MAX_TOKENS = 200;
 
 function isDigit(ch: string) {
   return ch >= "0" && ch <= "9";
@@ -35,9 +39,19 @@ function isAlphaNum(ch: string) {
 function tokenize(input: string): Tok[] {
   const s = String(input ?? "").trim();
   if (!s) throw new Error("Formula is empty.");
+  if (s.length > MAX_FORMULA_CHARS) {
+    throw new Error(`Formula is too long (max ${MAX_FORMULA_CHARS} characters).`);
+  }
 
   const out: Tok[] = [];
   let i = 0;
+
+  const pushTok = (t: Tok) => {
+    out.push(t);
+    if (out.length > MAX_TOKENS) {
+      throw new Error(`Formula is too complex (max ${MAX_TOKENS} tokens).`);
+    }
+  };
 
   while (i < s.length) {
     const c = s[i];
@@ -48,23 +62,23 @@ function tokenize(input: string): Tok[] {
     }
 
     if (c === "(") {
-      out.push({ t: "lp" });
+      pushTok({ t: "lp" });
       i++;
       continue;
     }
     if (c === ")") {
-      out.push({ t: "rp" });
+      pushTok({ t: "rp" });
       i++;
       continue;
     }
     if (c === ",") {
-      out.push({ t: "comma" });
+      pushTok({ t: "comma" });
       i++;
       continue;
     }
 
     if (c === "+" || c === "-" || c === "*" || c === "/") {
-      out.push({ t: "op", v: c });
+      pushTok({ t: "op", v: c });
       i++;
       continue;
     }
@@ -99,7 +113,7 @@ function tokenize(input: string): Tok[] {
       const raw = s.slice(i, j);
       const n = Number(raw);
       if (!Number.isFinite(n)) throw new Error(`Invalid number: ${raw}`);
-      out.push({ t: "num", v: n });
+      pushTok({ t: "num", v: n });
       i = j;
       continue;
     }
@@ -108,7 +122,8 @@ function tokenize(input: string): Tok[] {
       let j = i;
       while (j < s.length && isAlphaNum(s[j])) j++;
       const raw = s.slice(i, j);
-      out.push({ t: "id", v: raw });
+      if (raw.length > 40) throw new Error("Identifier is too long.");
+      pushTok({ t: "id", v: raw });
       i = j;
       continue;
     }
@@ -321,7 +336,11 @@ function evalRpn(rpn: Rpn[], vars: Record<string, number>): number {
       } else if (name === "round") {
         if (args.length === 1) r = Math.round(args[0]);
         else if (args.length === 2) {
-          const [x, d] = args;
+          const [x, dRaw] = args;
+          if (!Number.isFinite(dRaw)) throw new Error("round(x, decimals): decimals must be a valid number.");
+          const d = Math.trunc(dRaw);
+          if (d !== dRaw) throw new Error("round(x, decimals): decimals must be an integer.");
+          if (d < 0 || d > 6) throw new Error("round(x, decimals): decimals must be between 0 and 6.");
           const p = Math.pow(10, d);
           r = Math.round(x * p) / p;
         } else throw new Error("round(x) or round(x, decimals).");
@@ -363,8 +382,7 @@ export async function evaluatePartsPriceFormula(
 ): Promise<number> {
   const { cost, partsUpchargePct } = input;
   if (!Number.isFinite(cost) || cost < 0) throw new Error("Cost must be a valid non-negative number.");
-  if (!Number.isFinite(partsUpchargePct) || partsUpchargePct < 0)
-    throw new Error("partsUpchargePct must be non-negative.");
+  if (!Number.isFinite(partsUpchargePct) || partsUpchargePct < 0) throw new Error("partsUpchargePct must be non-negative.");
 
   return evaluateExpression(formula, new Set(["cost", "partsUpchargePct"]), { cost, partsUpchargePct });
 }
@@ -378,6 +396,8 @@ export async function evaluateTaxFormula(
   for (const [k, v] of Object.entries({ lineSubtotal, taxRatePct, quantity, unitPrice })) {
     if (!Number.isFinite(v)) throw new Error(`${k} must be a valid number.`);
   }
+  if (quantity < 0) throw new Error("quantity must be non-negative.");
+  if (taxRatePct < 0 || taxRatePct > 100) throw new Error("taxRatePct must be between 0 and 100.");
 
   return evaluateExpression(
     formula,
@@ -397,15 +417,58 @@ const DEFAULTS = {
   partsPriceFormula: "cost * (1 + (partsUpchargePct / 100))",
 };
 
-export async function loadVendorPricingAndTaxConfig(vendor: InvoiceVendor): Promise<{
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+function toNumberLoose(v: unknown): number {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+type InvoiceVendorConfigRowFull = {
+  vendor?: unknown;
+  taxRatePct?: unknown;
+  taxFormula?: unknown;
+  partsUpchargePct?: unknown;
+  partsPriceFormula?: unknown;
+};
+
+type InvoiceVendorConfigRowPartial = {
+  vendor?: unknown;
+  taxRatePct?: unknown;
+  partsUpchargePct?: unknown;
+};
+
+function getInvoiceVendorConfigClient() {
+  // Avoid prisma-as-any. Keep unknown + safe runtime checks.
+  const p = prisma as unknown as { invoiceVendorConfig?: unknown };
+  const model = p.invoiceVendorConfig;
+  if (!model || !isRecord(model)) return null;
+
+  const findUnique = model.findUnique;
+  if (typeof findUnique !== "function") return null;
+
+  return {
+    findUnique: findUnique as (args: unknown) => Promise<unknown>,
+  };
+}
+
+export async function loadVendorPricingAndTaxConfig(
+  vendor: InvoiceVendor
+): Promise<{
   vendor: InvoiceVendor;
   taxRatePct: number;
   taxFormula: string;
   partsUpchargePct: number;
   partsPriceFormula: string;
 }> {
+  const client = getInvoiceVendorConfigClient();
+  if (!client) return { vendor, ...DEFAULTS };
+
+  // Try full schema first
   try {
-    const row = await (prisma as any).invoiceVendorConfig.findUnique({
+    const rowU = await client.findUnique({
       where: { vendor },
       select: {
         vendor: true,
@@ -416,18 +479,20 @@ export async function loadVendorPricingAndTaxConfig(vendor: InvoiceVendor): Prom
       },
     });
 
-    if (!row) return { vendor, ...DEFAULTS };
+    if (!rowU || !isRecord(rowU)) return { vendor, ...DEFAULTS };
+    const row = rowU as InvoiceVendorConfigRowFull;
 
     return {
       vendor,
-      taxRatePct: Number(row.taxRatePct ?? DEFAULTS.taxRatePct),
-      taxFormula: String(row.taxFormula || DEFAULTS.taxFormula),
-      partsUpchargePct: Number(row.partsUpchargePct ?? DEFAULTS.partsUpchargePct),
-      partsPriceFormula: String(row.partsPriceFormula || DEFAULTS.partsPriceFormula),
+      taxRatePct: toNumberLoose(row.taxRatePct ?? DEFAULTS.taxRatePct),
+      taxFormula: String((row.taxFormula as string | undefined) || DEFAULTS.taxFormula),
+      partsUpchargePct: toNumberLoose(row.partsUpchargePct ?? DEFAULTS.partsUpchargePct),
+      partsPriceFormula: String((row.partsPriceFormula as string | undefined) || DEFAULTS.partsPriceFormula),
     };
   } catch {
+    // Fall back to older schema (no formula fields)
     try {
-      const row = await (prisma as any).invoiceVendorConfig.findUnique({
+      const rowU = await client.findUnique({
         where: { vendor },
         select: {
           vendor: true,
@@ -436,13 +501,14 @@ export async function loadVendorPricingAndTaxConfig(vendor: InvoiceVendor): Prom
         },
       });
 
-      if (!row) return { vendor, ...DEFAULTS };
+      if (!rowU || !isRecord(rowU)) return { vendor, ...DEFAULTS };
+      const row = rowU as InvoiceVendorConfigRowPartial;
 
       return {
         vendor,
-        taxRatePct: Number(row.taxRatePct ?? DEFAULTS.taxRatePct),
+        taxRatePct: toNumberLoose(row.taxRatePct ?? DEFAULTS.taxRatePct),
         taxFormula: DEFAULTS.taxFormula,
-        partsUpchargePct: Number(row.partsUpchargePct ?? DEFAULTS.partsUpchargePct),
+        partsUpchargePct: toNumberLoose(row.partsUpchargePct ?? DEFAULTS.partsUpchargePct),
         partsPriceFormula: DEFAULTS.partsPriceFormula,
       };
     } catch {
@@ -460,9 +526,12 @@ function round2(n: number) {
   return Math.round(n * 100) / 100;
 }
 
-function toNumberLoose(v: any): number {
-  const n = typeof v === "number" ? v : Number(v);
-  return Number.isFinite(n) ? n : 0;
+function toCents(n: number) {
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100);
+}
+function fromCents(c: number) {
+  return (c || 0) / 100;
 }
 
 export async function createInvoicesForWindow(args: {
@@ -594,7 +663,8 @@ export async function createInvoicesForWindow(args: {
         const lineBuild = await Promise.all(
           fresh.map(async (t) => {
             const cost = Math.max(0, toNumberLoose(t.costSnapshot));
-            const qty = Math.max(0, Number(t.quantity || 0));
+            const qtyRaw = toNumberLoose(t.quantity);
+            const qty = Math.max(0, qtyRaw); // keep fractional if your schema allows it
 
             const unitPriceRaw = await evaluatePartsPriceFormula(cfg.partsPriceFormula, {
               cost,
@@ -634,9 +704,14 @@ export async function createInvoicesForWindow(args: {
           })
         );
 
-        const subtotal = round2(lineBuild.reduce((acc, l) => acc + l.lineSubtotal, 0));
-        const taxTotal = round2(lineBuild.reduce((acc, l) => acc + l.lineTax, 0));
-        const total = round2(subtotal + taxTotal);
+        // Totals in integer cents to avoid float drift
+        const subtotalCents = lineBuild.reduce((acc, l) => acc + toCents(l.lineSubtotal), 0);
+        const taxCents = lineBuild.reduce((acc, l) => acc + toCents(l.lineTax), 0);
+        const totalCents = subtotalCents + taxCents;
+
+        const subtotal = fromCents(subtotalCents);
+        const taxTotal = fromCents(taxCents);
+        const total = fromCents(totalCents);
 
         // Create invoice
         const invoice = await tx.invoice.create({
@@ -653,7 +728,6 @@ export async function createInvoicesForWindow(args: {
             subtotal,
             taxTotal,
             total,
-            // createdByUserId is optional; handled elsewhere if you want to pass it in
           },
           select: { id: true },
         });
@@ -674,6 +748,8 @@ export async function createInvoicesForWindow(args: {
             lineTax: l.lineTax,
             lineTotal: l.lineTotal,
           })),
+          // Helps reduce duplicate failures if you add a unique constraint later (recommended: InvoiceLine.checkoutId @unique)
+          skipDuplicates: true,
         });
 
         // Mark tickets invoiced + link invoice
@@ -691,11 +767,22 @@ export async function createInvoicesForWindow(args: {
       });
 
       results.push({ storeId, invoiceId: created.invoiceId, created: created.created, reason: created.reason });
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const msg =
+        isRecord(e) && typeof e.message === "string"
+          ? e.message
+          : (() => {
+              try {
+                return JSON.stringify(e);
+              } catch {
+                return "Failed to create invoice";
+              }
+            })();
+
       results.push({
         storeId,
         created: false,
-        reason: e?.message ? String(e.message) : "Failed to create invoice",
+        reason: msg,
       });
     }
   }

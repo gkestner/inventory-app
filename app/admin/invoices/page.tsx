@@ -9,7 +9,7 @@ import { headers } from "next/headers";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import { InvoiceVendor, Permission, PartsCheckoutStatus, Role } from "@prisma/client";
+import { InvoiceVendor, Permission, PartsCheckoutStatus, Role, Prisma } from "@prisma/client";
 
 import { createInvoicesForWindow } from "./actions";
 
@@ -95,12 +95,11 @@ type CreateInvoicesResult = Awaited<ReturnType<typeof createInvoicesForWindow>>;
 
 type VendorTaxSettings = {
   vendor: InvoiceVendor;
-
-  taxRatePct: unknown;
+  taxRatePct: number;
   taxFormula: string;
 
-  // ✅ vendor-level parts pricing
-  partsUpchargePct: unknown;
+  // vendor-level parts pricing
+  partsUpchargePct: number;
   partsPriceFormula: string;
 };
 
@@ -109,9 +108,13 @@ const DEFAULT_PARTS_PRICE_FORMULA = "cost * (1 + (partsUpchargePct / 100))";
 
 function getErrorMessage(error: unknown): string {
   if (typeof error === "string") return error;
-  if (error && typeof error === "object" && "message" in error && typeof (error as any).message === "string") {
-    return String((error as any).message);
+  if (error instanceof Error && typeof error.message === "string") return error.message;
+
+  if (error && typeof error === "object") {
+    const maybeMsg = (error as Record<string, unknown>).message;
+    if (typeof maybeMsg === "string") return maybeMsg;
   }
+
   try {
     return JSON.stringify(error);
   } catch {
@@ -120,8 +123,9 @@ function getErrorMessage(error: unknown): string {
 }
 
 function getPrismaErrorCode(error: unknown): string | null {
-  if (error && typeof error === "object" && "code" in error && typeof (error as any).code === "string") {
-    return String((error as any).code);
+  if (error && typeof error === "object") {
+    const code = (error as Record<string, unknown>).code;
+    if (typeof code === "string") return code;
   }
   return null;
 }
@@ -151,6 +155,60 @@ function isSchemaOrDbNotReadyError(error: unknown): boolean {
   );
 }
 
+function toNumber(x: unknown, fallback: number): number {
+  if (typeof x === "number" && Number.isFinite(x)) return x;
+  if (typeof x === "string") {
+    const n = Number(x);
+    if (Number.isFinite(n)) return n;
+  }
+  if (x && typeof x === "object") {
+    // Prisma Decimal-like
+    const maybeToString = (x as Record<string, unknown>).toString;
+    if (typeof maybeToString === "function") {
+      const s = String(maybeToString.call(x));
+      const n = Number(s);
+      if (Number.isFinite(n)) return n;
+    }
+    const maybeValueOf = (x as Record<string, unknown>).valueOf;
+    if (typeof maybeValueOf === "function") {
+      const v = maybeValueOf.call(x);
+      const n = Number(v);
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  return fallback;
+}
+
+type InvoiceVendorConfigDelegate = {
+  findMany: (args: unknown) => Promise<unknown[]>;
+  upsert: (args: unknown) => Promise<unknown>;
+};
+
+type PartsCheckoutTicketDelegate = {
+  groupBy: (args: unknown) => Promise<unknown[]>;
+};
+
+type InvoiceDelegate = {
+  findMany: (args: unknown) => Promise<unknown[]>;
+  count: (args?: unknown) => Promise<number>;
+};
+
+type InvoiceLineDelegate = {
+  deleteMany: (args: unknown) => Promise<unknown>;
+};
+
+type TxClient = Prisma.TransactionClient;
+
+function getDelegates() {
+  const p = prisma as unknown as Partial<{
+    invoice: InvoiceDelegate;
+    invoiceLine: InvoiceLineDelegate;
+    partsCheckoutTicket: PartsCheckoutTicketDelegate;
+    invoiceVendorConfig: InvoiceVendorConfigDelegate;
+  }>;
+  return p;
+}
+
 async function loadVendorTaxSettings(vendorConfigReady: boolean): Promise<VendorTaxSettings[]> {
   const defaults: VendorTaxSettings[] = [
     {
@@ -171,9 +229,12 @@ async function loadVendorTaxSettings(vendorConfigReady: boolean): Promise<Vendor
 
   if (!vendorConfigReady) return defaults;
 
+  const d = getDelegates();
+  if (!d.invoiceVendorConfig) return defaults;
+
   try {
-    // ✅ Attempt full schema (tax + parts pricing)
-    const rows = (await (prisma as any).invoiceVendorConfig.findMany({
+    // Attempt full schema (tax + parts pricing)
+    const rows = await d.invoiceVendorConfig.findMany({
       select: {
         vendor: true,
         taxFormula: true,
@@ -181,16 +242,19 @@ async function loadVendorTaxSettings(vendorConfigReady: boolean): Promise<Vendor
         partsUpchargePct: true,
         partsPriceFormula: true,
       },
-    })) as any[];
+    });
 
     const byVendor = new Map<InvoiceVendor, VendorTaxSettings>();
     for (const r of rows) {
-      byVendor.set(r.vendor, {
-        vendor: r.vendor,
-        taxRatePct: r.taxRatePct,
-        taxFormula: String(r.taxFormula || DEFAULT_TAX_FORMULA),
-        partsUpchargePct: r.partsUpchargePct ?? 0,
-        partsPriceFormula: String(r.partsPriceFormula || DEFAULT_PARTS_PRICE_FORMULA),
+      const rr = r as Record<string, unknown>;
+      const vendor = rr.vendor === "AMERICAN_PLUS" ? InvoiceVendor.AMERICAN_PLUS : InvoiceVendor.SUCCESS_PLUS;
+
+      byVendor.set(vendor, {
+        vendor,
+        taxRatePct: toNumber(rr.taxRatePct, 0),
+        taxFormula: String(rr.taxFormula || DEFAULT_TAX_FORMULA),
+        partsUpchargePct: toNumber(rr.partsUpchargePct, 0),
+        partsPriceFormula: String(rr.partsPriceFormula || DEFAULT_PARTS_PRICE_FORMULA),
       });
     }
 
@@ -199,19 +263,22 @@ async function loadVendorTaxSettings(vendorConfigReady: boolean): Promise<Vendor
 
     return [byVendor.get(InvoiceVendor.SUCCESS_PLUS)!, byVendor.get(InvoiceVendor.AMERICAN_PLUS)!];
   } catch (error) {
-    // ✅ If either new field doesn't exist yet, fall back gracefully
+    // If either new field doesn't exist yet, fall back gracefully
     if (isMissingTaxFormulaFieldError(error) || isMissingPartsPriceFormulaFieldError(error)) {
-      const rows = (await (prisma as any).invoiceVendorConfig.findMany({
+      const rows = await d.invoiceVendorConfig.findMany({
         select: { vendor: true, taxRatePct: true, partsUpchargePct: true },
-      })) as any[];
+      });
 
       const byVendor = new Map<InvoiceVendor, VendorTaxSettings>();
       for (const r of rows) {
-        byVendor.set(r.vendor, {
-          vendor: r.vendor,
-          taxRatePct: r.taxRatePct,
+        const rr = r as Record<string, unknown>;
+        const vendor = rr.vendor === "AMERICAN_PLUS" ? InvoiceVendor.AMERICAN_PLUS : InvoiceVendor.SUCCESS_PLUS;
+
+        byVendor.set(vendor, {
+          vendor,
+          taxRatePct: toNumber(rr.taxRatePct, 0),
           taxFormula: DEFAULT_TAX_FORMULA,
-          partsUpchargePct: r.partsUpchargePct ?? 0,
+          partsUpchargePct: toNumber(rr.partsUpchargePct, 0),
           partsPriceFormula: DEFAULT_PARTS_PRICE_FORMULA,
         });
       }
@@ -236,11 +303,14 @@ async function saveVendorSettings(
 ) {
   if (!vendorConfigReady) return;
 
+  const d = getDelegates();
+  if (!d.invoiceVendorConfig) return;
+
   const taxF = taxFormula.trim() || DEFAULT_TAX_FORMULA;
   const priceF = partsPriceFormula.trim() || DEFAULT_PARTS_PRICE_FORMULA;
 
   try {
-    await (prisma as any).invoiceVendorConfig.upsert({
+    await d.invoiceVendorConfig.upsert({
       where: { vendor },
       create: {
         vendor,
@@ -259,7 +329,7 @@ async function saveVendorSettings(
   } catch (error) {
     // If new formula fields aren't present yet, save what we can.
     if (isMissingTaxFormulaFieldError(error) || isMissingPartsPriceFormulaFieldError(error)) {
-      await (prisma as any).invoiceVendorConfig.upsert({
+      await d.invoiceVendorConfig.upsert({
         where: { vendor },
         create: {
           vendor,
@@ -320,17 +390,32 @@ function NotReadyPanel({ title, details }: { title: string; details: string[] })
   );
 }
 
+type InvoiceRow = {
+  id: string;
+  vendor: InvoiceVendor;
+  vendorNumber: string | null;
+  billedTo: string | null;
+  storeName: string;
+  storeNumber: string;
+  invoiceDate: Date | null;
+  periodStart: Date;
+  periodEnd: Date;
+  status: string;
+  total: Prisma.Decimal | null;
+  createdAt: Date;
+  _count: { lines: number };
+};
+
 export default async function AdminInvoicesPage({ searchParams }: { searchParams?: SearchParams }) {
   await requireInvoicesView();
 
   const sp: SearchParams = searchParams ?? {};
 
-  const pAny = prisma as any;
-  const invoiceModelReady = typeof pAny.invoice?.findMany === "function" && typeof pAny.invoice?.count === "function";
-  const invoiceLineReady = typeof pAny.invoiceLine?.deleteMany === "function";
-  const ticketModelReady = typeof pAny.partsCheckoutTicket?.groupBy === "function";
-  const vendorConfigReady =
-    typeof pAny.invoiceVendorConfig?.findMany === "function" && typeof pAny.invoiceVendorConfig?.upsert === "function";
+  const d = getDelegates();
+  const invoiceModelReady = typeof d.invoice?.findMany === "function" && typeof d.invoice?.count === "function";
+  const invoiceLineReady = typeof d.invoiceLine?.deleteMany === "function";
+  const ticketModelReady = typeof d.partsCheckoutTicket?.groupBy === "function";
+  const vendorConfigReady = typeof d.invoiceVendorConfig?.findMany === "function" && typeof d.invoiceVendorConfig?.upsert === "function";
 
   if (!invoiceModelReady || !invoiceLineReady) {
     return (
@@ -413,9 +498,9 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   let readyByStore: Array<{ storeId: string; storeName: string; _count: { _all: number } }> = [];
   let readyTotal = 0;
 
-  if (ticketModelReady) {
+  if (ticketModelReady && d.partsCheckoutTicket) {
     try {
-      readyByStore = (await (prisma as any).partsCheckoutTicket.groupBy({
+      const rows = await d.partsCheckoutTicket.groupBy({
         by: ["storeId", "storeName"],
         where: {
           status: PartsCheckoutStatus.OPEN,
@@ -425,7 +510,13 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
         },
         _count: { _all: true },
         orderBy: [{ storeName: "asc" }],
-      })) as Array<{ storeId: string; storeName: string; _count: { _all: number } }>;
+      });
+
+      readyByStore = (rows as Array<Record<string, unknown>>).map((r) => ({
+        storeId: String(r.storeId ?? ""),
+        storeName: String(r.storeName ?? ""),
+        _count: { _all: toNumber((r._count as Record<string, unknown> | undefined)?._all, 0) },
+      }));
 
       readyTotal = readyByStore.reduce((acc, r) => acc + r._count._all, 0);
     } catch (e) {
@@ -464,23 +555,10 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   const partsPriceFormulaByVendor = new Map(vendorConfigs.map((c) => [c.vendor, c.partsPriceFormula]));
 
   let invoiceTotal = 0;
-  let invoices: Array<{
-    id: string;
-    vendor: InvoiceVendor;
-    vendorNumber: string | null;
-    billedTo: string | null;
-    storeName: string;
-    storeNumber: string;
-    invoiceDate: Date | null;
-    periodStart: Date;
-    periodEnd: Date;
-    status: string;
-    total: any;
-    createdAt: Date;
-    _count: { lines: number };
-  }> = [];
+  let invoices: InvoiceRow[] = [];
 
   try {
+    // We can safely call prisma.invoice here because this file exists in the deployment that has invoice models.
     const [count, rows] = await Promise.all([
       prisma.invoice.count(),
       prisma.invoice.findMany({
@@ -506,7 +584,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     ]);
 
     invoiceTotal = count;
-    invoices = rows as any;
+    invoices = rows as unknown as InvoiceRow[];
   } catch (e) {
     if (isSchemaOrDbNotReadyError(e)) {
       return (
@@ -573,9 +651,12 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     revalidatePath("/admin/invoices");
 
     const ids =
-      res.results
-        .map((r: any) => (typeof r?.invoiceId === "string" ? r.invoiceId : ""))
-        .filter((x: string) => x.length > 0) ?? [];
+      (res as unknown as { results?: unknown[] } | null)?.results
+        ?.map((r) => {
+          const rr = r as Record<string, unknown>;
+          return typeof rr.invoiceId === "string" ? rr.invoiceId : "";
+        })
+        .filter((x) => x.length > 0) ?? [];
 
     if (ids.length > 0) {
       redirect(`/admin/invoices/print-batch?ids=${encodeURIComponent(ids.join(","))}`);
@@ -677,7 +758,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
       redirect(buildReturnTo({ err: "none_selected" }));
     }
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: TxClient) => {
       await tx.invoiceLine.deleteMany({
         where: { invoiceId: { in: ids } },
       });
@@ -956,7 +1037,12 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
                 <label style={{ ...controlLabel, flex: "0 1 260px", minWidth: 0 }}>
                   Invoice date (admin preference)
-                  <input type="datetime-local" name="invoiceDate" defaultValue={fmtForDatetimeLocal(invoiceDateSafe)} style={controlBase} />
+                  <input
+                    type="datetime-local"
+                    name="invoiceDate"
+                    defaultValue={fmtForDatetimeLocal(invoiceDateSafe)}
+                    style={controlBase}
+                  />
                 </label>
 
                 <div style={{ flex: "1 1 220px", display: "flex", justifyContent: "flex-end" }}>
@@ -1016,36 +1102,39 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                   </tr>
                 </thead>
                 <tbody>
-                  {invoices.map((inv) => (
-                    <tr key={inv.id} style={{ borderBottom: border }}>
-                      <td style={{ padding: 10, whiteSpace: "nowrap" }}>
-                        <input type="checkbox" name="ids" value={inv.id} />
-                      </td>
-                      <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocalDate(inv.createdAt)}</td>
-                      <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{vendorLabel(inv.vendor)}</td>
-                      <td style={{ padding: 10, whiteSpace: "nowrap" }}>{inv.vendorNumber ?? "—"}</td>
-                      <td style={{ padding: 10, whiteSpace: "nowrap" }}>
-                        <div style={{ fontWeight: 900 }}>
-                          {inv.storeNumber} {inv.storeName}
-                        </div>
-                        <div style={{ fontSize: 12, opacity: 0.75 }}>{inv.billedTo ?? "—"}</div>
-                      </td>
-                      <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocalDate(inv.invoiceDate)}</td>
-                      <td style={{ padding: 10, whiteSpace: "nowrap" }}>
-                        {fmtLocalDate(inv.periodStart)} → {fmtLocalDate(inv.periodEnd)}
-                      </td>
-                      <td style={{ padding: 10, whiteSpace: "nowrap" }}>{inv._count.lines}</td>
-                      <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>
-                        {inv.total ? Number(inv.total).toLocaleString(undefined, { style: "currency", currency: "USD" }) : "—"}
-                      </td>
-                      <td style={{ padding: 10, whiteSpace: "nowrap" }}>{inv.status}</td>
-                      <td style={{ padding: 10, whiteSpace: "nowrap" }}>
-                        <Link href={`/admin/invoices/${inv.id}/print`} style={{ ...btn, textDecoration: "none", display: "inline-block" }}>
-                          Print
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
+                  {invoices.map((inv) => {
+                    const totalNum = inv.total ? Number(inv.total.toString()) : NaN;
+                    return (
+                      <tr key={inv.id} style={{ borderBottom: border }}>
+                        <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                          <input type="checkbox" name="ids" value={inv.id} />
+                        </td>
+                        <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocalDate(inv.createdAt)}</td>
+                        <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{vendorLabel(inv.vendor)}</td>
+                        <td style={{ padding: 10, whiteSpace: "nowrap" }}>{inv.vendorNumber ?? "—"}</td>
+                        <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                          <div style={{ fontWeight: 900 }}>
+                            {inv.storeNumber} {inv.storeName}
+                          </div>
+                          <div style={{ fontSize: 12, opacity: 0.75 }}>{inv.billedTo ?? "—"}</div>
+                        </td>
+                        <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocalDate(inv.invoiceDate)}</td>
+                        <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                          {fmtLocalDate(inv.periodStart)} → {fmtLocalDate(inv.periodEnd)}
+                        </td>
+                        <td style={{ padding: 10, whiteSpace: "nowrap" }}>{inv._count.lines}</td>
+                        <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>
+                          {Number.isFinite(totalNum) ? money(totalNum) : "—"}
+                        </td>
+                        <td style={{ padding: 10, whiteSpace: "nowrap" }}>{inv.status}</td>
+                        <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                          <Link href={`/admin/invoices/${inv.id}/print`} style={{ ...btn, textDecoration: "none", display: "inline-block" }}>
+                            Print
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
 
                   {invoices.length === 0 ? (
                     <tr>
@@ -1071,14 +1160,20 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
             >
               <label style={{ ...controlLabel, minWidth: 240 }}>
                 Type DELETE to confirm hard delete
-                <input name="confirm" placeholder="DELETE" style={{ ...controlBase, padding: "8px 10px", borderRadius: 10, fontSize: 13 }} />
+                <input
+                  name="confirm"
+                  placeholder="DELETE"
+                  style={{ ...controlBase, padding: "8px 10px", borderRadius: 10, fontSize: 13 }}
+                />
               </label>
 
               <button type="submit" style={btnDanger}>
                 Hard delete selected
               </button>
 
-              <div style={{ fontSize: 12, opacity: 0.75, maxWidth: 700 }}>Hard delete permanently removes invoices and their line items.</div>
+              <div style={{ fontSize: 12, opacity: 0.75, maxWidth: 700 }}>
+                Hard delete permanently removes invoices and their line items.
+              </div>
             </div>
           </form>
 

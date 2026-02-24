@@ -8,7 +8,7 @@ import { headers } from "next/headers";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
-import { Permission, Role, InventoryOrderStatus } from "@prisma/client";
+import { Permission, Role, InventoryOrderStatus, Prisma } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
@@ -100,6 +100,15 @@ type SearchParams = {
   showCompleted?: string; // "1" to include ADDED_TO_INVENTORY
 };
 
+const ROW_INCLUDE = {
+  item: { select: { id: true, sku: true, partNumber: true, name: true } },
+  forStore: { select: { id: true, name: true } },
+  forUser: { select: { id: true, name: true } },
+  createdByUser: { select: { id: true, name: true, email: true } },
+} satisfies Prisma.InventoryOrderInclude;
+
+type Row = Prisma.InventoryOrderGetPayload<{ include: typeof ROW_INCLUDE }>;
+
 export default async function AdminInventoryReceivingPage({ searchParams }: { searchParams: SearchParams }) {
   await requireReceivingView();
 
@@ -138,8 +147,7 @@ export default async function AdminInventoryReceivingPage({ searchParams }: { se
           >
             <div style={{ fontWeight: 900, marginBottom: 6 }}>Not ready yet</div>
             <div style={{ opacity: 0.85, lineHeight: 1.5 }}>
-              Your app is running with a Prisma Client that does not include <code>inventoryOrder</code> yet, so this page
-              would crash.
+              Your app is running with a Prisma Client that does not include <code>inventoryOrder</code> yet, so this page would crash.
               <br />
               Fix: run migration + regenerate Prisma Client (or restart dev server after <code>prisma generate</code>).
             </div>
@@ -216,11 +224,11 @@ export default async function AdminInventoryReceivingPage({ searchParams }: { se
   });
 
   // Receiving view defaults to ARRIVED rows, and optionally includes completed.
-  const where: Record<string, any> = {};
+  const where: Prisma.InventoryOrderWhereInput = {};
   if (!showCompleted) {
     where.status = "ARRIVED";
   } else {
-    where.status = { in: ["ARRIVED", "ADDED_TO_INVENTORY"] as Phase[] };
+    where.status = { in: ["ARRIVED", "ADDED_TO_INVENTORY"] };
   }
 
   if (itemId) where.itemId = itemId;
@@ -243,14 +251,6 @@ export default async function AdminInventoryReceivingPage({ searchParams }: { se
     ];
   }
 
-  const { inventoryOrder } = prisma as unknown as {
-    inventoryOrder: {
-      findMany: (args: unknown) => Promise<any[]>;
-      update: (args: unknown) => Promise<any>;
-      findUnique: (args: unknown) => Promise<any>;
-    };
-  };
-
   const [items, locations, users, rows] = await Promise.all([
     prisma.item.findMany({
       where: { active: true },
@@ -267,21 +267,16 @@ export default async function AdminInventoryReceivingPage({ searchParams }: { se
       orderBy: { name: "asc" },
       select: { id: true, name: true, role: true },
     }),
-    inventoryOrder.findMany({
+    prisma.inventoryOrder.findMany({
       where,
       orderBy: { arrivedAt: "desc" },
       take: 300,
-      include: {
-        item: { select: { id: true, sku: true, partNumber: true, name: true } },
-        forStore: { select: { id: true, name: true } },
-        forUser: { select: { id: true, name: true } },
-        createdByUser: { select: { id: true, name: true, email: true } },
-      },
+      include: ROW_INCLUDE,
     }),
   ]);
 
-  const arrived = rows.filter((r: any) => r.status === "ARRIVED");
-  const completed = rows.filter((r: any) => r.status === "ADDED_TO_INVENTORY");
+  const arrived = rows.filter((r) => r.status === "ARRIVED");
+  const completed = rows.filter((r) => r.status === "ADDED_TO_INVENTORY");
 
   async function addToInventoryAction(formData: FormData) {
     "use server";
@@ -485,38 +480,28 @@ export default async function AdminInventoryReceivingPage({ searchParams }: { se
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                {[
-                  "Ordered",
-                  "Phase",
-                  "Item",
-                  "Qty",
-                  "Supplier",
-                  "Total",
-                  "For Tech",
-                  "For Store",
-                  "Arrived",
-                  "Added",
-                  "Receiving",
-                ].map((h) => (
-                  <th
-                    key={h}
-                    style={{
-                      textAlign: "left",
-                      padding: 10,
-                      borderBottom: border,
-                      fontSize: 12,
-                      opacity: 0.85,
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {h}
-                  </th>
-                ))}
+                {["Ordered", "Phase", "Item", "Qty", "Supplier", "Total", "For Tech", "For Store", "Arrived", "Added", "Receiving"].map(
+                  (h) => (
+                    <th
+                      key={h}
+                      style={{
+                        textAlign: "left",
+                        padding: 10,
+                        borderBottom: border,
+                        fontSize: 12,
+                        opacity: 0.85,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {h}
+                    </th>
+                  )
+                )}
               </tr>
             </thead>
 
             <tbody>
-              {rows.map((o: any) => {
+              {rows.map((o: Row) => {
                 const unit = o.unitPrice ? Number(o.unitPrice) : 0;
                 const ship = o.shippingCost ? Number(o.shippingCost) : 0;
                 const tax = o.taxCost ? Number(o.taxCost) : 0;
@@ -531,7 +516,7 @@ export default async function AdminInventoryReceivingPage({ searchParams }: { se
                 return (
                   <tr key={o.id} style={{ borderBottom: border, ...rowPhaseStyle(o.status as Phase) }}>
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocal(o.orderedAt)}</td>
-                    <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{phaseLabel(o.status)}</td>
+                    <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{phaseLabel(o.status as Phase)}</td>
                     <td style={{ padding: 10, minWidth: 320 }}>
                       <div style={{ fontWeight: 900 }}>{itemLabel}</div>
                       <div style={{ fontSize: 12, opacity: 0.75 }}>id: {o.id}</div>
@@ -539,9 +524,7 @@ export default async function AdminInventoryReceivingPage({ searchParams }: { se
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.quantity}</td>
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>
                       {o.supplierName ?? "—"}
-                      {o.supplierPartNumber ? (
-                        <div style={{ fontSize: 12, opacity: 0.75 }}>Part #: {o.supplierPartNumber}</div>
-                      ) : null}
+                      {o.supplierPartNumber ? <div style={{ fontSize: 12, opacity: 0.75 }}>Part #: {o.supplierPartNumber}</div> : null}
                     </td>
                     <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{money(totalCost)}</td>
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.forUser?.name ?? "—"}</td>
@@ -588,8 +571,7 @@ export default async function AdminInventoryReceivingPage({ searchParams }: { se
         </div>
 
         <div style={{ marginTop: 10, fontSize: 12, opacity: 0.8 }}>
-          This screen is optimized for receiving. It focuses on <b>ARRIVED</b> rows, and uses the same colors as the other
-          order pages.
+          This screen is optimized for receiving. It focuses on <b>ARRIVED</b> rows, and uses the same colors as the other order pages.
         </div>
       </div>
     </main>

@@ -8,9 +8,9 @@ import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { Permission, Role } from "@prisma/client";
-import { Decimal } from "@prisma/client/runtime/library";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 type AdminSession = {
   user?: {
@@ -35,7 +35,7 @@ type SearchParams = {
   itemId?: string;
   supplier?: string;
   method?: string; // "LAST_BEFORE" | "AVG_WINDOW"
-  months?: string; // "6" | "12" | "24" | ...
+  months?: string; // "1" | "3" | "6" | "12" | "24" | "36" | "60"
   asOf?: string; // yyyy-mm-dd
   page?: string; // 1-based
   perPage?: string; // 25/50/100
@@ -71,8 +71,9 @@ function pct(n: number): string {
 function toNum(v: unknown): number {
   if (v === null || typeof v === "undefined") return NaN;
   if (typeof v === "number") return v;
+  // Prisma Decimal string / Decimal-like -> Number() works if it stringifies cleanly.
   try {
-    return Number(v as any);
+    return Number(v as never);
   } catch {
     return NaN;
   }
@@ -96,12 +97,66 @@ function addMonths(d: Date, deltaMonths: number) {
   return x;
 }
 
+// ------------------
+// Types for the dynamic inventoryOrder model access (no `any`)
+// ------------------
+
+type InventoryOrderStatusLike = "ORDERED" | "ARRIVED" | "ADDED_TO_INVENTORY";
+
+type InventoryOrderFindManyRow = {
+  itemId: string;
+  unitPrice: unknown;
+  orderedAt: Date | null;
+  supplierName: string | null;
+};
+
+type InventoryOrderGroupByRow = {
+  itemId: string;
+  _avg: { unitPrice: unknown | null } | null;
+  _max: { orderedAt: Date | null } | null;
+};
+
+type InventoryOrderModel = {
+  findMany: (args: {
+    where: {
+      itemId: { in: string[] };
+      orderedAt: { lte: Date };
+      supplierName?: { contains: string; mode: "insensitive" };
+    };
+    orderBy: Array<{ itemId: "asc" } | { orderedAt: "desc" }>;
+    distinct: Array<"itemId">;
+    select: { itemId: true; unitPrice: true; orderedAt: true; supplierName: true };
+  }) => Promise<InventoryOrderFindManyRow[]>;
+  groupBy: (args: {
+    by: ["itemId"];
+    where: {
+      itemId: { in: string[] };
+      orderedAt: { gte: Date; lte: Date };
+      supplierName?: { contains: string; mode: "insensitive" };
+    };
+    _avg: { unitPrice: true };
+    _max: { orderedAt: true };
+  }) => Promise<InventoryOrderGroupByRow[]>;
+};
+
+function getInventoryOrderModel(p: unknown): InventoryOrderModel | null {
+  if (!p || typeof p !== "object") return null;
+  const maybe = p as { inventoryOrder?: unknown };
+  const io = maybe.inventoryOrder;
+  if (!io || typeof io !== "object") return null;
+
+  const hasFindMany = typeof (io as { findMany?: unknown }).findMany === "function";
+  const hasGroupBy = typeof (io as { groupBy?: unknown }).groupBy === "function";
+  if (!hasFindMany || !hasGroupBy) return null;
+
+  return io as InventoryOrderModel;
+}
+
 export default async function AdminItemCostHistoryReportPage({ searchParams }: { searchParams: SearchParams }) {
   await requireReportView();
 
-  // If Prisma Client isn't regenerated yet, avoid crashing.
-  const anyPrisma = prisma as unknown as { inventoryOrder?: unknown };
-  if (!("inventoryOrder" in anyPrisma) || !anyPrisma.inventoryOrder) {
+  const inventoryOrder = getInventoryOrderModel(prisma);
+  if (!inventoryOrder) {
     return (
       <main style={{ padding: 16 }}>
         <div style={{ padding: 16, maxWidth: 1400, margin: "0 auto", color: "var(--foreground)" }}>
@@ -192,8 +247,8 @@ export default async function AdminItemCostHistoryReportPage({ searchParams }: {
     whiteSpace: "nowrap",
   };
 
-  // Base item query (keep it bounded; you can filter by itemId or paginate)
-  const itemWhere: any = { active: true };
+  // Base item query (bounded; can filter by itemId and paginate)
+  const itemWhere: { active: true; id?: string } = { active: true };
   if (itemId) itemWhere.id = itemId;
 
   const [itemsTotal, items, itemOptions] = await Promise.all([
@@ -223,12 +278,11 @@ export default async function AdminItemCostHistoryReportPage({ searchParams }: {
     thenSupplier: string | null;
   };
 
-  let thenByItemId = new Map<string, ThenInfo>();
+  const thenByItemId = new Map<string, ThenInfo>();
 
   if (itemIds.length > 0) {
     if (method === "LAST_BEFORE") {
-      // Latest order at/before asOf per item (Postgres supports distinct)
-      const rows = await (prisma as any).inventoryOrder.findMany({
+      const rows = await inventoryOrder.findMany({
         where: {
           itemId: { in: itemIds },
           orderedAt: { lte: asOf },
@@ -239,7 +293,7 @@ export default async function AdminItemCostHistoryReportPage({ searchParams }: {
         select: { itemId: true, unitPrice: true, orderedAt: true, supplierName: true },
       });
 
-      for (const r of rows as any[]) {
+      for (const r of rows) {
         const n = toNum(r.unitPrice);
         if (!Number.isFinite(n)) continue;
         thenByItemId.set(r.itemId, {
@@ -250,8 +304,7 @@ export default async function AdminItemCostHistoryReportPage({ searchParams }: {
         });
       }
     } else {
-      // AVG unit price in window per item
-      const rows = await (prisma as any).inventoryOrder.groupBy({
+      const rows = await inventoryOrder.groupBy({
         by: ["itemId"],
         where: {
           itemId: { in: itemIds },
@@ -262,8 +315,8 @@ export default async function AdminItemCostHistoryReportPage({ searchParams }: {
         _max: { orderedAt: true },
       });
 
-      for (const r of rows as any[]) {
-        const avg = r._avg?.unitPrice;
+      for (const r of rows) {
+        const avg = r._avg?.unitPrice ?? null;
         const n = toNum(avg);
         if (!Number.isFinite(n)) continue;
         thenByItemId.set(r.itemId, {
@@ -282,8 +335,7 @@ export default async function AdminItemCostHistoryReportPage({ searchParams }: {
     const thenCost = then ? then.thenCost : NaN;
 
     const delta = Number.isFinite(currentCost) && Number.isFinite(thenCost) ? currentCost - thenCost : NaN;
-    const deltaPct =
-      Number.isFinite(delta) && Number.isFinite(thenCost) && thenCost !== 0 ? delta / thenCost : NaN;
+    const deltaPct = Number.isFinite(delta) && Number.isFinite(thenCost) && thenCost !== 0 ? delta / thenCost : NaN;
 
     return {
       id: it.id,
@@ -307,7 +359,7 @@ export default async function AdminItemCostHistoryReportPage({ searchParams }: {
       supplier: supplier || undefined,
       method,
       months: String(months),
-      asOf: (asOfStr || new Date(asOf).toISOString().slice(0, 10)) as any,
+      asOf: asOfStr || new Date(asOf).toISOString().slice(0, 10),
       page: String(page),
       perPage: String(perPage),
       ...next,
@@ -549,7 +601,7 @@ export default async function AdminItemCostHistoryReportPage({ searchParams }: {
               padding: "10px 14px",
               borderRadius: 12,
               border,
-              background: surface,
+             	background: surface,
               color: fg,
               textDecoration: "none",
               fontWeight: 900,

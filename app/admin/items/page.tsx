@@ -20,13 +20,29 @@ type AdminSession = {
   } | null;
 } | null;
 
+type HasToString = { toString: () => string };
+type HasToNumber = { toNumber: () => number };
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+function hasFn<T extends string>(
+  obj: Record<string, unknown>,
+  key: T
+): obj is Record<T, (...args: never[]) => unknown> {
+  return typeof obj[key] === "function";
+}
+
 function moneyToString(v: unknown): string | null {
   if (v === null || v === undefined) return null;
-  // Prisma Decimal in runtime has toString()
-  if (typeof v === "object" && v && "toString" in v && typeof (v as any).toString === "function") {
-    const s = String((v as any).toString());
+
+  // Prisma Decimal at runtime has toString()
+  if (isObject(v) && hasFn(v, "toString")) {
+    const s = String((v as unknown as HasToString).toString());
     return s;
   }
+
   if (typeof v === "number" && Number.isFinite(v)) return String(v);
   if (typeof v === "string") return v;
   return null;
@@ -34,22 +50,27 @@ function moneyToString(v: unknown): string | null {
 
 function decimalToNumber(v: unknown): number | null {
   if (v === null || v === undefined) return null;
+
   if (typeof v === "number" && Number.isFinite(v)) return v;
+
   if (typeof v === "string") {
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
   }
-  if (typeof v === "object" && v) {
-    // Prisma Decimal (decimal.js)
-    if ("toNumber" in v && typeof (v as any).toNumber === "function") {
-      const n = (v as any).toNumber();
+
+  if (isObject(v)) {
+    // Prisma Decimal (decimal.js) commonly supports toNumber()
+    if (hasFn(v, "toNumber")) {
+      const n = (v as unknown as HasToNumber).toNumber();
       return Number.isFinite(n) ? n : null;
     }
-    if ("toString" in v && typeof (v as any).toString === "function") {
-      const n = Number(String((v as any).toString()));
+
+    if (hasFn(v, "toString")) {
+      const n = Number(String((v as unknown as HasToString).toString()));
       return Number.isFinite(n) ? n : null;
     }
   }
+
   return null;
 }
 
@@ -91,7 +112,9 @@ export default async function AdminItemsPage({
   const qRaw = Array.isArray(searchParams?.q) ? searchParams?.q[0] : searchParams?.q;
   const q = (qRaw ?? "").trim();
 
-  const createdSkuRaw = Array.isArray(searchParams?.createdSku) ? searchParams?.createdSku[0] : searchParams?.createdSku;
+  const createdSkuRaw = Array.isArray(searchParams?.createdSku)
+    ? searchParams?.createdSku[0]
+    : searchParams?.createdSku;
   const createdSku = (createdSkuRaw ?? "").trim() || null;
 
   const where =
@@ -209,13 +232,8 @@ export default async function AdminItemsPage({
 
       <div style={{ marginTop: 14, marginBottom: 14, fontSize: 12, opacity: 0.85 }}>
         Vendor formulas (global):{" "}
-        <span style={{ fontFamily: "monospace" }}>
-          SUCCESS_PLUS: {vendorFormulas.SUCCESS_PLUS || "—"}
-        </span>{" "}
-        •{" "}
-        <span style={{ fontFamily: "monospace" }}>
-          AMERICAN_PLUS: {vendorFormulas.AMERICAN_PLUS || "—"}
-        </span>
+        <span style={{ fontFamily: "monospace" }}>SUCCESS_PLUS: {vendorFormulas.SUCCESS_PLUS || "—"}</span> •{" "}
+        <span style={{ fontFamily: "monospace" }}>AMERICAN_PLUS: {vendorFormulas.AMERICAN_PLUS || "—"}</span>
       </div>
 
       <ItemsTableClient
