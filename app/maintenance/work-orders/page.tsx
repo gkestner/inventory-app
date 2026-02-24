@@ -10,6 +10,8 @@ import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
+const TZ = "America/New_York";
+
 type SessionShape = {
   user?: {
     email?: string | null;
@@ -143,7 +145,15 @@ function parseRequiredInt(v: FormDataEntryValue | null): number {
 
 function fmtLocal(d: Date | null): string {
   if (!d) return "—";
-  return new Date(d).toLocaleString();
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date(d));
 }
 
 function formatAreaLabel(area: string): string {
@@ -488,6 +498,9 @@ export default async function MaintenanceWorkOrdersPage() {
       <div style={shell}>
         <div style={pageWidth}>
           <h1 style={{ fontSize: 30, fontWeight: 900, margin: 0 }}>Maintenance: Work Orders</h1>
+          <div style={{ marginTop: 8, fontSize: 13, opacity: 0.75 }}>
+            Times displayed in <b>{TZ}</b>.
+          </div>
         </div>
 
         {/* TOP CARD: Start OR End */}
