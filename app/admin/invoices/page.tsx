@@ -97,9 +97,14 @@ type VendorTaxSettings = {
   vendor: InvoiceVendor;
   taxRatePct: unknown;
   taxFormula: string;
+
+  // ✅ NEW (vendor-level parts pricing)
+  partsUpchargePct: unknown;
+  partsPriceFormula: string;
 };
 
 const DEFAULT_TAX_FORMULA = "lineSubtotal * (taxRatePct / 100)";
+const DEFAULT_PARTS_PRICE_FORMULA = "cost * (1 + (partsUpchargePct / 100))";
 
 function getErrorMessage(error: unknown): string {
   if (typeof error === "string") return error;
@@ -125,6 +130,11 @@ function isMissingTaxFormulaFieldError(error: unknown): boolean {
   return message.includes("Unknown field `taxFormula`") || message.includes("taxFormula does not exist");
 }
 
+function isMissingPartsPriceFormulaFieldError(error: unknown): boolean {
+  const message = getErrorMessage(error);
+  return message.includes("Unknown field `partsPriceFormula`") || message.includes("partsPriceFormula does not exist");
+}
+
 function isSchemaOrDbNotReadyError(error: unknown): boolean {
   const code = getPrismaErrorCode(error);
   if (code === "P2021" || code === "P2022") return true;
@@ -141,52 +151,72 @@ function isSchemaOrDbNotReadyError(error: unknown): boolean {
 }
 
 async function loadVendorTaxSettings(vendorConfigReady: boolean): Promise<VendorTaxSettings[]> {
-  if (!vendorConfigReady) {
-    return [
-      { vendor: InvoiceVendor.SUCCESS_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA },
-      { vendor: InvoiceVendor.AMERICAN_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA },
-    ];
-  }
+  const defaults: VendorTaxSettings[] = [
+    {
+      vendor: InvoiceVendor.SUCCESS_PLUS,
+      taxRatePct: 0,
+      taxFormula: DEFAULT_TAX_FORMULA,
+      partsUpchargePct: 0,
+      partsPriceFormula: DEFAULT_PARTS_PRICE_FORMULA,
+    },
+    {
+      vendor: InvoiceVendor.AMERICAN_PLUS,
+      taxRatePct: 0,
+      taxFormula: DEFAULT_TAX_FORMULA,
+      partsUpchargePct: 0,
+      partsPriceFormula: DEFAULT_PARTS_PRICE_FORMULA,
+    },
+  ];
+
+  if (!vendorConfigReady) return defaults;
 
   try {
+    // ✅ Try full schema (tax + price)
     const rows = await prisma.invoiceVendorConfig.findMany({
-      select: { vendor: true, taxFormula: true, taxRatePct: true },
+      select: {
+        vendor: true,
+        taxFormula: true,
+        taxRatePct: true,
+        partsUpchargePct: true,
+        partsPriceFormula: true as any, // tolerate older prisma types
+      } as any,
     });
 
     const byVendor = new Map<InvoiceVendor, VendorTaxSettings>();
-    for (const r of rows) {
+    for (const r of rows as any[]) {
       byVendor.set(r.vendor, {
         vendor: r.vendor,
         taxRatePct: r.taxRatePct,
-        taxFormula: String((r as any).taxFormula || DEFAULT_TAX_FORMULA),
+        taxFormula: String(r.taxFormula || DEFAULT_TAX_FORMULA),
+        partsUpchargePct: r.partsUpchargePct ?? 0,
+        partsPriceFormula: String(r.partsPriceFormula || DEFAULT_PARTS_PRICE_FORMULA),
       });
     }
 
-    if (!byVendor.has(InvoiceVendor.SUCCESS_PLUS)) {
-      byVendor.set(InvoiceVendor.SUCCESS_PLUS, { vendor: InvoiceVendor.SUCCESS_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA });
-    }
-    if (!byVendor.has(InvoiceVendor.AMERICAN_PLUS)) {
-      byVendor.set(InvoiceVendor.AMERICAN_PLUS, { vendor: InvoiceVendor.AMERICAN_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA });
-    }
+    if (!byVendor.has(InvoiceVendor.SUCCESS_PLUS)) byVendor.set(InvoiceVendor.SUCCESS_PLUS, defaults[0]);
+    if (!byVendor.has(InvoiceVendor.AMERICAN_PLUS)) byVendor.set(InvoiceVendor.AMERICAN_PLUS, defaults[1]);
 
     return [byVendor.get(InvoiceVendor.SUCCESS_PLUS)!, byVendor.get(InvoiceVendor.AMERICAN_PLUS)!];
   } catch (error) {
-    if (isMissingTaxFormulaFieldError(error)) {
+    // ✅ If either new field doesn't exist yet, fall back gracefully
+    if (isMissingTaxFormulaFieldError(error) || isMissingPartsPriceFormulaFieldError(error)) {
       const rows = await prisma.invoiceVendorConfig.findMany({
-        select: { vendor: true, taxRatePct: true },
+        select: { vendor: true, taxRatePct: true, partsUpchargePct: true },
       });
 
       const byVendor = new Map<InvoiceVendor, VendorTaxSettings>();
-      for (const r of rows) {
-        byVendor.set(r.vendor, { vendor: r.vendor, taxRatePct: r.taxRatePct, taxFormula: DEFAULT_TAX_FORMULA });
+      for (const r of rows as any[]) {
+        byVendor.set(r.vendor, {
+          vendor: r.vendor,
+          taxRatePct: r.taxRatePct,
+          taxFormula: DEFAULT_TAX_FORMULA,
+          partsUpchargePct: r.partsUpchargePct ?? 0,
+          partsPriceFormula: DEFAULT_PARTS_PRICE_FORMULA,
+        });
       }
 
-      if (!byVendor.has(InvoiceVendor.SUCCESS_PLUS)) {
-        byVendor.set(InvoiceVendor.SUCCESS_PLUS, { vendor: InvoiceVendor.SUCCESS_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA });
-      }
-      if (!byVendor.has(InvoiceVendor.AMERICAN_PLUS)) {
-        byVendor.set(InvoiceVendor.AMERICAN_PLUS, { vendor: InvoiceVendor.AMERICAN_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA });
-      }
+      if (!byVendor.has(InvoiceVendor.SUCCESS_PLUS)) byVendor.set(InvoiceVendor.SUCCESS_PLUS, defaults[0]);
+      if (!byVendor.has(InvoiceVendor.AMERICAN_PLUS)) byVendor.set(InvoiceVendor.AMERICAN_PLUS, defaults[1]);
 
       return [byVendor.get(InvoiceVendor.SUCCESS_PLUS)!, byVendor.get(InvoiceVendor.AMERICAN_PLUS)!];
     }
@@ -195,37 +225,55 @@ async function loadVendorTaxSettings(vendorConfigReady: boolean): Promise<Vendor
   }
 }
 
-async function saveVendorTaxSettings(vendorConfigReady: boolean, vendor: InvoiceVendor, taxRate: number, formula: string) {
+async function saveVendorSettings(
+  vendorConfigReady: boolean,
+  vendor: InvoiceVendor,
+  taxRate: number,
+  taxFormula: string,
+  partsUpchargePct: number,
+  partsPriceFormula: string
+) {
   if (!vendorConfigReady) return;
+
+  // normalize formulas (never empty)
+  const taxF = taxFormula.trim() || DEFAULT_TAX_FORMULA;
+  const priceF = partsPriceFormula.trim() || DEFAULT_PARTS_PRICE_FORMULA;
 
   try {
     await prisma.invoiceVendorConfig.upsert({
       where: { vendor },
       create: {
         vendor,
-        partsUpchargePct: 0,
+        partsUpchargePct,
+        partsPriceFormula: priceF as any,
         taxRatePct: taxRate,
-        taxFormula: formula,
-      },
+        taxFormula: taxF,
+      } as any,
       update: {
+        partsUpchargePct,
+        partsPriceFormula: priceF as any,
         taxRatePct: taxRate,
-        taxFormula: formula,
-      },
+        taxFormula: taxF,
+      } as any,
     });
   } catch (error) {
-    if (!isMissingTaxFormulaFieldError(error)) throw error;
-
-    await prisma.invoiceVendorConfig.upsert({
-      where: { vendor },
-      create: {
-        vendor,
-        partsUpchargePct: 0,
-        taxRatePct: taxRate,
-      },
-      update: {
-        taxRatePct: taxRate,
-      },
-    });
+    // If new formula fields aren't present yet, save what we can.
+    if (isMissingTaxFormulaFieldError(error) || isMissingPartsPriceFormulaFieldError(error)) {
+      await prisma.invoiceVendorConfig.upsert({
+        where: { vendor },
+        create: {
+          vendor,
+          partsUpchargePct,
+          taxRatePct: taxRate,
+        },
+        update: {
+          partsUpchargePct,
+          taxRatePct: taxRate,
+        },
+      });
+      return;
+    }
+    throw error;
   }
 }
 
@@ -281,7 +329,8 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   const invoiceModelReady = typeof pAny.invoice?.findMany === "function" && typeof pAny.invoice?.count === "function";
   const invoiceLineReady = typeof pAny.invoiceLine?.deleteMany === "function";
   const ticketModelReady = typeof pAny.partsCheckoutTicket?.groupBy === "function";
-  const vendorConfigReady = typeof pAny.invoiceVendorConfig?.findMany === "function" && typeof pAny.invoiceVendorConfig?.upsert === "function";
+  const vendorConfigReady =
+    typeof pAny.invoiceVendorConfig?.findMany === "function" && typeof pAny.invoiceVendorConfig?.upsert === "function";
 
   if (!invoiceModelReady || !invoiceLineReady) {
     return (
@@ -387,8 +436,20 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   }
 
   let vendorConfigs: VendorTaxSettings[] = [
-    { vendor: InvoiceVendor.SUCCESS_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA },
-    { vendor: InvoiceVendor.AMERICAN_PLUS, taxRatePct: 0, taxFormula: DEFAULT_TAX_FORMULA },
+    {
+      vendor: InvoiceVendor.SUCCESS_PLUS,
+      taxRatePct: 0,
+      taxFormula: DEFAULT_TAX_FORMULA,
+      partsUpchargePct: 0,
+      partsPriceFormula: DEFAULT_PARTS_PRICE_FORMULA,
+    },
+    {
+      vendor: InvoiceVendor.AMERICAN_PLUS,
+      taxRatePct: 0,
+      taxFormula: DEFAULT_TAX_FORMULA,
+      partsUpchargePct: 0,
+      partsPriceFormula: DEFAULT_PARTS_PRICE_FORMULA,
+    },
   ];
 
   try {
@@ -399,6 +460,8 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
   const taxFormulaByVendor = new Map(vendorConfigs.map((c) => [c.vendor, c.taxFormula]));
   const taxRateByVendor = new Map(vendorConfigs.map((c) => [c.vendor, c.taxRatePct]));
+  const partsUpchargeByVendor = new Map(vendorConfigs.map((c) => [c.vendor, c.partsUpchargePct]));
+  const partsPriceFormulaByVendor = new Map(vendorConfigs.map((c) => [c.vendor, c.partsPriceFormula]));
 
   let invoiceTotal = 0;
   let invoices: Array<{
@@ -522,7 +585,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     redirect(safeReturnToPathFromReferer(h.get("referer")));
   }
 
-  async function updateVendorTaxFormulaAction(formData: FormData) {
+  async function updateVendorPricingAndTaxAction(formData: FormData) {
     "use server";
     await requireInvoicesView();
 
@@ -533,18 +596,32 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     const vendorRaw = String(formData.get("vendor") ?? "").trim().toUpperCase();
     const vendor = vendorRaw === "AMERICAN_PLUS" ? InvoiceVendor.AMERICAN_PLUS : InvoiceVendor.SUCCESS_PLUS;
 
-    const formula = String(formData.get("taxFormula") ?? "").trim();
-    if (!formula) {
-      redirect("/admin/invoices?cfg=formula_required");
-    }
-
+    const taxFormula = String(formData.get("taxFormula") ?? "").trim();
     const taxRateRaw = String(formData.get("taxRatePct") ?? "").trim();
+
+    const partsUpchargeRaw = String(formData.get("partsUpchargePct") ?? "").trim();
+    const partsPriceFormula = String(formData.get("partsPriceFormula") ?? "").trim();
+
+    if (!taxFormula) redirect("/admin/invoices?cfg=formula_required");
+
     const taxRate = Number(taxRateRaw);
     if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) {
       redirect("/admin/invoices?cfg=tax_rate_invalid");
     }
 
-    await saveVendorTaxSettings(vendorConfigReady, vendor, taxRate, formula);
+    const partsUpchargePct = Number(partsUpchargeRaw || "0");
+    if (!Number.isFinite(partsUpchargePct) || partsUpchargePct < 0 || partsUpchargePct > 9999) {
+      redirect("/admin/invoices?cfg=parts_upcharge_invalid");
+    }
+
+    await saveVendorSettings(
+      vendorConfigReady,
+      vendor,
+      taxRate,
+      taxFormula,
+      partsUpchargePct,
+      partsPriceFormula || DEFAULT_PARTS_PRICE_FORMULA
+    );
 
     revalidatePath("/admin/invoices");
     redirect("/admin/invoices?cfg=saved");
@@ -626,14 +703,16 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
   const cfgBanner =
     cfg === "saved"
-      ? "Tax settings saved. New invoices will use the updated settings for that vendor."
+      ? "Settings saved. New invoices will use the updated vendor pricing + tax settings."
       : cfg === "formula_required"
         ? "Tax formula is required."
         : cfg === "tax_rate_invalid"
           ? "Tax rate must be a valid number between 0 and 100."
-          : cfg === "config_not_ready"
-            ? "Vendor tax settings are not available yet on this deployment (missing invoiceVendorConfig)."
-            : null;
+          : cfg === "parts_upcharge_invalid"
+            ? "Parts upcharge must be a valid non-negative number."
+            : cfg === "config_not_ready"
+              ? "Vendor settings are not available yet on this deployment (missing invoiceVendorConfig)."
+              : null;
 
   const detailsSummaryStyle: CSSProperties = {
     cursor: "pointer",
@@ -715,12 +794,13 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
           </div>
         ) : null}
 
-        {/* Vendor tax formulas (collapsed per vendor) */}
+        {/* Vendor pricing + tax formulas (collapsed per vendor) */}
         <div style={{ marginTop: 12, border, borderRadius: 14, background: surface, padding: 12 }}>
-          <div style={{ fontWeight: 900, marginBottom: 6 }}>Vendor tax formulas</div>
+          <div style={{ fontWeight: 900, marginBottom: 6 }}>Vendor pricing + tax formulas</div>
           <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 10 }}>
-            Formula variables: <code>lineSubtotal</code>, <code>taxRatePct</code>, <code>quantity</code>, <code>unitPrice</code>. Allowed
-            helpers: <code>min</code>, <code>max</code>, <code>round</code>, <code>floor</code>, <code>ceil</code>, <code>abs</code>.
+            Price variables: <code>cost</code>, <code>partsUpchargePct</code>. Tax variables:{" "}
+            <code>lineSubtotal</code>, <code>taxRatePct</code>, <code>quantity</code>, <code>unitPrice</code>. Allowed helpers:{" "}
+            <code>min</code>, <code>max</code>, <code>round</code>, <code>floor</code>, <code>ceil</code>, <code>abs</code>.
           </div>
 
           {!vendorConfigReady ? (
@@ -738,12 +818,33 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                   paddingTop: 10,
                 }}
               >
-                <summary style={detailsSummaryStyle}>
-                  {vendorLabel(v)} — click to edit
-                </summary>
+                <summary style={detailsSummaryStyle}>{vendorLabel(v)} — click to edit</summary>
 
-                <form action={updateVendorTaxFormulaAction} style={{ display: "grid", gap: 8, marginTop: 10 }}>
+                <form action={updateVendorPricingAndTaxAction} style={{ display: "grid", gap: 8, marginTop: 10 }}>
                   <input type="hidden" name="vendor" value={v} />
+
+                  <label style={controlLabel}>
+                    Parts upcharge (%)
+                    <input
+                      name="partsUpchargePct"
+                      defaultValue={String(partsUpchargeByVendor.get(v) ?? 0)}
+                      style={controlBase}
+                      inputMode="decimal"
+                      placeholder="0"
+                      disabled={!vendorConfigReady}
+                    />
+                  </label>
+
+                  <label style={controlLabel}>
+                    Parts price formula
+                    <input
+                      name="partsPriceFormula"
+                      defaultValue={String(partsPriceFormulaByVendor.get(v) ?? DEFAULT_PARTS_PRICE_FORMULA)}
+                      style={controlBase}
+                      placeholder={DEFAULT_PARTS_PRICE_FORMULA}
+                      disabled={!vendorConfigReady}
+                    />
+                  </label>
 
                   <label style={controlLabel}>
                     Tax rate (%)
@@ -867,8 +968,8 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
               </div>
 
               <div style={{ fontSize: 12, opacity: 0.8 }}>
-                Manual trigger. Submitted checkouts are immediately “ready” (OPEN, not invoiced). Generating creates{" "}
-                <b>one invoice per store</b> in the window for the selected vendor, then marks those tickets <b>INVOICED</b>.
+                Manual trigger. Submitted checkouts are immediately “ready” (OPEN, not invoiced). Generating creates <b>one invoice per store</b>{" "}
+                in the window for the selected vendor, then marks those tickets <b>INVOICED</b>.
               </div>
             </form>
           </div>
@@ -978,9 +1079,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                 Hard delete selected
               </button>
 
-              <div style={{ fontSize: 12, opacity: 0.75, maxWidth: 700 }}>
-                Hard delete permanently removes invoices and their line items.
-              </div>
+              <div style={{ fontSize: 12, opacity: 0.75, maxWidth: 700 }}>Hard delete permanently removes invoices and their line items.</div>
             </div>
           </form>
 
