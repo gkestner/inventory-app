@@ -342,7 +342,7 @@ export default async function MaintenanceCheckoutPage({
       if (isRedirectError(e)) {
         throw e;
       }
-      
+
       const msg =
         typeof e === "object" && e !== null && "message" in e && typeof (e as { message: unknown }).message === "string"
           ? (e as { message: string }).message
@@ -354,6 +354,10 @@ export default async function MaintenanceCheckoutPage({
 
   // Theme-variable styling (no hardcoded colors)
   const fieldStyle: CSSProperties = {
+    width: "100%",
+    minWidth: 0,
+    boxSizing: "border-box",
+
     padding: "8px 10px",
     borderRadius: 8,
     border: "1px solid rgba(128,128,128,0.25)",
@@ -362,7 +366,14 @@ export default async function MaintenanceCheckoutPage({
     outline: "none",
   };
 
-  const labelStyle: CSSProperties = { display: "grid", gap: 6 };
+  const labelStyle: CSSProperties = { display: "grid", gap: 6, minWidth: 0 };
+
+  const twoCol: CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
+    gap: 12,
+    alignItems: "start",
+  };
 
   return (
     <div style={{ padding: 24, maxWidth: 980, margin: "0 auto" }}>
@@ -429,7 +440,7 @@ export default async function MaintenanceCheckoutPage({
           </div>
         </label>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={twoCol}>
           <label style={labelStyle}>
             <span style={{ fontWeight: 700 }}>Store (Location)</span>
             <select name="storeId" required style={fieldStyle} disabled={!perms.allowAll && locations.length === 0}>
