@@ -164,22 +164,104 @@ function parseOptionalInt(v: FormDataEntryValue | null): number | null {
   return Math.trunc(n);
 }
 
+/**
+ * datetime-local submits "YYYY-MM-DDTHH:mm" with NO timezone.
+ * We treat it as America/New_York wall time and convert to an absolute Date.
+ */
 function parseOptionalDateTimeLocal(v: FormDataEntryValue | null): Date | null {
   if (!v || typeof v !== "string") return null;
   const s = v.trim();
   if (!s) return null;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
+
+  const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2})$/.exec(s);
+  if (!m) return null;
+
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const hour = Number(m[4]);
+  const minute = Number(m[5]);
+
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute)
+  ) {
+    return null;
+  }
+
+  const TZ = "America/New_York";
+
+  function tzOffsetMinutes(at: Date, timeZone: string): number {
+    // Offset in minutes where: localTime(timeZone) = UTC + offset
+    const dtf = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hour12: false,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    const parts = dtf.formatToParts(at);
+    const get = (type: string) => {
+      const p = parts.find((x) => x.type === type)?.value;
+      return p ? Number(p) : NaN;
+    };
+    const y = get("year");
+    const mo = get("month");
+    const da = get("day");
+    const h = get("hour");
+    const mi = get("minute");
+    const se = get("second");
+    const asUTC = Date.UTC(y, mo - 1, da, h, mi, se);
+    return Math.round((asUTC - at.getTime()) / 60000);
+  }
+
+  // Start with a UTC guess for the same wall-clock components, then shift by NY offset.
+  const naiveUTC = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const guess = new Date(naiveUTC);
+  const offsetMin = tzOffsetMinutes(guess, TZ);
+  const out = new Date(naiveUTC - offsetMin * 60000);
+
+  return Number.isNaN(out.getTime()) ? null : out;
 }
 
 function fmtLocal(d: Date | null): string {
   if (!d) return "—";
-  return new Date(d).toLocaleString();
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(d));
 }
 
 function fmtForDatetimeLocal(d: Date | null): string {
   if (!d) return "";
-  return new Date(d).toISOString().slice(0, 16);
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(new Date(d));
+
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  const y = get("year");
+  const mo = get("month");
+  const da = get("day");
+  const h = get("hour");
+  const mi = get("minute");
+  return `${y}-${mo}-${da}T${h}:${mi}`;
 }
 
 function formatAreaLabel(area: string): string {
@@ -296,7 +378,7 @@ export default async function AdminWorkOrderDetailPage({
     await db.workOrder.update({
       where: { id },
       data: {
-        startTime: new Date(), // set regardless; simpler and predictable for admin tooling
+        startTime: new Date(),
       },
     });
 
@@ -336,7 +418,9 @@ export default async function AdminWorkOrderDetailPage({
       : null;
     if (!status) throw new Error("Invalid status");
 
-    const notes = String(formData.get("notes") ?? "");
+    const notesRaw = String(formData.get("notes") ?? "");
+    const notes = notesRaw.trim().length ? notesRaw : null;
+
     const startTime = parseOptionalDateTimeLocal(formData.get("startTime"));
     const endTime = parseOptionalDateTimeLocal(formData.get("endTime"));
     const startingMileage = parseOptionalInt(formData.get("startingMileage"));
@@ -354,8 +438,6 @@ export default async function AdminWorkOrderDetailPage({
           endTime,
           startingMileage,
           endingMileage,
-          // updatedByUserId is optional in schema; we set it if session has email match -> find userId requires extra query.
-          // Leave it alone for now to avoid cross-file changes.
         },
       });
 
@@ -416,6 +498,9 @@ export default async function AdminWorkOrderDetailPage({
               </div>
               <div>
                 <b>Updated:</b> {fmtLocal(workOrder.updatedAt)}
+              </div>
+              <div>
+                <b>Start/End:</b> {fmtLocal(workOrder.startTime)} → {fmtLocal(workOrder.endTime)}
               </div>
             </div>
 
