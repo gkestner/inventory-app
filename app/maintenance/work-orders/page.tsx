@@ -12,6 +12,10 @@ export const dynamic = "force-dynamic";
 
 const TZ = "America/New_York";
 
+type SearchParams = {
+  edit?: string; // workOrderId
+};
+
 type SessionShape = {
   user?: {
     email?: string | null;
@@ -29,30 +33,33 @@ async function requireWorkOrdersView(session: SessionShape) {
   requireSession(session);
 
   const perms = await loadUserPermissions(session);
-  if (perms.allowAll) return;
+  if (perms.allowAll) return perms;
 
   const ok = hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
   if (!ok) redirect("/");
+  return perms;
 }
 
 async function requireWorkOrdersCreate(session: SessionShape) {
   requireSession(session);
 
   const perms = await loadUserPermissions(session);
-  if (perms.allowAll) return;
+  if (perms.allowAll) return perms;
 
   const ok = hasAnyPermission(perms, [Permission.CREATE_WORK_ORDERS]);
   if (!ok) redirect("/");
+  return perms;
 }
 
 async function requireWorkOrdersSubmitOwn(session: SessionShape) {
   requireSession(session);
 
   const perms = await loadUserPermissions(session);
-  if (perms.allowAll) return;
+  if (perms.allowAll) return perms;
 
   const ok = hasAnyPermission(perms, [Permission.SUBMIT_OWN_WORK_ORDERS]);
   if (!ok) redirect("/");
+  return perms;
 }
 
 type WorkOrderStatus = "DRAFT" | "SUBMITTED" | "FINALIZED";
@@ -96,6 +103,7 @@ const EQUIPMENT_AREAS: EquipmentArea[] = [
 ];
 
 const LEGACY_AREAS: LegacyEquipmentArea[] = ["FRONT_COUNTER", "DRIVE_THRU", "KITCHEN", "ROOF", "HVAC"];
+const STATUSES: WorkOrderStatus[] = ["DRAFT", "SUBMITTED", "FINALIZED"];
 
 function isLegacyArea(a: EquipmentAreaDb): a is LegacyEquipmentArea {
   return (LEGACY_AREAS as readonly string[]).includes(a);
@@ -137,9 +145,9 @@ function parseOptionalInt(v: FormDataEntryValue | null): number | null {
   return Math.trunc(n);
 }
 
-function parseRequiredInt(v: FormDataEntryValue | null): number {
+function parseRequiredInt(v: FormDataEntryValue | null, label: string): number {
   const n = parseOptionalInt(v);
-  if (n === null) throw new Error("Ending mileage is required.");
+  if (n === null) throw new Error(`${label} is required.`);
   return n;
 }
 
@@ -184,12 +192,17 @@ function statusLabel(s: WorkOrderStatus): string {
   return s;
 }
 
-export default async function MaintenanceWorkOrdersPage() {
+export default async function MaintenanceWorkOrdersPage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
   const session = (await getServerSession(authOptions)) as SessionShape;
-  await requireWorkOrdersView(session);
+  const perms = await requireWorkOrdersView(session);
+
+  const isAdmin = !!perms.allowAll || session?.user?.role === Role.ADMIN;
 
   const email = (session?.user?.email ?? "").toLowerCase().trim();
-
   const me = await prisma.user.findUnique({
     where: { email },
     select: {
@@ -206,6 +219,9 @@ export default async function MaintenanceWorkOrdersPage() {
   });
 
   if (!me || !me.active) redirect("/login");
+
+  const sp = await searchParams;
+  const editId = (sp.edit ?? "").trim() || null;
 
   // Allowed locations: primary first, then optionals (dedup)
   const allowedLocations: Array<{ id: string; name: string; source: "PRIMARY" | "OPTIONAL" }> = [];
@@ -225,11 +241,7 @@ export default async function MaintenanceWorkOrdersPage() {
 
   // Find ONE active in-progress work order (DRAFT + no endTime)
   const inProgress = await prisma.workOrder.findFirst({
-    where: {
-      createdByUserId: me.id,
-      status: "DRAFT",
-      endTime: null,
-    },
+    where: { createdByUserId: me.id, status: "DRAFT", endTime: null },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
@@ -245,6 +257,35 @@ export default async function MaintenanceWorkOrdersPage() {
     },
   });
 
+  // Edit target (if ?edit=...)
+  const editTarget = editId
+    ? await prisma.workOrder.findUnique({
+        where: { id: editId },
+        select: {
+          id: true,
+          createdByUserId: true,
+          status: true,
+          createdAt: true,
+          startTime: true,
+          endTime: true,
+          locationId: true,
+          location: { select: { name: true } },
+          notes: true,
+          startingMileage: true,
+          endingMileage: true,
+          equipmentAreas: { select: { area: true } },
+        },
+      })
+    : null;
+
+  if (editId && !editTarget) {
+    // invalid id; just show normal page
+    // (no redirect to preserve "one file" simplicity)
+  }
+
+  // For non-admin, restrict editing to own records
+  const canEditTarget = editTarget ? isAdmin || editTarget.createdByUserId === me.id : false;
+
   const workOrders = await prisma.workOrder.findMany({
     where: { createdByUserId: me.id },
     orderBy: { createdAt: "desc" },
@@ -259,18 +300,13 @@ export default async function MaintenanceWorkOrdersPage() {
       endTime: true,
       startingMileage: true,
       endingMileage: true,
+      notes: true,
       equipmentAreas: { select: { area: true } },
     },
   });
 
   /**
    * STYLE TUNING (requested)
-   * - Larger base font
-   * - Larger buttons
-   * - Larger form controls
-   * - Larger area chips
-   * - Roomier table
-   * - Top/bottom cards same width + centered
    */
   const CONTENT_WIDTH = 1100;
 
@@ -355,6 +391,20 @@ export default async function MaintenanceWorkOrdersPage() {
     boxShadow: "0 0 0 1px rgba(220, 60, 60, 0.18) inset",
   };
 
+  const btnNeutral: CSSProperties = {
+    ...btn,
+    height: 42,
+    fontSize: 14,
+    padding: "0 12px",
+    borderRadius: 10,
+  };
+
+  const btnDangerSmall: CSSProperties = {
+    ...btnNeutral,
+    background: "rgba(220, 60, 60, 0.16)",
+    border: "1px solid rgba(220, 60, 60, 0.45)",
+  };
+
   const gridWrap: CSSProperties = {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
@@ -383,7 +433,7 @@ export default async function MaintenanceWorkOrdersPage() {
     "use server";
 
     const session = (await getServerSession(authOptions)) as SessionShape;
-    await requireWorkOrdersCreate(session);
+    const p = await requireWorkOrdersCreate(session);
 
     const email = (session?.user?.email ?? "").toLowerCase().trim();
     const me = await prisma.user.findUnique({
@@ -408,11 +458,13 @@ export default async function MaintenanceWorkOrdersPage() {
     const locationId = String(formData.get("locationId") ?? "").trim();
     if (!locationId) throw new Error("Location is required");
 
-    // Enforce allowed location
-    const allowed = new Set<string>();
-    if (me.locationId) allowed.add(me.locationId);
-    for (const ul of me.allowedLocations) allowed.add(ul.locationId);
-    if (!allowed.has(locationId)) throw new Error("You are not allowed to create a work order for that location.");
+    // Enforce allowed location (non-admin)
+    if (!p.allowAll) {
+      const allowed = new Set<string>();
+      if (me.locationId) allowed.add(me.locationId);
+      for (const ul of me.allowedLocations) allowed.add(ul.locationId);
+      if (!allowed.has(locationId)) throw new Error("You are not allowed to create a work order for that location.");
+    }
 
     const notes = String(formData.get("notes") ?? "");
     const startingMileage = parseOptionalInt(formData.get("startingMileage"));
@@ -455,12 +507,11 @@ export default async function MaintenanceWorkOrdersPage() {
     const id = String(formData.get("id") ?? "").trim();
     if (!id) throw new Error("Missing work order id");
 
-    const endingMileage = parseRequiredInt(formData.get("endingMileage"));
+    const endingMileage = parseRequiredInt(formData.get("endingMileage"), "Ending mileage");
     const notes = String(formData.get("notes") ?? "");
     const areas = parseAreas(formData);
 
     await prisma.$transaction(async (tx) => {
-      // Ensure it still belongs to this user and is still open
       const wo = await tx.workOrder.findUnique({
         where: { id },
         select: { id: true, createdByUserId: true, status: true, endTime: true },
@@ -478,7 +529,6 @@ export default async function MaintenanceWorkOrdersPage() {
         },
       });
 
-      // Replace areas atomically
       await tx.workOrderEquipmentArea.deleteMany({ where: { workOrderId: id } });
       if (areas.length > 0) {
         await tx.workOrderEquipmentArea.createMany({
@@ -491,7 +541,207 @@ export default async function MaintenanceWorkOrdersPage() {
     redirect("/maintenance/work-orders");
   }
 
+  async function saveEditAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as SessionShape;
+    const p = await requireWorkOrdersSubmitOwn(session);
+
+    const isAdmin = !!p.allowAll || session?.user?.role === Role.ADMIN;
+
+    const email = (session?.user?.email ?? "").toLowerCase().trim();
+    const me = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        active: true,
+        locationId: true,
+        allowedLocations: { select: { locationId: true }, orderBy: { sortOrder: "asc" } },
+      },
+    });
+    if (!me || !me.active) redirect("/login");
+
+    const id = String(formData.get("id") ?? "").trim();
+    if (!id) throw new Error("Missing work order id");
+
+    const wo = await prisma.workOrder.findUnique({
+      where: { id },
+      select: { id: true, createdByUserId: true },
+    });
+    if (!wo) throw new Error("Work order not found");
+    if (!isAdmin && wo.createdByUserId !== me.id) throw new Error("You can only edit your own work orders.");
+
+    const locationId = String(formData.get("locationId") ?? "").trim();
+    if (!locationId) throw new Error("Location is required");
+
+    // non-admin must stay within allowed locations
+    if (!isAdmin) {
+      const allowed = new Set<string>();
+      if (me.locationId) allowed.add(me.locationId);
+      for (const ul of me.allowedLocations) allowed.add(ul.locationId);
+      if (!allowed.has(locationId)) throw new Error("You are not allowed to move a work order to that location.");
+    }
+
+    const statusRaw = String(formData.get("status") ?? "").trim().toUpperCase();
+    const status: WorkOrderStatus | null = STATUSES.includes(statusRaw as WorkOrderStatus)
+      ? (statusRaw as WorkOrderStatus)
+      : null;
+    if (!status) throw new Error("Invalid status");
+
+    const startingMileage = parseOptionalInt(formData.get("startingMileage"));
+    const endingMileage = parseOptionalInt(formData.get("endingMileage"));
+    const notes = String(formData.get("notes") ?? "");
+    const areas = parseAreas(formData);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.workOrder.update({
+        where: { id },
+        data: {
+          locationId,
+          status,
+          startingMileage,
+          endingMileage,
+          notes,
+        },
+      });
+
+      await tx.workOrderEquipmentArea.deleteMany({ where: { workOrderId: id } });
+      if (areas.length > 0) {
+        await tx.workOrderEquipmentArea.createMany({
+          data: areas.map((area) => ({ workOrderId: id, area })),
+        });
+      }
+    });
+
+    revalidatePath("/maintenance/work-orders");
+    redirect("/maintenance/work-orders?edit=" + encodeURIComponent(id));
+  }
+
+  async function setStartNowAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as SessionShape;
+    const p = await requireWorkOrdersSubmitOwn(session);
+    const isAdmin = !!p.allowAll || session?.user?.role === Role.ADMIN;
+
+    const email = (session?.user?.email ?? "").toLowerCase().trim();
+    const me = await prisma.user.findUnique({ where: { email }, select: { id: true, active: true } });
+    if (!me || !me.active) redirect("/login");
+
+    const id = String(formData.get("id") ?? "").trim();
+    if (!id) throw new Error("Missing work order id");
+
+    const wo = await prisma.workOrder.findUnique({
+      where: { id },
+      select: { id: true, createdByUserId: true },
+    });
+    if (!wo) throw new Error("Work order not found");
+    if (!isAdmin && wo.createdByUserId !== me.id) throw new Error("You can only modify your own work orders.");
+
+    await prisma.workOrder.update({
+      where: { id },
+      data: { startTime: new Date() },
+    });
+
+    revalidatePath("/maintenance/work-orders");
+    redirect("/maintenance/work-orders?edit=" + encodeURIComponent(id));
+  }
+
+  async function setEndNowAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as SessionShape;
+    const p = await requireWorkOrdersSubmitOwn(session);
+    const isAdmin = !!p.allowAll || session?.user?.role === Role.ADMIN;
+
+    const email = (session?.user?.email ?? "").toLowerCase().trim();
+    const me = await prisma.user.findUnique({ where: { email }, select: { id: true, active: true } });
+    if (!me || !me.active) redirect("/login");
+
+    const id = String(formData.get("id") ?? "").trim();
+    if (!id) throw new Error("Missing work order id");
+
+    const wo = await prisma.workOrder.findUnique({
+      where: { id },
+      select: { id: true, createdByUserId: true },
+    });
+    if (!wo) throw new Error("Work order not found");
+    if (!isAdmin && wo.createdByUserId !== me.id) throw new Error("You can only modify your own work orders.");
+
+    await prisma.workOrder.update({
+      where: { id },
+      data: { endTime: new Date() },
+    });
+
+    revalidatePath("/maintenance/work-orders");
+    redirect("/maintenance/work-orders?edit=" + encodeURIComponent(id));
+  }
+
+  async function clearEndTimeAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as SessionShape;
+    const p = await requireWorkOrdersSubmitOwn(session);
+    const isAdmin = !!p.allowAll || session?.user?.role === Role.ADMIN;
+
+    const email = (session?.user?.email ?? "").toLowerCase().trim();
+    const me = await prisma.user.findUnique({ where: { email }, select: { id: true, active: true } });
+    if (!me || !me.active) redirect("/login");
+
+    const id = String(formData.get("id") ?? "").trim();
+    if (!id) throw new Error("Missing work order id");
+
+    const wo = await prisma.workOrder.findUnique({
+      where: { id },
+      select: { id: true, createdByUserId: true },
+    });
+    if (!wo) throw new Error("Work order not found");
+    if (!isAdmin && wo.createdByUserId !== me.id) throw new Error("You can only modify your own work orders.");
+
+    await prisma.workOrder.update({
+      where: { id },
+      data: { endTime: null },
+    });
+
+    revalidatePath("/maintenance/work-orders");
+    redirect("/maintenance/work-orders?edit=" + encodeURIComponent(id));
+  }
+
+  async function purgeWorkOrderAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as SessionShape;
+    const p = await requireWorkOrdersSubmitOwn(session);
+    const isAdmin = !!p.allowAll || session?.user?.role === Role.ADMIN;
+
+    const email = (session?.user?.email ?? "").toLowerCase().trim();
+    const me = await prisma.user.findUnique({ where: { email }, select: { id: true, active: true } });
+    if (!me || !me.active) redirect("/login");
+
+    const id = String(formData.get("id") ?? "").trim();
+    if (!id) throw new Error("Missing work order id");
+
+    const confirmText = String(formData.get("confirm") ?? "").trim().toUpperCase();
+    if (confirmText !== "DELETE") throw new Error('Type "DELETE" to confirm purge.');
+
+    const wo = await prisma.workOrder.findUnique({
+      where: { id },
+      select: { id: true, createdByUserId: true },
+    });
+    if (!wo) throw new Error("Work order not found");
+    if (!isAdmin && wo.createdByUserId !== me.id) throw new Error("You can only purge your own work orders.");
+
+    await prisma.$transaction(async (tx) => {
+      await tx.workOrderEquipmentArea.deleteMany({ where: { workOrderId: id } });
+      await tx.workOrder.delete({ where: { id } });
+    });
+
+    revalidatePath("/maintenance/work-orders");
+    redirect("/maintenance/work-orders");
+  }
+
   const inProgressChecked = new Set<string>(inProgress?.equipmentAreas?.map((x) => String(x.area)) ?? []);
+  const editChecked = new Set<string>(editTarget?.equipmentAreas?.map((x) => String(x.area)) ?? []);
 
   return (
     <main>
@@ -502,6 +752,156 @@ export default async function MaintenanceWorkOrdersPage() {
             Times displayed in <b>{TZ}</b>.
           </div>
         </div>
+
+        {/* EDIT PANEL (if ?edit=...) */}
+        {editTarget && canEditTarget ? (
+          <div style={{ ...card, ...pageWidth, marginTop: 14, display: "grid", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <h2 style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>Edit Work Order</h2>
+              <div style={{ opacity: 0.85, fontSize: 13 }}>id: {editTarget.id}</div>
+              <a
+                href="/maintenance/work-orders"
+                style={{
+                  marginLeft: "auto",
+                  textDecoration: "none",
+                  ...btnNeutral,
+                }}
+              >
+                Close
+              </a>
+            </div>
+
+            <div style={{ fontSize: 14, opacity: 0.9 }}>
+              <b>Created:</b> {fmtLocal(editTarget.createdAt)} • <b>Start:</b> {fmtLocal(editTarget.startTime)} •{" "}
+              <b>End:</b> {fmtLocal(editTarget.endTime)}
+            </div>
+
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <form action={setStartNowAction}>
+                <input type="hidden" name="id" value={editTarget.id} />
+                <button type="submit" style={btnNeutral}>
+                  Set Start Now
+                </button>
+              </form>
+              <form action={setEndNowAction}>
+                <input type="hidden" name="id" value={editTarget.id} />
+                <button type="submit" style={btnNeutral}>
+                  Set End Now
+                </button>
+              </form>
+              <form action={clearEndTimeAction}>
+                <input type="hidden" name="id" value={editTarget.id} />
+                <button type="submit" style={btnNeutral}>
+                  Clear End Time
+                </button>
+              </form>
+            </div>
+
+            <form action={saveEditAction} style={{ display: "grid", gap: 12 }}>
+              <input type="hidden" name="id" value={editTarget.id} />
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <label style={label}>
+                  Location
+                  <select
+                    name="locationId"
+                    defaultValue={editTarget.locationId}
+                    style={input}
+                    required
+                    disabled={!isAdmin && allowedLocations.length === 0}
+                  >
+                    {(isAdmin ? allowedLocations : allowedLocations).map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name}
+                        {l.source === "PRIMARY" ? " (Primary)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label style={label}>
+                  Status
+                  <select name="status" defaultValue={editTarget.status} style={input} required>
+                    {STATUSES.map((s) => (
+                      <option key={s} value={s}>
+                        {statusLabel(s)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <label style={label}>
+                  Starting Mileage
+                  <input
+                    name="startingMileage"
+                    type="number"
+                    defaultValue={editTarget.startingMileage ?? ""}
+                    placeholder="e.g. 12345"
+                    style={input}
+                  />
+                </label>
+
+                <label style={label}>
+                  Ending Mileage
+                  <input
+                    name="endingMileage"
+                    type="number"
+                    defaultValue={editTarget.endingMileage ?? ""}
+                    placeholder="e.g. 12555"
+                    style={input}
+                  />
+                </label>
+              </div>
+
+              <label style={label}>
+                Notes
+                <textarea name="notes" defaultValue={editTarget.notes ?? ""} style={{ ...textareaBase, minHeight: 110 }} />
+              </label>
+
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 900, opacity: 0.95 }}>Equipment Areas</div>
+                <div style={gridWrap}>
+                  {EQUIPMENT_AREAS.map((area) => (
+                    <label key={`edit-area-${area}`} style={gridItem}>
+                      <input type="checkbox" name="areas" value={area} defaultChecked={editChecked.has(area)} style={checkboxStyle} />
+                      <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {formatAreaLabel(area)}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <button type="submit" style={{ ...btnNeutral, width: 220, height: 50 }}>
+                Save Changes
+              </button>
+            </form>
+
+            {/* PURGE */}
+            <div style={{ marginTop: 6, paddingTop: 12, borderTop: "1px solid rgba(128,128,128,0.22)" }}>
+              <div style={{ fontSize: 14, fontWeight: 900, marginBottom: 8 }}>Purge (Delete)</div>
+              <form action={purgeWorkOrderAction} style={{ display: "grid", gap: 10, maxWidth: 520 }}>
+                <input type="hidden" name="id" value={editTarget.id} />
+                <div style={{ fontSize: 13, opacity: 0.85 }}>
+                  Type <code>DELETE</code> to permanently purge this work order.
+                </div>
+                <input name="confirm" placeholder="DELETE" style={input} />
+                <button type="submit" style={{ ...btnDangerSmall, width: 260 }}>
+                  Purge Work Order
+                </button>
+              </form>
+            </div>
+          </div>
+        ) : editTarget && !canEditTarget ? (
+          <div style={{ ...card, ...pageWidth, marginTop: 14, fontSize: 14, opacity: 0.9 }}>
+            You can’t edit that work order.
+            <a href="/maintenance/work-orders" style={{ marginLeft: 10 }}>
+              Back
+            </a>
+          </div>
+        ) : null}
 
         {/* TOP CARD: Start OR End */}
         <div style={{ ...card, ...pageWidth, marginTop: 14, display: "grid", gap: 12 }}>
@@ -647,7 +1047,7 @@ export default async function MaintenanceWorkOrdersPage() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 15 }}>
               <thead>
                 <tr>
-                  {["Created", "Status", "Location", "Start/End", "Mileage", "Areas"].map((h) => (
+                  {["Created", "Status", "Location", "Start/End", "Mileage", "Areas", "Edit"].map((h) => (
                     <th
                       key={h}
                       style={{
@@ -701,11 +1101,20 @@ export default async function MaintenanceWorkOrdersPage() {
                         style={{
                           padding: "12px 10px",
                           borderBottom: "1px solid rgba(128,128,128,0.18)",
-                          maxWidth: 560,
+                          maxWidth: 520,
                         }}
                       >
                         {areas}
                         {hasLegacy ? <div style={{ fontSize: 13, opacity: 0.85 }}>(contains legacy values)</div> : null}
+                      </td>
+
+                      <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)" }}>
+                        <a
+                          href={`/maintenance/work-orders?edit=${encodeURIComponent(wo.id)}`}
+                          style={{ ...btnNeutral, textDecoration: "none" }}
+                        >
+                          Edit
+                        </a>
                       </td>
                     </tr>
                   );
@@ -713,7 +1122,7 @@ export default async function MaintenanceWorkOrdersPage() {
 
                 {workOrders.length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ padding: 14, opacity: 0.85 }}>
+                    <td colSpan={7} style={{ padding: 14, opacity: 0.85 }}>
                       No work orders yet.
                     </td>
                   </tr>
