@@ -1,170 +1,118 @@
 // app/admin/items/page.tsx
-import { prisma } from "@/app/lib/prisma";
-import { authOptions } from "@/app/lib/auth";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { Prisma, Permission, InvoiceVendor } from "@prisma/client";
+import Link from "next/link";
 
-import ItemsToolbar from "./ItemsToolbar";
+import { authOptions } from "@/app/lib/auth";
+import { prisma } from "@/app/lib/prisma";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { InvoiceVendor, Permission, Role } from "@prisma/client";
+
 import ItemsTableClient from "./ItemsTableClient";
-import { loadUserPermissions, hasAnyPermission } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
-type SearchParams = {
-  q?: string;
-  active?: string; // all | true | false
+type AdminSession = {
+  user?: {
+    id?: string | null;
+    email?: string | null;
+    role?: Role | null;
+  } | null;
+} | null;
 
-  // pagination + sorting
-  page?: string; // 1-based
-  perPage?: string; // 10/25/50/100
-  sort?: string; // sku | partNumber | name | category | manufacturer | orderFrom | cost | price | taxable | active | updatedAt | createdAt
-  dir?: string; // asc | desc
-
-  // optional highlight
-  createdSku?: string;
-};
-
-async function requireItemsAdminView() {
-  const session = await getServerSession(authOptions);
-  if (!session) redirect("/login");
-
-  const perms = await loadUserPermissions(session);
-  if (perms.allowAll) return session;
-
-  const ok = hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS]);
-  if (!ok) redirect("/");
-
-  return session;
-}
-
-function asInt(v: string | undefined, fallback: number) {
-  if (!v) return fallback;
-  const n = Number(v);
-  return Number.isFinite(n) ? Math.floor(n) : fallback;
-}
-
-function clamp(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, n));
-}
-
-function parseDir(v: string | undefined): "asc" | "desc" {
-  return v === "asc" ? "asc" : "desc";
-}
-
-function parseActive(v: string | undefined): boolean | null {
-  if (!v || v === "all") return null;
-  if (v === "true") return true;
-  if (v === "false") return false;
+function moneyToString(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  // Prisma Decimal in runtime has toString()
+  if (typeof v === "object" && v && "toString" in v && typeof (v as any).toString === "function") {
+    const s = String((v as any).toString());
+    return s;
+  }
+  if (typeof v === "number" && Number.isFinite(v)) return String(v);
+  if (typeof v === "string") return v;
   return null;
 }
 
-function normalizeQ(v: string | undefined): string {
-  const s = (v || "").trim();
-  if (!s) return "";
-  return s.replace(/\s+/g, " ");
+function decimalToNumber(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  if (typeof v === "object" && v) {
+    // Prisma Decimal (decimal.js)
+    if ("toNumber" in v && typeof (v as any).toNumber === "function") {
+      const n = (v as any).toNumber();
+      return Number.isFinite(n) ? n : null;
+    }
+    if ("toString" in v && typeof (v as any).toString === "function") {
+      const n = Number(String((v as any).toString()));
+      return Number.isFinite(n) ? n : null;
+    }
+  }
+  return null;
 }
 
-function tokenizeQ(q: string): string[] {
-  const s = q.trim().toLowerCase();
-  if (!s) return [];
-  return s
-    .split(/\s+/)
-    .map((t) => t.trim())
-    .filter(Boolean);
+function round4(n: number): number {
+  return Math.round(n * 10000) / 10000;
 }
 
-function parsePerPage(v: string | undefined): number {
-  const n = asInt(v, 25);
-  const allowed = new Set([10, 25, 50, 100]);
-  return allowed.has(n) ? n : 25;
-}
+async function requireItemsView() {
+  const session = (await getServerSession(authOptions)) as AdminSession;
+  if (!session) redirect("/login");
 
-type SortKey =
-  | "sku"
-  | "partNumber"
-  | "name"
-  | "category"
-  | "manufacturer"
-  | "orderFrom"
-  | "cost"
-  | "price"
-  | "taxable"
-  | "active"
-  | "updatedAt"
-  | "createdAt";
-
-function parseSort(v: string | undefined): SortKey {
-  // Back-compat: older URLs may still use sort=unit. Treat it as name.
-  if (v === "unit") return "name";
-
-  const allowed: SortKey[] = [
-    "sku",
-    "partNumber",
-    "name",
-    "category",
-    "manufacturer",
-    "orderFrom",
-    "cost",
-    "price",
-    "taxable",
-    "active",
-    "updatedAt",
-    "createdAt",
-  ];
-  if (v && (allowed as string[]).includes(v)) return v as SortKey;
-  return "updatedAt";
-}
-
-function buildWhere(tokens: string[], activeFilter: boolean | null): Prisma.ItemWhereInput {
-  const and: Prisma.ItemWhereInput[] = [];
-
-  if (activeFilter !== null) {
-    and.push({ active: activeFilter });
+  // Admins allowed; otherwise require permission
+  if (session.user?.role === Role.ADMIN) {
+    return { session, perms: { allowAll: true } as const };
   }
 
-  for (const t of tokens) {
-    and.push({
-      OR: [
-        { sku: { contains: t, mode: "insensitive" } },
-        { partNumber: { contains: t, mode: "insensitive" } },
-        { name: { contains: t, mode: "insensitive" } },
-        { category: { contains: t, mode: "insensitive" } },
-        { manufacturer: { contains: t, mode: "insensitive" } },
-        { orderFrom: { contains: t, mode: "insensitive" } },
-      ],
-    });
-  }
+  const perms = await loadUserPermissions(session);
+  const ok = hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS]);
+  if (!ok) redirect("/");
 
-  return and.length ? { AND: and } : {};
+  return { session, perms };
 }
 
-export default async function ItemsAdminPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  await requireItemsAdminView();
+function clampInt(v: unknown, def: number, min: number, max: number) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return def;
+  return Math.max(min, Math.min(max, Math.trunc(n)));
+}
 
-  const sp = await searchParams;
+export default async function AdminItemsPage({
+  searchParams,
+}: {
+  searchParams?: Record<string, string | string[] | undefined>;
+}) {
+  await requireItemsView();
 
-  const q = normalizeQ(sp.q);
-  const tokens = tokenizeQ(q);
-  const activeFilter = parseActive(sp.active);
+  const page = clampInt(searchParams?.page, 1, 1, 10_000);
+  const perPage = clampInt(searchParams?.perPage, 25, 5, 200);
+  const qRaw = Array.isArray(searchParams?.q) ? searchParams?.q[0] : searchParams?.q;
+  const q = (qRaw ?? "").trim();
 
-  const page = clamp(asInt(sp.page, 1), 1, 10_000);
-  const perPage = parsePerPage(sp.perPage);
-  const sort = parseSort(sp.sort);
-  const dir = parseDir(sp.dir);
+  const createdSkuRaw = Array.isArray(searchParams?.createdSku) ? searchParams?.createdSku[0] : searchParams?.createdSku;
+  const createdSku = (createdSkuRaw ?? "").trim() || null;
 
-  const createdSku = typeof sp.createdSku === "string" ? sp.createdSku.trim() || null : null;
-
-  const where: Prisma.ItemWhereInput = buildWhere(tokens, activeFilter);
-
-  // ✅ Stable pagination ordering: primary sort + deterministic tie-breaker
-  const orderBy: Prisma.ItemOrderByWithRelationInput[] = [{ [sort]: dir }, { id: dir }];
+  const where =
+    q.length > 0
+      ? {
+          OR: [
+            { sku: { contains: q, mode: "insensitive" as const } },
+            { partNumber: { contains: q, mode: "insensitive" as const } },
+            { name: { contains: q, mode: "insensitive" as const } },
+            { category: { contains: q, mode: "insensitive" as const } },
+            { manufacturer: { contains: q, mode: "insensitive" as const } },
+            { orderFrom: { contains: q, mode: "insensitive" as const } },
+          ],
+        }
+      : {};
 
   const [total, items, vendorConfigs] = await Promise.all([
     prisma.item.count({ where }),
     prisma.item.findMany({
       where,
-      orderBy,
+      orderBy: [{ updatedAt: "desc" }, { sku: "asc" }],
       skip: (page - 1) * perPage,
       take: perPage,
       select: {
@@ -179,32 +127,38 @@ export default async function ItemsAdminPage({ searchParams }: { searchParams: P
         price: true,
         taxable: true,
         active: true,
-        createdAt: true,
-        updatedAt: true,
-
+        manufacturer: true,
+        orderFrom: true,
+        webUrl: true,
         onHandQty: true,
         orderedQty: true,
         usedQty: true,
         minQty: true,
-
-        manufacturer: true,
-        orderFrom: true,
-        webUrl: true,
+        createdAt: true,
+        updatedAt: true,
       },
     }),
     prisma.invoiceVendorConfig.findMany({
-      select: { vendor: true, taxFormula: true },
+      select: { vendor: true, partsUpchargePct: true },
     }),
   ]);
 
+  // ✅ Build ONE formula per vendor based on vendor config (partsUpchargePct)
+  // Formula grammar supported by client evaluator: numbers, cost, + - * /, parentheses
   const vendorFormulas: Record<"SUCCESS_PLUS" | "AMERICAN_PLUS", string> = {
-    SUCCESS_PLUS: "lineSubtotal * (taxRatePct / 100)",
-    AMERICAN_PLUS: "lineSubtotal * (taxRatePct / 100)",
+    SUCCESS_PLUS: "",
+    AMERICAN_PLUS: "",
   };
 
-  for (const vc of vendorConfigs) {
-    if (vc.vendor === InvoiceVendor.SUCCESS_PLUS) vendorFormulas.SUCCESS_PLUS = vc.taxFormula;
-    if (vc.vendor === InvoiceVendor.AMERICAN_PLUS) vendorFormulas.AMERICAN_PLUS = vc.taxFormula;
+  for (const cfg of vendorConfigs) {
+    const pct = decimalToNumber(cfg.partsUpchargePct);
+    if (pct === null) continue;
+
+    const multiplier = round4(1 + pct / 100);
+    const formula = `cost * ${multiplier}`;
+
+    if (cfg.vendor === InvoiceVendor.SUCCESS_PLUS) vendorFormulas.SUCCESS_PLUS = formula;
+    if (cfg.vendor === InvoiceVendor.AMERICAN_PLUS) vendorFormulas.AMERICAN_PLUS = formula;
   }
 
   const initialItems = items.map((it) => ({
@@ -215,28 +169,54 @@ export default async function ItemsAdminPage({ searchParams }: { searchParams: P
     name: it.name,
     description: it.description,
     category: it.category,
-    unit: null as string | null, // legacy tolerated
-    cost: it.cost == null ? null : it.cost.toString(),
-    price: it.price == null ? null : it.price.toString(),
+    cost: moneyToString(it.cost),
+    price: moneyToString(it.price),
     taxable: it.taxable,
     active: it.active,
-    createdAt: it.createdAt.toISOString(),
-    updatedAt: it.updatedAt.toISOString(),
-
+    manufacturer: it.manufacturer,
+    orderFrom: it.orderFrom,
+    webUrl: it.webUrl,
     onHandQty: it.onHandQty,
     orderedQty: it.orderedQty,
     usedQty: it.usedQty,
     minQty: it.minQty,
-
-    manufacturer: it.manufacturer,
-    orderFrom: it.orderFrom,
-    webUrl: it.webUrl,
+    createdAt: it.createdAt.toISOString(),
+    updatedAt: it.updatedAt.toISOString(),
   }));
 
   return (
-    <div style={{ padding: 24 }}>
-      <ItemsToolbar />
-      <div style={{ height: 12 }} />
+    <main style={{ padding: 24 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
+        <h1 style={{ fontSize: 34, fontWeight: 900, margin: 0 }}>Items</h1>
+        <div style={{ opacity: 0.8, fontSize: 13 }}>Admin</div>
+
+        <div style={{ marginLeft: "auto", display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <Link
+            href="/admin"
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: 10,
+              padding: "8px 12px",
+              textDecoration: "none",
+              color: "var(--text)",
+              fontWeight: 800,
+            }}
+          >
+            Admin Dashboard
+          </Link>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 14, marginBottom: 14, fontSize: 12, opacity: 0.85 }}>
+        Vendor formulas (global):{" "}
+        <span style={{ fontFamily: "monospace" }}>
+          SUCCESS_PLUS: {vendorFormulas.SUCCESS_PLUS || "—"}
+        </span>{" "}
+        •{" "}
+        <span style={{ fontFamily: "monospace" }}>
+          AMERICAN_PLUS: {vendorFormulas.AMERICAN_PLUS || "—"}
+        </span>
+      </div>
 
       <ItemsTableClient
         initialItems={initialItems}
@@ -246,6 +226,6 @@ export default async function ItemsAdminPage({ searchParams }: { searchParams: P
         total={total}
         vendorFormulas={vendorFormulas}
       />
-    </div>
+    </main>
   );
 }
