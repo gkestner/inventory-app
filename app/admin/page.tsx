@@ -1,13 +1,16 @@
 // app/admin/page.tsx
+import type { CSSProperties } from "react";
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
+import { Role } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
-import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import { Permission, Role } from "@prisma/client";
+import { loadUserPermissions, hasAnyPermission } from "@/app/lib/permissions";
+import { Permission } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 type AdminSession = {
   user?: {
@@ -17,122 +20,162 @@ type AdminSession = {
   } | null;
 } | null;
 
-export default async function AdminHomePage() {
+async function requireAdmin() {
   const session = (await getServerSession(authOptions)) as AdminSession;
   if (!session) redirect("/login");
+  const role = (session.user as unknown as { role?: Role | null } | null)?.role ?? null;
+  if (role !== Role.ADMIN) redirect("/");
+  return session;
+}
 
-  const perms = await loadUserPermissions(session);
+export default async function AdminHomePage() {
+  const session = await requireAdmin();
 
-  const canItemsView = perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
-  const canItemsEdit = perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_EDIT_ITEMS]);
-  const canItemsImportExport =
-    perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_IMPORT_EXPORT_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
+  const perms = await loadUserPermissions(session as any);
 
-  const canUsersView = perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_USERS, Permission.ADMIN_EDIT_USERS]);
-  const canUsersEdit = perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_EDIT_USERS]);
+  const canItems =
+    perms?.allowAll ||
+    hasAnyPermission(perms, [
+      Permission.ADMIN_VIEW_ITEMS,
+      Permission.ADMIN_EDIT_ITEMS,
+      Permission.ADMIN_IMPORT_EXPORT_ITEMS,
+    ]);
 
-  const canLocationsView =
-    perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_LOCATIONS, Permission.ADMIN_EDIT_LOCATIONS]);
-  const canLocationsEdit = perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_EDIT_LOCATIONS]);
+  const canOrders =
+    perms?.allowAll ||
+    hasAnyPermission(perms, [Permission.ADMIN_VIEW_LOCATIONS, Permission.ADMIN_VIEW_WORK_ORDERS]) ||
+    // inventory orders historically piggy-backed on items permissions in many setups
+    hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
 
-  // Orders / reports reuse Items permissions per the pages we added
-  const canOrders = canItemsView;
-  const canReports = canItemsView;
-
-  const border = "1px solid rgba(128,128,128,0.25)";
-  const surface = "var(--background)";
-  const fg = "var(--foreground)";
-
-  const card: React.CSSProperties = {
-    border,
-    borderRadius: 16,
-    padding: 14,
-    background: surface,
-    color: fg,
-    textDecoration: "none",
-    display: "grid",
-    gap: 8,
-    minHeight: 110,
+  const wrap: CSSProperties = {
+    padding: 16,
+    maxWidth: 1100,
+    margin: "0 auto",
   };
 
-  const title: React.CSSProperties = { fontWeight: 900, fontSize: 16, margin: 0 };
-  const desc: React.CSSProperties = { opacity: 0.85, lineHeight: 1.45, margin: 0, fontSize: 13 };
+  const grid: CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+    gap: 12,
+    marginTop: 12,
+  };
 
-  const cards: Array<{ href: string; title: string; desc: string; show: boolean }> = [
-    {
-      href: "/admin/items",
-      title: "Items",
-      desc: canItemsImportExport
-        ? "Manage inventory items, inline edits, import/export, and view quantities."
-        : canItemsEdit
-          ? "Manage inventory items and quantities."
-          : "View inventory items and quantities.",
-      show: canItemsView,
-    },
-    {
-      href: "/admin/inventory-orders",
-      title: "Order History",
-      desc: "Create orders tied to items, phase tracking (Ordered/Arrived/Added), and quantity updates.",
-      show: canOrders,
-    },
-    {
-      href: "/admin/inventory-receiving",
-      title: "Orders Received / Processing",
-      desc: "Receiving-focused view (pre-filtered to Arrived). Add to inventory to update on-hand.",
-      show: canOrders,
-    },
-    {
-      href: "/admin/reports",
-      title: "Reports",
-      desc: "Cost comparison and order-based reporting (now vs 6 months/years prior).",
-      show: canReports,
-    },
-    {
-      href: "/admin/locations",
-      title: "Locations",
-      desc: canLocationsEdit ? "Create/edit store locations." : "View store locations.",
-      show: canLocationsView,
-    },
-    {
-      href: "/admin/users",
-      title: "Users",
-      desc: canUsersEdit ? "Create/edit users and reset passwords." : "View users.",
-      show: canUsersView,
-    },
-  ];
+  const card: CSSProperties = {
+    border: "1px solid #e5e7eb",
+    borderRadius: 12,
+    background: "#fff",
+    padding: 14,
+  };
 
-  const visible = cards.filter((c) => c.show);
+  const title: CSSProperties = { fontSize: 18, fontWeight: 800, margin: 0 };
+  const desc: CSSProperties = { margin: "8px 0 0 0", color: "#4b5563", fontSize: 13, lineHeight: 1.35 };
+
+  const linkStyle: CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 12,
+    padding: "8px 10px",
+    borderRadius: 10,
+    border: "1px solid #111827",
+    background: "#111827",
+    color: "#fff",
+    fontSize: 13,
+    textDecoration: "none",
+    width: "fit-content",
+  };
+
+  const mutedLink: CSSProperties = {
+    ...linkStyle,
+    background: "#fff",
+    color: "#111827",
+  };
 
   return (
-    <main style={{ padding: 16 }}>
-      <div style={{ padding: 16, maxWidth: 1200, margin: "0 auto", color: fg }}>
-        <h1 style={{ fontSize: 28, fontWeight: 900, margin: 0 }}>Admin</h1>
-        <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
-          Signed in as{" "}
-          <b>
-            {typeof (session?.user as any)?.email === "string" ? (session?.user as any).email : "—"}
-          </b>
+    <main style={wrap}>
+      <h1 style={{ margin: 0, fontSize: 22 }}>Admin</h1>
+      <div style={{ marginTop: 6, color: "#6b7280", fontSize: 13 }}>
+        Signed in: {(session.user as any)?.email ?? "—"}
+      </div>
+
+      <div style={grid}>
+        <div style={card}>
+          <h2 style={title}>Live Orders Board</h2>
+          <p style={desc}>
+            Day-to-day operational board with 3 columns (ORDERED / ARRIVED / COMPLETED) and quick actions.
+          </p>
+          <Link href="/admin/live-orders" style={linkStyle}>
+            Open Live Orders →
+          </Link>
         </div>
 
-        <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
-          {visible.map((c) => (
-            <Link key={c.href} href={c.href} style={card}>
-              <h2 style={title}>{c.title}</h2>
-              <p style={desc}>{c.desc}</p>
-              <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-            </Link>
-          ))}
-
-          {visible.length === 0 ? (
-            <div style={{ ...card, textDecoration: "none" }}>
-              <h2 style={title}>No admin modules available</h2>
-              <p style={desc}>Your account doesn’t have permissions for any admin pages.</p>
+        {canOrders ? (
+          <div style={card}>
+            <h2 style={title}>Inventory Orders</h2>
+            <p style={desc}>
+              Order history + receive/process screen. Create orders, track phases, move qty into inventory with guards.
+            </p>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <Link href="/admin/inventory-orders" style={linkStyle}>
+                Open Orders →
+              </Link>
+              <Link href="/admin/inventory-orders?tab=arrived" style={mutedLink}>
+                Arrived / Processing →
+              </Link>
             </div>
-          ) : null}
+          </div>
+        ) : (
+          <div style={card}>
+            <h2 style={title}>Inventory Orders</h2>
+            <p style={desc}>You don’t have access to view this module.</p>
+          </div>
+        )}
+
+        {canItems ? (
+          <div style={card}>
+            <h2 style={title}>Items</h2>
+            <p style={desc}>Manage SKUs, costs, suppliers, min qty, and perform import/export.</p>
+            <Link href="/admin/items" style={linkStyle}>
+              Open Items →
+            </Link>
+          </div>
+        ) : (
+          <div style={card}>
+            <h2 style={title}>Items</h2>
+            <p style={desc}>You don’t have access to view this module.</p>
+          </div>
+        )}
+
+        <div style={card}>
+          <h2 style={title}>Users</h2>
+          <p style={desc}>Create and manage users (admin-only).</p>
+          <Link href="/admin/users" style={linkStyle}>
+            Open Users →
+          </Link>
         </div>
 
-        <div style={{ marginTop: 12, fontSize: 12, opacity: 0.8, lineHeight: 1.5 }}>
-          Tip: the new workflow is <b>Order History</b> → <b>Orders Received</b> → <b>Reports</b>.
+        <div style={card}>
+          <h2 style={title}>Locations</h2>
+          <p style={desc}>Manage location list used across modules.</p>
+          <Link href="/admin/locations" style={linkStyle}>
+            Open Locations →
+          </Link>
+        </div>
+
+        <div style={card}>
+          <h2 style={title}>Work Orders</h2>
+          <p style={desc}>Admin view/edit of work orders.</p>
+          <Link href="/admin/work-orders" style={linkStyle}>
+            Open Work Orders →
+          </Link>
+        </div>
+
+        <div style={card}>
+          <h2 style={title}>Maintenance Tickets</h2>
+          <p style={desc}>Admin export + reporting for maintenance tickets.</p>
+          <Link href="/admin/maintenance-tickets" style={linkStyle}>
+            Open Tickets →
+          </Link>
         </div>
       </div>
     </main>

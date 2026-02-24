@@ -81,8 +81,8 @@ model InvoiceVendorConfig {
   // Allowed variables are enforced in server code (actions.ts).
   partsPriceFormula String @default("cost * (1 + (partsUpchargePct / 100))")
 
-  taxRatePct  Decimal @db.Decimal(5, 2) @default(0)
-  taxFormula  String  @default("lineSubtotal * (taxRatePct / 100)")
+  taxRatePct Decimal @db.Decimal(5, 2) @default(0)
+  taxFormula String  @default("lineSubtotal * (taxRatePct / 100)")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -254,10 +254,10 @@ model WorkOrder {
   notes String?
 
   createdByUserId String
-  createdByUser   User   @relation("WorkOrderCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  createdByUser   User @relation("WorkOrderCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
 
   updatedByUserId String?
-  updatedByUser   User?   @relation("WorkOrderUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  updatedByUser   User? @relation("WorkOrderUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -291,7 +291,7 @@ model InventoryOrder {
   vendor InvoiceVendor @default(SUCCESS_PLUS)
 
   itemId String
-  item   Item   @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  item   Item @relation(fields: [itemId], references: [id], onDelete: Restrict)
 
   quantity Int
 
@@ -310,10 +310,10 @@ model InventoryOrder {
   forStore   Location? @relation("InventoryOrderForStore", fields: [forStoreId], references: [id], onDelete: SetNull)
 
   forUserId String?
-  forUser   User?   @relation("InventoryOrderForUser", fields: [forUserId], references: [id], onDelete: SetNull)
+  forUser   User? @relation("InventoryOrderForUser", fields: [forUserId], references: [id], onDelete: SetNull)
 
   createdByUserId String
-  createdByUser   User   @relation("InventoryOrderCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  createdByUser   User @relation("InventoryOrderCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
 
   note String?
 
@@ -326,6 +326,10 @@ model InventoryOrder {
   @@index([forStoreId, orderedAt])
   @@index([forUserId, orderedAt])
   @@index([createdByUserId, orderedAt])
+
+  // ✅ Added for faster supplier filtering + reporting
+  @@index([supplierName])
+  @@index([supplierPartNumber])
 }
 
 model Item {
@@ -375,7 +379,7 @@ model ItemVersion {
   id String @id @default(cuid())
 
   itemId String
-  item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  item   Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   sku        String
   partNumber String?
@@ -412,7 +416,7 @@ model InventoryAlert {
   type InventoryAlertType
 
   itemId String
-  item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  item   Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   storeId    String?
   storeName  String?
@@ -420,7 +424,7 @@ model InventoryAlert {
   checkout   PartsCheckoutTicket? @relation(fields: [checkoutId], references: [id], onDelete: SetNull)
 
   createdByUserId String?
-  createdByUser   User?   @relation("AlertCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUser   User? @relation("AlertCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   createdByName   String?
 
   qtyDelta       Int?
@@ -434,7 +438,7 @@ model InventoryAlert {
 
   resolvedAt       DateTime?
   resolvedByUserId String?
-  resolvedByUser   User?     @relation("AlertResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  resolvedByUser   User? @relation("AlertResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
   resolvedByName   String?
 
   @@index([itemId, createdAt])
@@ -453,7 +457,7 @@ model PartsCheckoutTicket {
   invoiceLine InvoiceLine? @relation("InvoiceLineCheckout")
 
   itemId String
-  item   Item   @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  item   Item @relation(fields: [itemId], references: [id], onDelete: Restrict)
 
   storeId   String
   store     Location @relation(fields: [storeId], references: [id], onDelete: Restrict)
@@ -463,7 +467,7 @@ model PartsCheckoutTicket {
   needToOrderMore Boolean @default(false)
 
   createdByUserId String
-  createdByUser   User   @relation("CheckoutCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  createdByUser   User @relation("CheckoutCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   createdByName   String
 
   note String?
@@ -514,7 +518,7 @@ model Invoice {
   total     Decimal @db.Decimal(12, 2)
 
   createdByUserId String?
-  createdByUser   User?   @relation("InvoiceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUser   User? @relation("InvoiceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
   createdAt DateTime  @default(now())
   issuedAt  DateTime?
