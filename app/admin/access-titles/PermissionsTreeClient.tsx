@@ -2,114 +2,204 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { PERMISSION_CATALOG, type PermissionCatalogEntry } from "@/app/lib/permissionCatalog";
+import { Permission } from "@prisma/client";
+import { PERMISSION_CATALOG, getPermissionModules, buildPermissionTreeForModule } from "@/app/lib/permissionCatalog";
 
-type TreeNode =
-  | {
-      kind: "group";
-      key: string;
-      label: string;
-      children: TreeNode[];
-      perms: string[]; // all descendant perms
-    }
-  | {
-      kind: "leaf";
-      key: string;
-      entry: PermissionCatalogEntry & { permission: string };
-      perms: string[]; // [permission]
-    };
+type UiEntry = {
+  permission: string; // submit value (Permission enum string)
+  module: string;
+  path: string[];
+  label: string;
+  description?: string;
+};
 
-function uniqSorted(vals: string[]) {
-  return Array.from(new Set(vals)).sort((a, b) => a.localeCompare(b));
+type UiNode =
+  | { kind: "group"; key: string; name: string; children: UiNode[] }
+  | { kind: "leaf"; key: string; entry: UiEntry };
+
+function isPermissionValue(v: string): v is Permission {
+  return (Object.values(Permission) as string[]).includes(v);
 }
 
-function buildTree(entries: Array<PermissionCatalogEntry & { permission: string }>, moduleName: string): TreeNode[] {
-  type Group = {
-    key: string;
-    label: string;
-    children: Map<string, Group>;
-    leaves: Array<PermissionCatalogEntry & { permission: string }>;
-  };
+function uniqStrings(vals: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of vals) {
+    const s = String(raw ?? "").trim();
+    if (!s) continue;
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
 
-  const root: Group = {
-    key: `module:${moduleName}`,
-    label: moduleName,
-    children: new Map(),
-    leaves: [],
-  };
+function buildOtherModuleTree(entries: UiEntry[]): UiNode[] {
+  // Group as Other > Uncategorized (or path if provided)
+  const root: UiNode = { kind: "group", key: "module:Other", name: "Other", children: [] };
 
-  const makeGroup = (parent: Group, seg: string, key: string) => {
-    const existing = parent.children.get(key);
-    if (existing) return existing;
-    const g: Group = { key, label: seg, children: new Map(), leaves: [] };
-    parent.children.set(key, g);
-    return g;
-  };
-
-  for (const e of entries) {
-    let cur = root;
-    const path = e.path ?? [];
-    let keyAcc = `module:${moduleName}`;
-    for (const seg of path) {
-      keyAcc += `/${seg}`;
-      cur = makeGroup(cur, seg, keyAcc);
-    }
-    cur.leaves.push(e);
+  function getOrCreateGroup(parent: UiNode[], name: string, key: string) {
+    const existing = parent.find((n) => n.kind === "group" && n.key === key);
+    if (existing && existing.kind === "group") return existing;
+    const g: UiNode = { kind: "group", key, name, children: [] };
+    parent.push(g);
+    return g as Extract<UiNode, { kind: "group" }>;
   }
 
-  const groupToNode = (g: Group): TreeNode => {
-    const childGroups = Array.from(g.children.values()).sort((a, b) => a.label.localeCompare(b.label));
-    const leaves = [...g.leaves].sort((a, b) => a.label.localeCompare(b.label));
+  const sorted = [...entries].sort((a, b) => {
+    const ap = a.path.join(" > ");
+    const bp = b.path.join(" > ");
+    if (ap !== bp) return ap.localeCompare(bp);
+    return a.label.localeCompare(b.label);
+  });
 
-    const children: TreeNode[] = [
-      ...childGroups.map(groupToNode),
-      ...leaves.map((e) => ({
-        kind: "leaf" as const,
-        key: `perm:${e.permission}`,
-        entry: e,
-        perms: [e.permission],
-      })),
-    ];
+  for (const e of sorted) {
+    let children = (root as Extract<UiNode, { kind: "group" }>).children;
+    let currentKey = "module:Other";
 
-    const perms = uniqSorted(children.flatMap((c) => c.perms));
-    return { kind: "group", key: g.key, label: g.label, children, perms };
-  };
+    const segs = e.path?.length ? e.path : ["Uncategorized"];
+    for (const seg of segs) {
+      currentKey += `/${seg}`;
+      const g = getOrCreateGroup(children, seg, currentKey);
+      children = g.children;
+    }
 
-  const rootChildren = Array.from(root.children.values()).sort((a, b) => a.label.localeCompare(b.label));
-  const rootLeaves = [...root.leaves].sort((a, b) => a.label.localeCompare(b.label));
+    children.push({ kind: "leaf", key: `perm:${e.permission}`, entry: e });
+  }
 
-  return [
-    ...rootChildren.map(groupToNode),
-    ...rootLeaves.map((e) => ({
-      kind: "leaf" as const,
-      key: `perm:${e.permission}`,
-      entry: e,
-      perms: [e.permission],
-    })),
-  ];
+  return (root as Extract<UiNode, { kind: "group" }>).children;
 }
 
-function filterTreeByQuery(nodes: TreeNode[], q: string): TreeNode[] {
-  const qq = q.trim().toLowerCase();
-  if (!qq) return nodes;
+function collectLeafPerms(node: UiNode): string[] {
+  if (node.kind === "leaf") return [node.entry.permission];
+  const out: string[] = [];
+  for (const ch of node.children) out.push(...collectLeafPerms(ch));
+  return out;
+}
 
-  const matchLeaf = (leaf: Extract<TreeNode, { kind: "leaf" }>) => {
-    const e = leaf.entry;
-    const hay = `${e.label} ${e.description ?? ""} ${(e.path ?? []).join(" ")} ${e.permission}`.toLowerCase();
-    return hay.includes(qq);
-  };
+function filterTreeByQuery(nodes: UiNode[], qLower: string): UiNode[] {
+  if (!qLower) return nodes;
 
-  const recur = (n: TreeNode): TreeNode | null => {
-    if (n.kind === "leaf") return matchLeaf(n) ? n : null;
+  function keepNode(n: UiNode): UiNode | null {
+    if (n.kind === "leaf") {
+      const hay = `${n.entry.permission} ${n.entry.label} ${n.entry.description ?? ""} ${n.entry.path.join(" ")}`.toLowerCase();
+      return hay.includes(qLower) ? n : null;
+    }
 
-    const kids = n.children.map(recur).filter((x): x is TreeNode => Boolean(x));
-    if (kids.length === 0) return null;
+    const keptChildren = n.children.map(keepNode).filter(Boolean) as UiNode[];
+    if (keptChildren.length === 0) return null;
+    return { ...n, children: keptChildren };
+  }
 
-    const perms = uniqSorted(kids.flatMap((c) => c.perms));
-    return { ...n, children: kids, perms };
-  };
+  return nodes.map(keepNode).filter(Boolean) as UiNode[];
+}
 
-  return nodes.map(recur).filter((x): x is TreeNode => Boolean(x));
+function TreeNode({
+  node,
+  selected,
+  setSelected,
+  depth,
+}: {
+  node: UiNode;
+  selected: Set<string>;
+  setSelected: (next: Set<string>) => void;
+  depth: number;
+}) {
+  if (node.kind === "leaf") {
+    const checked = selected.has(node.entry.permission);
+
+    return (
+      <label
+        style={{
+          display: "flex",
+          gap: 10,
+          alignItems: "flex-start",
+          padding: "8px 10px",
+          borderRadius: 12,
+          border: "1px solid rgba(128,128,128,0.18)",
+          background: "rgba(255,255,255,0.02)",
+          marginLeft: depth ? depth * 14 : 0,
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => {
+            const next = new Set(selected);
+            if (e.target.checked) next.add(node.entry.permission);
+            else next.delete(node.entry.permission);
+            setSelected(next);
+          }}
+          style={{ width: 18, height: 18, marginTop: 2 }}
+        />
+
+        <div style={{ display: "grid", gap: 2 }}>
+          <div style={{ fontWeight: 900 }}>{node.entry.label}</div>
+          <div
+            style={{
+              fontSize: 12,
+              opacity: 0.85,
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+            }}
+          >
+            {node.entry.permission}
+          </div>
+          {node.entry.description ? (
+            <div style={{ fontSize: 12, opacity: 0.8, marginTop: 2 }}>{node.entry.description}</div>
+          ) : null}
+        </div>
+      </label>
+    );
+  }
+
+  const leafPerms = useMemo(() => uniqStrings(collectLeafPerms(node)), [node]);
+  const allSelected = leafPerms.length > 0 && leafPerms.every((p) => selected.has(p));
+  const someSelected = leafPerms.some((p) => selected.has(p));
+
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "8px 10px",
+          borderRadius: 12,
+          border: "1px solid rgba(128,128,128,0.25)",
+          background: "rgba(255,255,255,0.02)",
+          marginLeft: depth ? depth * 14 : 0,
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={allSelected}
+          ref={(el) => {
+            if (!el) return;
+            el.indeterminate = !allSelected && someSelected;
+          }}
+          onChange={(e) => {
+            const next = new Set(selected);
+            if (e.target.checked) leafPerms.forEach((p) => next.add(p));
+            else leafPerms.forEach((p) => next.delete(p));
+            setSelected(next);
+          }}
+          style={{ width: 18, height: 18 }}
+        />
+        <div style={{ fontWeight: 900 }}>
+          {node.name}{" "}
+          <span style={{ fontSize: 12, opacity: 0.75 }}>
+            ({leafPerms.filter((p) => selected.has(p)).length}/{leafPerms.length})
+          </span>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gap: 8 }}>
+        {node.children.map((ch) => (
+          <TreeNode key={ch.key} node={ch} selected={selected} setSelected={setSelected} depth={depth + 1} />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function PermissionsTreeClient({
@@ -119,379 +209,250 @@ export default function PermissionsTreeClient({
   allPermissions: string[];
   selectedPermissions: string[];
 }) {
-  const [q, setQ] = useState("");
-  const [activeModule, setActiveModule] = useState<string>("");
-
-  const [selectedSet, setSelectedSet] = useState<Set<string>>(() => new Set(selectedPermissions));
-
-  useEffect(() => {
-    setSelectedSet(new Set(selectedPermissions));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPermissions.join("|")]);
-
-  const allPermSet = useMemo(() => new Set(allPermissions), [allPermissions]);
-
   const catalogByPerm = useMemo(() => {
-    const m = new Map<string, PermissionCatalogEntry>();
-    for (const e of PERMISSION_CATALOG) m.set(String(e.permission), e);
+    const m = new Map<string, UiEntry>();
+    for (const ce of PERMISSION_CATALOG) {
+      const key = String(ce.permission);
+      m.set(key, {
+        permission: key,
+        module: ce.module,
+        path: ce.path,
+        label: ce.label,
+        description: ce.description,
+      });
+    }
     return m;
   }, []);
 
-  const entries = useMemo(() => {
-    const out: Array<PermissionCatalogEntry & { permission: string }> = [];
-    for (const p of allPermissions) {
-      const ce = catalogByPerm.get(p);
-      if (ce) {
-        out.push({ ...ce, permission: p });
+  const allPermStrings = useMemo(() => uniqStrings(allPermissions.map((p) => String(p))), [allPermissions]);
+
+  const initialSelected = useMemo(
+    () => new Set(uniqStrings(selectedPermissions.map((p) => String(p))).filter((p) => allPermStrings.includes(p))),
+    [selectedPermissions, allPermStrings]
+  );
+
+  const [selected, setSelected] = useState<Set<string>>(initialSelected);
+  const [q, setQ] = useState("");
+
+  // keep in sync if title changes
+  useEffect(() => {
+    setSelected(initialSelected);
+  }, [initialSelected]);
+
+  // Build module list:
+  const baseModules = useMemo(() => getPermissionModules(), []);
+  const allModules = useMemo(() => {
+    // include "Other" if any permissions not in catalog OR catalog module missing
+    const unknown = allPermStrings.filter((p) => !catalogByPerm.has(p));
+    const mods = new Set<string>(baseModules);
+    if (unknown.length > 0) mods.add("Other");
+    return Array.from(mods).sort((a, b) => a.localeCompare(b));
+  }, [baseModules, allPermStrings, catalogByPerm]);
+
+  // Default active module: first module that actually has permissions present
+  const defaultModule = useMemo(() => {
+    for (const mod of allModules) {
+      if (mod === "Other") {
+        const unknown = allPermStrings.filter((p) => !catalogByPerm.has(p));
+        if (unknown.length) return "Other";
       } else {
-        out.push({
+        const moduleTree = buildPermissionTreeForModule(mod);
+        const modulePerms = moduleTree
+          .flatMap((n) => {
+            // collect from catalog tree (Permission typed)
+            const collect = (x: any): string[] => {
+              if (x.kind === "leaf") return [String(x.entry.permission)];
+              return (x.children ?? []).flatMap(collect);
+            };
+            return collect(n);
+          })
+          .filter((p) => allPermStrings.includes(p));
+
+        if (modulePerms.length) return mod;
+      }
+    }
+    return allModules[0] ?? "Other";
+  }, [allModules, allPermStrings, catalogByPerm]);
+
+  const [activeModule, setActiveModule] = useState<string>(defaultModule);
+
+  useEffect(() => {
+    setActiveModule(defaultModule);
+  }, [defaultModule]);
+
+  // Build module tree nodes (UiNode[])
+  const moduleTree: UiNode[] = useMemo(() => {
+    const qLower = q.trim().toLowerCase();
+
+    if (activeModule === "Other") {
+      const unknown = allPermStrings
+        .filter((p) => !catalogByPerm.has(p))
+        .map<UiEntry>((p) => ({
           permission: p,
           module: "Other",
           path: ["Uncategorized"],
           label: p,
-          description: "Not yet mapped in permissionCatalog.ts",
-        });
-      }
+        }));
+
+      const tree = buildOtherModuleTree(unknown);
+      return filterTreeByQuery(tree, qLower);
     }
-    return out;
-  }, [allPermissions, catalogByPerm]);
 
-  const modules = useMemo(() => {
-    const s = new Set<string>();
-    for (const e of entries) s.add(e.module);
-    return Array.from(s).sort((a, b) => a.localeCompare(b));
-  }, [entries]);
+    // Use catalog tree structure, but only show permissions that exist in allPermissions
+    const raw = buildPermissionTreeForModule(activeModule);
 
-  useEffect(() => {
-    if (!activeModule) setActiveModule(modules[0] ?? "Other");
-  }, [activeModule, modules]);
+    const convert = (n: any): UiNode | null => {
+      if (n.kind === "leaf") {
+        const permStr = String(n.entry.permission);
+        if (!allPermStrings.includes(permStr)) return null;
 
-  const moduleEntries = useMemo(() => entries.filter((e) => e.module === activeModule), [entries, activeModule]);
+        const ce = catalogByPerm.get(permStr);
+        const entry: UiEntry = ce
+          ? ce
+          : {
+              permission: permStr,
+              module: activeModule,
+              path: [],
+              label: permStr,
+            };
 
-  const fullTree = useMemo(() => buildTree(moduleEntries, activeModule), [moduleEntries, activeModule]);
-  const visibleTree = useMemo(() => filterTreeByQuery(fullTree, q), [fullTree, q]);
-
-  const visiblePerms = useMemo(() => {
-    const collect = (nodes: TreeNode[]): string[] => nodes.flatMap((n) => (n.kind === "leaf" ? [n.entry.permission] : n.perms));
-    return uniqSorted(collect(visibleTree));
-  }, [visibleTree]);
-
-  const moduleAllPerms = useMemo(() => uniqSorted(moduleEntries.map((e) => e.permission)), [moduleEntries]);
-
-  function isAllSelected(perms: string[]) {
-    if (perms.length === 0) return false;
-    for (const p of perms) if (!selectedSet.has(p)) return false;
-    return true;
-  }
-
-  function isSomeSelected(perms: string[]) {
-    for (const p of perms) if (selectedSet.has(p)) return true;
-    return false;
-  }
-
-  function togglePerm(p: string, value: boolean) {
-    if (!allPermSet.has(p)) return;
-    setSelectedSet((prev) => {
-      const next = new Set(prev);
-      if (value) next.add(p);
-      else next.delete(p);
-      return next;
-    });
-  }
-
-  function toggleMany(perms: string[], value: boolean) {
-    const filtered = perms.filter((p) => allPermSet.has(p));
-    setSelectedSet((prev) => {
-      const next = new Set(prev);
-      for (const p of filtered) {
-        if (value) next.add(p);
-        else next.delete(p);
+        return { kind: "leaf", key: `perm:${permStr}`, entry };
       }
-      return next;
-    });
-  }
 
-  function selectAllVisible() {
-    toggleMany(visiblePerms, true);
-  }
-  function clearAllVisible() {
-    toggleMany(visiblePerms, false);
-  }
-  function selectAllModule() {
-    toggleMany(moduleAllPerms, true);
-  }
-  function clearAllModule() {
-    toggleMany(moduleAllPerms, false);
-  }
+      const children = (n.children ?? []).map(convert).filter(Boolean) as UiNode[];
+      if (children.length === 0) return null;
+      return { kind: "group", key: String(n.key), name: String(n.name), children };
+    };
 
-  const border = "1px solid rgba(128,128,128,0.25)";
-  const surface = "var(--background)";
-  const fg = "var(--foreground)";
+    const converted = raw.map(convert).filter(Boolean) as UiNode[];
+    return filterTreeByQuery(converted, qLower);
+  }, [activeModule, q, allPermStrings, catalogByPerm]);
 
-  function Tree({ nodes, depth }: { nodes: TreeNode[]; depth: number }) {
-    return (
-      <div style={{ display: "grid", gap: 8 }}>
-        {nodes.map((n) => {
-          if (n.kind === "leaf") {
-            const perm = n.entry.permission;
-            return (
-              <label
-                key={n.key}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "20px 1fr",
-                  gap: 10,
-                  alignItems: "start",
-                  padding: "8px 10px",
-                  borderRadius: 12,
-                  border: "1px solid rgba(128,128,128,0.18)",
-                  background: "rgba(255,255,255,0.02)",
-                  marginLeft: depth ? depth * 12 : 0,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  name="permissions"
-                  value={perm}
-                  checked={selectedSet.has(perm)}
-                  onChange={(e) => togglePerm(perm, e.target.checked)}
-                  style={{ width: 18, height: 18, marginTop: 2 }}
-                />
-                <div style={{ display: "grid", gap: 2 }}>
-                  <div style={{ fontWeight: 900 }}>{n.entry.label}</div>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      opacity: 0.75,
-                      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-                    }}
-                  >
-                    {perm}
-                  </div>
-                  {n.entry.description ? <div style={{ fontSize: 12, opacity: 0.75 }}>{n.entry.description}</div> : null}
-                </div>
-              </label>
-            );
-          }
-
-          const allSel = isAllSelected(n.perms);
-          const someSel = isSomeSelected(n.perms);
-
-          return (
-            <details
-              key={n.key}
-              open={depth < 2}
-              style={{
-                border,
-                borderRadius: 14,
-                padding: 10,
-                background: "rgba(255,255,255,0.02)",
-                marginLeft: depth ? depth * 12 : 0,
-              }}
-            >
-              <summary
-                style={{
-                  cursor: "pointer",
-                  fontWeight: 900,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  listStylePosition: "inside",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={allSel}
-                  ref={(el) => {
-                    if (!el) return;
-                    el.indeterminate = !allSel && someSel;
-                  }}
-                  onChange={(e) => toggleMany(n.perms, e.target.checked)}
-                  style={{ width: 18, height: 18 }}
-                />
-                <span>{n.label}</span>
-                <span style={{ fontSize: 12, opacity: 0.7 }}>
-                  ({n.perms.length} permission{n.perms.length === 1 ? "" : "s"})
-                </span>
-              </summary>
-
-              <div style={{ marginTop: 10 }}>
-                <Tree nodes={n.children} depth={depth + 1} />
-              </div>
-            </details>
-          );
-        })}
-      </div>
-    );
-  }
+  const totalSelected = selected.size;
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 12, alignItems: "start" }}>
-      <aside
-        style={{
-          border,
-          borderRadius: 14,
-          background: surface,
-          padding: 10,
-          position: "sticky",
-          top: 12,
-          color: fg,
-          maxHeight: "calc(100vh - 24px)",
-          overflow: "auto",
-        }}
-      >
-        <div style={{ fontWeight: 900, marginBottom: 8 }}>Modules</div>
-        <div style={{ display: "grid", gap: 6 }}>
-          {modules.map((m) => {
-            const active = m === activeModule;
-            return (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setActiveModule(m)}
-                style={{
-                  textAlign: "left",
-                  padding: "10px 12px",
-                  borderRadius: 12,
-                  border: active ? "1px solid rgba(33,150,243,0.55)" : border,
-                  background: active ? "rgba(33,150,243,0.18)" : "rgba(255,255,255,0.02)",
-                  color: fg,
-                  fontWeight: 900,
-                  cursor: "pointer",
-                }}
-              >
-                {m}
-              </button>
-            );
-          })}
-        </div>
-
-        <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
-          Selected: <b>{selectedSet.size}</b> / <b>{allPermissions.length}</b>
-        </div>
-      </aside>
-
-      <section style={{ display: "grid", gap: 10, color: fg }}>
-        <div
+    <div style={{ display: "grid", gap: 12 }}>
+      {/* Top controls */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search permissions…"
           style={{
-            display: "flex",
-            gap: 10,
-            flexWrap: "wrap",
-            alignItems: "center",
-            border,
-            borderRadius: 14,
-            background: surface,
-            padding: 10,
+            flex: "1 1 280px",
+            padding: "10px 12px",
+            borderRadius: 12,
+            border: "1px solid rgba(128,128,128,0.25)",
+            background: "var(--background)",
+            color: "var(--foreground)",
+            outline: "none",
+            fontSize: 14,
+          }}
+        />
+
+        <button
+          type="button"
+          onClick={() => setSelected(new Set(allPermStrings))}
+          style={{
+            padding: "10px 12px",
+            borderRadius: 12,
+            border: "1px solid rgba(128,128,128,0.25)",
+            background: "rgba(33,150,243,0.18)",
+            color: "var(--foreground)",
+            fontWeight: 900,
+            cursor: "pointer",
           }}
         >
-          <div style={{ fontWeight: 900, marginRight: 6 }}>{activeModule}</div>
+          Select all
+        </button>
 
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder={`Search permissions in ${activeModule}…`}
-            style={{
-              flex: "1 1 320px",
-              padding: "10px 12px",
-              borderRadius: 12,
-              border,
-              background: surface,
-              color: fg,
-              outline: "none",
-              fontSize: 14,
-              minWidth: 240,
-            }}
-          />
+        <button
+          type="button"
+          onClick={() => setSelected(new Set())}
+          style={{
+            padding: "10px 12px",
+            borderRadius: 12,
+            border: "1px solid rgba(128,128,128,0.25)",
+            background: "rgba(244,67,54,0.14)",
+            color: "var(--foreground)",
+            fontWeight: 900,
+            cursor: "pointer",
+          }}
+        >
+          Clear all
+        </button>
 
-          <button
-            type="button"
-            onClick={selectAllVisible}
-            style={{
-              padding: "10px 12px",
-              borderRadius: 12,
-              border,
-              background: "rgba(33,150,243,0.18)",
-              color: fg,
-              fontWeight: 900,
-              cursor: "pointer",
-            }}
-            title="Select all visible permissions (current module + search)"
-          >
-            All (visible)
-          </button>
-
-          <button
-            type="button"
-            onClick={clearAllVisible}
-            style={{
-              padding: "10px 12px",
-              borderRadius: 12,
-              border,
-              background: "rgba(244,67,54,0.14)",
-              color: fg,
-              fontWeight: 900,
-              cursor: "pointer",
-            }}
-            title="Clear all visible permissions (current module + search)"
-          >
-            None (visible)
-          </button>
-
-          <div style={{ flexBasis: "100%", height: 0 }} />
-
-          <button
-            type="button"
-            onClick={selectAllModule}
-            style={{
-              padding: "10px 12px",
-              borderRadius: 12,
-              border,
-              background: "rgba(33,150,243,0.10)",
-              color: fg,
-              fontWeight: 900,
-              cursor: "pointer",
-            }}
-            title="Select everything in this module (ignores search)"
-          >
-            All (module)
-          </button>
-
-          <button
-            type="button"
-            onClick={clearAllModule}
-            style={{
-              padding: "10px 12px",
-              borderRadius: 12,
-              border,
-              background: "rgba(244,67,54,0.08)",
-              color: fg,
-              fontWeight: 900,
-              cursor: "pointer",
-            }}
-            title="Clear everything in this module (ignores search)"
-          >
-            None (module)
-          </button>
-
-          <div style={{ marginLeft: "auto", fontSize: 12, opacity: 0.75 }}>
-            Visible: <b>{visiblePerms.length}</b> / Module: <b>{moduleAllPerms.length}</b>
-          </div>
+        <div style={{ fontSize: 12, opacity: 0.75 }}>
+          Selected: <b>{totalSelected}</b> / Total: <b>{allPermStrings.length}</b>
         </div>
+      </div>
 
-        {moduleEntries.length === 0 ? (
-          <div style={{ border, borderRadius: 14, background: surface, padding: 12, opacity: 0.85 }}>
-            No permissions in this module.
+      {/* Layout: module sidebar + tree */}
+      <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 12 }}>
+        <aside
+          style={{
+            border: "1px solid rgba(128,128,128,0.25)",
+            borderRadius: 14,
+            padding: 10,
+            background: "rgba(255,255,255,0.02)",
+            height: "fit-content",
+            position: "sticky",
+            top: 12,
+          }}
+        >
+          <div style={{ fontWeight: 900, marginBottom: 10 }}>Modules</div>
+
+          <div style={{ display: "grid", gap: 8 }}>
+            {allModules.map((m) => {
+              const active = m === activeModule;
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setActiveModule(m)}
+                  style={{
+                    textAlign: "left",
+                    padding: "10px 12px",
+                    borderRadius: 12,
+                    border: active ? "1px solid rgba(33,150,243,0.65)" : "1px solid rgba(128,128,128,0.25)",
+                    background: active ? "rgba(33,150,243,0.12)" : "rgba(255,255,255,0.02)",
+                    color: "var(--foreground)",
+                    fontWeight: active ? 900 : 800,
+                    cursor: "pointer",
+                  }}
+                >
+                  {m}
+                </button>
+              );
+            })}
           </div>
-        ) : visibleTree.length === 0 ? (
-          <div style={{ border, borderRadius: 14, background: surface, padding: 12, opacity: 0.85 }}>
-            No matches for “{q.trim()}”.
+
+          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75, lineHeight: 1.45 }}>
+            Pick a module to edit. Parent checkboxes apply to all descendants.
           </div>
-        ) : (
-          <div style={{ border, borderRadius: 14, background: surface, padding: 12 }}>
-            <Tree nodes={visibleTree} depth={0} />
+        </aside>
+
+        <section style={{ display: "grid", gap: 10 }}>
+          {moduleTree.length === 0 ? (
+            <div style={{ opacity: 0.8, padding: 10 }}>No permissions match this module/search.</div>
+          ) : (
+            <div style={{ display: "grid", gap: 10 }}>
+              {moduleTree.map((n) => (
+                <TreeNode key={n.key} node={n} selected={selected} setSelected={setSelected} depth={0} />
+              ))}
+            </div>
+          )}
+
+          {/* ✅ Submit values for server action */}
+          <div style={{ display: "none" }}>
+            {Array.from(selected)
+              .sort((a, b) => a.localeCompare(b))
+              .map((p) => (
+                <input key={p} type="hidden" name="permissions" value={p} />
+              ))}
           </div>
-        )}
-      </section>
+        </section>
+      </div>
     </div>
   );
 }
