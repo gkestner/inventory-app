@@ -152,10 +152,11 @@ export default async function AdminNav() {
     Permission.SUBMIT_OWN_WORK_ORDERS,
   ]);
 
-  const canCheckout = hasAnyPermission(perms, [
-    Permission.VIEW_CHECKOUT,
-    Permission.CREATE_CHECKOUT,
-  ]);
+  const canCheckout = hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
+
+  // ✅ RBAC management (Permission Titles + Roles)
+  // Keep it simple: if you can administer users, you can manage RBAC.
+  const canManageRbac = canAdminUsers;
 
   // For now: gate invoices + order history under items perms (no enum changes)
   const canAdminOrderHistory = canAdminItems;
@@ -163,9 +164,8 @@ export default async function AdminNav() {
 
   const showAccounting = canAdminInvoices;
   const showInventory = canAdminItems || canAdminOrderHistory;
-  const showAdmin = canAdminUsers || canAdminLocations;
-  const showMaintenance =
-    canAdminMaintenanceTickets || canAdminWorkOrders || canUserWorkOrders || canCheckout;
+  const showAdmin = canAdminUsers || canAdminLocations || canManageRbac;
+  const showMaintenance = canAdminMaintenanceTickets || canAdminWorkOrders || canUserWorkOrders || canCheckout;
 
   return (
     <div style={shell} data-admin-nav-root>
@@ -318,6 +318,18 @@ export default async function AdminNav() {
                 {canAdminLocations ? (
                   <Link href="/admin/locations" style={menuItemStyle}>
                     Locations
+                  </Link>
+                ) : null}
+
+                {/* ✅ RBAC management */}
+                {canManageRbac ? (
+                  <Link href="/admin/access-titles" style={menuItemStyle}>
+                    Permission Titles
+                  </Link>
+                ) : null}
+                {canManageRbac ? (
+                  <Link href="/admin/roles" style={menuItemStyle}>
+                    Roles
                   </Link>
                 ) : null}
               </div>

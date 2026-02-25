@@ -8,7 +8,6 @@ import { Permission, Role } from "@prisma/client";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
-import PermissionsTreeClient from "./PermissionsTreeClient";
 
 export const dynamic = "force-dynamic";
 
@@ -126,6 +125,124 @@ function safePermissionsFromFormData(fd: FormData, key: string): Permission[] {
     }
   }
   return out;
+}
+
+function splitUnderscoreLabel(s: string) {
+  const parts = s.split("_").filter(Boolean);
+  return parts.map((p) => p.charAt(0) + p.slice(1).toLowerCase()).join(" ");
+}
+
+function permLabel(p: Permission): string {
+  // Keep it readable while preserving the exact enum name (shown in mono next to label)
+  // e.g. ADMIN_VIEW_ITEMS => "Admin View Items"
+  return splitUnderscoreLabel(String(p));
+}
+
+type PermGroup = {
+  key: string;
+  title: string;
+  subtitle?: string;
+  permissions: Permission[];
+};
+
+function buildPermissionGroups(all: Permission[]): PermGroup[] {
+  const byPrefix = (prefix: string) => all.filter((p) => String(p).startsWith(prefix));
+
+  // Explicit groups (stable + easy to understand)
+  const groups: PermGroup[] = [];
+
+  const nav = byPrefix("VIEW_");
+  if (nav.length) {
+    groups.push({
+      key: "NAV",
+      title: "App Navigation",
+      subtitle: "Controls what modules the user can see",
+      permissions: nav.sort(),
+    });
+  }
+
+  const checkout = all.filter((p) => String(p).includes("CHECKOUT"));
+  if (checkout.length) {
+    groups.push({
+      key: "CHECKOUT",
+      title: "Checkout",
+      subtitle: "Parts checkout permissions",
+      permissions: checkout.sort(),
+    });
+  }
+
+  const workOrders = all.filter((p) => String(p).includes("WORK_ORDERS"));
+  if (workOrders.length) {
+    groups.push({
+      key: "WORK_ORDERS",
+      title: "Work Orders",
+      subtitle: "Create/update/submit work orders",
+      permissions: workOrders.sort(),
+    });
+  }
+
+  const adminItems = byPrefix("ADMIN_").filter((p) => String(p).includes("_ITEMS"));
+  if (adminItems.length) {
+    groups.push({
+      key: "ADMIN_ITEMS",
+      title: "Admin: Items",
+      subtitle: "Catalog and pricing permissions",
+      permissions: adminItems.sort(),
+    });
+  }
+
+  const adminUsers = byPrefix("ADMIN_").filter((p) => String(p).includes("_USERS"));
+  if (adminUsers.length) {
+    groups.push({
+      key: "ADMIN_USERS",
+      title: "Admin: Users",
+      subtitle: "User management permissions",
+      permissions: adminUsers.sort(),
+    });
+  }
+
+  const adminLocations = byPrefix("ADMIN_").filter((p) => String(p).includes("_LOCATIONS"));
+  if (adminLocations.length) {
+    groups.push({
+      key: "ADMIN_LOCATIONS",
+      title: "Admin: Locations",
+      subtitle: "Location setup permissions",
+      permissions: adminLocations.sort(),
+    });
+  }
+
+  const adminWorkOrders = byPrefix("ADMIN_").filter((p) => String(p).includes("_WORK_ORDERS"));
+  if (adminWorkOrders.length) {
+    groups.push({
+      key: "ADMIN_WORK_ORDERS",
+      title: "Admin: Work Orders",
+      subtitle: "Override / edit / delete work orders",
+      permissions: adminWorkOrders.sort(),
+    });
+  }
+
+  const tickets = all.filter((p) => String(p).includes("MAINTENANCE_TICKETS"));
+  if (tickets.length) {
+    groups.push({
+      key: "TICKETS",
+      title: "Maintenance Tickets",
+      subtitle: "View/export maintenance tickets",
+      permissions: tickets.sort(),
+    });
+  }
+
+  // Anything not covered above goes into "Other"
+  const covered = new Set(groups.flatMap((g) => g.permissions));
+  const other = all.filter((p) => !covered.has(p));
+  if (other.length) {
+    groups.push({
+      key: "OTHER",
+      title: "Other",
+      permissions: other.sort(),
+    });
+  }
+
+  return groups;
 }
 
 export default async function AdminAccessTitlesPage() {
@@ -282,6 +399,7 @@ export default async function AdminAccessTitlesPage() {
   const border = "1px solid rgba(128,128,128,0.25)";
   const surface = "var(--background)";
   const fg = "var(--foreground)";
+  const muted = "rgba(128,128,128,0.75)";
 
   const card: CSSProperties = {
     border,
@@ -325,6 +443,7 @@ export default async function AdminAccessTitlesPage() {
   };
 
   const allPermissions = Object.values(Permission);
+  const groups = buildPermissionGroups(allPermissions);
 
   return (
     <main style={{ padding: 16 }}>
@@ -381,15 +500,17 @@ export default async function AdminAccessTitlesPage() {
           ) : (
             <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
               {titles.map((t) => {
-                const selectedList = t.permissions.map((x) => x.permission);
-                const selectedSet = new Set(selectedList);
+                const selected = new Set(t.permissions.map((x) => x.permission));
+                const formId = `permform-${t.id}`;
+                const allChecked = allPermissions.length > 0 && allPermissions.every((p) => selected.has(p));
+                const selectedCount = selected.size;
 
                 return (
                   <details key={t.id} style={{ borderTop: border, paddingTop: 10 }}>
                     <summary style={{ cursor: "pointer", fontWeight: 900 }}>
                       {t.name}{" "}
                       <span style={{ opacity: 0.75, fontWeight: 700 }}>
-                        • {t._count.users} user{t._count.users === 1 ? "" : "s"}
+                        • {t._count.users} user{t._count.users === 1 ? "" : "s"} • {selectedCount} perm
                       </span>
                     </summary>
 
@@ -415,28 +536,208 @@ export default async function AdminAccessTitlesPage() {
                         </div>
                       </form>
 
-                      {/* Permissions (TREE UI) */}
-                      <form action={updatePermissionsAction} style={{ display: "grid", gap: 8 }}>
+                      {/* Permissions (Tree) */}
+                      <form id={formId} action={updatePermissionsAction} style={{ display: "grid", gap: 10 }}>
                         <input type="hidden" name="id" value={t.id} />
 
-                        <div style={{ fontWeight: 900 }}>Permissions</div>
-                        <div style={{ fontSize: 12, opacity: 0.8 }}>
-                          Use group checkboxes to toggle whole sections, or search to find a permission quickly.
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                          <div>
+                            <div style={{ fontWeight: 900 }}>Permissions</div>
+                            <div style={{ fontSize: 12, opacity: 0.8 }}>
+                              Select permissions this title grants. Users assigned this title inherit them.
+                            </div>
+                          </div>
+
+                          <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 900 }}>
+                            <input
+                              type="checkbox"
+                              data-select-all="1"
+                              defaultChecked={allChecked}
+                              aria-label="Select all permissions"
+                            />
+                            Select all
+                          </label>
                         </div>
 
-                        <PermissionsTreeClient
-                          allPermissions={allPermissions}
-                          selectedPermissions={Array.from(selectedSet)}
-                        />
+                        <div
+                          style={{
+                            display: "grid",
+                            gap: 10,
+                            border,
+                            borderRadius: 14,
+                            padding: 10,
+                          }}
+                        >
+                          {groups.map((g) => {
+                            const groupCheckedCount = g.permissions.reduce((acc, p) => acc + (selected.has(p) ? 1 : 0), 0);
+                            const groupAllChecked = g.permissions.length > 0 && groupCheckedCount === g.permissions.length;
+                            const groupNoneChecked = groupCheckedCount === 0;
+
+                            return (
+                              <details key={`${t.id}-${g.key}`} open>
+                                <summary
+                                  style={{
+                                    cursor: "pointer",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    gap: 10,
+                                    padding: "8px 6px",
+                                    borderRadius: 10,
+                                    background: "rgba(255,255,255,0.02)",
+                                  }}
+                                >
+                                  <div style={{ display: "grid" }}>
+                                    <span style={{ fontWeight: 900 }}>{g.title}</span>
+                                    {g.subtitle ? (
+                                      <span style={{ fontSize: 12, color: muted }}>{g.subtitle}</span>
+                                    ) : null}
+                                  </div>
+
+                                  <label
+                                    style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 900 }}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      data-group-toggle={g.key}
+                                      data-group-state={groupAllChecked ? "all" : groupNoneChecked ? "none" : "some"}
+                                      defaultChecked={groupAllChecked}
+                                      aria-label={`Select all in ${g.title}`}
+                                    />
+                                    All
+                                  </label>
+                                </summary>
+
+                                <div
+                                  style={{
+                                    marginTop: 8,
+                                    display: "grid",
+                                    gridTemplateColumns: "repeat(auto-fit, minmax(330px, 1fr))",
+                                    gap: 8,
+                                    padding: "6px 4px 10px",
+                                  }}
+                                >
+                                  {g.permissions.map((perm) => (
+                                    <label
+                                      key={`${t.id}-${perm}`}
+                                      style={{
+                                        display: "flex",
+                                        gap: 10,
+                                        alignItems: "flex-start",
+                                        padding: "8px 10px",
+                                        borderRadius: 12,
+                                        border,
+                                        background: "rgba(255,255,255,0.02)",
+                                      }}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        name="permissions"
+                                        value={perm}
+                                        data-perm="1"
+                                        data-group={g.key}
+                                        defaultChecked={selected.has(perm)}
+                                        style={{ marginTop: 2 }}
+                                      />
+                                      <div style={{ display: "grid", gap: 2 }}>
+                                        <div style={{ fontWeight: 900 }}>{permLabel(perm)}</div>
+                                        <div style={{ fontSize: 12, opacity: 0.85, fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                                          {perm}
+                                        </div>
+                                      </div>
+                                    </label>
+                                  ))}
+                                </div>
+                              </details>
+                            );
+                          })}
+                        </div>
 
                         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                           <button type="submit" style={btnPrimary}>
                             Save permissions
                           </button>
                           <div style={{ fontSize: 12, opacity: 0.75 }}>
-                            Selected: <b>{selectedList.length}</b>
+                            Selected: <b>{selected.size}</b>
                           </div>
                         </div>
+
+                        {/* Tiny script: group toggles + select all + indeterminate states */}
+                        <script
+                          dangerouslySetInnerHTML={{
+                            __html: `
+(function(){
+  const form = document.getElementById(${JSON.stringify(formId)});
+  if(!form) return;
+
+  const permBoxes = () => Array.from(form.querySelectorAll('input[type="checkbox"][data-perm="1"]'));
+  const selectAll = form.querySelector('input[type="checkbox"][data-select-all="1"]');
+
+  function setIndeterminate(el, on){
+    try { el.indeterminate = !!on; } catch(e) {}
+  }
+
+  function syncSelectAll(){
+    if(!selectAll) return;
+    const boxes = permBoxes();
+    const checked = boxes.filter(b => b.checked).length;
+    selectAll.checked = boxes.length > 0 && checked === boxes.length;
+    setIndeterminate(selectAll, checked > 0 && checked < boxes.length);
+  }
+
+  function syncGroup(groupKey){
+    const toggle = form.querySelector('input[type="checkbox"][data-group-toggle="'+groupKey+'"]');
+    if(!toggle) return;
+    const boxes = permBoxes().filter(b => b.getAttribute('data-group') === groupKey);
+    const checked = boxes.filter(b => b.checked).length;
+    toggle.checked = boxes.length > 0 && checked === boxes.length;
+    setIndeterminate(toggle, checked > 0 && checked < boxes.length);
+  }
+
+  function syncAllGroups(){
+    const toggles = Array.from(form.querySelectorAll('input[type="checkbox"][data-group-toggle]'));
+    toggles.forEach(t => syncGroup(t.getAttribute('data-group-toggle')));
+  }
+
+  // Initial sync (for server-rendered defaults)
+  syncAllGroups();
+  syncSelectAll();
+
+  // Click handlers
+  form.addEventListener('change', (e) => {
+    const t = e.target;
+    if(!(t instanceof HTMLInputElement)) return;
+
+    // Select all
+    if(t.matches('input[type="checkbox"][data-select-all="1"]')){
+      const on = t.checked;
+      permBoxes().forEach(b => { b.checked = on; });
+      syncAllGroups();
+      syncSelectAll();
+      return;
+    }
+
+    // Group toggle
+    if(t.matches('input[type="checkbox"][data-group-toggle]')){
+      const groupKey = t.getAttribute('data-group-toggle');
+      const on = t.checked;
+      permBoxes().filter(b => b.getAttribute('data-group') === groupKey).forEach(b => { b.checked = on; });
+      syncGroup(groupKey);
+      syncSelectAll();
+      return;
+    }
+
+    // Individual permission box
+    if(t.matches('input[type="checkbox"][data-perm="1"]')){
+      const groupKey = t.getAttribute('data-group');
+      if(groupKey) syncGroup(groupKey);
+      syncSelectAll();
+    }
+  });
+})();`,
+                          }}
+                        />
                       </form>
 
                       {/* Delete */}

@@ -112,6 +112,9 @@ model PermissionTitle {
   permissions PermissionTitlePermission[]
   users       UserPermissionTitle[]
 
+  // ✅ NEW: roles can reference titles (role grants title permissions)
+  roleLinks AppRolePermissionTitle[]
+
   @@index([active])
 }
 
@@ -137,6 +140,73 @@ model UserPermissionTitle {
 
   @@id([userId, titleId])
   @@index([userId])
+  @@index([titleId])
+}
+
+/**
+ * =========================
+ * Dynamic Roles (RBAC)
+ * =========================
+ *
+ * - Admins can create roles in-app (no migrations).
+ * - Users can have 0..N roles.
+ * - Roles can grant permissions directly and/or via PermissionTitles.
+ * - Keep existing User.role enum for compatibility during rollout.
+ */
+model AppRole {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  isSystem    Boolean  @default(false) // seed roles like ADMIN/MANAGER/etc.
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users       UserRole[]
+  permissions AppRolePermission[]
+  titles      AppRolePermissionTitle[]
+
+  @@index([isSystem])
+}
+
+model UserRole {
+  userId String
+  roleId String
+
+  assignedAt DateTime @default(now())
+
+  user User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role AppRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
+}
+
+model AppRolePermission {
+  roleId     String
+  permission Permission
+
+  assignedAt DateTime @default(now())
+
+  role AppRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permission])
+  @@index([permission])
+  @@index([roleId])
+}
+
+model AppRolePermissionTitle {
+  roleId  String
+  titleId String
+
+  assignedAt DateTime @default(now())
+
+  role  AppRole         @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  title PermissionTitle @relation(fields: [titleId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, titleId])
+  @@index([roleId])
   @@index([titleId])
 }
 
@@ -243,6 +313,9 @@ model User {
 
   // ✅ RBAC titles assigned to user (one or many)
   permissionTitles UserPermissionTitle[]
+
+  // ✅ NEW: dynamic roles assigned to user (0..N)
+  roles UserRole[]
 
   active    Boolean  @default(true)
   createdAt DateTime @default(now())

@@ -35,10 +35,24 @@ function nonEmpty(v: FormDataEntryValue | null): string {
   return String(v ?? "").trim();
 }
 
+/**
+ * ✅ Safe Role picker
+ * - Works whether or not your Prisma Role enum includes MAINTENANCE
+ * - Never triggers ts-expect-error build failures
+ */
 function pickRole(v: string): Role {
-  if (v === Role.ADMIN) return Role.ADMIN;
-  if (v === Role.MANAGER) return Role.MANAGER;
-  if (v === Role.MAINTENANCE) return Role.MAINTENANCE;
+  const roles = new Set<string>(Object.values(Role) as string[]);
+  const wanted = String(v ?? "").trim();
+
+  // allow the ones you use most
+  if (wanted === Role.ADMIN) return Role.ADMIN;
+  if (wanted === Role.MANAGER) return Role.MANAGER;
+
+  // only allow MAINTENANCE if it exists in the enum
+  if (roles.has("MAINTENANCE") && wanted === "MAINTENANCE") {
+    return "MAINTENANCE" as Role;
+  }
+
   return Role.EMPLOYEE;
 }
 
@@ -46,7 +60,6 @@ function safeIdsFromFormData(fd: FormData, key: string): string[] {
   const vals = fd.getAll(key);
   const ids = vals.map((x) => String(x).trim()).filter((x) => x.length > 0);
 
-  // de-dupe while preserving order
   const seen = new Set<string>();
   const out: string[] = [];
   for (const id of ids) {
@@ -77,12 +90,15 @@ function parseOrderedGroup(formData: FormData, ids: string[], orderPrefix: strin
 }
 
 function makeTempPassword(): string {
-  // URL-safe-ish and strong enough for one-time temp usage
   return crypto.randomBytes(9).toString("base64url"); // ~12 chars
 }
 
 function safePermissionTitleIdsFromFormData(fd: FormData): string[] {
   return safeIdsFromFormData(fd, "permissionTitleIds");
+}
+
+function safeRoleIdsFromFormData(fd: FormData): string[] {
+  return safeIdsFromFormData(fd, "appRoleIds");
 }
 
 export default async function AdminUsersPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
@@ -95,7 +111,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
   const resetUser = (sp.resetUser ?? "").trim();
   const temp = (sp.temp ?? "").trim();
 
-  const [locationsAll, users, permissionTitles] = await Promise.all([
+  const [locationsAll, users, permissionTitles, appRoles] = await Promise.all([
     prisma.location.findMany({
       orderBy: [{ active: "desc" }, { name: "asc" }],
       select: { id: true, name: true, active: true },
@@ -106,15 +122,13 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         id: true,
         name: true,
         email: true,
-        role: true,
+        role: true, // legacy enum
         active: true,
         createdAt: true,
 
-        // legacy
         locationId: true,
         location: { select: { id: true, name: true, active: true } },
 
-        // join relation (schema field name: allowedLocations)
         allowedLocations: {
           select: {
             locationId: true,
@@ -125,7 +139,6 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
           orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
         },
 
-        // permission titles join (schema field name: permissionTitles)
         permissionTitles: {
           select: {
             titleId: true,
@@ -134,11 +147,25 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
           },
           orderBy: [{ title: { name: "asc" } }],
         },
+
+        // ✅ NEW: dynamic roles assigned to the user (0..N)
+        roles: {
+          select: {
+            roleId: true,
+            assignedAt: true,
+            role: { select: { id: true, name: true, isSystem: true } },
+          },
+          orderBy: [{ role: { name: "asc" } }],
+        },
       },
     }),
     prisma.permissionTitle.findMany({
       orderBy: [{ active: "desc" }, { name: "asc" }],
       select: { id: true, name: true, description: true, active: true },
+    }),
+    prisma.appRole.findMany({
+      orderBy: [{ isSystem: "desc" }, { name: "asc" }],
+      select: { id: true, name: true, description: true, isSystem: true },
     }),
   ]);
 
@@ -168,21 +195,17 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
     const email = emailRaw.toLowerCase();
 
-    // Disallow overlaps
     const overlap = primaryIds.filter((id) => optionalIds.includes(id));
     if (overlap.length > 0) {
       redirect("/admin/users?error=" + encodeURIComponent("A location cannot be both Primary and Optional"));
     }
 
-    // Require at least one Primary to keep legacy `user.locationId` meaningful (and avoid auth regressions).
     if (primaryIds.length === 0) {
       redirect("/admin/users?error=" + encodeURIComponent("At least one Primary location is required."));
     }
 
     const allSelected = Array.from(new Set([...primaryIds, ...optionalIds]));
 
-    // Enforce: prefer active-only selections. If there are zero active locations in the system,
-    // allow selecting existing inactive locations so admins can still bootstrap users.
     if (allSelected.length > 0) {
       const [existingAll, activeCountRows] = await Promise.all([
         prisma.location.findMany({
@@ -222,9 +245,6 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         const existing = await tx.user.findUnique({ where: { email }, select: { id: true } });
         if (existing) throw new Error("Email already exists");
 
-        // Deterministic ordering:
-        // - If an order number is provided, sort by that (asc)
-        // - Else sort by location name (asc)
         const locs =
           allSelected.length > 0
             ? await tx.location.findMany({
@@ -253,13 +273,13 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         const primSorted = sortPicks(primaryPicks);
         const optSorted = sortPicks(optionalPicks);
 
-        // Legacy compatibility: first primary after ordering
         const legacyLocationId: string | null = primSorted[0] ?? null;
 
         const rows: Array<{ locationId: string; isPrimary: boolean; sortOrder: number }> = [];
-        // Persist ordering *within each group* (Primary 1..N, Optional 1..N)
-        for (let i = 0; i < primSorted.length; i++) rows.push({ locationId: primSorted[i], isPrimary: true, sortOrder: i + 1 });
-        for (let i = 0; i < optSorted.length; i++) rows.push({ locationId: optSorted[i], isPrimary: false, sortOrder: i + 1 });
+        for (let i = 0; i < primSorted.length; i++)
+          rows.push({ locationId: primSorted[i], isPrimary: true, sortOrder: i + 1 });
+        for (let i = 0; i < optSorted.length; i++)
+          rows.push({ locationId: optSorted[i], isPrimary: false, sortOrder: i + 1 });
 
         const u = await tx.user.create({
           data: {
@@ -388,7 +408,6 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
       redirect("/admin/users?error=" + encodeURIComponent("A location cannot be both Primary and Optional"));
     }
 
-    // Require at least one Primary to keep legacy `user.locationId` meaningful (and avoid auth regressions).
     if (primaryIds.length === 0) {
       redirect("/admin/users?error=" + encodeURIComponent("At least one Primary location is required."));
     }
@@ -397,7 +416,6 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
     try {
       await prisma.$transaction(async (tx) => {
-        // Ensure user exists + get currently assigned locations (to allow already-assigned inactive)
         const u = await tx.user.findUnique({
           where: { id: userId },
           select: { id: true, allowedLocations: { select: { locationId: true } } },
@@ -406,7 +424,6 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
         const previouslyAssigned = new Set<string>((u.allowedLocations ?? []).map((r) => r.locationId));
 
-        // Validate: selected ids must exist
         if (allSelected.length > 0) {
           const locs = await tx.location.findMany({
             where: { id: { in: allSelected } },
@@ -419,7 +436,6 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
             throw new Error(`Some locations were not found: ${missing.slice(0, 10).join(", ")}`);
           }
 
-          // Enforce: inactive selections are only allowed if they were already assigned to this user
           const inactiveSelected = allSelected.filter((id) => byId.get(id)?.active === false);
           const badInactive = inactiveSelected.filter((id) => !previouslyAssigned.has(id));
           if (badInactive.length > 0) {
@@ -458,8 +474,10 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         const legacyLocationId: string | null = primSorted[0] ?? null;
 
         const rows: Array<{ locationId: string; isPrimary: boolean; sortOrder: number }> = [];
-        for (let i = 0; i < primSorted.length; i++) rows.push({ locationId: primSorted[i], isPrimary: true, sortOrder: i + 1 });
-        for (let i = 0; i < optSorted.length; i++) rows.push({ locationId: optSorted[i], isPrimary: false, sortOrder: i + 1 });
+        for (let i = 0; i < primSorted.length; i++)
+          rows.push({ locationId: primSorted[i], isPrimary: true, sortOrder: i + 1 });
+        for (let i = 0; i < optSorted.length; i++)
+          rows.push({ locationId: optSorted[i], isPrimary: false, sortOrder: i + 1 });
 
         await tx.user.update({
           where: { id: userId },
@@ -491,7 +509,6 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     redirect("/admin/users?ok=1");
   }
 
-  // Assign Permission Titles (RBAC templates)
   async function assignPermissionTitlesAction(formData: FormData) {
     "use server";
     await requireAdmin();
@@ -516,6 +533,49 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
       });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Assign permission titles failed";
+      redirect("/admin/users?error=" + encodeURIComponent(msg));
+    }
+
+    revalidatePath("/admin/users");
+    redirect("/admin/users?ok=1");
+  }
+
+  // ✅ NEW: assign dynamic AppRoles to user (atomic replace)
+  async function assignAppRolesAction(formData: FormData) {
+    "use server";
+    await requireAdmin();
+
+    const userId = nonEmpty(formData.get("userId"));
+    if (!userId) redirect("/admin/users?error=" + encodeURIComponent("Missing userId"));
+
+    const selectedRoleIds = safeRoleIdsFromFormData(formData);
+
+    try {
+      await prisma.$transaction(async (tx) => {
+        const u = await tx.user.findUnique({ where: { id: userId }, select: { id: true } });
+        if (!u) throw new Error("User not found");
+
+        if (selectedRoleIds.length > 0) {
+          const existing = await tx.appRole.findMany({
+            where: { id: { in: selectedRoleIds } },
+            select: { id: true },
+          });
+          const found = new Set(existing.map((x) => x.id));
+          const missing = selectedRoleIds.filter((id) => !found.has(id));
+          if (missing.length > 0) throw new Error("One or more roles are missing.");
+        }
+
+        await tx.userRole.deleteMany({ where: { userId } });
+
+        if (selectedRoleIds.length > 0) {
+          await tx.userRole.createMany({
+            data: selectedRoleIds.map((roleId) => ({ userId, roleId })),
+            skipDuplicates: true,
+          });
+        }
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Assign roles failed";
       redirect("/admin/users?error=" + encodeURIComponent(msg));
     }
 
@@ -564,17 +624,33 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
   const createOpen = Boolean(error || created);
 
+  // Role options shown in UI should only show values that exist in Prisma enum
+  const roleOptions = Object.values(Role) as Role[];
+
   return (
     <div style={pageWrap}>
-      <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+      <div
+        style={{
+          display: "flex",
+          gap: 10,
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+        }}
+      >
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 900, marginBottom: 6 }}>Admin Users</h1>
-          <div style={{ opacity: 0.8, marginBottom: 16 }}>Manage users, roles, locations, and Permission Titles (RBAC templates).</div>
+          <div style={{ opacity: 0.8, marginBottom: 16 }}>
+            Manage users, legacy enum role, dynamic roles, locations, and Permission Titles (RBAC templates).
+          </div>
         </div>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <Link href="/admin/access-titles" style={{ ...btn, textDecoration: "none", display: "inline-block" }}>
             Permission Titles
+          </Link>
+          <Link href="/admin/roles" style={{ ...btn, textDecoration: "none", display: "inline-block" }}>
+            Roles
           </Link>
         </div>
       </div>
@@ -602,7 +678,6 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         </div>
       ) : null}
 
-      {/* Create user (collapsed) */}
       <details style={{ ...card, marginBottom: 16 }} open={createOpen}>
         <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside", fontSize: 16 }}>
           Create User
@@ -665,12 +740,13 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
               </label>
 
               <label style={label}>
-                <span style={{ fontWeight: 800 }}>Role</span>
+                <span style={{ fontWeight: 800 }}>Role (legacy enum)</span>
                 <select name="role" defaultValue={Role.EMPLOYEE} style={field}>
-                  <option value={Role.EMPLOYEE}>EMPLOYEE</option>
-                  <option value={Role.MAINTENANCE}>MAINTENANCE</option>
-                  <option value={Role.MANAGER}>MANAGER</option>
-                  <option value={Role.ADMIN}>ADMIN</option>
+                  {roleOptions.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
                 </select>
               </label>
             </div>
@@ -729,7 +805,9 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                       </label>
                     ))
                   ) : (
-                    <div style={{ opacity: 0.8, fontSize: 13 }}>No optional locations available until at least one location exists.</div>
+                    <div style={{ opacity: 0.8, fontSize: 13 }}>
+                      No optional locations available until at least one location exists.
+                    </div>
                   )}
                 </div>
               </div>
@@ -742,7 +820,6 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         </div>
       </details>
 
-      {/* Users list */}
       <div style={card}>
         <h2 style={{ fontSize: 16, fontWeight: 900, marginBottom: 10 }}>Users</h2>
 
@@ -761,6 +838,11 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
             const optionalChoices = locationsAll.filter((l) => l.active || checkedOptional.has(l.id));
 
             const currentTitleIds = new Set(u.permissionTitles.map((r) => r.titleId));
+
+            const currentAppRoleIds = new Set((u.roles ?? []).map((r) => r.roleId));
+            const roleNames = (u.roles ?? [])
+              .map((r) => r.role?.name ?? "")
+              .filter(Boolean);
 
             return (
               <details
@@ -811,16 +893,22 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                           : "—"}
                       </span>
                     </div>
+
+                    <div style={{ fontSize: 12, opacity: 0.75 }}>
+                      Dynamic Roles:{" "}
+                      <span style={{ fontWeight: 800 }}>{roleNames.length ? roleNames.join(", ") : "—"}</span>
+                    </div>
                   </div>
 
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
                     <form action={updateRoleAction} style={{ display: "flex", gap: 8, alignItems: "center" }}>
                       <input type="hidden" name="userId" value={u.id} />
                       <select name="role" defaultValue={u.role} style={field}>
-                        <option value={Role.EMPLOYEE}>EMPLOYEE</option>
-                        <option value={Role.MAINTENANCE}>MAINTENANCE</option>
-                        <option value={Role.MANAGER}>MANAGER</option>
-                        <option value={Role.ADMIN}>ADMIN</option>
+                        {roleOptions.map((r) => (
+                          <option key={r} value={r}>
+                            {r}
+                          </option>
+                        ))}
                       </select>
                       <button type="submit" style={btn}>
                         Update Role
@@ -844,7 +932,61 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                   </div>
                 </div>
 
-                {/* Permission Titles assignment */}
+                <details style={{ marginTop: 12 }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 900 }}>Assign Dynamic Roles</summary>
+
+                  <div style={{ marginTop: 10 }}>
+                    {appRoles.length === 0 ? (
+                      <div style={{ fontSize: 13, opacity: 0.8 }}>
+                        No roles exist yet. Create roles in{" "}
+                        <a href="/admin/roles" style={{ textDecoration: "underline" }}>
+                          Roles
+                        </a>
+                        .
+                      </div>
+                    ) : (
+                      <form action={assignAppRolesAction} style={{ display: "grid", gap: 12 }}>
+                        <input type="hidden" name="userId" value={u.id} />
+
+                        <div style={{ display: "grid", gap: 6, maxHeight: 220, overflow: "auto", paddingRight: 6 }}>
+                          {appRoles.map((r) => (
+                            <label
+                              key={`ar-${u.id}-${r.id}`}
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "20px 1fr",
+                                gap: 10,
+                                alignItems: "center",
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                name="appRoleIds"
+                                value={r.id}
+                                defaultChecked={currentAppRoleIds.has(r.id)}
+                              />
+                              <span>
+                                <span style={{ fontWeight: 900 }}>{r.name}</span>{" "}
+                                {r.isSystem ? <span style={{ opacity: 0.75 }}>(System)</span> : null}
+                                {r.description ? <span style={{ opacity: 0.75 }}> — {r.description}</span> : null}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+
+                        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                          <button type="submit" style={{ ...btn, width: 240 }}>
+                            Save Dynamic Roles
+                          </button>
+                          <div style={{ fontSize: 12, opacity: 0.75 }}>
+                            These roles grant their permissions (direct + via titles) to the user.
+                          </div>
+                        </div>
+                      </form>
+                    )}
+                  </div>
+                </details>
+
                 <details style={{ marginTop: 12 }}>
                   <summary style={{ cursor: "pointer", fontWeight: 900 }}>Assign Permission Titles</summary>
 

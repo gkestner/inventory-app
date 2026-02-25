@@ -5,16 +5,26 @@ import { Permission, Role } from "@prisma/client";
 /**
  * Canonical server-side permission loader.
  *
- * Rules:
- * - ADMIN => allowAll = true
- * - MAINTENANCE => baseline maintenance permissions
+ * Compatibility rules (kept):
+ * - Session enum role ADMIN => allowAll = true
+ * - Session enum role MAINTENANCE => baseline maintenance permissions
  * - Others => direct permissions + title-based permissions
+ *
+ * New (dynamic roles) rules:
+ * - If dynamic roles tables exist:
+ *   - User can have 0..N AppRoles via UserRole
+ *   - Permissions come from:
+ *       (a) Role direct permissions (AppRolePermission)
+ *       (b) Role titles -> permissions (AppRolePermissionTitle -> PermissionTitlePermission)
+ *   - If user has a system role named "ADMIN" => allowAll = true
+ *
+ * Defensive: keeps working even before the new tables are migrated.
  */
 
 export type LoadedPermissions = {
   userId: string | null;
-  role: Role | null;
-  isAdmin: boolean;
+  role: Role | null; // legacy enum role (kept for compatibility)
+  isAdmin: boolean; // true if allowAll due to legacy ADMIN or dynamic ADMIN
   allowAll: boolean;
   permissions: Set<Permission>;
 };
@@ -70,32 +80,85 @@ type PrismaPermissionTitlePermissionDelegate = {
   findMany: (args: unknown) => Promise<Array<{ permission: Permission }>>;
 };
 
+// ===== Dynamic role delegates (optional until migrated) =====
+type PrismaUserRoleDelegate = {
+  findMany: (args: unknown) => Promise<Array<{ roleId: string }>>;
+};
+
+type PrismaAppRoleDelegate = {
+  findMany: (
+    args: unknown
+  ) => Promise<Array<{ id: string; name: string; isSystem: boolean }>>;
+};
+
+type PrismaAppRolePermissionDelegate = {
+  findMany: (
+    args: unknown
+  ) => Promise<Array<{ permission: Permission }>>;
+};
+
+type PrismaAppRolePermissionTitleDelegate = {
+  findMany: (args: unknown) => Promise<Array<{ titleId: string }>>;
+};
+
 const db = prisma as unknown as {
   user: PrismaUserDelegate;
   userPermission: PrismaUserPermissionDelegate;
 
+  // existing titles RBAC (optional until migrated)
   userPermissionTitle?: PrismaUserPermissionTitleDelegate;
   permissionTitlePermission?: PrismaPermissionTitlePermissionDelegate;
+
+  // dynamic roles RBAC (optional until migrated)
+  userRole?: PrismaUserRoleDelegate;
+  appRole?: PrismaAppRoleDelegate;
+  appRolePermission?: PrismaAppRolePermissionDelegate;
+  appRolePermissionTitle?: PrismaAppRolePermissionTitleDelegate;
 };
 
-function rbacReady(): boolean {
+function titlesReady(): boolean {
   return (
     typeof db.userPermissionTitle?.findMany === "function" &&
     typeof db.permissionTitlePermission?.findMany === "function"
   );
 }
 
-export async function loadUserPermissions(
-  session: unknown
-): Promise<LoadedPermissions> {
-  const role = getSessionUserRole(session);
-  const isAdmin = role === Role.ADMIN;
+function rolesReady(): boolean {
+  return (
+    typeof db.userRole?.findMany === "function" &&
+    typeof db.appRole?.findMany === "function" &&
+    typeof db.appRolePermission?.findMany === "function" &&
+    typeof db.appRolePermissionTitle?.findMany === "function" &&
+    typeof db.permissionTitlePermission?.findMany === "function"
+  );
+}
 
+function isSystemAdminRoleName(name: string): boolean {
+  return name.trim().toUpperCase() === "ADMIN";
+}
+
+function uniqStrings(vals: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const v of vals) {
+    const s = String(v ?? "").trim();
+    if (!s) continue;
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+export async function loadUserPermissions(session: unknown): Promise<LoadedPermissions> {
+  const role = getSessionUserRole(session);
   const sessionUserId = getSessionUserId(session);
   const sessionUserEmail = getSessionUserEmail(session);
 
-  // ✅ ADMIN = allow-all
-  if (isAdmin) {
+  const enumIsAdmin = role === Role.ADMIN;
+
+  // ✅ Session enum ADMIN = allow-all (compat)
+  if (enumIsAdmin) {
     return {
       userId: sessionUserId,
       role,
@@ -118,7 +181,7 @@ export async function loadUserPermissions(
 
   const permissions = new Set<Permission>();
 
-  // ✅ MAINTENANCE baseline permissions
+  // ✅ MAINTENANCE baseline permissions (compat)
   if (role === Role.MAINTENANCE) {
     permissions.add(Permission.VIEW_HOME);
     permissions.add(Permission.VIEW_WORK_ORDERS);
@@ -143,27 +206,83 @@ export async function loadUserPermissions(
     select: { permission: true },
   });
 
-  for (const r of directRows) {
-    permissions.add(r.permission);
-  }
+  for (const r of directRows) permissions.add(r.permission);
 
-  // Title-based permissions (if migrated)
-  if (rbacReady()) {
+  // Collect user titleIds (for both legacy title permissions and role->title permissions merge)
+  let userTitleIds: string[] = [];
+  if (titlesReady()) {
     const titleRows = await db.userPermissionTitle!.findMany({
       where: { userId },
       select: { titleId: true },
     } as unknown);
+    userTitleIds = titleRows.map((r) => r.titleId);
+  }
 
-    const titleIds = titleRows.map((r) => r.titleId);
+  // Apply user title permissions (legacy system)
+  if (titlesReady() && userTitleIds.length > 0) {
+    const titlePerms = await db.permissionTitlePermission!.findMany({
+      where: { titleId: { in: uniqStrings(userTitleIds) } },
+      select: { permission: true },
+    } as unknown);
 
-    if (titleIds.length > 0) {
-      const titlePerms = await db.permissionTitlePermission!.findMany({
-        where: { titleId: { in: titleIds } },
+    for (const r of titlePerms) permissions.add(r.permission);
+  }
+
+  // Dynamic roles permissions (new system, optional until migrated)
+  let allowAll = false;
+
+  if (rolesReady()) {
+    // 1) user -> roles
+    const userRoleRows = await db.userRole!.findMany({
+      where: { userId },
+      select: { roleId: true },
+    } as unknown);
+
+    const roleIds = uniqStrings(userRoleRows.map((r) => r.roleId));
+
+    if (roleIds.length > 0) {
+      // 2) identify system admin role (allowAll)
+      const roleRows = await db.appRole!.findMany({
+        where: { id: { in: roleIds } },
+        select: { id: true, name: true, isSystem: true },
+      } as unknown);
+
+      allowAll = roleRows.some((rr) => rr.isSystem && isSystemAdminRoleName(rr.name));
+
+      if (allowAll) {
+        return {
+          userId,
+          role,
+          isAdmin: true, // treat dynamic ADMIN as admin for UI checks
+          allowAll: true,
+          permissions: new Set<Permission>(),
+        };
+      }
+
+      // 3) role direct permissions
+      const rolePermRows = await db.appRolePermission!.findMany({
+        where: { roleId: { in: roleIds } },
         select: { permission: true },
       } as unknown);
 
-      for (const r of titlePerms) {
-        permissions.add(r.permission);
+      for (const r of rolePermRows) permissions.add(r.permission);
+
+      // 4) role titles -> permissions
+      const roleTitleRows = await db.appRolePermissionTitle!.findMany({
+        where: { roleId: { in: roleIds } },
+        select: { titleId: true },
+      } as unknown);
+
+      const roleTitleIds = roleTitleRows.map((r) => r.titleId);
+      const mergedTitleIds = uniqStrings([...userTitleIds, ...roleTitleIds]);
+
+      if (mergedTitleIds.length > 0) {
+        const roleTitlePermRows = await db.permissionTitlePermission!.findMany({
+          where: { titleId: { in: mergedTitleIds } },
+          select: { permission: true },
+        } as unknown);
+
+        for (const r of roleTitlePermRows) permissions.add(r.permission);
       }
     }
   }
@@ -172,7 +291,7 @@ export async function loadUserPermissions(
     userId,
     role,
     isAdmin: false,
-    allowAll: false,
+    allowAll, // ✅ IMPORTANT: return the computed allowAll (was a bug if always false)
     permissions,
   };
 }
@@ -180,10 +299,7 @@ export async function loadUserPermissions(
 /**
  * Check ANY
  */
-export function hasAnyPermission(
-  perms: LoadedPermissions,
-  required: Permission[]
-): boolean {
+export function hasAnyPermission(perms: LoadedPermissions, required: Permission[]): boolean {
   if (perms.allowAll) return true;
 
   for (const key of required) {
@@ -196,10 +312,7 @@ export function hasAnyPermission(
 /**
  * Check ALL
  */
-export function hasAllPermissions(
-  perms: LoadedPermissions,
-  required: Permission[]
-): boolean {
+export function hasAllPermissions(perms: LoadedPermissions, required: Permission[]): boolean {
   if (perms.allowAll) return true;
 
   for (const key of required) {

@@ -32,7 +32,6 @@ async function requireAdmin() {
 export default async function AdminLayout({ children }: { children: ReactNode }) {
   const session = await requireAdmin();
 
-  // load canonical permissions (this already returns LoadedPermissions)
   const sessionArg = session as unknown as Parameters<typeof loadUserPermissions>[0];
   const perms = (await loadUserPermissions(sessionArg)) as LoadedPermissions;
 
@@ -50,6 +49,9 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   const canUsers = allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_USERS, Permission.ADMIN_EDIT_USERS]);
 
+  // Reuse Users permission for Roles/Permission Titles management
+  const canRoles = canUsers;
+
   const canLocations =
     allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_LOCATIONS, Permission.ADMIN_EDIT_LOCATIONS]);
 
@@ -65,7 +67,6 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     allowAll ||
     hasAnyPermission(perms, [Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS, Permission.ADMIN_VIEW_MAINTENANCE_TICKETS]);
 
-  // ✅ Use theme tokens (works for both light + dark)
   const wrap: CSSProperties = {
     display: "grid",
     gridTemplateColumns: "260px minmax(0, 1fr)",
@@ -184,6 +185,14 @@ export default async function AdminLayout({ children }: { children: ReactNode })
             </Link>
           ) : null}
 
+          {/* ✅ Roles / Permission Titles */}
+          {canRoles ? (
+            <Link href="/admin/access-titles" style={linkStyle}>
+              <span>Permission Titles</span>
+              <span style={pill}>RBAC</span>
+            </Link>
+          ) : null}
+
           {canLocations ? (
             <Link href="/admin/locations" style={linkStyle}>
               <span>Locations</span>
@@ -211,10 +220,10 @@ export default async function AdminLayout({ children }: { children: ReactNode })
             ← Back to App
           </Link>
 
-          {/* ✅ Logout (NextAuth built-in signout page) */}
-          <Link href="/api/auth/signout" style={{ ...linkStyle, justifyContent: "center" }}>
+          {/* ✅ Logout: use NextAuth signout endpoint (GET shows confirm page) */}
+          <a href="/api/auth/signout" style={{ ...linkStyle, justifyContent: "center" }}>
             Logout
-          </Link>
+          </a>
         </div>
       </aside>
 
