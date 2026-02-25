@@ -206,9 +206,14 @@ export default async function AdminLayout({ children }: { children: ReactNode })
           ) : null}
         </nav>
 
-        <div style={{ marginTop: 16 }}>
+        <div style={{ marginTop: 16, display: "grid", gap: 8 }}>
           <Link href="/" style={{ ...linkStyle, justifyContent: "center" }}>
             ← Back to App
+          </Link>
+
+          {/* ✅ Logout (NextAuth built-in signout page) */}
+          <Link href="/api/auth/signout" style={{ ...linkStyle, justifyContent: "center" }}>
+            Logout
           </Link>
         </div>
       </aside>
