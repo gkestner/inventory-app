@@ -8,6 +8,7 @@ import { Permission, Role } from "@prisma/client";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
+import PermissionsTreeClient from "./PermissionsTreeClient";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -89,124 +90,9 @@ function safePermissionsFromFormData(fd: FormData, key: string): Permission[] {
   return out;
 }
 
-function splitUnderscoreLabel(s: string) {
-  const parts = s.split("_").filter(Boolean);
-  return parts.map((p) => p.charAt(0) + p.slice(1).toLowerCase()).join(" ");
-}
-
-function permLabel(p: Permission): string {
-  return splitUnderscoreLabel(String(p));
-}
-
-type PermGroup = {
-  key: string;
-  title: string;
-  subtitle?: string;
-  permissions: Permission[];
-};
-
-function buildPermissionGroups(all: Permission[]): PermGroup[] {
-  const byPrefix = (prefix: string) => all.filter((p) => String(p).startsWith(prefix));
-
-  const groups: PermGroup[] = [];
-
-  const nav = byPrefix("VIEW_");
-  if (nav.length) {
-    groups.push({
-      key: "NAV",
-      title: "App Navigation",
-      subtitle: "Controls what modules the user can see",
-      permissions: nav.sort(),
-    });
-  }
-
-  const checkout = all.filter((p) => String(p).includes("CHECKOUT"));
-  if (checkout.length) {
-    groups.push({
-      key: "CHECKOUT",
-      title: "Checkout",
-      subtitle: "Parts checkout permissions",
-      permissions: checkout.sort(),
-    });
-  }
-
-  const workOrders = all.filter((p) => String(p).includes("WORK_ORDERS"));
-  if (workOrders.length) {
-    groups.push({
-      key: "WORK_ORDERS",
-      title: "Work Orders",
-      subtitle: "Create/update/submit work orders",
-      permissions: workOrders.sort(),
-    });
-  }
-
-  const adminItems = byPrefix("ADMIN_").filter((p) => String(p).includes("_ITEMS"));
-  if (adminItems.length) {
-    groups.push({
-      key: "ADMIN_ITEMS",
-      title: "Admin: Items",
-      subtitle: "Catalog and pricing permissions",
-      permissions: adminItems.sort(),
-    });
-  }
-
-  const adminUsers = byPrefix("ADMIN_").filter((p) => String(p).includes("_USERS"));
-  if (adminUsers.length) {
-    groups.push({
-      key: "ADMIN_USERS",
-      title: "Admin: Users",
-      subtitle: "User management permissions",
-      permissions: adminUsers.sort(),
-    });
-  }
-
-  const adminLocations = byPrefix("ADMIN_").filter((p) => String(p).includes("_LOCATIONS"));
-  if (adminLocations.length) {
-    groups.push({
-      key: "ADMIN_LOCATIONS",
-      title: "Admin: Locations",
-      subtitle: "Location setup permissions",
-      permissions: adminLocations.sort(),
-    });
-  }
-
-  const adminWorkOrders = byPrefix("ADMIN_").filter((p) => String(p).includes("_WORK_ORDERS"));
-  if (adminWorkOrders.length) {
-    groups.push({
-      key: "ADMIN_WORK_ORDERS",
-      title: "Admin: Work Orders",
-      subtitle: "Override / edit / delete work orders",
-      permissions: adminWorkOrders.sort(),
-    });
-  }
-
-  const tickets = all.filter((p) => String(p).includes("MAINTENANCE_TICKETS"));
-  if (tickets.length) {
-    groups.push({
-      key: "TICKETS",
-      title: "Maintenance Tickets",
-      subtitle: "View/export maintenance tickets",
-      permissions: tickets.sort(),
-    });
-  }
-
-  const covered = new Set(groups.flatMap((g) => g.permissions));
-  const other = all.filter((p) => !covered.has(p));
-  if (other.length) {
-    groups.push({
-      key: "OTHER",
-      title: "Other",
-      permissions: other.sort(),
-    });
-  }
-
-  return groups;
-}
-
 type PageProps = {
   searchParams?: {
     titleId?: string;
-    group?: string;
   };
 };
 
@@ -227,6 +113,8 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
     );
   }
 
+  // ===== Actions =====
+
   async function createTitleAction(formData: FormData) {
     "use server";
     await requireAdmin();
@@ -242,7 +130,7 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
     });
 
     revalidatePath("/admin/access-titles");
-    redirect(`/admin/access-titles?titleId=${encodeURIComponent(created.id)}&group=ALL`);
+    redirect(`/admin/access-titles?titleId=${encodeURIComponent(created.id)}`);
   }
 
   async function updateTitleAction(formData: FormData) {
@@ -261,7 +149,7 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
     });
 
     revalidatePath("/admin/access-titles");
-    redirect(`/admin/access-titles?titleId=${encodeURIComponent(id)}&group=ALL`);
+    redirect(`/admin/access-titles?titleId=${encodeURIComponent(id)}`);
   }
 
   async function updatePermissionsAction(formData: FormData) {
@@ -269,7 +157,6 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
     await requireAdmin();
 
     const titleId = nonEmpty(formData.get("id"));
-    const group = nonEmpty(formData.get("group")) || "ALL";
     if (!titleId) redirect("/admin/access-titles");
 
     const selected = safePermissionsFromFormData(formData, "permissions");
@@ -286,7 +173,7 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
     });
 
     revalidatePath("/admin/access-titles");
-    redirect(`/admin/access-titles?titleId=${encodeURIComponent(titleId)}&group=${encodeURIComponent(group || "ALL")}`);
+    redirect(`/admin/access-titles?titleId=${encodeURIComponent(titleId)}`);
   }
 
   async function deleteTitleAction(formData: FormData) {
@@ -307,6 +194,7 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
     select: { id: true, name: true, description: true, active: true },
   });
 
+  // ===== Empty state =====
   if (titles.length === 0) {
     const border = "1px solid rgba(128,128,128,0.25)";
     const surface = "var(--background)";
@@ -384,15 +272,12 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
   const selectedTitle = requestedTitleId ? titles.find((t) => t.id === requestedTitleId) ?? null : null;
 
   if (!selectedTitle) {
-    redirect(`/admin/access-titles?titleId=${encodeURIComponent(titles[0].id)}&group=ALL`);
+    redirect(`/admin/access-titles?titleId=${encodeURIComponent(titles[0].id)}`);
   }
-
-  const requestedGroup = (searchParams?.group ?? "").trim();
 
   const border = "1px solid rgba(128,128,128,0.25)";
   const surface = "var(--background)";
   const fg = "var(--foreground)";
-  const muted = "rgba(128,128,128,0.75)";
 
   const card: CSSProperties = { border, borderRadius: 14, background: surface, padding: 12 };
   const label: CSSProperties = { display: "grid", gap: 6, fontSize: 12, opacity: 0.9, fontWeight: 900 };
@@ -418,16 +303,9 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
     lineHeight: 1,
     whiteSpace: "nowrap",
   };
-  const btnPrimary: CSSProperties = {
-    ...btn,
-    background: "rgba(33,150,243,0.18)",
-    border: "1px solid rgba(33,150,243,0.55)",
-  };
-  const btnDanger: CSSProperties = {
-    ...btn,
-    background: "rgba(244,67,54,0.14)",
-    border: "1px solid rgba(244,67,54,0.55)",
-  };
+  const btnPrimary: CSSProperties = { ...btn, background: "rgba(33,150,243,0.18)", border: "1px solid rgba(33,150,243,0.55)" };
+  const btnDanger: CSSProperties = { ...btn, background: "rgba(244,67,54,0.14)", border: "1px solid rgba(244,67,54,0.55)" };
+
   const pill: CSSProperties = {
     padding: "6px 10px",
     borderRadius: 999,
@@ -454,47 +332,15 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
     where: { titleId: selectedTitle.id },
   });
 
-  const selectedPerms = new Set<Permission>((selectedWithPerms?.permissions ?? []).map((p) => p.permission));
-
-  const allPermissions = Object.values(Permission);
-  const allGroups = buildPermissionGroups(allPermissions);
-
-  const activeGroup = requestedGroup && allGroups.some((g) => g.key === requestedGroup) ? requestedGroup : "ALL";
-  const shownGroups = activeGroup === "ALL" ? allGroups : allGroups.filter((g) => g.key === activeGroup);
-
-  const sidebarLink = (groupKey: string) =>
-    groupKey === "ALL"
-      ? `/admin/access-titles?titleId=${encodeURIComponent(selectedTitle.id)}&group=ALL`
-      : `/admin/access-titles?titleId=${encodeURIComponent(selectedTitle.id)}&group=${encodeURIComponent(groupKey)}`;
-
-  const sidebarItemStyle = (isActive: boolean): CSSProperties => ({
-    display: "block",
-    padding: "10px 12px",
-    borderRadius: 12,
-    textDecoration: "none",
-    border: isActive ? "1px solid rgba(33,150,243,0.65)" : "1px solid rgba(128,128,128,0.25)",
-    background: isActive ? "rgba(33,150,243,0.12)" : "rgba(255,255,255,0.02)",
-    color: fg,
-    fontWeight: isActive ? 900 : 800,
-  });
+  const selectedPermissions = (selectedWithPerms?.permissions ?? []).map((p) => String(p.permission));
+  const allPermissions = Object.values(Permission).map((p) => String(p));
 
   const titleSwitchAction = async (formData: FormData) => {
     "use server";
     await requireAdmin();
     const id = nonEmpty(formData.get("titleId"));
-    const group = nonEmpty(formData.get("group")) || "ALL";
     if (!id) redirect("/admin/access-titles");
-    redirect(`/admin/access-titles?titleId=${encodeURIComponent(id)}&group=${encodeURIComponent(group)}`);
-  };
-
-  const permFormId = `permform-${selectedTitle.id}`;
-
-  // Button-group styles (base + active applied by JS)
-  const modeBtnBase: CSSProperties = {
-    ...btn,
-    padding: "10px 12px",
-    borderRadius: 12,
-    fontSize: 14,
+    redirect(`/admin/access-titles?titleId=${encodeURIComponent(id)}`);
   };
 
   return (
@@ -525,6 +371,7 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
           </span>
         </div>
 
+        {/* Title switch + create */}
         <div style={{ marginTop: 12, ...card }}>
           <form action={titleSwitchAction} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
             <label style={{ ...label, minWidth: 320 }}>
@@ -538,8 +385,6 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
               </select>
             </label>
 
-            <input type="hidden" name="group" value={activeGroup} />
-
             <button type="submit" style={btnPrimary}>
               Switch
             </button>
@@ -551,7 +396,7 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
                   <form action={createTitleAction} style={{ display: "grid", gap: 10 }}>
                     <label style={label}>
                       Title name
-                      <input name="name" style={input} placeholder="e.g. Payroll Admin" required />
+                      <input name="name" style={input} placeholder="e.g. Inventory Clerk" required />
                     </label>
                     <label style={label}>
                       Description (optional)
@@ -569,51 +414,18 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
           </form>
         </div>
 
-        <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "260px 1fr", gap: 12 }}>
-          <aside style={{ ...card, height: "fit-content", position: "sticky", top: 12 }}>
-            <div style={{ fontWeight: 900, marginBottom: 10 }}>Workspace Permissions</div>
-
-            <div style={{ display: "grid", gap: 8 }}>
-              <Link href={sidebarLink("ALL")} style={sidebarItemStyle(activeGroup === "ALL")}>
-                All Permissions
-              </Link>
-
-              {allGroups.map((g) => (
-                <Link key={g.key} href={sidebarLink(g.key)} style={sidebarItemStyle(activeGroup === g.key)}>
-                  {g.title}
-                </Link>
-              ))}
-            </div>
-
-            <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75, lineHeight: 1.45 }}>
-              Click a category to filter the permission list.
-            </div>
-          </aside>
-
+        <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "360px 1fr", gap: 12 }}>
+          {/* Title details */}
           <section style={{ display: "grid", gap: 12 }}>
-            <div style={{ ...card }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                <div style={{ display: "grid", gap: 4 }}>
-                  <div style={{ fontWeight: 900 }}>Title Details</div>
-                  <div style={{ fontSize: 12, opacity: 0.8 }}>
-                    Editing permissions for <b>{selectedWithPerms?.name ?? selectedTitle.name}</b>
-                  </div>
-                </div>
+            <div style={card}>
+              <div style={{ fontWeight: 900, marginBottom: 8 }}>Title Details</div>
 
-                <span style={pill}>
-                  Category:{" "}
-                  <b>{activeGroup === "ALL" ? "All" : allGroups.find((g) => g.key === activeGroup)?.title ?? activeGroup}</b>
-                </span>
-              </div>
-
-              <form action={updateTitleAction} style={{ marginTop: 10, display: "grid", gap: 10 }}>
+              <form action={updateTitleAction} style={{ display: "grid", gap: 10 }}>
                 <input type="hidden" name="id" value={selectedTitle.id} />
-
                 <label style={label}>
                   Name
                   <input name="name" defaultValue={selectedWithPerms?.name ?? selectedTitle.name} style={input} required />
                 </label>
-
                 <label style={label}>
                   Description
                   <input name="description" defaultValue={selectedWithPerms?.description ?? ""} style={input} />
@@ -630,344 +442,49 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
                       Delete title
                     </button>
                   </form>
+                </div>
 
-                  <div style={{ fontSize: 12, opacity: 0.75 }}>
-                    Deleting removes it from all users automatically.
-                  </div>
+                <div style={{ fontSize: 12, opacity: 0.75 }}>
+                  Deleting removes it from all users automatically.
                 </div>
               </form>
             </div>
 
-            <div style={{ ...card }}>
-              <form id={permFormId} action={updatePermissionsAction} style={{ display: "grid", gap: 10 }}>
-                <input type="hidden" name="id" value={selectedTitle.id} />
-                <input type="hidden" name="group" value={activeGroup} />
-
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                  <div style={{ display: "grid", gap: 4 }}>
-                    <div style={{ fontWeight: 900 }}>Permissions</div>
-                    <div style={{ fontSize: 12, opacity: 0.8 }}>Use the mode buttons, search, then save.</div>
-                  </div>
-
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                    <span style={pill}>
-                      Selected: <b data-selected-count="1">{selectedPerms.size}</b>
-                    </span>
-
-                    <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 900 }}>
-                      Search Permissions
-                      <input
-                        type="text"
-                        placeholder="Search permissions..."
-                        style={{ ...input, width: 280 }}
-                        defaultValue=""
-                        data-search="1"
-                      />
-                    </label>
-                  </div>
-                </div>
-
-                {/* ✅ Button group instead of radios */}
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 12,
-                    flexWrap: "wrap",
-                    alignItems: "center",
-                    border,
-                    borderRadius: 14,
-                    padding: 10,
-                    background: "rgba(255,255,255,0.02)",
-                  }}
-                >
-                  <span style={{ fontWeight: 900 }}>Selection Mode:</span>
-
-                  <div
-                    style={{
-                      display: "inline-flex",
-                      gap: 8,
-                      padding: 6,
-                      borderRadius: 14,
-                      border,
-                      background: "rgba(255,255,255,0.02)",
-                    }}
-                  >
-                    <button
-                      type="button"
-                      data-mode-btn="CUSTOM"
-                      aria-pressed="true"
-                      style={modeBtnBase}
-                    >
-                      Custom
-                    </button>
-                    <button
-                      type="button"
-                      data-mode-btn="ALL"
-                      aria-pressed="false"
-                      style={modeBtnBase}
-                    >
-                      All
-                    </button>
-                    <button
-                      type="button"
-                      data-mode-btn="NONE"
-                      aria-pressed="false"
-                      style={modeBtnBase}
-                    >
-                      None
-                    </button>
-                  </div>
-
-                  <div style={{ marginLeft: "auto", display: "flex", gap: 10, flexWrap: "wrap" }}>
-                    <label style={{ display: "inline-flex", gap: 8, alignItems: "center", fontWeight: 900 }}>
-                      <input type="checkbox" data-select-all="1" />
-                      Select all (toggle)
-                    </label>
-                  </div>
-                </div>
-
-                <div style={{ display: "grid", gap: 10, border, borderRadius: 14, padding: 10 }}>
-                  {shownGroups.map((g) => (
-                    <details key={g.key} open data-group-wrap="1" data-group={g.key}>
-                      <summary
-                        style={{
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 10,
-                          padding: "8px 6px",
-                          borderRadius: 10,
-                          background: "rgba(255,255,255,0.02)",
-                        }}
-                      >
-                        <div style={{ display: "grid" }}>
-                          <span style={{ fontWeight: 900 }}>{g.title}</span>
-                          {g.subtitle ? <span style={{ fontSize: 12, color: muted }}>{g.subtitle}</span> : null}
-                        </div>
-
-                        <label
-                          style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 900 }}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <input type="checkbox" data-group-toggle={g.key} aria-label={`Select all in ${g.title}`} />
-                          All
-                        </label>
-                      </summary>
-
-                      <div
-                        style={{
-                          marginTop: 8,
-                          display: "grid",
-                          gridTemplateColumns: "repeat(auto-fit, minmax(330px, 1fr))",
-                          gap: 8,
-                          padding: "6px 4px 10px",
-                        }}
-                      >
-                        {g.permissions.map((perm) => (
-                          <label
-                            key={perm}
-                            style={{
-                              display: "flex",
-                              gap: 10,
-                              alignItems: "flex-start",
-                              padding: "8px 10px",
-                              borderRadius: 12,
-                              border,
-                              background: "rgba(255,255,255,0.02)",
-                            }}
-                            data-perm-row="1"
-                            data-text={`${permLabel(perm)} ${String(perm)}`.toLowerCase()}
-                            data-group={g.key}
-                          >
-                            <input
-                              type="checkbox"
-                              name="permissions"
-                              value={perm}
-                              data-perm="1"
-                              data-group={g.key}
-                              defaultChecked={selectedPerms.has(perm)}
-                              style={{ marginTop: 2 }}
-                            />
-                            <div style={{ display: "grid", gap: 2 }}>
-                              <div style={{ fontWeight: 900 }}>{permLabel(perm)}</div>
-                              <div
-                                style={{
-                                  fontSize: 12,
-                                  opacity: 0.85,
-                                  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-                                }}
-                              >
-                                {perm}
-                              </div>
-                            </div>
-                          </label>
-                        ))}
-                      </div>
-                    </details>
-                  ))}
-                </div>
-
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                  <button type="submit" style={btnPrimary}>
-                    Save Changes
-                  </button>
-                  <div style={{ fontSize: 12, opacity: 0.75 }}>
-                    Saves permissions for <b>{selectedWithPerms?.name ?? selectedTitle.name}</b>.
-                  </div>
-                </div>
-
-                <script
-                  dangerouslySetInnerHTML={{
-                    __html: `
-(function(){
-  const form = document.getElementById(${JSON.stringify(permFormId)});
-  if(!form) return;
-
-  const permBoxes = () => Array.from(form.querySelectorAll('input[type="checkbox"][data-perm="1"]'));
-  const selectAll = form.querySelector('input[type="checkbox"][data-select-all="1"]');
-  const selectedCountEl = form.querySelector('[data-selected-count="1"]');
-  const searchInput = form.querySelector('input[data-search="1"]');
-
-  const modeButtons = Array.from(form.querySelectorAll('button[type="button"][data-mode-btn]'));
-
-  function setIndeterminate(el, on){
-    try { el.indeterminate = !!on; } catch(e) {}
-  }
-
-  function syncSelectedCount(){
-    const boxes = permBoxes();
-    const checked = boxes.filter(b => b.checked).length;
-    if(selectedCountEl) selectedCountEl.textContent = String(checked);
-  }
-
-  function syncSelectAll(){
-    if(!selectAll) return;
-    const boxes = permBoxes();
-    const checked = boxes.filter(b => b.checked).length;
-    selectAll.checked = boxes.length > 0 && checked === boxes.length;
-    setIndeterminate(selectAll, checked > 0 && checked < boxes.length);
-  }
-
-  function syncGroup(groupKey){
-    const toggle = form.querySelector('input[type="checkbox"][data-group-toggle="'+groupKey+'"]');
-    if(!toggle) return;
-    const boxes = permBoxes().filter(b => b.getAttribute('data-group') === groupKey);
-    const checked = boxes.filter(b => b.checked).length;
-    toggle.checked = boxes.length > 0 && checked === boxes.length;
-    setIndeterminate(toggle, checked > 0 && checked < boxes.length);
-  }
-
-  function syncAllGroups(){
-    const toggles = Array.from(form.querySelectorAll('input[type="checkbox"][data-group-toggle]'));
-    toggles.forEach(t => {
-      const k = t.getAttribute('data-group-toggle');
-      if(k) syncGroup(k);
-    });
-  }
-
-  function setAll(on){
-    permBoxes().forEach(b => { b.checked = !!on; });
-    syncAllGroups();
-    syncSelectAll();
-    syncSelectedCount();
-  }
-
-  function setModeActive(mode){
-    modeButtons.forEach(btn => {
-      const m = btn.getAttribute('data-mode-btn');
-      const active = (m === mode);
-      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-
-      // Active style
-      if(active){
-        btn.style.background = "rgba(33,150,243,0.18)";
-        btn.style.border = "1px solid rgba(33,150,243,0.55)";
-        btn.style.boxShadow = "0 0 0 1px rgba(33,150,243,0.12) inset";
-      } else {
-        btn.style.background = "var(--background)";
-        btn.style.border = "1px solid rgba(128,128,128,0.25)";
-        btn.style.boxShadow = "none";
-      }
-    });
-  }
-
-  function applyMode(mode){
-    if(mode === "ALL") setAll(true);
-    else if(mode === "NONE") setAll(false);
-    // CUSTOM does not change selection; it just changes UI mode
-  }
-
-  function applySearch(qRaw){
-    const q = String(qRaw || "").trim().toLowerCase();
-    const rows = Array.from(form.querySelectorAll('[data-perm-row="1"]'));
-    rows.forEach(r => {
-      const text = (r.getAttribute('data-text') || "").toLowerCase();
-      r.style.display = (!q || text.includes(q)) ? "" : "none";
-    });
-
-    const groups = Array.from(form.querySelectorAll('[data-group-wrap="1"]'));
-    groups.forEach(g => {
-      const rowsIn = Array.from(g.querySelectorAll('[data-perm-row="1"]'));
-      const anyVisible = rowsIn.some(r => r.style.display !== "none");
-      g.style.display = anyVisible ? "" : "none";
-    });
-  }
-
-  // init visuals
-  setModeActive("CUSTOM");
-  syncAllGroups();
-  syncSelectAll();
-  syncSelectedCount();
-
-  // mode button clicks
-  modeButtons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const mode = btn.getAttribute('data-mode-btn') || "CUSTOM";
-      setModeActive(mode);
-      applyMode(mode);
-    });
-  });
-
-  form.addEventListener('change', (e) => {
-    const t = e.target;
-    if(!(t instanceof HTMLInputElement)) return;
-
-    if(t.matches('input[type="checkbox"][data-select-all="1"]')){
-      setAll(!!t.checked);
-      setModeActive("CUSTOM");
-      return;
-    }
-
-    if(t.matches('input[type="checkbox"][data-group-toggle]')){
-      const groupKey = t.getAttribute('data-group-toggle');
-      const on = !!t.checked;
-      permBoxes().filter(b => b.getAttribute('data-group') === groupKey).forEach(b => { b.checked = on; });
-      if(groupKey) syncGroup(groupKey);
-      syncSelectAll();
-      syncSelectedCount();
-      setModeActive("CUSTOM");
-      return;
-    }
-
-    if(t.matches('input[type="checkbox"][data-perm="1"]')){
-      const groupKey = t.getAttribute('data-group');
-      if(groupKey) syncGroup(groupKey);
-      syncSelectAll();
-      syncSelectedCount();
-      setModeActive("CUSTOM");
-      return;
-    }
-  });
-
-  if(searchInput){
-    searchInput.addEventListener('input', () => applySearch(searchInput.value));
-  }
-})();`,
-                  }}
-                />
-              </form>
+            <div style={card}>
+              <div style={{ fontWeight: 900, marginBottom: 6 }}>How to use</div>
+              <div style={{ fontSize: 13, opacity: 0.85, lineHeight: 1.45 }}>
+                Use the tree to select permissions by module and path, then click <b>Save Changes</b>.
+              </div>
             </div>
+          </section>
+
+          {/* Permissions Tree */}
+          <section style={card}>
+            <form action={updatePermissionsAction} style={{ display: "grid", gap: 12 }}>
+              <input type="hidden" name="id" value={selectedTitle.id} />
+
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ display: "grid", gap: 4 }}>
+                  <div style={{ fontWeight: 900 }}>Permissions</div>
+                  <div style={{ fontSize: 12, opacity: 0.8 }}>Select by module + path. Parent checks apply to all descendants.</div>
+                </div>
+
+                <span style={pill}>
+                  Selected: <b>{selectedPermissions.length}</b>
+                </span>
+              </div>
+
+              <PermissionsTreeClient allPermissions={allPermissions} selectedPermissions={selectedPermissions} />
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <button type="submit" style={btnPrimary}>
+                  Save Changes
+                </button>
+                <div style={{ fontSize: 12, opacity: 0.75 }}>
+                  Saves permissions for <b>{selectedWithPerms?.name ?? selectedTitle.name}</b>.
+                </div>
+              </div>
+            </form>
           </section>
         </div>
       </div>
