@@ -38,7 +38,6 @@ function nonEmpty(v: FormDataEntryValue | null): string {
 function pickRole(v: string): Role {
   if (v === Role.ADMIN) return Role.ADMIN;
   if (v === Role.MANAGER) return Role.MANAGER;
-  // @ts-expect-error - if your Role enum includes MAINTENANCE this is fine; otherwise remove this line.
   if (v === Role.MAINTENANCE) return Role.MAINTENANCE;
   return Role.EMPLOYEE;
 }
@@ -47,6 +46,7 @@ function safeIdsFromFormData(fd: FormData, key: string): string[] {
   const vals = fd.getAll(key);
   const ids = vals.map((x) => String(x).trim()).filter((x) => x.length > 0);
 
+  // de-dupe while preserving order
   const seen = new Set<string>();
   const out: string[] = [];
   for (const id of ids) {
@@ -77,11 +77,8 @@ function parseOrderedGroup(formData: FormData, ids: string[], orderPrefix: strin
 }
 
 function makeTempPassword(): string {
+  // URL-safe-ish and strong enough for one-time temp usage
   return crypto.randomBytes(9).toString("base64url"); // ~12 chars
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 function safePermissionTitleIdsFromFormData(fd: FormData): string[] {
@@ -171,17 +168,21 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
     const email = emailRaw.toLowerCase();
 
+    // Disallow overlaps
     const overlap = primaryIds.filter((id) => optionalIds.includes(id));
     if (overlap.length > 0) {
       redirect("/admin/users?error=" + encodeURIComponent("A location cannot be both Primary and Optional"));
     }
 
+    // Require at least one Primary to keep legacy `user.locationId` meaningful (and avoid auth regressions).
     if (primaryIds.length === 0) {
       redirect("/admin/users?error=" + encodeURIComponent("At least one Primary location is required."));
     }
 
     const allSelected = Array.from(new Set([...primaryIds, ...optionalIds]));
 
+    // Enforce: prefer active-only selections. If there are zero active locations in the system,
+    // allow selecting existing inactive locations so admins can still bootstrap users.
     if (allSelected.length > 0) {
       const [existingAll, activeCountRows] = await Promise.all([
         prisma.location.findMany({
@@ -221,6 +222,9 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         const existing = await tx.user.findUnique({ where: { email }, select: { id: true } });
         if (existing) throw new Error("Email already exists");
 
+        // Deterministic ordering:
+        // - If an order number is provided, sort by that (asc)
+        // - Else sort by location name (asc)
         const locs =
           allSelected.length > 0
             ? await tx.location.findMany({
@@ -249,9 +253,11 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         const primSorted = sortPicks(primaryPicks);
         const optSorted = sortPicks(optionalPicks);
 
+        // Legacy compatibility: first primary after ordering
         const legacyLocationId: string | null = primSorted[0] ?? null;
 
         const rows: Array<{ locationId: string; isPrimary: boolean; sortOrder: number }> = [];
+        // Persist ordering *within each group* (Primary 1..N, Optional 1..N)
         for (let i = 0; i < primSorted.length; i++) rows.push({ locationId: primSorted[i], isPrimary: true, sortOrder: i + 1 });
         for (let i = 0; i < optSorted.length; i++) rows.push({ locationId: optSorted[i], isPrimary: false, sortOrder: i + 1 });
 
@@ -382,6 +388,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
       redirect("/admin/users?error=" + encodeURIComponent("A location cannot be both Primary and Optional"));
     }
 
+    // Require at least one Primary to keep legacy `user.locationId` meaningful (and avoid auth regressions).
     if (primaryIds.length === 0) {
       redirect("/admin/users?error=" + encodeURIComponent("At least one Primary location is required."));
     }
@@ -390,6 +397,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
     try {
       await prisma.$transaction(async (tx) => {
+        // Ensure user exists + get currently assigned locations (to allow already-assigned inactive)
         const u = await tx.user.findUnique({
           where: { id: userId },
           select: { id: true, allowedLocations: { select: { locationId: true } } },
@@ -398,6 +406,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
         const previouslyAssigned = new Set<string>((u.allowedLocations ?? []).map((r) => r.locationId));
 
+        // Validate: selected ids must exist
         if (allSelected.length > 0) {
           const locs = await tx.location.findMany({
             where: { id: { in: allSelected } },
@@ -410,6 +419,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
             throw new Error(`Some locations were not found: ${missing.slice(0, 10).join(", ")}`);
           }
 
+          // Enforce: inactive selections are only allowed if they were already assigned to this user
           const inactiveSelected = allSelected.filter((id) => byId.get(id)?.active === false);
           const badInactive = inactiveSelected.filter((id) => !previouslyAssigned.has(id));
           if (badInactive.length > 0) {
@@ -481,7 +491,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     redirect("/admin/users?ok=1");
   }
 
-  // ✅ Assign Permission Titles (RBAC templates) — with inactive guard
+  // Assign Permission Titles (RBAC templates)
   async function assignPermissionTitlesAction(formData: FormData) {
     "use server";
     await requireAdmin();
@@ -493,32 +503,8 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
     try {
       await prisma.$transaction(async (tx) => {
-        // Ensure user exists + get current assignments (to allow keeping already-assigned inactive)
-        const u = await tx.user.findUnique({
-          where: { id: userId },
-          select: { id: true, permissionTitles: { select: { titleId: true } } },
-        });
+        const u = await tx.user.findUnique({ where: { id: userId }, select: { id: true } });
         if (!u) throw new Error("User not found");
-
-        const previouslyAssigned = new Set<string>(u.permissionTitles.map((r) => r.titleId));
-
-        // Validate selected ids exist + prevent newly assigning inactive titles
-        if (selectedIds.length > 0) {
-          const titles = await tx.permissionTitle.findMany({
-            where: { id: { in: selectedIds } },
-            select: { id: true, active: true },
-          });
-
-          const found = new Set(titles.map((t) => t.id));
-          const missing = selectedIds.filter((id) => !found.has(id));
-          if (missing.length > 0) throw new Error("Some Permission Titles were not found.");
-
-          const inactiveSelected = titles.filter((t) => !t.active).map((t) => t.id);
-          const newlyAddingInactive = inactiveSelected.filter((id) => !previouslyAssigned.has(id));
-          if (newlyAddingInactive.length > 0) {
-            throw new Error("Inactive Permission Titles cannot be newly assigned. Reactivate them first.");
-          }
-        }
 
         await tx.userPermissionTitle.deleteMany({ where: { userId } });
 
@@ -583,9 +569,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
       <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 900, marginBottom: 6 }}>Admin Users</h1>
-          <div style={{ opacity: 0.8, marginBottom: 16 }}>
-            Manage users, roles, locations, and Permission Titles (RBAC templates).
-          </div>
+          <div style={{ opacity: 0.8, marginBottom: 16 }}>Manage users, roles, locations, and Permission Titles (RBAC templates).</div>
         </div>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -684,7 +668,6 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                 <span style={{ fontWeight: 800 }}>Role</span>
                 <select name="role" defaultValue={Role.EMPLOYEE} style={field}>
                   <option value={Role.EMPLOYEE}>EMPLOYEE</option>
-                  {/* @ts-expect-error - remove if Role enum doesn't include MAINTENANCE */}
                   <option value={Role.MAINTENANCE}>MAINTENANCE</option>
                   <option value={Role.MANAGER}>MANAGER</option>
                   <option value={Role.ADMIN}>ADMIN</option>
@@ -704,7 +687,14 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                       >
                         <input type="checkbox" name="primaryLocationIds" value={l.id} />
                         <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
-                        <input name={`primaryOrder_${l.id}`} type="number" min={1} step={1} placeholder="Order #" style={field} />
+                        <input
+                          name={`primaryOrder_${l.id}`}
+                          type="number"
+                          min={1}
+                          step={1}
+                          placeholder="Order #"
+                          style={field}
+                        />
                       </label>
                     ))
                   ) : (
@@ -728,13 +718,18 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                       >
                         <input type="checkbox" name="optionalLocationIds" value={l.id} />
                         <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
-                        <input name={`optionalOrder_${l.id}`} type="number" min={1} step={1} placeholder="Order #" style={field} />
+                        <input
+                          name={`optionalOrder_${l.id}`}
+                          type="number"
+                          min={1}
+                          step={1}
+                          placeholder="Order #"
+                          style={field}
+                        />
                       </label>
                     ))
                   ) : (
-                    <div style={{ opacity: 0.8, fontSize: 13 }}>
-                      No optional locations available until at least one location exists.
-                    </div>
+                    <div style={{ opacity: 0.8, fontSize: 13 }}>No optional locations available until at least one location exists.</div>
                   )}
                 </div>
               </div>
@@ -766,8 +761,6 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
             const optionalChoices = locationsAll.filter((l) => l.active || checkedOptional.has(l.id));
 
             const currentTitleIds = new Set(u.permissionTitles.map((r) => r.titleId));
-            // ✅ show active titles + any inactive that are already assigned to this user
-            const titleChoices = permissionTitles.filter((t) => t.active || currentTitleIds.has(t.id));
 
             return (
               <details
@@ -814,14 +807,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                       Permission Titles:{" "}
                       <span style={{ fontWeight: 800 }}>
                         {u.permissionTitles.length
-                          ? u.permissionTitles
-                              .map((r) => {
-                                const name = r.title?.name ?? "";
-                                const inactive = r.title?.active === false;
-                                return name ? `${name}${inactive ? " (Inactive)" : ""}` : "";
-                              })
-                              .filter(Boolean)
-                              .join(", ")
+                          ? u.permissionTitles.map((r) => r.title?.name ?? "").filter(Boolean).join(", ")
                           : "—"}
                       </span>
                     </div>
@@ -832,7 +818,6 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                       <input type="hidden" name="userId" value={u.id} />
                       <select name="role" defaultValue={u.role} style={field}>
                         <option value={Role.EMPLOYEE}>EMPLOYEE</option>
-                        {/* @ts-expect-error - remove if Role enum doesn't include MAINTENANCE */}
                         <option value={Role.MAINTENANCE}>MAINTENANCE</option>
                         <option value={Role.MANAGER}>MANAGER</option>
                         <option value={Role.ADMIN}>ADMIN</option>
@@ -859,7 +844,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                   </div>
                 </div>
 
-                {/* ✅ Permission Titles assignment */}
+                {/* Permission Titles assignment */}
                 <details style={{ marginTop: 12 }}>
                   <summary style={{ cursor: "pointer", fontWeight: 900 }}>Assign Permission Titles</summary>
 
@@ -877,10 +862,15 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                         <input type="hidden" name="userId" value={u.id} />
 
                         <div style={{ display: "grid", gap: 6, maxHeight: 220, overflow: "auto", paddingRight: 6 }}>
-                          {titleChoices.map((t) => (
+                          {permissionTitles.map((t) => (
                             <label
                               key={`pt-${u.id}-${t.id}`}
-                              style={{ display: "grid", gridTemplateColumns: "20px 1fr", gap: 10, alignItems: "center" }}
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "20px 1fr",
+                                gap: 10,
+                                alignItems: "center",
+                              }}
                             >
                               <input
                                 type="checkbox"
