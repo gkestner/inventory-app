@@ -1,3 +1,4 @@
+// app/admin/access-titles/PermissionsTreeClient.tsx
 "use client";
 
 import { useMemo, useState } from "react";
@@ -20,7 +21,6 @@ export default function PermissionsTreeClient({
   const selected = useMemo(() => new Set(selectedPermissions), [selectedPermissions]);
 
   const GROUPS: Group[] = useMemo(() => {
-    // You can tweak/rename groups whenever you want.
     const byPrefix: Array<[string, string]> = [
       ["VIEW_", "Navigation / View"],
       ["CREATE_", "Create"],
@@ -47,9 +47,7 @@ export default function PermissionsTreeClient({
     const remainder = allPermissions.filter((p) => !used.has(p));
     if (remainder.length) groups.push({ key: "OTHER", label: "Other", perms: remainder });
 
-    // Within each group, sort alphabetically
     for (const g of groups) g.perms = [...g.perms].sort((a, b) => a.localeCompare(b));
-
     return groups;
   }, [allPermissions]);
 
@@ -75,15 +73,17 @@ export default function PermissionsTreeClient({
   }
 
   function applySelectAll(value: boolean) {
-    // We can’t mutate server defaults, but we *can* flip all checkboxes in the DOM,
-    // so the form posts correct values.
-    const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="checkbox"][name="permissions"]'));
+    const inputs = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[type="checkbox"][name="permissions"]')
+    );
     for (const el of inputs) el.checked = value;
   }
 
   function applyGroupToggle(perms: string[], value: boolean) {
     const set = new Set(perms);
-    const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="checkbox"][name="permissions"]'));
+    const inputs = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[type="checkbox"][name="permissions"]')
+    );
     for (const el of inputs) {
       if (set.has(el.value)) el.checked = value;
     }

@@ -1,372 +1,310 @@
 // app/admin/roles/page.tsx
 import type { CSSProperties } from "react";
+import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { revalidatePath } from "next/cache";
+import { Role } from "@prisma/client";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
-import { loadUserPermissions, hasAnyPermission } from "@/app/lib/permissions";
-import { Permission } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-type SearchParams = {
-  ok?: string;
-  error?: string;
-};
+type AdminSession = {
+  user?: { role?: Role | null } | null;
+} | null;
 
-function norm(s: string): string {
-  return s.trim().replace(/\s+/g, " ");
-}
-
-function safeErrorMessage(e: unknown): string {
-  const msg = e instanceof Error ? e.message : "Unknown error";
-  // Unique constraint errors often include "Unique constraint failed"
-  if (msg.toLowerCase().includes("unique constraint")) return "Role name already exists.";
-  if (msg.toLowerCase().includes("unique") && msg.toLowerCase().includes("name")) return "Role name already exists.";
-  return msg;
-}
-
-async function requireRolesAdmin() {
-  const session = await getServerSession(authOptions);
+async function requireAdmin() {
+  const session = (await getServerSession(authOptions)) as AdminSession;
   if (!session) redirect("/login");
-
-  const perms = await loadUserPermissions(session);
-  const ok = hasAnyPermission(perms, [Permission.ADMIN_EDIT_USERS]);
-
-  if (!ok) redirect("/");
-
-  return { session, perms };
+  if ((session.user?.role ?? null) !== Role.ADMIN) redirect("/");
 }
 
-async function createRoleAction(formData: FormData) {
-  "use server";
+function nonEmpty(v: FormDataEntryValue | null): string {
+  return String(v ?? "").trim();
+}
 
-  const session = await getServerSession(authOptions);
-  if (!session) redirect("/login");
+type SearchParams = { error?: string; ok?: string };
 
-  const perms = await loadUserPermissions(session);
-  const ok = hasAnyPermission(perms, [Permission.ADMIN_EDIT_USERS]);
-  if (!ok) redirect("/");
+export default async function AdminRolesPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  await requireAdmin();
+  const sp = await searchParams;
+  const error = (sp.error ?? "").trim();
+  const ok = (sp.ok ?? "") === "1";
 
-  const nameRaw = String(formData.get("name") ?? "");
-  const descriptionRaw = String(formData.get("description") ?? "");
-
-  const name = norm(nameRaw);
-  const description = norm(descriptionRaw);
-
-  if (!name) redirect("/admin/roles?error=" + encodeURIComponent("Role name is required."));
-  if (name.length > 80) redirect("/admin/roles?error=" + encodeURIComponent("Role name is too long (max 80)."));
-  if (description.length > 300)
-    redirect("/admin/roles?error=" + encodeURIComponent("Description is too long (max 300)."));
-
+  // If tables aren’t migrated yet, prisma.appRole will throw at runtime.
+  // We show a friendly panel instead of crashing.
+  let roles: Array<{ id: string; name: string; description: string | null; isSystem: boolean; updatedAt: Date; users: number }> =
+    [];
   try {
-    await prisma.appRole.create({
-      data: {
-        name,
-        description: description ? description : null,
-        isSystem: false,
+    const rows = await prisma.appRole.findMany({
+      orderBy: [{ isSystem: "desc" }, { name: "asc" }],
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        isSystem: true,
+        updatedAt: true,
+        _count: { select: { users: true } }, // UserRole relation count
       },
-      select: { id: true },
     });
 
-    revalidatePath("/admin/roles");
-    redirect("/admin/roles?ok=" + encodeURIComponent("Role created."));
-  } catch (e) {
-    redirect("/admin/roles?error=" + encodeURIComponent(safeErrorMessage(e)));
-  }
-}
+    roles = rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      description: r.description,
+      isSystem: r.isSystem,
+      updatedAt: r.updatedAt,
+      users: r._count.users,
+    }));
+  } catch {
+    return (
+      <main style={{ padding: 16 }}>
+        <div style={{ padding: 16, maxWidth: 1200, margin: "0 auto", color: "var(--foreground)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+            <div>
+              <h1 style={{ margin: 0, fontSize: 26, fontWeight: 900 }}>Roles</h1>
+              <div style={{ opacity: 0.8, marginTop: 6 }}>
+                Create and manage dynamic roles. Next: edit role permissions &amp; title grants.
+              </div>
+            </div>
+            <Link
+              href="/admin/users"
+              style={{
+                padding: "10px 14px",
+                borderRadius: 12,
+                border: "1px solid rgba(128,128,128,0.25)",
+                background: "var(--background)",
+                color: "var(--foreground)",
+                textDecoration: "none",
+                fontWeight: 900,
+              }}
+            >
+              Back to Users
+            </Link>
+          </div>
 
-async function deleteRoleAction(formData: FormData) {
-  "use server";
-
-  const session = await getServerSession(authOptions);
-  if (!session) redirect("/login");
-
-  const perms = await loadUserPermissions(session);
-  const ok = hasAnyPermission(perms, [Permission.ADMIN_EDIT_USERS]);
-  if (!ok) redirect("/");
-
-  const roleId = String(formData.get("roleId") ?? "").trim();
-  if (!roleId) redirect("/admin/roles?error=" + encodeURIComponent("Missing roleId."));
-
-  try {
-    const role = await prisma.appRole.findUnique({
-      where: { id: roleId },
-      select: { id: true, isSystem: true, name: true },
-    });
-
-    if (!role) redirect("/admin/roles?error=" + encodeURIComponent("Role not found."));
-    if (role.isSystem) {
-      redirect("/admin/roles?error=" + encodeURIComponent("System roles cannot be deleted."));
-    }
-
-    await prisma.appRole.delete({ where: { id: roleId } });
-
-    revalidatePath("/admin/roles");
-    redirect("/admin/roles?ok=" + encodeURIComponent("Role deleted."));
-  } catch (e) {
-    redirect("/admin/roles?error=" + encodeURIComponent(safeErrorMessage(e)));
-  }
-}
-
-export default async function AdminRolesPage({
-  searchParams,
-}: {
-  searchParams?: Promise<SearchParams>;
-}) {
-  await requireRolesAdmin();
-  const sp = (await searchParams) ?? {};
-  const okMsg = typeof sp.ok === "string" ? sp.ok : "";
-  const errMsg = typeof sp.error === "string" ? sp.error : "";
-
-  const roles = await prisma.appRole.findMany({
-    orderBy: [{ isSystem: "desc" }, { name: "asc" }],
-    include: {
-      _count: { select: { users: true } },
-    },
-  });
-
-  const page: CSSProperties = {
-    padding: 16,
-    color: "var(--text)",
-    background: "var(--background)",
-  };
-
-  const card: CSSProperties = {
-    background: "var(--surface)",
-    border: "1px solid var(--border)",
-    borderRadius: 12,
-    padding: 14,
-  };
-
-  const h1: CSSProperties = { margin: "0 0 12px 0", fontSize: 20, fontWeight: 800 };
-
-  const row: CSSProperties = { display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" };
-
-  const input: CSSProperties = {
-    padding: "9px 10px",
-    borderRadius: 10,
-    border: "1px solid var(--border)",
-    background: "var(--background)",
-    color: "var(--text)",
-    width: 320,
-    maxWidth: "100%",
-  };
-
-  const textarea: CSSProperties = {
-    padding: "9px 10px",
-    borderRadius: 10,
-    border: "1px solid var(--border)",
-    background: "var(--background)",
-    color: "var(--text)",
-    width: 520,
-    maxWidth: "100%",
-    minHeight: 64,
-    resize: "vertical",
-  };
-
-  const btn: CSSProperties = {
-    padding: "9px 12px",
-    borderRadius: 10,
-    border: "1px solid var(--border)",
-    background: "var(--surface)",
-    color: "var(--text)",
-    fontWeight: 700,
-    cursor: "pointer",
-  };
-
-  const dangerBtn: CSSProperties = {
-    ...btn,
-    border: "1px solid rgba(255,0,0,.35)",
-  };
-
-  const table: CSSProperties = {
-    width: "100%",
-    borderCollapse: "collapse",
-    marginTop: 10,
-  };
-
-  const th: CSSProperties = {
-    textAlign: "left",
-    fontSize: 12,
-    color: "var(--mutedText)",
-    borderBottom: "1px solid var(--border)",
-    padding: "10px 8px",
-    whiteSpace: "nowrap",
-  };
-
-  const td: CSSProperties = {
-    borderBottom: "1px solid var(--border)",
-    padding: "10px 8px",
-    verticalAlign: "top",
-    fontSize: 13,
-  };
-
-  const pill: CSSProperties = {
-    display: "inline-block",
-    fontSize: 12,
-    padding: "2px 8px",
-    borderRadius: 999,
-    border: "1px solid var(--border)",
-    background: "var(--background)",
-    color: "var(--mutedText)",
-    marginLeft: 8,
-  };
-
-  const flashOk: CSSProperties = {
-    margin: "0 0 12px 0",
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: "1px solid rgba(0, 180, 90, .35)",
-    background: "rgba(0, 180, 90, .08)",
-    color: "var(--text)",
-  };
-
-  const flashErr: CSSProperties = {
-    margin: "0 0 12px 0",
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: "1px solid rgba(255, 0, 0, .35)",
-    background: "rgba(255, 0, 0, .08)",
-    color: "var(--text)",
-  };
-
-  return (
-    <div style={page}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-        <div>
-          <h1 style={h1}>Roles</h1>
-          <div style={{ fontSize: 13, color: "var(--mutedText)" }}>
-            Create and manage dynamic roles. Next: edit role permissions &amp; title grants.
+          <div
+            style={{
+              marginTop: 12,
+              padding: 14,
+              borderRadius: 14,
+              border: "1px solid rgba(255,180,0,0.55)",
+              background: "var(--background)",
+            }}
+          >
+            <div style={{ fontWeight: 900, marginBottom: 6 }}>⚠️ Dynamic roles not migrated yet</div>
+            <div style={{ opacity: 0.9 }}>
+              Your database does not have the <code>AppRole</code>/<code>UserRole</code> tables yet.
+              Run migrations and redeploy.
+            </div>
           </div>
         </div>
+      </main>
+    );
+  }
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <Link href="/admin/users" style={{ ...btn, textDecoration: "none", display: "inline-block" }}>
+  async function createRoleAction(formData: FormData) {
+    "use server";
+    await requireAdmin();
+
+    const name = nonEmpty(formData.get("name"));
+    const description = nonEmpty(formData.get("description")) || null;
+
+    if (!name) redirect("/admin/roles?error=" + encodeURIComponent("Name is required"));
+
+    try {
+      await prisma.appRole.create({
+        data: { name, description, isSystem: false },
+        select: { id: true },
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Create failed";
+      redirect("/admin/roles?error=" + encodeURIComponent(msg));
+    }
+
+    revalidatePath("/admin/roles");
+    revalidatePath("/admin/users"); // ✅ users page needs to see new roles
+    redirect("/admin/roles?ok=1");
+  }
+
+  async function deleteRoleAction(formData: FormData) {
+    "use server";
+    await requireAdmin();
+
+    const id = nonEmpty(formData.get("id"));
+    if (!id) redirect("/admin/roles?error=" + encodeURIComponent("Missing id"));
+
+    try {
+      const r = await prisma.appRole.findUnique({ where: { id }, select: { isSystem: true } });
+      if (!r) redirect("/admin/roles?error=" + encodeURIComponent("Role not found"));
+      if (r.isSystem) redirect("/admin/roles?error=" + encodeURIComponent("System roles cannot be deleted"));
+
+      await prisma.appRole.delete({ where: { id } });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Delete failed";
+      redirect("/admin/roles?error=" + encodeURIComponent(msg));
+    }
+
+    revalidatePath("/admin/roles");
+    revalidatePath("/admin/users");
+    redirect("/admin/roles?ok=1");
+  }
+
+  const border = "1px solid rgba(128,128,128,0.25)";
+  const surface = "var(--background)";
+  const fg = "var(--foreground)";
+
+  const card: CSSProperties = { border, borderRadius: 14, background: surface, padding: 12 };
+  const input: CSSProperties = {
+    width: "100%",
+    boxSizing: "border-box",
+    padding: "10px 12px",
+    borderRadius: 12,
+    border,
+    background: surface,
+    color: fg,
+    outline: "none",
+    fontSize: 14,
+  };
+  const btn: CSSProperties = {
+    padding: "10px 14px",
+    borderRadius: 12,
+    border,
+    background: surface,
+    color: fg,
+    fontWeight: 900,
+    cursor: "pointer",
+    lineHeight: 1,
+    whiteSpace: "nowrap",
+  };
+  const btnPrimary: CSSProperties = { ...btn, background: "rgba(33,150,243,0.18)", border: "1px solid rgba(33,150,243,0.55)" };
+  const btnDanger: CSSProperties = { ...btn, background: "rgba(244,67,54,0.14)", border: "1px solid rgba(244,67,54,0.55)" };
+
+  return (
+    <main style={{ padding: 16 }}>
+      <div style={{ padding: 16, maxWidth: 1200, margin: "0 auto", color: fg }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 26, fontWeight: 900 }}>Roles</h1>
+            <div style={{ opacity: 0.8, marginTop: 6 }}>
+              Create and manage dynamic roles. Next: edit role permissions &amp; title grants.
+            </div>
+          </div>
+
+          <Link
+            href="/admin/users"
+            style={{
+              padding: "10px 14px",
+              borderRadius: 12,
+              border,
+              background: surface,
+              color: fg,
+              textDecoration: "none",
+              fontWeight: 900,
+            }}
+          >
             Back to Users
           </Link>
         </div>
-      </div>
 
-      {okMsg ? <div style={flashOk}>{okMsg}</div> : null}
-      {errMsg ? <div style={flashErr}>{errMsg}</div> : null}
-
-      <div style={{ ...card, marginTop: 12 }}>
-        <div style={{ fontWeight: 800, marginBottom: 10 }}>Create role</div>
-
-        <form action={createRoleAction} style={{ display: "grid", gap: 10 }}>
-          <div style={row}>
-            <label style={{ fontSize: 13, fontWeight: 700, width: 120 }}>Name</label>
-            <input name="name" placeholder="e.g., Inventory Clerk" style={input} />
+        {error ? (
+          <div style={{ ...card, marginTop: 12, border: "1px solid rgba(244,67,54,0.55)", background: "rgba(244,67,54,0.06)" }}>
+            <div style={{ fontWeight: 900, marginBottom: 6 }}>Error</div>
+            <div style={{ whiteSpace: "pre-wrap" }}>{error}</div>
           </div>
+        ) : null}
 
-          <div style={row}>
-            <label style={{ fontSize: 13, fontWeight: 700, width: 120 }}>Description</label>
-            <textarea name="description" placeholder="Optional" style={textarea} />
+        {ok ? (
+          <div style={{ ...card, marginTop: 12, border: "1px solid rgba(33,150,243,0.55)", background: "rgba(33,150,243,0.06)" }}>
+            <div style={{ fontWeight: 900 }}>✅ Saved</div>
           </div>
+        ) : null}
 
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <button type="submit" style={btn}>
-              Create role
-            </button>
-            <div style={{ fontSize: 12, color: "var(--mutedText)" }}>
-              Role permissions &amp; titles are edited on the role detail page (next step).
+        <div style={{ marginTop: 12, ...card }}>
+          <div style={{ fontWeight: 900, marginBottom: 8 }}>Create role</div>
+          <form action={createRoleAction} style={{ display: "grid", gap: 10 }}>
+            <label style={{ display: "grid", gap: 6, fontWeight: 900 }}>
+              Name
+              <input name="name" style={input} placeholder="e.g., Inventory Clerk" required />
+            </label>
+            <label style={{ display: "grid", gap: 6, fontWeight: 900 }}>
+              Description
+              <textarea name="description" style={{ ...input, minHeight: 70 }} placeholder="Optional" />
+            </label>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <button type="submit" style={btnPrimary}>
+                Create role
+              </button>
+              <div style={{ fontSize: 12, opacity: 0.8 }}>Role permissions &amp; titles are edited on the role detail page (next step).</div>
+            </div>
+          </form>
+        </div>
+
+        <div style={{ marginTop: 12, ...card }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ fontWeight: 900 }}>All roles</div>
+            <div style={{ fontSize: 12, opacity: 0.8 }}>
+              <b>{roles.length}</b> total
             </div>
           </div>
-        </form>
-      </div>
 
-      <div style={{ ...card, marginTop: 12 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-          <div style={{ fontWeight: 800 }}>All roles</div>
-          <div style={{ fontSize: 12, color: "var(--mutedText)" }}>{roles.length} total</div>
-        </div>
+          {roles.length === 0 ? (
+            <div style={{ marginTop: 10, opacity: 0.8 }}>No roles yet.</div>
+          ) : (
+            <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 220px 220px", gap: 10, fontWeight: 900, opacity: 0.85 }}>
+                <div>Role</div>
+                <div>Users</div>
+                <div>Updated</div>
+                <div>Actions</div>
+              </div>
 
-        <table style={table}>
-          <thead>
-            <tr>
-              <th style={th}>Role</th>
-              <th style={th}>Users</th>
-              <th style={th}>Updated</th>
-              <th style={th}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {roles.map((r) => {
-              const updated = new Date(r.updatedAt).toLocaleString("en-US", {
-                year: "numeric",
-                month: "short",
-                day: "2-digit",
-                hour: "2-digit",
-                minute: "2-digit",
-              });
+              {roles.map((r) => (
+                <div
+                  key={r.id}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 120px 220px 220px",
+                    gap: 10,
+                    alignItems: "center",
+                    borderTop: border,
+                    paddingTop: 10,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 900 }}>{r.name}</div>
+                    <div style={{ opacity: 0.75 }}>{r.description ?? "—"}</div>
+                    {r.isSystem ? <div style={{ fontSize: 12, opacity: 0.75 }}>(System)</div> : null}
+                  </div>
 
-              return (
-                <tr key={r.id}>
-                  <td style={td}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <Link
-                        href={`/admin/roles/${r.id}`}
-                        style={{ color: "var(--text)", fontWeight: 800, textDecoration: "none" }}
-                      >
-                        {r.name}
-                      </Link>
-                      {r.isSystem ? <span style={pill}>System</span> : null}
-                    </div>
-                    {r.description ? (
-                      <div style={{ marginTop: 4, fontSize: 12, color: "var(--mutedText)" }}>{r.description}</div>
-                    ) : (
-                      <div style={{ marginTop: 4, fontSize: 12, color: "var(--mutedText)" }}>—</div>
-                    )}
-                  </td>
+                  <div>{r.users}</div>
+                  <div>{r.updatedAt.toLocaleString()}</div>
 
-                  <td style={td}>{r._count.users}</td>
-                  <td style={td}>{updated}</td>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <Link href={`/admin/roles/${encodeURIComponent(r.id)}`} style={{ ...btn, textDecoration: "none", display: "inline-block" }}>
+                      Edit
+                    </Link>
 
-                  <td style={td}>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                      <Link
-                        href={`/admin/roles/${r.id}`}
-                        style={{ ...btn, textDecoration: "none", display: "inline-block" }}
-                      >
-                        Edit
-                      </Link>
+                    <form action={deleteRoleAction}>
+                      <input type="hidden" name="id" value={r.id} />
+                      <button type="submit" style={{ ...btnDanger, opacity: r.isSystem ? 0.5 : 1 }} disabled={r.isSystem}>
+                        Delete
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
-                      <form action={deleteRoleAction}>
-                        <input type="hidden" name="roleId" value={r.id} />
-                        <button
-                          type="submit"
-                          style={dangerBtn}
-                          disabled={r.isSystem}
-                          title={r.isSystem ? "System roles cannot be deleted" : "Delete role"}
-                        >
-                          Delete
-                        </button>
-                      </form>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-
-            {roles.length === 0 ? (
-              <tr>
-                <td style={td} colSpan={4}>
-                  <div style={{ color: "var(--mutedText)" }}>No roles yet.</div>
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-
-        <div style={{ marginTop: 10, fontSize: 12, color: "var(--mutedText)" }}>
-          Tip: Keep “system” roles (seeded) locked; create business roles here.
+          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.8 }}>
+            Tip: Keep “system” roles (seeded) locked; create business roles here.
+          </div>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
