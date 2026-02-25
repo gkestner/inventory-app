@@ -50,7 +50,7 @@ export default async function EmployeeHomePage() {
   });
 
   const border = "1px solid rgba(128,128,128,0.25)";
-  const surface = "var(--background)";
+  const surface = "var(--surface)"; // was var(--background)
   const fg = "var(--foreground)";
 
   return (
@@ -71,7 +71,7 @@ export default async function EmployeeHomePage() {
         <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
           {canWorkOrders ? (
             <Link
-              href="/maintenance/work-orders"
+              href="/work-orders"
               style={{
                 display: "inline-block",
                 padding: "8px 14px",
@@ -89,7 +89,7 @@ export default async function EmployeeHomePage() {
 
           {canTravelLog ? (
             <Link
-              href="/maintenance/travel-log"
+              href="/travel-log"
               style={{
                 display: "inline-block",
                 padding: "8px 14px",
