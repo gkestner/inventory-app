@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 type SearchParams = {
-  ok?: string;
+  ok?: string; // "1"
   error?: string;
 
   created?: string; // userId
@@ -38,6 +38,7 @@ function nonEmpty(v: FormDataEntryValue | null): string {
 function pickRole(v: string): Role {
   if (v === Role.ADMIN) return Role.ADMIN;
   if (v === Role.MANAGER) return Role.MANAGER;
+  if (v === Role.MAINTENANCE) return Role.MAINTENANCE;
   return Role.EMPLOYEE;
 }
 
@@ -45,7 +46,6 @@ function safeIdsFromFormData(fd: FormData, key: string): string[] {
   const vals = fd.getAll(key);
   const ids = vals.map((x) => String(x).trim()).filter((x) => x.length > 0);
 
-  // de-dupe while preserving order
   const seen = new Set<string>();
   const out: string[] = [];
   for (const id of ids) {
@@ -76,99 +76,15 @@ function parseOrderedGroup(formData: FormData, ids: string[], orderPrefix: strin
 }
 
 function makeTempPassword(): string {
-  // URL-safe-ish and strong enough for one-time temp usage
   return crypto.randomBytes(9).toString("base64url"); // ~12 chars
 }
-
-/**
- * Prisma Client type shims:
- * - Keep this page compiling even if Prisma Client types lag behind migrations.
- * - Avoid `any` while permitting relations to exist at runtime.
- */
-type LocationRow = { id: string; name: string; active: boolean };
-
-type UserAllowedLocationRow = {
-  locationId: string;
-  isPrimary: boolean;
-  sortOrder: number;
-  location?: { id: string; name: string; active?: boolean | null } | null;
-};
-
-type AccessTitleRow = {
-  id: string;
-  name: string;
-  description?: string | null;
-};
-
-type UserAccessTitleRow = {
-  accessTitleId: string;
-  accessTitle?: { id: string; name: string } | null;
-};
-
-type UserRow = {
-  id: string;
-  name: string;
-  email: string;
-  role: Role;
-  active: boolean;
-  createdAt: Date;
-
-  // legacy
-  locationId: string | null;
-  location?: { id: string; name: string; active?: boolean | null } | null;
-
-  // join model relation (schema field name: allowedLocations)
-  allowedLocations: UserAllowedLocationRow[];
-
-  // ✅ Access Titles join (schema field name: accessTitles)
-  accessTitles?: UserAccessTitleRow[]; // optional for compatibility
-};
-
-type PrismaUserDelegate = {
-  findMany: (args: unknown) => Promise<UserRow[]>;
-  findUnique: (args: unknown) => Promise<{ id: string; allowedLocations?: Array<{ locationId: string }> } | null>;
-  create: (args: unknown) => Promise<{ id: string }>;
-  update: (args: unknown) => Promise<unknown>;
-};
-
-type PrismaLocationDelegate = {
-  findMany: (args: unknown) => Promise<LocationRow[]>;
-};
-
-type PrismaAccessTitleDelegate = {
-  findMany: (args: unknown) => Promise<AccessTitleRow[]>;
-};
-
-type PrismaUserAccessTitleDelegate = {
-  deleteMany: (args: unknown) => Promise<unknown>;
-  createMany: (args: unknown) => Promise<unknown>;
-};
-
-type PrismaTx = {
-  user: PrismaUserDelegate;
-  location: PrismaLocationDelegate;
-  // optional, present only after migration + prisma generate
-  userAccessTitle?: PrismaUserAccessTitleDelegate;
-  accessTitle?: PrismaAccessTitleDelegate;
-};
-
-const db = prisma as unknown as {
-  user: PrismaUserDelegate;
-  location: PrismaLocationDelegate;
-
-  // optional (compile-safe)
-  accessTitle?: PrismaAccessTitleDelegate;
-  userAccessTitle?: PrismaUserAccessTitleDelegate;
-
-  $transaction: <T>(fn: (tx: PrismaTx) => Promise<T>) => Promise<T>;
-};
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function safeAccessTitleIdsFromFormData(fd: FormData): string[] {
-  return safeIdsFromFormData(fd, "accessTitleIds");
+function safePermissionTitleIdsFromFormData(fd: FormData): string[] {
+  return safeIdsFromFormData(fd, "permissionTitleIds");
 }
 
 export default async function AdminUsersPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
@@ -181,17 +97,12 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
   const resetUser = (sp.resetUser ?? "").trim();
   const temp = (sp.temp ?? "").trim();
 
-  const accessTitlesReady =
-    typeof db.accessTitle?.findMany === "function" &&
-    typeof db.userAccessTitle?.deleteMany === "function" &&
-    typeof db.userAccessTitle?.createMany === "function";
-
-  const [locationsAll, users, accessTitles] = await Promise.all([
-    db.location.findMany({
+  const [locationsAll, users, permissionTitles] = await Promise.all([
+    prisma.location.findMany({
       orderBy: [{ active: "desc" }, { name: "asc" }],
       select: { id: true, name: true, active: true },
     }),
-    db.user.findMany({
+    prisma.user.findMany({
       orderBy: [{ name: "asc" }, { email: "asc" }],
       select: {
         id: true,
@@ -203,7 +114,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
         // legacy
         locationId: true,
-        location: { select: { id: true, name: true } },
+        location: { select: { id: true, name: true, active: true } },
 
         // join relation (schema field name: allowedLocations)
         allowedLocations: {
@@ -216,23 +127,21 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
           orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
         },
 
-        // ✅ access titles join; if not present in prisma client, this select is ignored at runtime
-        // but can fail typecheck if prisma types are behind. We’re in unknown-typed delegate so OK.
-        accessTitles: {
+        // ✅ NEW: permission titles join (schema field name: permissionTitles)
+        permissionTitles: {
           select: {
-            accessTitleId: true,
-            accessTitle: { select: { id: true, name: true } },
+            titleId: true,
+            title: { select: { id: true, name: true, active: true } },
+            assignedAt: true,
           },
-          orderBy: [{ accessTitle: { name: "asc" } }],
+          orderBy: [{ title: { name: "asc" } }],
         },
       },
     }),
-    accessTitlesReady
-      ? db.accessTitle!.findMany({
-          orderBy: { name: "asc" },
-          select: { id: true, name: true, description: true },
-        } as unknown)
-      : Promise.resolve([] as AccessTitleRow[]),
+    prisma.permissionTitle.findMany({
+      orderBy: [{ active: "desc" }, { name: "asc" }],
+      select: { id: true, name: true, description: true, active: true },
+    }),
   ]);
 
   const activeLocations = locationsAll.filter((l) => l.active);
@@ -247,7 +156,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     const name = nonEmpty(formData.get("name"));
     const emailRaw = nonEmpty(formData.get("email"));
     const password = nonEmpty(formData.get("password"));
-    const role = pickRole(nonEmpty(formData.get("role")) as string);
+    const role = pickRole(nonEmpty(formData.get("role")));
 
     const primaryIds = safeIdsFromFormData(formData, "primaryLocationIds");
     const optionalIds = safeIdsFromFormData(formData, "optionalLocationIds");
@@ -261,31 +170,27 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
     const email = emailRaw.toLowerCase();
 
-    // Disallow overlaps
     const overlap = primaryIds.filter((id) => optionalIds.includes(id));
     if (overlap.length > 0) {
       redirect("/admin/users?error=" + encodeURIComponent("A location cannot be both Primary and Optional"));
     }
 
-    // Require at least one Primary to keep legacy `user.locationId` meaningful (and avoid auth regressions).
     if (primaryIds.length === 0) {
       redirect("/admin/users?error=" + encodeURIComponent("At least one Primary location is required."));
     }
 
     const allSelected = Array.from(new Set([...primaryIds, ...optionalIds]));
 
-    // Enforce: prefer active-only selections. If there are zero active locations in the system,
-    // allow selecting existing inactive locations so admins can still bootstrap users.
     if (allSelected.length > 0) {
       const [existingAll, activeCountRows] = await Promise.all([
-        db.location.findMany({
+        prisma.location.findMany({
           where: { id: { in: allSelected } },
           select: { id: true, name: true, active: true },
-        } as unknown),
-        db.location.findMany({
+        }),
+        prisma.location.findMany({
           where: { active: true },
           select: { id: true },
-        } as unknown),
+        }),
       ]);
 
       const foundAll = new Set(existingAll.map((x) => x.id));
@@ -311,13 +216,10 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
     let createdUserId: string;
     try {
-      const createdUser = await db.$transaction(async (tx) => {
+      const createdUser = await prisma.$transaction(async (tx) => {
         const existing = await tx.user.findUnique({ where: { email }, select: { id: true } });
         if (existing) throw new Error("Email already exists");
 
-        // Deterministic ordering:
-        // - If an order number is provided, sort by that (asc)
-        // - Else sort by location name (asc)
         const locs =
           allSelected.length > 0
             ? await tx.location.findMany({
@@ -346,17 +248,11 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         const primSorted = sortPicks(primaryPicks);
         const optSorted = sortPicks(optionalPicks);
 
-        // Legacy compatibility: first primary after ordering
         const legacyLocationId: string | null = primSorted[0] ?? null;
 
         const rows: Array<{ locationId: string; isPrimary: boolean; sortOrder: number }> = [];
-        // Persist ordering *within each group* (Primary 1..N, Optional 1..N)
-        for (let i = 0; i < primSorted.length; i++) {
-          rows.push({ locationId: primSorted[i], isPrimary: true, sortOrder: i + 1 });
-        }
-        for (let i = 0; i < optSorted.length; i++) {
-          rows.push({ locationId: optSorted[i], isPrimary: false, sortOrder: i + 1 });
-        }
+        for (let i = 0; i < primSorted.length; i++) rows.push({ locationId: primSorted[i], isPrimary: true, sortOrder: i + 1 });
+        for (let i = 0; i < optSorted.length; i++) rows.push({ locationId: optSorted[i], isPrimary: false, sortOrder: i + 1 });
 
         const u = await tx.user.create({
           data: {
@@ -406,7 +302,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     if (!userId) redirect("/admin/users?error=" + encodeURIComponent("Missing userId"));
 
     try {
-      await db.user.update({
+      await prisma.user.update({
         where: { id: userId },
         data: { role: nextRole },
       });
@@ -430,7 +326,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     if (!userId) redirect("/admin/users?error=" + encodeURIComponent("Missing userId"));
 
     try {
-      await db.user.update({
+      await prisma.user.update({
         where: { id: userId },
         data: { active: nextActive },
       });
@@ -454,7 +350,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     const passwordHash = await bcrypt.hash(tempPassword, 10);
 
     try {
-      await db.user.update({
+      await prisma.user.update({
         where: { id: userId },
         data: { passwordHash },
       });
@@ -485,7 +381,6 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
       redirect("/admin/users?error=" + encodeURIComponent("A location cannot be both Primary and Optional"));
     }
 
-    // Require at least one Primary to keep legacy `user.locationId` meaningful (and avoid auth regressions).
     if (primaryIds.length === 0) {
       redirect("/admin/users?error=" + encodeURIComponent("At least one Primary location is required."));
     }
@@ -493,22 +388,20 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     const allSelected = Array.from(new Set([...primaryIds, ...optionalIds]));
 
     try {
-      await db.$transaction(async (tx) => {
-        // Ensure user exists + get currently assigned locations (to allow already-assigned inactive)
+      await prisma.$transaction(async (tx) => {
         const u = await tx.user.findUnique({
           where: { id: userId },
           select: { id: true, allowedLocations: { select: { locationId: true } } },
-        } as unknown);
+        });
         if (!u) throw new Error("User not found");
 
         const previouslyAssigned = new Set<string>((u.allowedLocations ?? []).map((r) => r.locationId));
 
-        // Validate: selected ids must exist
         if (allSelected.length > 0) {
           const locs = await tx.location.findMany({
             where: { id: { in: allSelected } },
             select: { id: true, name: true, active: true },
-          } as unknown);
+          });
 
           const byId = new Map(locs.map((l) => [l.id, l] as const));
           const missing = allSelected.filter((id) => !byId.has(id));
@@ -516,7 +409,6 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
             throw new Error(`Some locations were not found: ${missing.slice(0, 10).join(", ")}`);
           }
 
-          // Enforce: inactive selections are only allowed if they were already assigned to this user
           const inactiveSelected = allSelected.filter((id) => byId.get(id)?.active === false);
           const badInactive = inactiveSelected.filter((id) => !previouslyAssigned.has(id));
           if (badInactive.length > 0) {
@@ -530,7 +422,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                 where: { id: { in: allSelected } },
                 select: { id: true, name: true, active: true },
                 orderBy: { name: "asc" },
-              } as unknown)
+              })
             : [];
         const byId = new Map(locsForSort.map((l) => [l.id, l] as const));
 
@@ -555,12 +447,8 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         const legacyLocationId: string | null = primSorted[0] ?? null;
 
         const rows: Array<{ locationId: string; isPrimary: boolean; sortOrder: number }> = [];
-        for (let i = 0; i < primSorted.length; i++) {
-          rows.push({ locationId: primSorted[i], isPrimary: true, sortOrder: i + 1 });
-        }
-        for (let i = 0; i < optSorted.length; i++) {
-          rows.push({ locationId: optSorted[i], isPrimary: false, sortOrder: i + 1 });
-        }
+        for (let i = 0; i < primSorted.length; i++) rows.push({ locationId: primSorted[i], isPrimary: true, sortOrder: i + 1 });
+        for (let i = 0; i < optSorted.length; i++) rows.push({ locationId: optSorted[i], isPrimary: false, sortOrder: i + 1 });
 
         await tx.user.update({
           where: { id: userId },
@@ -581,7 +469,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                 : {}),
             },
           },
-        } as unknown);
+        });
       });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Assign locations failed";
@@ -592,42 +480,31 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     redirect("/admin/users?ok=1");
   }
 
-  // ✅ Assign Access Titles (checkboxes)
-  async function assignAccessTitlesAction(formData: FormData) {
+  // ✅ Assign Permission Titles (RBAC templates)
+  async function assignPermissionTitlesAction(formData: FormData) {
     "use server";
     await requireAdmin();
 
     const userId = nonEmpty(formData.get("userId"));
     if (!userId) redirect("/admin/users?error=" + encodeURIComponent("Missing userId"));
 
-    const titlesReady =
-      typeof db.userAccessTitle?.deleteMany === "function" && typeof db.userAccessTitle?.createMany === "function";
-    if (!titlesReady) {
-      redirect(
-        "/admin/users?error=" +
-          encodeURIComponent("Access Titles are not ready. Run prisma migrate deploy + prisma generate, then redeploy.")
-      );
-    }
-
-    const selectedIds = safeAccessTitleIdsFromFormData(formData);
+    const selectedIds = safePermissionTitleIdsFromFormData(formData);
 
     try {
-      await db.$transaction(async (tx) => {
-        const u = await tx.user.findUnique({ where: { id: userId }, select: { id: true } } as unknown);
+      await prisma.$transaction(async (tx) => {
+        const u = await tx.user.findUnique({ where: { id: userId }, select: { id: true } });
         if (!u) throw new Error("User not found");
 
-        if (!tx.userAccessTitle) throw new Error("Access Titles not available (prisma generate needed)");
-
-        await tx.userAccessTitle.deleteMany({ where: { userId } } as unknown);
+        await tx.userPermissionTitle.deleteMany({ where: { userId } });
 
         if (selectedIds.length > 0) {
-          await tx.userAccessTitle.createMany({
-            data: selectedIds.map((accessTitleId) => ({ userId, accessTitleId })),
-          } as unknown);
+          await tx.userPermissionTitle.createMany({
+            data: selectedIds.map((titleId) => ({ userId, titleId })),
+          });
         }
       });
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Assign access titles failed";
+      const msg = e instanceof Error ? e.message : "Assign permission titles failed";
       redirect("/admin/users?error=" + encodeURIComponent(msg));
     }
 
@@ -662,7 +539,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     fontWeight: 800,
   };
 
-  function splitLocations(u: UserRow) {
+  function splitLocations(u: (typeof users)[number]) {
     const primary = (u.allowedLocations ?? []).filter((x) => x.isPrimary);
     const optional = (u.allowedLocations ?? []).filter((x) => !x.isPrimary);
     return { primary, optional };
@@ -682,29 +559,16 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 900, marginBottom: 6 }}>Admin Users</h1>
           <div style={{ opacity: 0.8, marginBottom: 16 }}>
-            Manage users, roles, locations, and Access Titles (permission templates).
+            Manage users, roles, locations, and Permission Titles (RBAC templates).
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <Link href="/admin/access-titles" style={{ ...btn, textDecoration: "none", display: "inline-block" }}>
-            Access Titles
+            Permission Titles
           </Link>
         </div>
       </div>
-
-      {!accessTitlesReady ? (
-        <div style={{ ...card, marginBottom: 12 }}>
-          <div style={{ fontWeight: 900, marginBottom: 6 }}>Access Titles not ready</div>
-          <div style={{ opacity: 0.85, whiteSpace: "pre-wrap" }}>
-            If you just added Access Titles, run:
-            {"\n"}- npx prisma migrate deploy
-            {"\n"}- npx prisma generate
-            {"\n"}then redeploy / restart.
-            {"\n\n"}Users management still works; the Access Titles section will appear once Prisma is generated.
-          </div>
-        </div>
-      ) : null}
 
       {error ? (
         <div style={{ ...card, marginBottom: 12 }}>
@@ -721,9 +585,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
             <div style={{ marginTop: 8 }}>
               <div style={{ fontWeight: 900 }}>Temporary password (show once):</div>
               <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>{temp}</div>
-              <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-                This is only displayed via the URL after reset. Copy it now.
-              </div>
+              <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>This is only displayed via the URL after reset. Copy it now.</div>
             </div>
           ) : null}
         </div>
@@ -731,9 +593,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
       {/* Create user (collapsed) */}
       <details style={{ ...card, marginBottom: 16 }} open={createOpen}>
-        <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside", fontSize: 16 }}>
-          Create User
-        </summary>
+        <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside", fontSize: 16 }}>Create User</summary>
 
         <div style={{ marginTop: 10 }}>
           {!hasActiveLocations && canCreateUser ? (
@@ -795,6 +655,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                 <span style={{ fontWeight: 800 }}>Role</span>
                 <select name="role" defaultValue={Role.EMPLOYEE} style={field}>
                   <option value={Role.EMPLOYEE}>EMPLOYEE</option>
+                  <option value={Role.MAINTENANCE}>MAINTENANCE</option>
                   <option value={Role.MANAGER}>MANAGER</option>
                   <option value={Role.ADMIN}>ADMIN</option>
                 </select>
@@ -807,20 +668,10 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                 <div style={{ display: "grid", gap: 6, maxHeight: 240, overflow: "auto", paddingRight: 6 }}>
                   {canCreateUser ? (
                     locationChoicesForCreate.map((l) => (
-                      <label
-                        key={`cprim-${l.id}`}
-                        style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
-                      >
+                      <label key={`cprim-${l.id}`} style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}>
                         <input type="checkbox" name="primaryLocationIds" value={l.id} />
                         <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
-                        <input
-                          name={`primaryOrder_${l.id}`}
-                          type="number"
-                          min={1}
-                          step={1}
-                          placeholder="Order #"
-                          style={field}
-                        />
+                        <input name={`primaryOrder_${l.id}`} type="number" min={1} step={1} placeholder="Order #" style={field} />
                       </label>
                     ))
                   ) : (
@@ -828,8 +679,8 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                   )}
                 </div>
                 <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-                  Ordering: if you enter an Order #, we sort by it; blanks sort after (by name). We persist order within each
-                  group (1..N). Legacy <code>user.locationId</code> is set to the first Primary after ordering.
+                  Ordering: if you enter an Order #, we sort by it; blanks sort after (by name). We persist order within each group (1..N). Legacy{" "}
+                  <code>user.locationId</code> is set to the first Primary after ordering.
                 </div>
               </div>
 
@@ -838,26 +689,14 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                 <div style={{ display: "grid", gap: 6, maxHeight: 240, overflow: "auto", paddingRight: 6 }}>
                   {canCreateUser ? (
                     locationChoicesForCreate.map((l) => (
-                      <label
-                        key={`copt-${l.id}`}
-                        style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
-                      >
+                      <label key={`copt-${l.id}`} style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}>
                         <input type="checkbox" name="optionalLocationIds" value={l.id} />
                         <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
-                        <input
-                          name={`optionalOrder_${l.id}`}
-                          type="number"
-                          min={1}
-                          step={1}
-                          placeholder="Order #"
-                          style={field}
-                        />
+                        <input name={`optionalOrder_${l.id}`} type="number" min={1} step={1} placeholder="Order #" style={field} />
                       </label>
                     ))
                   ) : (
-                    <div style={{ opacity: 0.8, fontSize: 13 }}>
-                      No optional locations available until at least one location exists.
-                    </div>
+                    <div style={{ opacity: 0.8, fontSize: 13 }}>No optional locations available until at least one location exists.</div>
                   )}
                 </div>
               </div>
@@ -888,9 +727,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
             const primaryChoices = locationsAll.filter((l) => l.active || checkedPrimary.has(l.id));
             const optionalChoices = locationsAll.filter((l) => l.active || checkedOptional.has(l.id));
 
-            const currentTitleIds = new Set(
-              (u.accessTitles ?? []).map((r) => (isRecord(r) ? String(r.accessTitleId ?? "").trim() : "")).filter(Boolean)
-            );
+            const currentTitleIds = new Set(u.permissionTitles.map((r) => r.titleId));
 
             return (
               <details
@@ -910,42 +747,25 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                   </span>
                 </summary>
 
-                <div
-                  style={{
-                    marginTop: 10,
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 12,
-                    alignItems: "flex-start",
-                    flexWrap: "wrap",
-                  }}
-                >
+                <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
                   <div style={{ display: "grid", gap: 4 }}>
                     <div style={{ opacity: 0.85 }}>{u.email}</div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>
                       id:{" "}
-                      <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
-                        {u.id}
-                      </span>
+                      <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>{u.id}</span>
                     </div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>
-                      Legacy locationId:{" "}
-                      <span style={{ fontWeight: 800 }}>{legacyName || (u.locationId ? u.locationId : "—")}</span>
+                      Legacy locationId: <span style={{ fontWeight: 800 }}>{legacyName || (u.locationId ? u.locationId : "—")}</span>
                     </div>
 
-                    {accessTitlesReady ? (
-                      <div style={{ fontSize: 12, opacity: 0.75 }}>
-                        Access Titles:{" "}
-                        <span style={{ fontWeight: 800 }}>
-                          {(u.accessTitles ?? []).length
-                            ? (u.accessTitles ?? [])
-                                .map((r) => r.accessTitle?.name ?? "")
-                                .filter(Boolean)
-                                .join(", ")
-                            : "—"}
-                        </span>
-                      </div>
-                    ) : null}
+                    <div style={{ fontSize: 12, opacity: 0.75 }}>
+                      Permission Titles:{" "}
+                      <span style={{ fontWeight: 800 }}>
+                        {u.permissionTitles.length
+                          ? u.permissionTitles.map((r) => r.title?.name ?? "").filter(Boolean).join(", ")
+                          : "—"}
+                      </span>
+                    </div>
                   </div>
 
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -953,6 +773,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                       <input type="hidden" name="userId" value={u.id} />
                       <select name="role" defaultValue={u.role} style={field}>
                         <option value={Role.EMPLOYEE}>EMPLOYEE</option>
+                        <option value={Role.MAINTENANCE}>MAINTENANCE</option>
                         <option value={Role.MANAGER}>MANAGER</option>
                         <option value={Role.ADMIN}>ADMIN</option>
                       </select>
@@ -978,57 +799,56 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                   </div>
                 </div>
 
-                {/* ✅ Access Titles assignment */}
-                {accessTitlesReady ? (
-                  <details style={{ marginTop: 12 }}>
-                    <summary style={{ cursor: "pointer", fontWeight: 900 }}>Assign Access Titles</summary>
+                {/* ✅ Permission Titles assignment */}
+                <details style={{ marginTop: 12 }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 900 }}>Assign Permission Titles</summary>
 
-                    <div style={{ marginTop: 10 }}>
-                      {accessTitles.length === 0 ? (
-                        <div style={{ fontSize: 13, opacity: 0.8 }}>
-                          No Access Titles exist yet. Create one in{" "}
-                          <a href="/admin/access-titles" style={{ textDecoration: "underline" }}>
-                            Access Titles
-                          </a>
-                          .
+                  <div style={{ marginTop: 10 }}>
+                    {permissionTitles.length === 0 ? (
+                      <div style={{ fontSize: 13, opacity: 0.8 }}>
+                        No Permission Titles exist yet. Create one in{" "}
+                        <a href="/admin/access-titles" style={{ textDecoration: "underline" }}>
+                          Permission Titles
+                        </a>
+                        .
+                      </div>
+                    ) : (
+                      <form action={assignPermissionTitlesAction} style={{ display: "grid", gap: 12 }}>
+                        <input type="hidden" name="userId" value={u.id} />
+
+                        <div style={{ display: "grid", gap: 6, maxHeight: 220, overflow: "auto", paddingRight: 6 }}>
+                          {permissionTitles.map((t) => (
+                            <label
+                              key={`pt-${u.id}-${t.id}`}
+                              style={{ display: "grid", gridTemplateColumns: "20px 1fr", gap: 10, alignItems: "center" }}
+                            >
+                              <input
+                                type="checkbox"
+                                name="permissionTitleIds"
+                                value={t.id}
+                                defaultChecked={currentTitleIds.has(t.id)}
+                              />
+                              <span>
+                                <span style={{ fontWeight: 900 }}>{t.name}</span>{" "}
+                                {!t.active ? <span style={{ opacity: 0.75 }}>(Inactive)</span> : null}
+                                {t.description ? <span style={{ opacity: 0.75 }}> — {t.description}</span> : null}
+                              </span>
+                            </label>
+                          ))}
                         </div>
-                      ) : (
-                        <form action={assignAccessTitlesAction} style={{ display: "grid", gap: 12 }}>
-                          <input type="hidden" name="userId" value={u.id} />
 
-                          <div style={{ display: "grid", gap: 6, maxHeight: 220, overflow: "auto", paddingRight: 6 }}>
-                            {accessTitles.map((t) => (
-                              <label
-                                key={`uat-${u.id}-${t.id}`}
-                                style={{
-                                  display: "grid",
-                                  gridTemplateColumns: "20px 1fr",
-                                  gap: 10,
-                                  alignItems: "center",
-                                }}
-                              >
-                                <input type="checkbox" name="accessTitleIds" value={t.id} defaultChecked={currentTitleIds.has(t.id)} />
-                                <span>
-                                  <span style={{ fontWeight: 900 }}>{t.name}</span>{" "}
-                                  {t.description ? <span style={{ opacity: 0.75 }}>— {t.description}</span> : null}
-                                </span>
-                              </label>
-                            ))}
+                        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                          <button type="submit" style={{ ...btn, width: 240 }}>
+                            Save Permission Titles
+                          </button>
+                          <div style={{ fontSize: 12, opacity: 0.75 }}>
+                            These titles grant their permissions to the user (in addition to any direct user permissions).
                           </div>
-
-                          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                            <button type="submit" style={{ ...btn, width: 220 }}>
-                              Save Access Titles
-                            </button>
-                            <div style={{ fontSize: 12, opacity: 0.75 }}>
-                              These titles grant their permissions to the user (in addition to any direct user permissions).
-                            </div>
-                          </div>
-                        </form>
-                      )}
-                    </div>
-                  </details>
-                ) : null}
+                        </div>
+                      </form>
+                    )}
+                  </div>
+                </details>
 
                 <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   <div>
@@ -1080,12 +900,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                               return (
                                 <label
                                   key={`prim-${u.id}-${l.id}`}
-                                  style={{
-                                    display: "grid",
-                                    gridTemplateColumns: "20px 1fr 110px",
-                                    gap: 10,
-                                    alignItems: "center",
-                                  }}
+                                  style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
                                 >
                                   <input type="checkbox" name="primaryLocationIds" value={l.id} defaultChecked={checked} />
                                   <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
@@ -1112,12 +927,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                               return (
                                 <label
                                   key={`opt-${u.id}-${l.id}`}
-                                  style={{
-                                    display: "grid",
-                                    gridTemplateColumns: "20px 1fr 110px",
-                                    gap: 10,
-                                    alignItems: "center",
-                                  }}
+                                  style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
                                 >
                                   <input type="checkbox" name="optionalLocationIds" value={l.id} defaultChecked={checked} />
                                   <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
@@ -1142,9 +952,8 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                           Save Locations
                         </button>
                         <div style={{ fontSize: 12, opacity: 0.75 }}>
-                          Pick-lists show active locations; inactive locations can only remain if already assigned. Ordering: we
-                          sort by Order # (ascending) then by name; blanks sort after by name. We persist order within each group
-                          (1..N). Legacy <code>user.locationId</code> becomes the first Primary after ordering.
+                          Pick-lists show active locations; inactive locations can only remain if already assigned. Ordering: we sort by Order # (ascending) then by name; blanks sort after by name. We persist order within each group (1..N). Legacy{" "}
+                          <code>user.locationId</code> becomes the first Primary after ordering.
                         </div>
                       </div>
                     </form>
