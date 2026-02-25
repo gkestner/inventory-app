@@ -7,6 +7,11 @@ function normName(s: string): string {
   return s.trim().replace(/\s+/g, " ");
 }
 
+function hasDynamicRoleClient(): boolean {
+  const anyPrisma = prisma as unknown as Record<string, unknown>;
+  return typeof anyPrisma.appRole === "object" && anyPrisma.appRole !== null;
+}
+
 type SystemRoleSpec = {
   name: string; // must match the "system admin" check in permissions.ts (ADMIN)
   description: string;
@@ -38,12 +43,6 @@ async function ensureSystemRoles() {
   }
 }
 
-/**
- * Optional: seed a small baseline for system MAINTENANCE role,
- * matching your current loadUserPermissions baseline.
- *
- * This is safe even if you later manage it via UI.
- */
 async function ensureMaintenanceBaselinePermissions() {
   const maint = await prisma.appRole.findUnique({
     where: { name: "MAINTENANCE" },
@@ -59,7 +58,6 @@ async function ensureMaintenanceBaselinePermissions() {
     Permission.SUBMIT_OWN_WORK_ORDERS,
   ];
 
-  // Replace-only for this baseline set (keeps it deterministic)
   await prisma.$transaction(async (tx) => {
     await tx.appRolePermission.deleteMany({ where: { roleId: maint.id } });
     await tx.appRolePermission.createMany({
@@ -69,11 +67,6 @@ async function ensureMaintenanceBaselinePermissions() {
   });
 }
 
-/**
- * Backfill: assign users a system AppRole based on legacy enum User.role.
- * - Does NOT remove any existing UserRole rows; it only adds missing ones.
- * - So it's safe to re-run.
- */
 async function backfillUserRolesFromEnum() {
   const roleByName = new Map<string, string>();
   const roles = await prisma.appRole.findMany({
@@ -83,10 +76,8 @@ async function backfillUserRolesFromEnum() {
 
   for (const r of roles) roleByName.set(r.name, r.id);
 
-  // Only map enum values that exist in your schema
   const enumValues = Object.values(Role) as string[];
 
-  // For each enum role, assign the matching system AppRole if present.
   for (const enumRole of enumValues) {
     const appRoleId = roleByName.get(enumRole);
     if (!appRoleId) continue;
@@ -105,10 +96,6 @@ async function backfillUserRolesFromEnum() {
   }
 }
 
-/**
- * Optional: create a starter "Inventory Clerk" business role
- * (not system) to demonstrate the feature.
- */
 async function maybeCreateStarterBusinessRole() {
   const exists = await prisma.appRole.findUnique({
     where: { name: "Inventory Clerk" },
@@ -138,6 +125,22 @@ async function maybeCreateStarterBusinessRole() {
 }
 
 async function main() {
+  // ✅ Guard: if Prisma Client doesn't include AppRole yet, don't crash.
+  if (!hasDynamicRoleClient()) {
+    console.error(
+      [
+        "Seed cannot run: Prisma Client does not include `appRole` yet.",
+        "",
+        "Fix:",
+        "1) Ensure `model AppRole` etc. exist in prisma/schema.prisma",
+        "2) Run: npx prisma generate",
+        "3) If tables don't exist, run: npx prisma migrate dev --name add_dynamic_roles",
+      ].join("\n")
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   console.log("Seeding system roles...");
   await ensureSystemRoles();
 

@@ -7,7 +7,11 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "seed": "prisma db seed"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.11.1",
@@ -28,6 +32,7 @@
     "eslint-config-next": "16.1.4",
     "prisma": "^6.11.1",
     "tailwindcss": "^4",
+    "tsx": "^4.19.2",
     "typescript": "^5"
   }
 }

@@ -101,6 +101,29 @@ function safeRoleIdsFromFormData(fd: FormData): string[] {
   return safeIdsFromFormData(fd, "appRoleIds");
 }
 
+/**
+ * ✅ Runtime DB guard: do dynamic-role reads ONLY if the tables exist.
+ * This prevents Prisma P2021 on prod before migrations are deployed.
+ */
+async function dynamicRolesTablesReady(): Promise<boolean> {
+  try {
+    // to_regclass returns NULL if table doesn't exist
+    const rows = await prisma.$queryRaw<Array<{ t: string | null }>>`
+      SELECT to_regclass('public."AppRole"') as t
+    `;
+    const ok1 = Boolean(rows?.[0]?.t);
+
+    const rows2 = await prisma.$queryRaw<Array<{ t: string | null }>>`
+      SELECT to_regclass('public."UserRole"') as t
+    `;
+    const ok2 = Boolean(rows2?.[0]?.t);
+
+    return ok1 && ok2;
+  } catch {
+    return false;
+  }
+}
+
 export default async function AdminUsersPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
 
@@ -111,63 +134,104 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
   const resetUser = (sp.resetUser ?? "").trim();
   const temp = (sp.temp ?? "").trim();
 
-  const [locationsAll, users, permissionTitles, appRoles] = await Promise.all([
+  const rolesReady = await dynamicRolesTablesReady();
+
+  const [locationsAll, permissionTitles] = await Promise.all([
     prisma.location.findMany({
       orderBy: [{ active: "desc" }, { name: "asc" }],
       select: { id: true, name: true, active: true },
-    }),
-    prisma.user.findMany({
-      orderBy: [{ name: "asc" }, { email: "asc" }],
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true, // legacy enum
-        active: true,
-        createdAt: true,
-
-        locationId: true,
-        location: { select: { id: true, name: true, active: true } },
-
-        allowedLocations: {
-          select: {
-            locationId: true,
-            isPrimary: true,
-            sortOrder: true,
-            location: { select: { id: true, name: true, active: true } },
-          },
-          orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
-        },
-
-        permissionTitles: {
-          select: {
-            titleId: true,
-            title: { select: { id: true, name: true, active: true } },
-            assignedAt: true,
-          },
-          orderBy: [{ title: { name: "asc" } }],
-        },
-
-        // ✅ NEW: dynamic roles assigned to the user (0..N)
-        roles: {
-          select: {
-            roleId: true,
-            assignedAt: true,
-            role: { select: { id: true, name: true, isSystem: true } },
-          },
-          orderBy: [{ role: { name: "asc" } }],
-        },
-      },
     }),
     prisma.permissionTitle.findMany({
       orderBy: [{ active: "desc" }, { name: "asc" }],
       select: { id: true, name: true, description: true, active: true },
     }),
-    prisma.appRole.findMany({
-      orderBy: [{ isSystem: "desc" }, { name: "asc" }],
-      select: { id: true, name: true, description: true, isSystem: true },
-    }),
   ]);
+
+  // Users query MUST be different depending on rolesReady, otherwise Prisma will hit missing tables.
+  const users = rolesReady
+    ? await prisma.user.findMany({
+        orderBy: [{ name: "asc" }, { email: "asc" }],
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          active: true,
+          createdAt: true,
+
+          locationId: true,
+          location: { select: { id: true, name: true, active: true } },
+
+          allowedLocations: {
+            select: {
+              locationId: true,
+              isPrimary: true,
+              sortOrder: true,
+              location: { select: { id: true, name: true, active: true } },
+            },
+            orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
+          },
+
+          permissionTitles: {
+            select: {
+              titleId: true,
+              title: { select: { id: true, name: true, active: true } },
+              assignedAt: true,
+            },
+            orderBy: [{ title: { name: "asc" } }],
+          },
+
+          // ✅ NEW: dynamic roles
+          roles: {
+            select: {
+              roleId: true,
+              assignedAt: true,
+              role: { select: { id: true, name: true, isSystem: true } },
+            },
+            orderBy: [{ role: { name: "asc" } }],
+          },
+        },
+      })
+    : await prisma.user.findMany({
+        orderBy: [{ name: "asc" }, { email: "asc" }],
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          active: true,
+          createdAt: true,
+
+          locationId: true,
+          location: { select: { id: true, name: true, active: true } },
+
+          allowedLocations: {
+            select: {
+              locationId: true,
+              isPrimary: true,
+              sortOrder: true,
+              location: { select: { id: true, name: true, active: true } },
+            },
+            orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
+          },
+
+          permissionTitles: {
+            select: {
+              titleId: true,
+              title: { select: { id: true, name: true, active: true } },
+              assignedAt: true,
+            },
+            orderBy: [{ title: { name: "asc" } }],
+          },
+        },
+      });
+
+  const appRoles = rolesReady
+    ? await prisma.appRole.findMany({
+        orderBy: [{ isSystem: "desc" }, { name: "asc" }],
+        select: { id: true, name: true, description: true, isSystem: true },
+      })
+    : [];
 
   const activeLocations = locationsAll.filter((l) => l.active);
   const hasActiveLocations = activeLocations.length > 0;
@@ -545,6 +609,13 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     "use server";
     await requireAdmin();
 
+    if (!(await dynamicRolesTablesReady())) {
+      redirect(
+        "/admin/users?error=" +
+          encodeURIComponent('Dynamic roles tables are not migrated yet. Deploy migrations first (AppRole/UserRole).')
+      );
+    }
+
     const userId = nonEmpty(formData.get("userId"));
     if (!userId) redirect("/admin/users?error=" + encodeURIComponent("Missing userId"));
 
@@ -654,6 +725,16 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
           </Link>
         </div>
       </div>
+
+      {!rolesReady ? (
+        <div style={{ ...card, marginBottom: 12, border: "1px solid rgba(255,180,0,0.55)" }}>
+          <div style={{ fontWeight: 900, marginBottom: 6 }}>⚠️ Dynamic roles not migrated yet</div>
+          <div style={{ opacity: 0.9 }}>
+            Your database does not have the <code>AppRole</code>/<code>UserRole</code> tables yet. The page will still work,
+            but dynamic role assignment is hidden until migrations are deployed.
+          </div>
+        </div>
+      ) : null}
 
       {error ? (
         <div style={{ ...card, marginBottom: 12 }}>
@@ -839,10 +920,10 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
             const currentTitleIds = new Set(u.permissionTitles.map((r) => r.titleId));
 
-            const currentAppRoleIds = new Set((u.roles ?? []).map((r) => r.roleId));
-            const roleNames = (u.roles ?? [])
-              .map((r) => r.role?.name ?? "")
-              .filter(Boolean);
+            // roles are only present when rolesReady
+            const rolesAny = (u as unknown as { roles?: Array<{ roleId: string; role?: { name: string } | null }> }).roles ?? [];
+            const currentAppRoleIds = new Set(rolesAny.map((r) => r.roleId));
+            const roleNames = rolesAny.map((r) => r.role?.name ?? "").filter(Boolean);
 
             return (
               <details
@@ -895,8 +976,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                     </div>
 
                     <div style={{ fontSize: 12, opacity: 0.75 }}>
-                      Dynamic Roles:{" "}
-                      <span style={{ fontWeight: 800 }}>{roleNames.length ? roleNames.join(", ") : "—"}</span>
+                      Dynamic Roles: <span style={{ fontWeight: 800 }}>{roleNames.length ? roleNames.join(", ") : "—"}</span>
                     </div>
                   </div>
 
@@ -932,60 +1012,62 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                   </div>
                 </div>
 
-                <details style={{ marginTop: 12 }}>
-                  <summary style={{ cursor: "pointer", fontWeight: 900 }}>Assign Dynamic Roles</summary>
+                {rolesReady ? (
+                  <details style={{ marginTop: 12 }}>
+                    <summary style={{ cursor: "pointer", fontWeight: 900 }}>Assign Dynamic Roles</summary>
 
-                  <div style={{ marginTop: 10 }}>
-                    {appRoles.length === 0 ? (
-                      <div style={{ fontSize: 13, opacity: 0.8 }}>
-                        No roles exist yet. Create roles in{" "}
-                        <a href="/admin/roles" style={{ textDecoration: "underline" }}>
-                          Roles
-                        </a>
-                        .
-                      </div>
-                    ) : (
-                      <form action={assignAppRolesAction} style={{ display: "grid", gap: 12 }}>
-                        <input type="hidden" name="userId" value={u.id} />
-
-                        <div style={{ display: "grid", gap: 6, maxHeight: 220, overflow: "auto", paddingRight: 6 }}>
-                          {appRoles.map((r) => (
-                            <label
-                              key={`ar-${u.id}-${r.id}`}
-                              style={{
-                                display: "grid",
-                                gridTemplateColumns: "20px 1fr",
-                                gap: 10,
-                                alignItems: "center",
-                              }}
-                            >
-                              <input
-                                type="checkbox"
-                                name="appRoleIds"
-                                value={r.id}
-                                defaultChecked={currentAppRoleIds.has(r.id)}
-                              />
-                              <span>
-                                <span style={{ fontWeight: 900 }}>{r.name}</span>{" "}
-                                {r.isSystem ? <span style={{ opacity: 0.75 }}>(System)</span> : null}
-                                {r.description ? <span style={{ opacity: 0.75 }}> — {r.description}</span> : null}
-                              </span>
-                            </label>
-                          ))}
+                    <div style={{ marginTop: 10 }}>
+                      {appRoles.length === 0 ? (
+                        <div style={{ fontSize: 13, opacity: 0.8 }}>
+                          No roles exist yet. Create roles in{" "}
+                          <a href="/admin/roles" style={{ textDecoration: "underline" }}>
+                            Roles
+                          </a>
+                          .
                         </div>
+                      ) : (
+                        <form action={assignAppRolesAction} style={{ display: "grid", gap: 12 }}>
+                          <input type="hidden" name="userId" value={u.id} />
 
-                        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                          <button type="submit" style={{ ...btn, width: 240 }}>
-                            Save Dynamic Roles
-                          </button>
-                          <div style={{ fontSize: 12, opacity: 0.75 }}>
-                            These roles grant their permissions (direct + via titles) to the user.
+                          <div style={{ display: "grid", gap: 6, maxHeight: 220, overflow: "auto", paddingRight: 6 }}>
+                            {appRoles.map((r) => (
+                              <label
+                                key={`ar-${u.id}-${r.id}`}
+                                style={{
+                                  display: "grid",
+                                  gridTemplateColumns: "20px 1fr",
+                                  gap: 10,
+                                  alignItems: "center",
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  name="appRoleIds"
+                                  value={r.id}
+                                  defaultChecked={currentAppRoleIds.has(r.id)}
+                                />
+                                <span>
+                                  <span style={{ fontWeight: 900 }}>{r.name}</span>{" "}
+                                  {r.isSystem ? <span style={{ opacity: 0.75 }}>(System)</span> : null}
+                                  {r.description ? <span style={{ opacity: 0.75 }}> — {r.description}</span> : null}
+                                </span>
+                              </label>
+                            ))}
                           </div>
-                        </div>
-                      </form>
-                    )}
-                  </div>
-                </details>
+
+                          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                            <button type="submit" style={{ ...btn, width: 240 }}>
+                              Save Dynamic Roles
+                            </button>
+                            <div style={{ fontSize: 12, opacity: 0.75 }}>
+                              These roles grant their permissions (direct + via titles) to the user.
+                            </div>
+                          </div>
+                        </form>
+                      )}
+                    </div>
+                  </details>
+                ) : null}
 
                 <details style={{ marginTop: 12 }}>
                   <summary style={{ cursor: "pointer", fontWeight: 900 }}>Assign Permission Titles</summary>
