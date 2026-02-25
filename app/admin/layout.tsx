@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { Role, Permission } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
-import { loadUserPermissions, hasAnyPermission } from "@/app/lib/permissions";
+import { loadUserPermissions, hasAnyPermission, type LoadedPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -18,11 +18,6 @@ type AdminSession = {
     role?: Role | null;
   } | null;
 } | null;
-
-type PermissionsResult = {
-  allowAll: boolean;
-  permissions: Set<Permission>;
-};
 
 async function requireAdmin() {
   const session = (await getServerSession(authOptions)) as AdminSession;
@@ -37,9 +32,9 @@ async function requireAdmin() {
 export default async function AdminLayout({ children }: { children: ReactNode }) {
   const session = await requireAdmin();
 
-  // loadUserPermissions expects your session type; cast via parameter type (no `any`)
+  // load canonical permissions (this already returns LoadedPermissions)
   const sessionArg = session as unknown as Parameters<typeof loadUserPermissions>[0];
-  const perms = (await loadUserPermissions(sessionArg)) as unknown as PermissionsResult;
+  const perms = (await loadUserPermissions(sessionArg)) as LoadedPermissions;
 
   const allowAll = !!perms.allowAll;
 
@@ -53,8 +48,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   const canOrders = allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
 
-  const canUsers =
-    allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_USERS, Permission.ADMIN_EDIT_USERS]);
+  const canUsers = allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_USERS, Permission.ADMIN_EDIT_USERS]);
 
   const canLocations =
     allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_LOCATIONS, Permission.ADMIN_EDIT_LOCATIONS]);
@@ -69,10 +63,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   const canTickets =
     allowAll ||
-    hasAnyPermission(perms, [
-      Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS,
-      Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
-    ]);
+    hasAnyPermission(perms, [Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS, Permission.ADMIN_VIEW_MAINTENANCE_TICKETS]);
 
   const wrap: CSSProperties = {
     display: "grid",
