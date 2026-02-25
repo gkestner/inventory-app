@@ -65,21 +65,25 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     allowAll ||
     hasAnyPermission(perms, [Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS, Permission.ADMIN_VIEW_MAINTENANCE_TICKETS]);
 
+  // ✅ Use theme tokens (works for both light + dark)
   const wrap: CSSProperties = {
     display: "grid",
     gridTemplateColumns: "260px minmax(0, 1fr)",
     minHeight: "100vh",
-    background: "#f9fafb",
+    background: "var(--background)",
+    color: "var(--foreground)",
   };
 
   const sidebar: CSSProperties = {
-    borderRight: "1px solid #e5e7eb",
-    background: "#fff",
+    borderRight: "1px solid var(--border)",
+    background: "var(--surface)",
     padding: 14,
   };
 
   const main: CSSProperties = {
     padding: 0,
+    background: "var(--background)",
+    color: "var(--foreground)",
   };
 
   const brand: CSSProperties = {
@@ -90,7 +94,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   const meta: CSSProperties = {
     fontSize: 12,
-    color: "#6b7280",
+    color: "var(--muted)",
     marginBottom: 14,
     lineHeight: 1.3,
   };
@@ -106,12 +110,12 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
-    border: "1px solid #e5e7eb",
+    border: "1px solid var(--border)",
     borderRadius: 10,
     padding: "10px 10px",
     textDecoration: "none",
-    color: "#111827",
-    background: "#fff",
+    color: "var(--foreground)",
+    background: "var(--surface)",
     fontSize: 13,
   };
 
@@ -119,9 +123,9 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     fontSize: 11,
     padding: "2px 8px",
     borderRadius: 999,
-    border: "1px solid #e5e7eb",
-    background: "#f9fafb",
-    color: "#374151",
+    border: "1px solid var(--border)",
+    background: "var(--surface-2)",
+    color: "var(--muted)",
     whiteSpace: "nowrap",
   };
 
@@ -130,7 +134,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     marginBottom: 8,
     fontSize: 12,
     fontWeight: 800,
-    color: "#374151",
+    color: "var(--muted)",
     letterSpacing: 0.2,
   };
 
