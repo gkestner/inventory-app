@@ -65,6 +65,11 @@ function fmtLocalDate(d: Date | null): string {
   return new Date(d).toLocaleDateString();
 }
 
+function money(n: number): string {
+  if (!Number.isFinite(n)) return "—";
+  return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
+}
+
 function vendorLabel(v: InvoiceVendor) {
   return v === "SUCCESS_PLUS" ? "Success Plus" : "American Plus";
 }
