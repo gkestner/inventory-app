@@ -18,12 +18,16 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
 
+function isRole(v: unknown): v is Role {
+  return typeof v === "string" && (Object.values(Role) as string[]).includes(v);
+}
+
 function getSessionUserRole(session: unknown): Role | null {
   if (!isRecord(session)) return null;
   const user = session.user;
   if (!isRecord(user)) return null;
   const role = user.role;
-  return role === Role.ADMIN || role === Role.MANAGER || role === Role.EMPLOYEE ? role : null;
+  return isRole(role) ? role : null;
 }
 
 function getSessionUserId(session: unknown): string | null {
@@ -52,6 +56,19 @@ function toInt(v: unknown): number | null {
   return null;
 }
 
+function isAllowedMaintenanceCheckoutRole(role: Role): boolean {
+  // This is a maintenance checkout endpoint; MAINTENANCE should be allowed.
+  switch (role) {
+    case Role.EMPLOYEE:
+    case Role.MAINTENANCE:
+    case Role.MANAGER:
+    case Role.ADMIN:
+      return true;
+    default:
+      return false;
+  }
+}
+
 export async function POST(req: NextRequest) {
   // Auth: maintenance men must be logged in. We allow EMPLOYEE+.
   const session = await getServerSession(authOptions);
@@ -59,7 +76,9 @@ export async function POST(req: NextRequest) {
 
   const role = getSessionUserRole(session);
   if (!role) return new Response("Forbidden", { status: 403 });
-  if (![Role.EMPLOYEE, Role.MANAGER, Role.ADMIN].includes(role)) {
+
+  // ✅ Fix: avoid includes() union mismatch, and allow MAINTENANCE.
+  if (!isAllowedMaintenanceCheckoutRole(role)) {
     return new Response("Forbidden", { status: 403 });
   }
 
