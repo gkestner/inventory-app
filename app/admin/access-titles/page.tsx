@@ -204,10 +204,9 @@ function buildPermissionGroups(all: Permission[]): PermGroup[] {
 
 /**
  * Detect the permissions join table for PermissionTitle.
- * We support a couple common historical names so older DBs don't break.
+ * Supports a couple common historical names.
  */
 async function detectPermissionTitleJoinTable(): Promise<string | null> {
-  // Prefer the "current" expected join table name first.
   const candidates = ["PermissionTitlePermission", "AccessTitlePermission"];
 
   const rows = await prisma.$queryRaw<Array<{ table_name: string }>>`
@@ -230,13 +229,11 @@ async function detectPermissionTitleJoinTable(): Promise<string | null> {
 export default async function AdminAccessTitlesPage() {
   await requireAdmin();
 
-  // Hard requirement: PermissionTitle must exist (it already does in your DB + Users page)
-  // If somehow missing, show a clear message.
   let joinTable: string | null = null;
   try {
     joinTable = await detectPermissionTitleJoinTable();
   } catch {
-    // ignore; we handle below
+    joinTable = null;
   }
 
   if (!joinTable) {
@@ -297,19 +294,19 @@ export default async function AdminAccessTitlesPage() {
 
     const selected = safePermissionsFromFormData(formData, "permissions");
 
-    // Atomic replace
+    // Basic identifier allow-list (extra safety since we interpolate identifier)
+    if (joinTable !== "PermissionTitlePermission" && joinTable !== "AccessTitlePermission") {
+      redirect("/admin/access-titles");
+    }
+
     await prisma.$transaction(async (tx) => {
-      // delete existing
       await tx.$executeRawUnsafe(`DELETE FROM "public"."${joinTable}" WHERE "permissionTitleId" = $1`, permissionTitleId);
 
       if (selected.length > 0) {
-        // insert new
-        // Use parameterized values safely (build $2..$N)
         const valuesSql: string[] = [];
         const params: unknown[] = [permissionTitleId];
 
         for (let i = 0; i < selected.length; i++) {
-          // ($1, $2), ($1, $3) ...
           valuesSql.push(`($1, $${i + 2})`);
           params.push(selected[i]);
         }
@@ -348,7 +345,6 @@ export default async function AdminAccessTitlesPage() {
   }> = [];
 
   try {
-    // titles
     const base = await prisma.permissionTitle.findMany({
       orderBy: [{ active: "desc" }, { name: "asc" }],
       select: { id: true, name: true, description: true },
@@ -356,19 +352,6 @@ export default async function AdminAccessTitlesPage() {
 
     const ids = base.map((b) => b.id);
 
-    // permissions by title (raw from join table for compatibility)
-    const permsRows =
-      ids.length === 0
-        ? []
-        : await prisma.$queryRaw<Array<{ permissionTitleId: string; permission: Permission }>>`
-            SELECT "permissionTitleId", "permission"
-            FROM "public"."${prisma.$unsafe(joinTable)}"
-            WHERE "permissionTitleId" IN (${prisma.$unsafe(ids.map((_, i) => `$${i + 1}`).join(", "))})
-          `;
-
-    // The above prisma.$queryRaw usage with dynamic IN placeholders is awkward; instead do a safe fallback:
-    // We'll just query all rows for these titles with executeRawUnsafe.
-    // (We keep this small; titles list is small.)
     const permsById = new Map<string, Permission[]>();
     if (ids.length > 0) {
       const params: unknown[] = [];
@@ -377,6 +360,12 @@ export default async function AdminAccessTitlesPage() {
         placeholders.push(`$${i + 1}`);
         params.push(ids[i]);
       }
+
+      // allow-list again
+      if (joinTable !== "PermissionTitlePermission" && joinTable !== "AccessTitlePermission") {
+        throw new Error("bad join table");
+      }
+
       const rows = await prisma.$queryRawUnsafe<Array<{ permissionTitleId: string; permission: Permission }>>(
         `SELECT "permissionTitleId", "permission"
          FROM "public"."${joinTable}"
@@ -393,7 +382,6 @@ export default async function AdminAccessTitlesPage() {
       }
     }
 
-    // user counts
     const countsById = new Map<string, number>();
     if (ids.length > 0) {
       const params: unknown[] = [];
@@ -403,6 +391,7 @@ export default async function AdminAccessTitlesPage() {
         params.push(ids[i]);
       }
 
+      // NOTE: This table name comes from your existing Users page usage.
       const rows = await prisma.$queryRawUnsafe<Array<{ titleId: string; c: bigint }>>(
         `SELECT "titleId", COUNT(*)::bigint AS c
          FROM "public"."UserPermissionTitle"
@@ -576,7 +565,7 @@ export default async function AdminAccessTitlesPage() {
                         </div>
                       </form>
 
-                      {/* Permissions (Tree) */}
+                      {/* Permissions */}
                       <form id={formId} action={updatePermissionsAction} style={{ display: "grid", gap: 10 }}>
                         <input type="hidden" name="id" value={t.id} />
 
@@ -708,7 +697,6 @@ export default async function AdminAccessTitlesPage() {
                           </div>
                         </div>
 
-                        {/* Tiny script: group toggles + select all + indeterminate states */}
                         <script
                           dangerouslySetInnerHTML={{
                             __html: `
