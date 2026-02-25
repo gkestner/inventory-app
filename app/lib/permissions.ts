@@ -6,11 +6,9 @@ import { Permission, Role } from "@prisma/client";
  * Canonical server-side permission loader.
  *
  * Rules:
- * - ADMIN role => allowAll = true (no DB lookup required)
- * - Non-admin => explicit Permission enum rows via UserPermission
- * - No client usage
- * - No raw SQL
- * - Safe for RSC usage
+ * - ADMIN => allowAll = true
+ * - MAINTENANCE => baseline maintenance permissions
+ * - Others => direct permissions + title-based permissions
  */
 
 export type LoadedPermissions = {
@@ -50,9 +48,41 @@ function getSessionUserRole(session: unknown): Role | null {
   const role = user.role;
   return role === Role.ADMIN ||
     role === Role.MANAGER ||
-    role === Role.EMPLOYEE
+    role === Role.EMPLOYEE ||
+    role === Role.MAINTENANCE
     ? role
     : null;
+}
+
+type PrismaUserDelegate = {
+  findUnique: (args: unknown) => Promise<{ id: string } | null>;
+};
+
+type PrismaUserPermissionDelegate = {
+  findMany: (args: unknown) => Promise<Array<{ permission: Permission }>>;
+};
+
+type PrismaUserPermissionTitleDelegate = {
+  findMany: (args: unknown) => Promise<Array<{ titleId: string }>>;
+};
+
+type PrismaPermissionTitlePermissionDelegate = {
+  findMany: (args: unknown) => Promise<Array<{ permission: Permission }>>;
+};
+
+const db = prisma as unknown as {
+  user: PrismaUserDelegate;
+  userPermission: PrismaUserPermissionDelegate;
+
+  userPermissionTitle?: PrismaUserPermissionTitleDelegate;
+  permissionTitlePermission?: PrismaPermissionTitlePermissionDelegate;
+};
+
+function rbacReady(): boolean {
+  return (
+    typeof db.userPermissionTitle?.findMany === "function" &&
+    typeof db.permissionTitlePermission?.findMany === "function"
+  );
 }
 
 export async function loadUserPermissions(
@@ -64,7 +94,7 @@ export async function loadUserPermissions(
   const sessionUserId = getSessionUserId(session);
   const sessionUserEmail = getSessionUserEmail(session);
 
-  // Admin = allow-all (no DB lookup)
+  // ✅ ADMIN = allow-all
   if (isAdmin) {
     return {
       userId: sessionUserId,
@@ -79,11 +109,22 @@ export async function loadUserPermissions(
   let userId: string | null = sessionUserId;
 
   if (!userId && sessionUserEmail) {
-    const u = await prisma.user.findUnique({
+    const u = await db.user.findUnique({
       where: { email: sessionUserEmail },
-      select: { id: true, role: true },
+      select: { id: true },
     });
     userId = u?.id ?? null;
+  }
+
+  const permissions = new Set<Permission>();
+
+  // ✅ MAINTENANCE baseline permissions
+  if (role === Role.MAINTENANCE) {
+    permissions.add(Permission.VIEW_HOME);
+    permissions.add(Permission.VIEW_WORK_ORDERS);
+    permissions.add(Permission.CREATE_WORK_ORDERS);
+    permissions.add(Permission.UPDATE_OWN_WORK_ORDERS);
+    permissions.add(Permission.SUBMIT_OWN_WORK_ORDERS);
   }
 
   if (!userId) {
@@ -92,26 +133,52 @@ export async function loadUserPermissions(
       role,
       isAdmin: false,
       allowAll: false,
-      permissions: new Set<Permission>(),
+      permissions,
     };
   }
 
-  const rows = await prisma.userPermission.findMany({
+  // Direct user permissions
+  const directRows = await db.userPermission.findMany({
     where: { userId },
     select: { permission: true },
   });
+
+  for (const r of directRows) {
+    permissions.add(r.permission);
+  }
+
+  // Title-based permissions (if migrated)
+  if (rbacReady()) {
+    const titleRows = await db.userPermissionTitle!.findMany({
+      where: { userId },
+      select: { titleId: true },
+    } as unknown);
+
+    const titleIds = titleRows.map((r) => r.titleId);
+
+    if (titleIds.length > 0) {
+      const titlePerms = await db.permissionTitlePermission!.findMany({
+        where: { titleId: { in: titleIds } },
+        select: { permission: true },
+      } as unknown);
+
+      for (const r of titlePerms) {
+        permissions.add(r.permission);
+      }
+    }
+  }
 
   return {
     userId,
     role,
     isAdmin: false,
     allowAll: false,
-    permissions: new Set(rows.map((r) => r.permission)),
+    permissions,
   };
 }
 
 /**
- * Helper: check if user has ANY of given permissions
+ * Check ANY
  */
 export function hasAnyPermission(
   perms: LoadedPermissions,
@@ -127,7 +194,7 @@ export function hasAnyPermission(
 }
 
 /**
- * Helper: check if user has ALL of given permissions
+ * Check ALL
  */
 export function hasAllPermissions(
   perms: LoadedPermissions,
