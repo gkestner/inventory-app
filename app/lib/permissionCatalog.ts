@@ -3,7 +3,7 @@ import { Permission } from "@prisma/client";
 
 export type PermissionCatalogEntry = {
   permission: Permission;
-  module: string; // left nav category (Payroll, Admin, Inventory, etc.)
+  module: string; // left nav category
   path: string[]; // tree grouping inside that module
   label: string; // checkbox label
   description?: string;
@@ -51,3 +51,55 @@ export const PERMISSION_CATALOG: PermissionCatalogEntry[] = [
   { permission: Permission.ADMIN_VIEW_MAINTENANCE_TICKETS, module: "Admin", path: ["Maintenance Tickets"], label: "View Maintenance Tickets" },
   { permission: Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS, module: "Admin", path: ["Maintenance Tickets"], label: "Export Maintenance Tickets" },
 ];
+
+// ✅ exported name exactly as imported
+export function getPermissionModules(): string[] {
+  const s = new Set<string>();
+  for (const e of PERMISSION_CATALOG) s.add(e.module);
+  return Array.from(s).sort((a, b) => a.localeCompare(b));
+}
+
+export type PermissionTreeNode =
+  | { kind: "group"; key: string; name: string; children: PermissionTreeNode[] }
+  | { kind: "leaf"; key: string; entry: PermissionCatalogEntry };
+
+export function buildPermissionTreeForModule(module: string): PermissionTreeNode[] {
+  const entries = PERMISSION_CATALOG.filter((e) => e.module === module).slice();
+
+  entries.sort((a, b) => {
+    const ap = a.path.join(" > ");
+    const bp = b.path.join(" > ");
+    if (ap !== bp) return ap.localeCompare(bp);
+    return a.label.localeCompare(b.label);
+  });
+
+  const root: PermissionTreeNode = {
+    kind: "group",
+    key: `module:${module}`,
+    name: module,
+    children: [],
+  };
+
+  function getOrCreateGroup(parent: PermissionTreeNode[], name: string, key: string) {
+    const existing = parent.find((n) => n.kind === "group" && n.key === key);
+    if (existing && existing.kind === "group") return existing;
+    const g: PermissionTreeNode = { kind: "group", key, name, children: [] };
+    parent.push(g);
+    return g as Extract<PermissionTreeNode, { kind: "group" }>;
+  }
+
+  for (const entry of entries) {
+    let children = (root as Extract<PermissionTreeNode, { kind: "group" }>).children;
+    let currentKey = `module:${module}`;
+
+    for (const seg of entry.path) {
+      currentKey += `/${seg}`;
+      const g = getOrCreateGroup(children, seg, currentKey);
+      children = g.children;
+    }
+
+    children.push({ kind: "leaf", key: `perm:${entry.permission}`, entry });
+  }
+
+  return (root as Extract<PermissionTreeNode, { kind: "group" }>).children;
+}

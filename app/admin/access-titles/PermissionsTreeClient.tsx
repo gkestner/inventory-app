@@ -1,12 +1,11 @@
-// app/admin/access-titles/PermissionsTreeClient.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { Permission } from "@prisma/client";
-import { PERMISSION_CATALOG, getPermissionModules, buildPermissionTreeForModule } from "@/app/lib/permissionCatalog";
+import { PERMISSION_CATALOG, buildPermissionTreeForModule } from "@/app/lib/permissionCatalog";
 
 type UiEntry = {
-  permission: string; // submit value (Permission enum string)
+  permission: Permission; // ✅ strongly typed
   module: string;
   path: string[];
   label: string;
@@ -34,8 +33,19 @@ function uniqStrings(vals: string[]): string[] {
   return out;
 }
 
+function uniqPerms(vals: Permission[]): Permission[] {
+  const seen = new Set<string>();
+  const out: Permission[] = [];
+  for (const p of vals) {
+    const k = String(p);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(p);
+  }
+  return out;
+}
+
 function buildOtherModuleTree(entries: UiEntry[]): UiNode[] {
-  // Group as Other > Uncategorized (or path if provided)
   const root: UiNode = { kind: "group", key: "module:Other", name: "Other", children: [] };
 
   function getOrCreateGroup(parent: UiNode[], name: string, key: string) {
@@ -70,9 +80,9 @@ function buildOtherModuleTree(entries: UiEntry[]): UiNode[] {
   return (root as Extract<UiNode, { kind: "group" }>).children;
 }
 
-function collectLeafPerms(node: UiNode): string[] {
+function collectLeafPerms(node: UiNode): Permission[] {
   if (node.kind === "leaf") return [node.entry.permission];
-  const out: string[] = [];
+  const out: Permission[] = [];
   for (const ch of node.children) out.push(...collectLeafPerms(ch));
   return out;
 }
@@ -82,7 +92,8 @@ function filterTreeByQuery(nodes: UiNode[], qLower: string): UiNode[] {
 
   function keepNode(n: UiNode): UiNode | null {
     if (n.kind === "leaf") {
-      const hay = `${n.entry.permission} ${n.entry.label} ${n.entry.description ?? ""} ${n.entry.path.join(" ")}`.toLowerCase();
+      const hay =
+        `${n.entry.permission} ${n.entry.label} ${n.entry.description ?? ""} ${n.entry.path.join(" ")}`.toLowerCase();
       return hay.includes(qLower) ? n : null;
     }
 
@@ -101,8 +112,8 @@ function TreeNode({
   depth,
 }: {
   node: UiNode;
-  selected: Set<string>;
-  setSelected: (next: Set<string>) => void;
+  selected: Set<Permission>;
+  setSelected: (next: Set<Permission>) => void;
   depth: number;
 }) {
   if (node.kind === "leaf") {
@@ -152,7 +163,7 @@ function TreeNode({
     );
   }
 
-  const leafPerms = useMemo(() => uniqStrings(collectLeafPerms(node)), [node]);
+  const leafPerms = useMemo(() => uniqPerms(collectLeafPerms(node)), [node]);
   const allSelected = leafPerms.length > 0 && leafPerms.every((p) => selected.has(p));
   const someSelected = leafPerms.some((p) => selected.has(p));
 
@@ -209,12 +220,17 @@ export default function PermissionsTreeClient({
   allPermissions: string[];
   selectedPermissions: string[];
 }) {
+  // ✅ normalize enum-permissions from strings
+  const allPerms = useMemo(() => {
+    const raw = uniqStrings(allPermissions.map((p) => String(p)));
+    return raw.filter(isPermissionValue);
+  }, [allPermissions]);
+
   const catalogByPerm = useMemo(() => {
-    const m = new Map<string, UiEntry>();
+    const m = new Map<Permission, UiEntry>();
     for (const ce of PERMISSION_CATALOG) {
-      const key = String(ce.permission);
-      m.set(key, {
-        permission: key,
+      m.set(ce.permission, {
+        permission: ce.permission,
         module: ce.module,
         path: ce.path,
         label: ce.label,
@@ -224,55 +240,50 @@ export default function PermissionsTreeClient({
     return m;
   }, []);
 
-  const allPermStrings = useMemo(() => uniqStrings(allPermissions.map((p) => String(p))), [allPermissions]);
+  const initialSelected = useMemo(() => {
+    const raw = uniqStrings(selectedPermissions.map((p) => String(p)));
+    const perms = raw.filter(isPermissionValue).filter((p) => allPerms.includes(p));
+    return new Set<Permission>(perms);
+  }, [selectedPermissions, allPerms]);
 
-  const initialSelected = useMemo(
-    () => new Set(uniqStrings(selectedPermissions.map((p) => String(p))).filter((p) => allPermStrings.includes(p))),
-    [selectedPermissions, allPermStrings]
-  );
-
-  const [selected, setSelected] = useState<Set<string>>(initialSelected);
+  const [selected, setSelected] = useState<Set<Permission>>(initialSelected);
   const [q, setQ] = useState("");
 
-  // keep in sync if title changes
   useEffect(() => {
     setSelected(initialSelected);
   }, [initialSelected]);
 
-  // Build module list:
-  const baseModules = useMemo(() => getPermissionModules(), []);
+  // ✅ Build module list from catalog + add Other if any enum-perms missing from catalog
+  const baseModules = useMemo(() => {
+    const s = new Set<string>();
+    for (const ce of PERMISSION_CATALOG) s.add(ce.module);
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, []);
+
   const allModules = useMemo(() => {
-    // include "Other" if any permissions not in catalog OR catalog module missing
-    const unknown = allPermStrings.filter((p) => !catalogByPerm.has(p));
+    const unknown = allPerms.filter((p) => !catalogByPerm.has(p));
     const mods = new Set<string>(baseModules);
     if (unknown.length > 0) mods.add("Other");
     return Array.from(mods).sort((a, b) => a.localeCompare(b));
-  }, [baseModules, allPermStrings, catalogByPerm]);
+  }, [baseModules, allPerms, catalogByPerm]);
 
-  // Default active module: first module that actually has permissions present
   const defaultModule = useMemo(() => {
     for (const mod of allModules) {
       if (mod === "Other") {
-        const unknown = allPermStrings.filter((p) => !catalogByPerm.has(p));
+        const unknown = allPerms.filter((p) => !catalogByPerm.has(p));
         if (unknown.length) return "Other";
       } else {
-        const moduleTree = buildPermissionTreeForModule(mod);
-        const modulePerms = moduleTree
-          .flatMap((n) => {
-            // collect from catalog tree (Permission typed)
-            const collect = (x: any): string[] => {
-              if (x.kind === "leaf") return [String(x.entry.permission)];
-              return (x.children ?? []).flatMap(collect);
-            };
-            return collect(n);
-          })
-          .filter((p) => allPermStrings.includes(p));
-
+        const rawTree = buildPermissionTreeForModule(mod);
+        const collect = (x: any): Permission[] => {
+          if (x.kind === "leaf") return [x.entry.permission as Permission];
+          return (x.children ?? []).flatMap(collect);
+        };
+        const modulePerms = rawTree.flatMap(collect).filter((p) => allPerms.includes(p));
         if (modulePerms.length) return mod;
       }
     }
     return allModules[0] ?? "Other";
-  }, [allModules, allPermStrings, catalogByPerm]);
+  }, [allModules, allPerms, catalogByPerm]);
 
   const [activeModule, setActiveModule] = useState<string>(defaultModule);
 
@@ -280,43 +291,41 @@ export default function PermissionsTreeClient({
     setActiveModule(defaultModule);
   }, [defaultModule]);
 
-  // Build module tree nodes (UiNode[])
   const moduleTree: UiNode[] = useMemo(() => {
     const qLower = q.trim().toLowerCase();
 
     if (activeModule === "Other") {
-      const unknown = allPermStrings
+      const unknownEntries: UiEntry[] = allPerms
         .filter((p) => !catalogByPerm.has(p))
-        .map<UiEntry>((p) => ({
+        .map((p) => ({
           permission: p,
           module: "Other",
           path: ["Uncategorized"],
-          label: p,
+          label: String(p),
         }));
 
-      const tree = buildOtherModuleTree(unknown);
+      const tree = buildOtherModuleTree(unknownEntries);
       return filterTreeByQuery(tree, qLower);
     }
 
-    // Use catalog tree structure, but only show permissions that exist in allPermissions
     const raw = buildPermissionTreeForModule(activeModule);
 
     const convert = (n: any): UiNode | null => {
       if (n.kind === "leaf") {
-        const permStr = String(n.entry.permission);
-        if (!allPermStrings.includes(permStr)) return null;
+        const perm = n.entry.permission as Permission;
+        if (!allPerms.includes(perm)) return null;
 
-        const ce = catalogByPerm.get(permStr);
-        const entry: UiEntry = ce
-          ? ce
-          : {
-              permission: permStr,
-              module: activeModule,
-              path: [],
-              label: permStr,
-            };
+        const ce = catalogByPerm.get(perm);
+        const entry: UiEntry =
+          ce ??
+          ({
+            permission: perm,
+            module: activeModule,
+            path: [],
+            label: String(perm),
+          } as UiEntry);
 
-        return { kind: "leaf", key: `perm:${permStr}`, entry };
+        return { kind: "leaf", key: `perm:${perm}`, entry };
       }
 
       const children = (n.children ?? []).map(convert).filter(Boolean) as UiNode[];
@@ -326,13 +335,12 @@ export default function PermissionsTreeClient({
 
     const converted = raw.map(convert).filter(Boolean) as UiNode[];
     return filterTreeByQuery(converted, qLower);
-  }, [activeModule, q, allPermStrings, catalogByPerm]);
+  }, [activeModule, q, allPerms, catalogByPerm]);
 
   const totalSelected = selected.size;
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
-      {/* Top controls */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
         <input
           value={q}
@@ -352,7 +360,7 @@ export default function PermissionsTreeClient({
 
         <button
           type="button"
-          onClick={() => setSelected(new Set(allPermStrings))}
+          onClick={() => setSelected(new Set(allPerms))}
           style={{
             padding: "10px 12px",
             borderRadius: 12,
@@ -383,11 +391,10 @@ export default function PermissionsTreeClient({
         </button>
 
         <div style={{ fontSize: 12, opacity: 0.75 }}>
-          Selected: <b>{totalSelected}</b> / Total: <b>{allPermStrings.length}</b>
+          Selected: <b>{totalSelected}</b> / Total: <b>{allPerms.length}</b>
         </div>
       </div>
 
-      {/* Layout: module sidebar + tree */}
       <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 12 }}>
         <aside
           style={{
@@ -446,6 +453,7 @@ export default function PermissionsTreeClient({
           {/* ✅ Submit values for server action */}
           <div style={{ display: "none" }}>
             {Array.from(selected)
+              .map(String)
               .sort((a, b) => a.localeCompare(b))
               .map((p) => (
                 <input key={p} type="hidden" name="permissions" value={p} />
