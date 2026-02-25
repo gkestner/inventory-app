@@ -69,45 +69,6 @@ function NotReadyPanel({ title, details }: { title: string; details: string[] })
   );
 }
 
-type AccessTitleRow = {
-  id: string;
-  name: string;
-  description: string | null;
-  permissions: Array<{ permission: Permission }>;
-  _count: { users: number };
-};
-
-type AccessTitleDelegate = {
-  findMany: (args: unknown) => Promise<unknown[]>;
-  create: (args: unknown) => Promise<unknown>;
-  update: (args: unknown) => Promise<unknown>;
-  delete: (args: unknown) => Promise<unknown>;
-};
-
-type AccessTitlePermissionDelegate = {
-  deleteMany: (args: unknown) => Promise<unknown>;
-  createMany: (args: unknown) => Promise<unknown>;
-};
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function toStringSafe(v: unknown): string {
-  return typeof v === "string" ? v : String(v ?? "");
-}
-
-function toNullableString(v: unknown): string | null {
-  if (v === null || typeof v === "undefined") return null;
-  const s = toStringSafe(v).trim();
-  return s ? s : null;
-}
-
-function toIntSafe(v: unknown): number {
-  const n = typeof v === "number" ? v : Number(v);
-  return Number.isFinite(n) ? Math.trunc(n) : 0;
-}
-
 function isPermissionValue(v: unknown): v is Permission {
   return typeof v === "string" && (Object.values(Permission) as string[]).includes(v);
 }
@@ -133,8 +94,6 @@ function splitUnderscoreLabel(s: string) {
 }
 
 function permLabel(p: Permission): string {
-  // Keep it readable while preserving the exact enum name (shown in mono next to label)
-  // e.g. ADMIN_VIEW_ITEMS => "Admin View Items"
   return splitUnderscoreLabel(String(p));
 }
 
@@ -148,7 +107,6 @@ type PermGroup = {
 function buildPermissionGroups(all: Permission[]): PermGroup[] {
   const byPrefix = (prefix: string) => all.filter((p) => String(p).startsWith(prefix));
 
-  // Explicit groups (stable + easy to understand)
   const groups: PermGroup[] = [];
 
   const nav = byPrefix("VIEW_");
@@ -231,7 +189,6 @@ function buildPermissionGroups(all: Permission[]): PermGroup[] {
     });
   }
 
-  // Anything not covered above goes into "Other"
   const covered = new Set(groups.flatMap((g) => g.permissions));
   const other = all.filter((p) => !covered.has(p));
   if (other.length) {
@@ -245,33 +202,50 @@ function buildPermissionGroups(all: Permission[]): PermGroup[] {
   return groups;
 }
 
+/**
+ * Detect the permissions join table for PermissionTitle.
+ * We support a couple common historical names so older DBs don't break.
+ */
+async function detectPermissionTitleJoinTable(): Promise<string | null> {
+  // Prefer the "current" expected join table name first.
+  const candidates = ["PermissionTitlePermission", "AccessTitlePermission"];
+
+  const rows = await prisma.$queryRaw<Array<{ table_name: string }>>`
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name IN (${candidates[0]}, ${candidates[1]})
+    ORDER BY CASE table_name
+      WHEN ${candidates[0]} THEN 0
+      WHEN ${candidates[1]} THEN 1
+      ELSE 99
+    END
+    LIMIT 1
+  `;
+
+  const t = rows?.[0]?.table_name ?? null;
+  return t || null;
+}
+
 export default async function AdminAccessTitlesPage() {
   await requireAdmin();
 
-  // Avoid build-time dependency until client is regenerated
-  const p = prisma as unknown as Partial<{
-    accessTitle: AccessTitleDelegate;
-    accessTitlePermission: AccessTitlePermissionDelegate;
-  }>;
+  // Hard requirement: PermissionTitle must exist (it already does in your DB + Users page)
+  // If somehow missing, show a clear message.
+  let joinTable: string | null = null;
+  try {
+    joinTable = await detectPermissionTitleJoinTable();
+  } catch {
+    // ignore; we handle below
+  }
 
-  const ready =
-    typeof p.accessTitle?.findMany === "function" &&
-    typeof p.accessTitle?.create === "function" &&
-    typeof p.accessTitle?.update === "function" &&
-    typeof p.accessTitle?.delete === "function" &&
-    typeof p.accessTitlePermission?.deleteMany === "function" &&
-    typeof p.accessTitlePermission?.createMany === "function";
-
-  if (!ready) {
+  if (!joinTable) {
     return (
       <NotReadyPanel
-        title="Not ready yet"
+        title="Database tables not ready"
         details={[
-          "Your Prisma Client does not include Access Titles yet (or prisma generate hasn’t been run).",
-          "Fix:",
-          "1) Apply migration: `npx prisma migrate deploy` (Neon)",
-          "2) Regenerate: `npx prisma generate`",
-          "3) Redeploy",
+          "Your database is missing the Permission Title permissions join table.",
+          "Fix: run `npx prisma migrate deploy` against Neon, then redeploy.",
         ]}
       />
     );
@@ -286,8 +260,8 @@ export default async function AdminAccessTitlesPage() {
 
     if (!name) redirect("/admin/access-titles");
 
-    await p.accessTitle!.create({
-      data: { name, description },
+    await prisma.permissionTitle.create({
+      data: { name, description, active: true },
       select: { id: true },
     });
 
@@ -305,7 +279,7 @@ export default async function AdminAccessTitlesPage() {
 
     if (!id || !name) redirect("/admin/access-titles");
 
-    await p.accessTitle!.update({
+    await prisma.permissionTitle.update({
       where: { id },
       data: { name, description },
     });
@@ -318,20 +292,32 @@ export default async function AdminAccessTitlesPage() {
     "use server";
     await requireAdmin();
 
-    const accessTitleId = nonEmpty(formData.get("id"));
-    if (!accessTitleId) redirect("/admin/access-titles");
+    const permissionTitleId = nonEmpty(formData.get("id"));
+    if (!permissionTitleId) redirect("/admin/access-titles");
 
     const selected = safePermissionsFromFormData(formData, "permissions");
 
+    // Atomic replace
     await prisma.$transaction(async (tx) => {
-      await (tx as unknown as { accessTitlePermission: AccessTitlePermissionDelegate }).accessTitlePermission.deleteMany({
-        where: { accessTitleId },
-      });
+      // delete existing
+      await tx.$executeRawUnsafe(`DELETE FROM "public"."${joinTable}" WHERE "permissionTitleId" = $1`, permissionTitleId);
 
       if (selected.length > 0) {
-        await (tx as unknown as { accessTitlePermission: AccessTitlePermissionDelegate }).accessTitlePermission.createMany({
-          data: selected.map((perm) => ({ accessTitleId, permission: perm })),
-        });
+        // insert new
+        // Use parameterized values safely (build $2..$N)
+        const valuesSql: string[] = [];
+        const params: unknown[] = [permissionTitleId];
+
+        for (let i = 0; i < selected.length; i++) {
+          // ($1, $2), ($1, $3) ...
+          valuesSql.push(`($1, $${i + 2})`);
+          params.push(selected[i]);
+        }
+
+        await tx.$executeRawUnsafe(
+          `INSERT INTO "public"."${joinTable}" ("permissionTitleId","permission") VALUES ${valuesSql.join(", ")}`,
+          ...params
+        );
       }
     });
 
@@ -346,50 +332,104 @@ export default async function AdminAccessTitlesPage() {
     const id = nonEmpty(formData.get("id"));
     if (!id) redirect("/admin/access-titles");
 
-    await p.accessTitle!.delete({ where: { id } });
+    await prisma.permissionTitle.delete({ where: { id } });
 
     revalidatePath("/admin/access-titles");
     redirect("/admin/access-titles");
   }
 
-  let titles: AccessTitleRow[] = [];
+  // Load titles + permission grants + user count
+  let titles: Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    permissions: Array<{ permission: Permission }>;
+    _count: { users: number };
+  }> = [];
+
   try {
-    const raw = await p.accessTitle!.findMany({
-      orderBy: { name: "asc" },
-      select: {
-        id: true,
-        name: true,
-        description: true,
-        permissions: { select: { permission: true } },
-        _count: { select: { users: true } },
-      },
+    // titles
+    const base = await prisma.permissionTitle.findMany({
+      orderBy: [{ active: "desc" }, { name: "asc" }],
+      select: { id: true, name: true, description: true },
     });
 
-    titles = (raw ?? []).map((row) => {
-      const r = isRecord(row) ? row : {};
-      const permsRaw = Array.isArray(r.permissions) ? r.permissions : [];
-      const cnt = isRecord(r._count) ? r._count : {};
+    const ids = base.map((b) => b.id);
 
-      const perms: Array<{ permission: Permission }> = [];
-      for (const pr of permsRaw) {
-        if (!isRecord(pr)) continue;
-        if (isPermissionValue(pr.permission)) perms.push({ permission: pr.permission });
+    // permissions by title (raw from join table for compatibility)
+    const permsRows =
+      ids.length === 0
+        ? []
+        : await prisma.$queryRaw<Array<{ permissionTitleId: string; permission: Permission }>>`
+            SELECT "permissionTitleId", "permission"
+            FROM "public"."${prisma.$unsafe(joinTable)}"
+            WHERE "permissionTitleId" IN (${prisma.$unsafe(ids.map((_, i) => `$${i + 1}`).join(", "))})
+          `;
+
+    // The above prisma.$queryRaw usage with dynamic IN placeholders is awkward; instead do a safe fallback:
+    // We'll just query all rows for these titles with executeRawUnsafe.
+    // (We keep this small; titles list is small.)
+    const permsById = new Map<string, Permission[]>();
+    if (ids.length > 0) {
+      const params: unknown[] = [];
+      const placeholders: string[] = [];
+      for (let i = 0; i < ids.length; i++) {
+        placeholders.push(`$${i + 1}`);
+        params.push(ids[i]);
+      }
+      const rows = await prisma.$queryRawUnsafe<Array<{ permissionTitleId: string; permission: Permission }>>(
+        `SELECT "permissionTitleId", "permission"
+         FROM "public"."${joinTable}"
+         WHERE "permissionTitleId" IN (${placeholders.join(", ")})`,
+        ...params
+      );
+
+      for (const r of rows ?? []) {
+        if (!r?.permissionTitleId) continue;
+        if (!isPermissionValue(r.permission)) continue;
+        const arr = permsById.get(r.permissionTitleId) ?? [];
+        arr.push(r.permission);
+        permsById.set(r.permissionTitleId, arr);
+      }
+    }
+
+    // user counts
+    const countsById = new Map<string, number>();
+    if (ids.length > 0) {
+      const params: unknown[] = [];
+      const placeholders: string[] = [];
+      for (let i = 0; i < ids.length; i++) {
+        placeholders.push(`$${i + 1}`);
+        params.push(ids[i]);
       }
 
-      return {
-        id: toStringSafe(r.id).trim(),
-        name: toStringSafe(r.name).trim(),
-        description: toNullableString(r.description),
-        permissions: perms,
-        _count: { users: toIntSafe(cnt.users) },
-      };
-    });
+      const rows = await prisma.$queryRawUnsafe<Array<{ titleId: string; c: bigint }>>(
+        `SELECT "titleId", COUNT(*)::bigint AS c
+         FROM "public"."UserPermissionTitle"
+         WHERE "titleId" IN (${placeholders.join(", ")})
+         GROUP BY "titleId"`,
+        ...params
+      );
+
+      for (const r of rows ?? []) {
+        if (!r?.titleId) continue;
+        countsById.set(r.titleId, Number(r.c ?? 0));
+      }
+    }
+
+    titles = base.map((t) => ({
+      id: t.id,
+      name: t.name,
+      description: t.description,
+      permissions: (permsById.get(t.id) ?? []).sort().map((p) => ({ permission: p })),
+      _count: { users: countsById.get(t.id) ?? 0 },
+    }));
   } catch {
     return (
       <NotReadyPanel
         title="Database tables not ready"
         details={[
-          "Your app can compile, but the database is missing the Access Title tables/columns.",
+          "Your app can compile, but the database is missing the Permission Title tables/columns.",
           "Fix: run `npx prisma migrate deploy` against Neon, then redeploy.",
         ]}
       />
@@ -589,9 +629,7 @@ export default async function AdminAccessTitlesPage() {
                                 >
                                   <div style={{ display: "grid" }}>
                                     <span style={{ fontWeight: 900 }}>{g.title}</span>
-                                    {g.subtitle ? (
-                                      <span style={{ fontSize: 12, color: muted }}>{g.subtitle}</span>
-                                    ) : null}
+                                    {g.subtitle ? <span style={{ fontSize: 12, color: muted }}>{g.subtitle}</span> : null}
                                   </div>
 
                                   <label
@@ -642,7 +680,14 @@ export default async function AdminAccessTitlesPage() {
                                       />
                                       <div style={{ display: "grid", gap: 2 }}>
                                         <div style={{ fontWeight: 900 }}>{permLabel(perm)}</div>
-                                        <div style={{ fontSize: 12, opacity: 0.85, fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                                        <div
+                                          style={{
+                                            fontSize: 12,
+                                            opacity: 0.85,
+                                            fontFamily:
+                                              "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                                          }}
+                                        >
                                           {perm}
                                         </div>
                                       </div>
@@ -700,16 +745,13 @@ export default async function AdminAccessTitlesPage() {
     toggles.forEach(t => syncGroup(t.getAttribute('data-group-toggle')));
   }
 
-  // Initial sync (for server-rendered defaults)
   syncAllGroups();
   syncSelectAll();
 
-  // Click handlers
   form.addEventListener('change', (e) => {
     const t = e.target;
     if(!(t instanceof HTMLInputElement)) return;
 
-    // Select all
     if(t.matches('input[type="checkbox"][data-select-all="1"]')){
       const on = t.checked;
       permBoxes().forEach(b => { b.checked = on; });
@@ -718,7 +760,6 @@ export default async function AdminAccessTitlesPage() {
       return;
     }
 
-    // Group toggle
     if(t.matches('input[type="checkbox"][data-group-toggle]')){
       const groupKey = t.getAttribute('data-group-toggle');
       const on = t.checked;
@@ -728,7 +769,6 @@ export default async function AdminAccessTitlesPage() {
       return;
     }
 
-    // Individual permission box
     if(t.matches('input[type="checkbox"][data-perm="1"]')){
       const groupKey = t.getAttribute('data-group');
       if(groupKey) syncGroup(groupKey);
