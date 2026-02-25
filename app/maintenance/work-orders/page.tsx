@@ -66,8 +66,7 @@ async function requireWorkOrdersSubmitOwn(session: SessionShape) {
 }
 
 /**
- * ✅ CHANGE:
- * Everyone who is logged in can edit their OWN work orders.
+ * Everyone logged-in can edit their OWN work orders.
  * Ownership is enforced inside the server actions (createdByUserId === me.id).
  */
 async function requireWorkOrdersUpdateOwn(session: SessionShape) {
@@ -137,7 +136,6 @@ function parseAreas(formData: FormData): EquipmentArea[] {
     out.push(s as EquipmentArea);
   }
 
-  // de-dupe preserving order
   const seen = new Set<EquipmentArea>();
   const uniq: EquipmentArea[] = [];
   for (const a of out) {
@@ -210,7 +208,6 @@ export default async function MaintenanceWorkOrdersPage() {
 
   const email = (session?.user?.email ?? "").toLowerCase().trim();
 
-  // Load perms once for UI gating
   const perms = await loadUserPermissions(session);
   const allowAll = !!perms.allowAll;
   const bypass = roleBypassesPermissions(session);
@@ -218,7 +215,7 @@ export default async function MaintenanceWorkOrdersPage() {
   const canCreate = bypass || allowAll || hasAnyPermission(perms, [Permission.CREATE_WORK_ORDERS]);
   const canSubmitOwn = bypass || allowAll || hasAnyPermission(perms, [Permission.SUBMIT_OWN_WORK_ORDERS]);
 
-  // ✅ Everyone can edit their own work orders (enforced by server action ownership checks)
+  // everyone can edit their own (ownership enforced server-side)
   const canUpdateOwn = true;
 
   const me = await prisma.user.findUnique({
@@ -238,7 +235,6 @@ export default async function MaintenanceWorkOrdersPage() {
 
   if (!me || !me.active) redirect("/login");
 
-  // Allowed locations: primary first, then optionals (dedup)
   const allowedLocations: Array<{ id: string; name: string; source: "PRIMARY" | "OPTIONAL" }> = [];
   const seen = new Set<string>();
 
@@ -254,7 +250,6 @@ export default async function MaintenanceWorkOrdersPage() {
     allowedLocations.push({ id: ul.location.id, name: ul.location.name, source: "OPTIONAL" });
   }
 
-  // Find ONE active in-progress work order (DRAFT + no endTime)
   const inProgress = await prisma.workOrder.findFirst({
     where: {
       createdByUserId: me.id,
@@ -295,9 +290,6 @@ export default async function MaintenanceWorkOrdersPage() {
     },
   });
 
-  /**
-   * STYLE
-   */
   const CONTENT_WIDTH = 1100;
   const BASE_FONT = 16;
   const LABEL_FONT = 14;
@@ -429,7 +421,6 @@ export default async function MaintenanceWorkOrdersPage() {
     });
     if (!me || !me.active) redirect("/login");
 
-    // Prevent multiple in-progress orders
     const existing = await prisma.workOrder.findFirst({
       where: { createdByUserId: me.id, status: "DRAFT", endTime: null },
       select: { id: true },
@@ -440,7 +431,6 @@ export default async function MaintenanceWorkOrdersPage() {
     const locationId = String(formData.get("locationId") ?? "").trim();
     if (!locationId) throw new Error("Location is required");
 
-    // Enforce allowed location
     const allowed = new Set<string>();
     if (me.locationId) allowed.add(me.locationId);
     for (const ul of me.allowedLocations) allowed.add(ul.locationId);
@@ -523,7 +513,7 @@ export default async function MaintenanceWorkOrdersPage() {
     redirect(CANONICAL_RETURN);
   }
 
-  // ✅ NEW: Edit IN PROGRESS (DRAFT) work orders (own only)
+  // Edit IN PROGRESS (DRAFT) work orders (own only)
   async function updateInProgressWorkOrderAction(formData: FormData) {
     "use server";
 
@@ -572,7 +562,7 @@ export default async function MaintenanceWorkOrdersPage() {
     redirect(CANONICAL_RETURN);
   }
 
-  // ✅ Edit SUBMITTED work orders (own only)
+  // ✅ Edit SUBMITTED work orders (own only) — now also updates startingMileage
   async function updateSubmittedWorkOrderAction(formData: FormData) {
     "use server";
 
@@ -586,6 +576,7 @@ export default async function MaintenanceWorkOrdersPage() {
     const id = String(formData.get("id") ?? "").trim();
     if (!id) throw new Error("Missing work order id");
 
+    const startingMileage = parseOptionalInt(formData.get("startingMileage"));
     const endingMileage = parseRequiredInt(formData.get("endingMileage"), "Ending mileage is required.");
     const notes = String(formData.get("notes") ?? "");
     const areas = parseAreas(formData);
@@ -603,6 +594,7 @@ export default async function MaintenanceWorkOrdersPage() {
       await tx.workOrder.update({
         where: { id },
         data: {
+          startingMileage,
           endingMileage,
           notes,
         },
@@ -826,7 +818,6 @@ export default async function MaintenanceWorkOrdersPage() {
                         <div style={{ fontWeight: 900 }}>{fmtLocal(wo.createdAt)}</div>
                         <div style={{ fontSize: 13, opacity: 0.85 }}>id: {wo.id}</div>
 
-                        {/* ✅ Edit in-progress (own) */}
                         {canUpdateOwn && isOpenDraft ? (
                           <details style={{ marginTop: 10 }}>
                             <summary style={{ cursor: "pointer", fontWeight: 900 }}>Edit (In Progress)</summary>
@@ -856,13 +847,7 @@ export default async function MaintenanceWorkOrdersPage() {
                                   <div style={gridWrap}>
                                     {EQUIPMENT_AREAS.map((area) => (
                                       <label key={`edit-draft-area-${wo.id}-${area}`} style={gridItem}>
-                                        <input
-                                          type="checkbox"
-                                          name="areas"
-                                          value={area}
-                                          defaultChecked={checked.has(area)}
-                                          style={checkboxStyle}
-                                        />
+                                        <input type="checkbox" name="areas" value={area} defaultChecked={checked.has(area)} style={checkboxStyle} />
                                         <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                                           {formatAreaLabel(area)}
                                         </span>
@@ -883,7 +868,7 @@ export default async function MaintenanceWorkOrdersPage() {
                           </details>
                         ) : null}
 
-                        {/* ✅ Edit submitted (own) */}
+                        {/* ✅ Submitted edit now allows editing starting mileage too */}
                         {canUpdateOwn && isSubmitted ? (
                           <details style={{ marginTop: 10 }}>
                             <summary style={{ cursor: "pointer", fontWeight: 900 }}>Edit (Submitted)</summary>
@@ -894,13 +879,13 @@ export default async function MaintenanceWorkOrdersPage() {
 
                                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                                   <label style={label}>
-                                    Ending Mileage (required)
-                                    <input name="endingMileage" type="number" defaultValue={wo.endingMileage ?? ""} style={input} required />
+                                    Starting Mileage (optional)
+                                    <input name="startingMileage" type="number" defaultValue={wo.startingMileage ?? ""} style={input} />
                                   </label>
 
                                   <label style={label}>
-                                    Starting Mileage (read-only)
-                                    <input type="number" value={wo.startingMileage ?? ""} readOnly style={{ ...input, opacity: 0.85 }} />
+                                    Ending Mileage (required)
+                                    <input name="endingMileage" type="number" defaultValue={wo.endingMileage ?? ""} style={input} required />
                                   </label>
                                 </div>
 
@@ -914,13 +899,7 @@ export default async function MaintenanceWorkOrdersPage() {
                                   <div style={gridWrap}>
                                     {EQUIPMENT_AREAS.map((area) => (
                                       <label key={`edit-submitted-area-${wo.id}-${area}`} style={gridItem}>
-                                        <input
-                                          type="checkbox"
-                                          name="areas"
-                                          value={area}
-                                          defaultChecked={checked.has(area)}
-                                          style={checkboxStyle}
-                                        />
+                                        <input type="checkbox" name="areas" value={area} defaultChecked={checked.has(area)} style={checkboxStyle} />
                                         <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                                           {formatAreaLabel(area)}
                                         </span>
@@ -981,7 +960,7 @@ export default async function MaintenanceWorkOrdersPage() {
           </div>
 
           <div style={{ marginTop: 12, fontSize: 14, opacity: 0.85 }}>
-            This page uses a simple Start → End flow. You can edit your own IN PROGRESS and SUBMITTED work orders. FINALIZED work orders are locked.
+            You can edit your own IN PROGRESS and SUBMITTED work orders (including starting mileage). FINALIZED work orders are locked.
           </div>
         </div>
       </div>
