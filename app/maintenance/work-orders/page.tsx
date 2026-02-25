@@ -67,8 +67,8 @@ async function requireWorkOrdersSubmitOwn(session: SessionShape) {
 
 /**
  * ✅ CHANGE:
- * Everyone who is logged in can edit their OWN submitted work orders.
- * Ownership is enforced inside the server action (createdByUserId === me.id).
+ * Everyone who is logged in can edit their OWN work orders.
+ * Ownership is enforced inside the server actions (createdByUserId === me.id).
  */
 async function requireWorkOrdersUpdateOwn(session: SessionShape) {
   requireSession(session);
@@ -218,7 +218,7 @@ export default async function MaintenanceWorkOrdersPage() {
   const canCreate = bypass || allowAll || hasAnyPermission(perms, [Permission.CREATE_WORK_ORDERS]);
   const canSubmitOwn = bypass || allowAll || hasAnyPermission(perms, [Permission.SUBMIT_OWN_WORK_ORDERS]);
 
-  // ✅ CHANGE: editing own submitted work orders is allowed for all logged-in users
+  // ✅ Everyone can edit their own work orders (enforced by server action ownership checks)
   const canUpdateOwn = true;
 
   const me = await prisma.user.findUnique({
@@ -290,21 +290,19 @@ export default async function MaintenanceWorkOrdersPage() {
       endTime: true,
       startingMileage: true,
       endingMileage: true,
-      notes: true, // ✅ needed for editing submitted orders
+      notes: true,
       equipmentAreas: { select: { area: true } },
     },
   });
 
   /**
-   * STYLE TUNING (requested)
+   * STYLE
    */
   const CONTENT_WIDTH = 1100;
-
   const BASE_FONT = 16;
   const LABEL_FONT = 14;
   const CONTROL_FONT = 16;
   const BUTTON_FONT = 16;
-
   const CONTROL_H = 46;
   const BUTTON_H = 50;
 
@@ -459,7 +457,7 @@ export default async function MaintenanceWorkOrdersPage() {
           status: "DRAFT",
           notes,
           startingMileage,
-          startTime: new Date(), // Start sets startTime immediately
+          startTime: new Date(),
           createdByUserId: me.id,
         },
         select: { id: true },
@@ -495,7 +493,6 @@ export default async function MaintenanceWorkOrdersPage() {
     const areas = parseAreas(formData);
 
     await prisma.$transaction(async (tx) => {
-      // Ensure it still belongs to this user and is still open
       const wo = await tx.workOrder.findUnique({
         where: { id },
         select: { id: true, createdByUserId: true, status: true, endTime: true },
@@ -509,11 +506,10 @@ export default async function MaintenanceWorkOrdersPage() {
           endTime: new Date(),
           endingMileage,
           notes,
-          status: "SUBMITTED", // End auto-submits
+          status: "SUBMITTED",
         },
       });
 
-      // Replace areas atomically
       await tx.workOrderEquipmentArea.deleteMany({ where: { workOrderId: id } });
       if (areas.length > 0) {
         await tx.workOrderEquipmentArea.createMany({
@@ -527,7 +523,56 @@ export default async function MaintenanceWorkOrdersPage() {
     redirect(CANONICAL_RETURN);
   }
 
-  // ✅ Edit Submitted work orders (own only)
+  // ✅ NEW: Edit IN PROGRESS (DRAFT) work orders (own only)
+  async function updateInProgressWorkOrderAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as SessionShape;
+    await requireWorkOrdersUpdateOwn(session);
+
+    const email = (session?.user?.email ?? "").toLowerCase().trim();
+    const me = await prisma.user.findUnique({ where: { email }, select: { id: true, active: true } });
+    if (!me || !me.active) redirect("/login");
+
+    const id = String(formData.get("id") ?? "").trim();
+    if (!id) throw new Error("Missing work order id");
+
+    const notes = String(formData.get("notes") ?? "");
+    const startingMileage = parseOptionalInt(formData.get("startingMileage"));
+    const areas = parseAreas(formData);
+
+    await prisma.$transaction(async (tx) => {
+      const wo = await tx.workOrder.findUnique({
+        where: { id },
+        select: { id: true, createdByUserId: true, status: true, endTime: true },
+      });
+
+      if (!wo || wo.createdByUserId !== me.id) throw new Error("Work order not found.");
+      if (wo.status !== "DRAFT") throw new Error("Only IN PROGRESS work orders can be edited here.");
+      if (wo.endTime !== null) throw new Error("In-progress work order already has an end time.");
+
+      await tx.workOrder.update({
+        where: { id },
+        data: {
+          notes,
+          startingMileage,
+        },
+      });
+
+      await tx.workOrderEquipmentArea.deleteMany({ where: { workOrderId: id } });
+      if (areas.length > 0) {
+        await tx.workOrderEquipmentArea.createMany({
+          data: areas.map((area) => ({ workOrderId: id, area })),
+        });
+      }
+    });
+
+    revalidatePath("/work-orders");
+    revalidatePath("/maintenance/work-orders");
+    redirect(CANONICAL_RETURN);
+  }
+
+  // ✅ Edit SUBMITTED work orders (own only)
   async function updateSubmittedWorkOrderAction(formData: FormData) {
     "use server";
 
@@ -768,8 +813,10 @@ export default async function MaintenanceWorkOrdersPage() {
 
                   const hasLegacy = wo.equipmentAreas?.some((a) => isLegacyArea(a.area as EquipmentAreaDb)) ?? false;
 
+                  const isDraft = (wo.status as WorkOrderStatus) === "DRAFT";
                   const isSubmitted = (wo.status as WorkOrderStatus) === "SUBMITTED";
                   const isFinalized = (wo.status as WorkOrderStatus) === "FINALIZED";
+                  const isOpenDraft = isDraft && wo.endTime === null;
 
                   const checked = new Set<string>((wo.equipmentAreas ?? []).map((x) => String(x.area)));
 
@@ -778,6 +825,63 @@ export default async function MaintenanceWorkOrdersPage() {
                       <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)" }}>
                         <div style={{ fontWeight: 900 }}>{fmtLocal(wo.createdAt)}</div>
                         <div style={{ fontSize: 13, opacity: 0.85 }}>id: {wo.id}</div>
+
+                        {/* ✅ Edit in-progress (own) */}
+                        {canUpdateOwn && isOpenDraft ? (
+                          <details style={{ marginTop: 10 }}>
+                            <summary style={{ cursor: "pointer", fontWeight: 900 }}>Edit (In Progress)</summary>
+
+                            <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                              <form action={updateInProgressWorkOrderAction} style={{ display: "grid", gap: 10 }}>
+                                <input type="hidden" name="id" value={wo.id} />
+
+                                <label style={label}>
+                                  Starting Mileage (optional)
+                                  <input
+                                    name="startingMileage"
+                                    type="number"
+                                    defaultValue={wo.startingMileage ?? ""}
+                                    style={input}
+                                    placeholder="e.g. 12345"
+                                  />
+                                </label>
+
+                                <label style={label}>
+                                  Notes (optional)
+                                  <textarea name="notes" defaultValue={wo.notes ?? ""} style={{ ...textareaBase, minHeight: 90 }} />
+                                </label>
+
+                                <div>
+                                  <div style={{ fontSize: 14, fontWeight: 900, opacity: 0.95 }}>Equipment Areas</div>
+                                  <div style={gridWrap}>
+                                    {EQUIPMENT_AREAS.map((area) => (
+                                      <label key={`edit-draft-area-${wo.id}-${area}`} style={gridItem}>
+                                        <input
+                                          type="checkbox"
+                                          name="areas"
+                                          value={area}
+                                          defaultChecked={checked.has(area)}
+                                          style={checkboxStyle}
+                                        />
+                                        <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                          {formatAreaLabel(area)}
+                                        </span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                <button type="submit" style={{ ...btnSaveEdit, width: 240 }}>
+                                  Save Changes
+                                </button>
+
+                                <div style={{ fontSize: 12, opacity: 0.75 }}>
+                                  This edits an <b>IN PROGRESS</b> work order (notes/mileage/areas). Use the End button above to submit.
+                                </div>
+                              </form>
+                            </div>
+                          </details>
+                        ) : null}
 
                         {/* ✅ Edit submitted (own) */}
                         {canUpdateOwn && isSubmitted ? (
@@ -809,7 +913,7 @@ export default async function MaintenanceWorkOrdersPage() {
                                   <div style={{ fontSize: 14, fontWeight: 900, opacity: 0.95 }}>Equipment Areas</div>
                                   <div style={gridWrap}>
                                     {EQUIPMENT_AREAS.map((area) => (
-                                      <label key={`edit-area-${wo.id}-${area}`} style={gridItem}>
+                                      <label key={`edit-submitted-area-${wo.id}-${area}`} style={gridItem}>
                                         <input
                                           type="checkbox"
                                           name="areas"
@@ -877,7 +981,7 @@ export default async function MaintenanceWorkOrdersPage() {
           </div>
 
           <div style={{ marginTop: 12, fontSize: 14, opacity: 0.85 }}>
-            This page uses a simple Start → End flow. Submitted work orders can be edited by the person who created them. FINALIZED work orders are locked.
+            This page uses a simple Start → End flow. You can edit your own IN PROGRESS and SUBMITTED work orders. FINALIZED work orders are locked.
           </div>
         </div>
       </div>
