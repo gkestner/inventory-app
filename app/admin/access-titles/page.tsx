@@ -206,7 +206,7 @@ function buildPermissionGroups(all: Permission[]): PermGroup[] {
 export default async function AdminAccessTitlesPage() {
   await requireAdmin();
 
-  // Verify DB tables exist by making a tiny query
+  // Verify DB tables exist (prevents runtime crash if migrations not deployed)
   try {
     await prisma.permissionTitle.count();
   } catch {
@@ -295,19 +295,20 @@ export default async function AdminAccessTitlesPage() {
     redirect("/admin/access-titles");
   }
 
-  // Load titles + permissions + user counts (matches YOUR schema fields)
+  // Load titles + permissions
   const base = await prisma.permissionTitle.findMany({
     orderBy: [{ active: "desc" }, { name: "asc" }],
     select: {
       id: true,
       name: true,
       description: true,
-      permissions: { select: { permission: true } }, // PermissionTitle.permissions -> PermissionTitlePermission[]
+      permissions: { select: { permission: true } },
     },
   });
 
   const ids = base.map((b) => b.id);
 
+  // User counts (how many users assigned each title)
   const counts =
     ids.length === 0
       ? []
@@ -318,9 +319,7 @@ export default async function AdminAccessTitlesPage() {
         });
 
   const countById = new Map<string, number>();
-  for (const row of counts) {
-    countById.set(row.titleId, row._count._all);
-  }
+  for (const row of counts) countById.set(row.titleId, row._count._all);
 
   const titles = base.map((t) => ({
     id: t.id,
@@ -335,13 +334,7 @@ export default async function AdminAccessTitlesPage() {
   const fg = "var(--foreground)";
   const muted = "rgba(128,128,128,0.75)";
 
-  const card: CSSProperties = {
-    border,
-    borderRadius: 14,
-    background: surface,
-    padding: 12,
-  };
-
+  const card: CSSProperties = { border, borderRadius: 14, background: surface, padding: 12 };
   const label: CSSProperties = { display: "grid", gap: 6, fontSize: 12, opacity: 0.9, fontWeight: 900 };
   const input: CSSProperties = {
     width: "100%",
@@ -365,16 +358,8 @@ export default async function AdminAccessTitlesPage() {
     lineHeight: 1,
     whiteSpace: "nowrap",
   };
-  const btnPrimary: CSSProperties = {
-    ...btn,
-    background: "rgba(33,150,243,0.18)",
-    border: "1px solid rgba(33,150,243,0.55)",
-  };
-  const btnDanger: CSSProperties = {
-    ...btn,
-    background: "rgba(244,67,54,0.14)",
-    border: "1px solid rgba(244,67,54,0.55)",
-  };
+  const btnPrimary: CSSProperties = { ...btn, background: "rgba(33,150,243,0.18)", border: "1px solid rgba(33,150,243,0.55)" };
+  const btnDanger: CSSProperties = { ...btn, background: "rgba(244,67,54,0.14)", border: "1px solid rgba(244,67,54,0.55)" };
 
   const allPermissions = Object.values(Permission);
   const groups = buildPermissionGroups(allPermissions);
@@ -483,12 +468,7 @@ export default async function AdminAccessTitlesPage() {
                           </div>
 
                           <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 900 }}>
-                            <input
-                              type="checkbox"
-                              data-select-all="1"
-                              defaultChecked={allChecked}
-                              aria-label="Select all permissions"
-                            />
+                            <input type="checkbox" data-select-all="1" defaultChecked={allChecked} />
                             Select all
                           </label>
                         </div>
@@ -525,7 +505,6 @@ export default async function AdminAccessTitlesPage() {
                                     <input
                                       type="checkbox"
                                       data-group-toggle={g.key}
-                                      data-group-state={groupAllChecked ? "all" : groupNoneChecked ? "none" : "some"}
                                       defaultChecked={groupAllChecked}
                                       aria-label={`Select all in ${g.title}`}
                                     />
@@ -570,8 +549,7 @@ export default async function AdminAccessTitlesPage() {
                                           style={{
                                             fontSize: 12,
                                             opacity: 0.85,
-                                            fontFamily:
-                                              "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                                            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
                                           }}
                                         >
                                           {perm}
@@ -594,7 +572,6 @@ export default async function AdminAccessTitlesPage() {
                           </div>
                         </div>
 
-                        {/* Group toggles + select all */}
                         <script
                           dangerouslySetInnerHTML={{
                             __html: `

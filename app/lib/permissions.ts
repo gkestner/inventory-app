@@ -7,7 +7,7 @@ import { Permission, Role } from "@prisma/client";
  *
  * Compatibility rules (kept):
  * - Session enum role ADMIN => allowAll = true
- * - Session enum role MAINTENANCE => baseline maintenance permissions
+ * - Session role string "MAINTENANCE" => baseline maintenance permissions (even if Prisma Role enum doesn't include it)
  * - Others => direct permissions + title-based permissions
  *
  * New (dynamic roles) rules:
@@ -21,9 +21,12 @@ import { Permission, Role } from "@prisma/client";
  * Defensive: keeps working even before the new tables are migrated.
  */
 
+// Prisma Role enum might not include MAINTENANCE, but session might.
+export type SessionRole = Role | "MAINTENANCE";
+
 export type LoadedPermissions = {
   userId: string | null;
-  role: Role | null; // legacy enum role (kept for compatibility)
+  role: SessionRole | null; // legacy enum role (kept) + session-only MAINTENANCE
   isAdmin: boolean; // true if allowAll due to legacy ADMIN or dynamic ADMIN
   allowAll: boolean;
   permissions: Set<Permission>;
@@ -51,17 +54,24 @@ function getSessionUserEmail(session: unknown): string | null {
     : null;
 }
 
-function getSessionUserRole(session: unknown): Role | null {
+function getSessionUserRole(session: unknown): SessionRole | null {
   if (!isRecord(session)) return null;
   const user = session.user;
   if (!isRecord(user)) return null;
+
   const role = user.role;
-  return role === Role.ADMIN ||
-    role === Role.MANAGER ||
-    role === Role.EMPLOYEE ||
-    role === Role.MAINTENANCE
-    ? role
-    : null;
+
+  // Prisma enum roles
+  if (role === Role.ADMIN || role === Role.MANAGER || role === Role.EMPLOYEE) {
+    return role;
+  }
+
+  // Session may carry a legacy/non-Prisma role string
+  if (typeof role === "string" && role.trim().toUpperCase() === "MAINTENANCE") {
+    return "MAINTENANCE";
+  }
+
+  return null;
 }
 
 type PrismaUserDelegate = {
@@ -92,9 +102,7 @@ type PrismaAppRoleDelegate = {
 };
 
 type PrismaAppRolePermissionDelegate = {
-  findMany: (
-    args: unknown
-  ) => Promise<Array<{ permission: Permission }>>;
+  findMany: (args: unknown) => Promise<Array<{ permission: Permission }>>;
 };
 
 type PrismaAppRolePermissionTitleDelegate = {
@@ -181,8 +189,8 @@ export async function loadUserPermissions(session: unknown): Promise<LoadedPermi
 
   const permissions = new Set<Permission>();
 
-  // ✅ MAINTENANCE baseline permissions (compat)
-  if (role === Role.MAINTENANCE) {
+  // ✅ MAINTENANCE baseline permissions (compat, even if Prisma enum doesn't include it)
+  if (role === "MAINTENANCE") {
     permissions.add(Permission.VIEW_HOME);
     permissions.add(Permission.VIEW_WORK_ORDERS);
     permissions.add(Permission.CREATE_WORK_ORDERS);
@@ -214,7 +222,7 @@ export async function loadUserPermissions(session: unknown): Promise<LoadedPermi
     const titleRows = await db.userPermissionTitle!.findMany({
       where: { userId },
       select: { titleId: true },
-    } as unknown);
+    });
     userTitleIds = titleRows.map((r) => r.titleId);
   }
 
@@ -223,7 +231,7 @@ export async function loadUserPermissions(session: unknown): Promise<LoadedPermi
     const titlePerms = await db.permissionTitlePermission!.findMany({
       where: { titleId: { in: uniqStrings(userTitleIds) } },
       select: { permission: true },
-    } as unknown);
+    });
 
     for (const r of titlePerms) permissions.add(r.permission);
   }
@@ -236,7 +244,7 @@ export async function loadUserPermissions(session: unknown): Promise<LoadedPermi
     const userRoleRows = await db.userRole!.findMany({
       where: { userId },
       select: { roleId: true },
-    } as unknown);
+    });
 
     const roleIds = uniqStrings(userRoleRows.map((r) => r.roleId));
 
@@ -245,7 +253,7 @@ export async function loadUserPermissions(session: unknown): Promise<LoadedPermi
       const roleRows = await db.appRole!.findMany({
         where: { id: { in: roleIds } },
         select: { id: true, name: true, isSystem: true },
-      } as unknown);
+      });
 
       allowAll = roleRows.some((rr) => rr.isSystem && isSystemAdminRoleName(rr.name));
 
@@ -253,7 +261,7 @@ export async function loadUserPermissions(session: unknown): Promise<LoadedPermi
         return {
           userId,
           role,
-          isAdmin: true, // treat dynamic ADMIN as admin for UI checks
+          isAdmin: true,
           allowAll: true,
           permissions: new Set<Permission>(),
         };
@@ -263,7 +271,7 @@ export async function loadUserPermissions(session: unknown): Promise<LoadedPermi
       const rolePermRows = await db.appRolePermission!.findMany({
         where: { roleId: { in: roleIds } },
         select: { permission: true },
-      } as unknown);
+      });
 
       for (const r of rolePermRows) permissions.add(r.permission);
 
@@ -271,7 +279,7 @@ export async function loadUserPermissions(session: unknown): Promise<LoadedPermi
       const roleTitleRows = await db.appRolePermissionTitle!.findMany({
         where: { roleId: { in: roleIds } },
         select: { titleId: true },
-      } as unknown);
+      });
 
       const roleTitleIds = roleTitleRows.map((r) => r.titleId);
       const mergedTitleIds = uniqStrings([...userTitleIds, ...roleTitleIds]);
@@ -280,7 +288,7 @@ export async function loadUserPermissions(session: unknown): Promise<LoadedPermi
         const roleTitlePermRows = await db.permissionTitlePermission!.findMany({
           where: { titleId: { in: mergedTitleIds } },
           select: { permission: true },
-        } as unknown);
+        });
 
         for (const r of roleTitlePermRows) permissions.add(r.permission);
       }
@@ -290,8 +298,10 @@ export async function loadUserPermissions(session: unknown): Promise<LoadedPermi
   return {
     userId,
     role,
-    isAdmin: false,
-    allowAll, // ✅ IMPORTANT: return the computed allowAll (was a bug if always false)
+    // ✅ IMPORTANT: isAdmin should reflect allowAll-based admin behavior too
+    isAdmin: allowAll,
+    // ✅ IMPORTANT: return computed allowAll
+    allowAll,
     permissions,
   };
 }
