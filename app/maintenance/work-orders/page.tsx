@@ -11,6 +11,7 @@ import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 export const dynamic = "force-dynamic";
 
 const TZ = "America/New_York";
+const CANONICAL_RETURN = "/work-orders";
 
 type SessionShape = {
   user?: {
@@ -27,7 +28,7 @@ function requireSession(session: SessionShape) {
 
 function roleBypassesPermissions(session: SessionShape): boolean {
   const role = session?.user?.role ?? null;
-  // Employees + Maintenance staff should be able to use Work Orders by default.
+  // Employees + Maintenance staff can use Work Orders by default.
   return role === Role.EMPLOYEE || role === Role.MAINTENANCE;
 }
 
@@ -61,6 +62,17 @@ async function requireWorkOrdersSubmitOwn(session: SessionShape) {
   if (perms.allowAll) return;
 
   const ok = hasAnyPermission(perms, [Permission.SUBMIT_OWN_WORK_ORDERS]);
+  if (!ok) redirect("/");
+}
+
+async function requireWorkOrdersUpdateOwn(session: SessionShape) {
+  requireSession(session);
+  if (roleBypassesPermissions(session)) return;
+
+  const perms = await loadUserPermissions(session);
+  if (perms.allowAll) return;
+
+  const ok = hasAnyPermission(perms, [Permission.UPDATE_OWN_WORK_ORDERS]);
   if (!ok) redirect("/");
 }
 
@@ -146,9 +158,9 @@ function parseOptionalInt(v: FormDataEntryValue | null): number | null {
   return Math.trunc(n);
 }
 
-function parseRequiredInt(v: FormDataEntryValue | null): number {
+function parseRequiredInt(v: FormDataEntryValue | null, message: string): number {
   const n = parseOptionalInt(v);
-  if (n === null) throw new Error("Ending mileage is required.");
+  if (n === null) throw new Error(message);
   return n;
 }
 
@@ -198,6 +210,15 @@ export default async function MaintenanceWorkOrdersPage() {
   await requireWorkOrdersView(session);
 
   const email = (session?.user?.email ?? "").toLowerCase().trim();
+
+  // Load perms once for UI gating
+  const perms = await loadUserPermissions(session);
+  const allowAll = !!perms.allowAll;
+  const bypass = roleBypassesPermissions(session);
+
+  const canCreate = bypass || allowAll || hasAnyPermission(perms, [Permission.CREATE_WORK_ORDERS]);
+  const canSubmitOwn = bypass || allowAll || hasAnyPermission(perms, [Permission.SUBMIT_OWN_WORK_ORDERS]);
+  const canUpdateOwn = bypass || allowAll || hasAnyPermission(perms, [Permission.UPDATE_OWN_WORK_ORDERS]);
 
   const me = await prisma.user.findUnique({
     where: { email },
@@ -268,18 +289,13 @@ export default async function MaintenanceWorkOrdersPage() {
       endTime: true,
       startingMileage: true,
       endingMileage: true,
+      notes: true, // ✅ needed for editing submitted orders
       equipmentAreas: { select: { area: true } },
     },
   });
 
   /**
    * STYLE TUNING (requested)
-   * - Larger base font
-   * - Larger buttons
-   * - Larger form controls
-   * - Larger area chips
-   * - Roomier table
-   * - Top/bottom cards same width + centered
    */
   const CONTENT_WIDTH = 1100;
 
@@ -364,6 +380,14 @@ export default async function MaintenanceWorkOrdersPage() {
     boxShadow: "0 0 0 1px rgba(220, 60, 60, 0.18) inset",
   };
 
+  const btnSaveEdit: CSSProperties = {
+    ...btn,
+    height: 46,
+    background: "rgba(80, 160, 255, 0.18)",
+    border: "1px solid rgba(80, 160, 255, 0.45)",
+    boxShadow: "0 0 0 1px rgba(80, 160, 255, 0.12) inset",
+  };
+
   const gridWrap: CSSProperties = {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
@@ -412,7 +436,7 @@ export default async function MaintenanceWorkOrdersPage() {
       select: { id: true },
       orderBy: { createdAt: "desc" },
     });
-    if (existing) redirect("/work-orders");
+    if (existing) redirect(CANONICAL_RETURN);
 
     const locationId = String(formData.get("locationId") ?? "").trim();
     if (!locationId) throw new Error("Location is required");
@@ -449,7 +473,7 @@ export default async function MaintenanceWorkOrdersPage() {
 
     revalidatePath("/work-orders");
     revalidatePath("/maintenance/work-orders");
-    redirect("/work-orders");
+    redirect(CANONICAL_RETURN);
   }
 
   async function endWorkOrderAction(formData: FormData) {
@@ -465,7 +489,7 @@ export default async function MaintenanceWorkOrdersPage() {
     const id = String(formData.get("id") ?? "").trim();
     if (!id) throw new Error("Missing work order id");
 
-    const endingMileage = parseRequiredInt(formData.get("endingMileage"));
+    const endingMileage = parseRequiredInt(formData.get("endingMileage"), "Ending mileage is required.");
     const notes = String(formData.get("notes") ?? "");
     const areas = parseAreas(formData);
 
@@ -499,7 +523,56 @@ export default async function MaintenanceWorkOrdersPage() {
 
     revalidatePath("/work-orders");
     revalidatePath("/maintenance/work-orders");
-    redirect("/work-orders");
+    redirect(CANONICAL_RETURN);
+  }
+
+  // ✅ NEW: Edit Submitted work orders (own only)
+  async function updateSubmittedWorkOrderAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as SessionShape;
+    await requireWorkOrdersUpdateOwn(session);
+
+    const email = (session?.user?.email ?? "").toLowerCase().trim();
+    const me = await prisma.user.findUnique({ where: { email }, select: { id: true, active: true } });
+    if (!me || !me.active) redirect("/login");
+
+    const id = String(formData.get("id") ?? "").trim();
+    if (!id) throw new Error("Missing work order id");
+
+    const endingMileage = parseRequiredInt(formData.get("endingMileage"), "Ending mileage is required.");
+    const notes = String(formData.get("notes") ?? "");
+    const areas = parseAreas(formData);
+
+    await prisma.$transaction(async (tx) => {
+      const wo = await tx.workOrder.findUnique({
+        where: { id },
+        select: { id: true, createdByUserId: true, status: true, endTime: true },
+      });
+
+      if (!wo || wo.createdByUserId !== me.id) throw new Error("Work order not found.");
+      if (wo.status !== "SUBMITTED") throw new Error("Only SUBMITTED work orders can be edited here.");
+      if (wo.endTime === null) throw new Error("Submitted work order is missing an end time.");
+
+      await tx.workOrder.update({
+        where: { id },
+        data: {
+          endingMileage,
+          notes,
+        },
+      });
+
+      await tx.workOrderEquipmentArea.deleteMany({ where: { workOrderId: id } });
+      if (areas.length > 0) {
+        await tx.workOrderEquipmentArea.createMany({
+          data: areas.map((area) => ({ workOrderId: id, area })),
+        });
+      }
+    });
+
+    revalidatePath("/work-orders");
+    revalidatePath("/maintenance/work-orders");
+    redirect(CANONICAL_RETURN);
   }
 
   const inProgressChecked = new Set<string>(inProgress?.equipmentAreas?.map((x) => String(x.area)) ?? []);
@@ -512,6 +585,24 @@ export default async function MaintenanceWorkOrdersPage() {
           <div style={{ marginTop: 8, fontSize: 13, opacity: 0.75 }}>
             Times displayed in <b>{TZ}</b>.
           </div>
+
+          {!canCreate ? (
+            <div style={{ marginTop: 10, fontSize: 13, opacity: 0.8 }}>
+              You can view work orders, but you don’t have permission to start new ones.
+            </div>
+          ) : null}
+
+          {!canSubmitOwn ? (
+            <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
+              You can view/create, but you don’t have permission to end/submit your work orders.
+            </div>
+          ) : null}
+
+          {!canUpdateOwn ? (
+            <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
+              You don’t have permission to edit submitted work orders.
+            </div>
+          ) : null}
         </div>
 
         {/* TOP CARD: Start OR End */}
@@ -520,7 +611,9 @@ export default async function MaintenanceWorkOrdersPage() {
             <>
               <h2 style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>Start Work Order</h2>
 
-              {allowedLocations.length === 0 ? (
+              {!canCreate ? (
+                <div style={{ fontSize: 14, opacity: 0.85 }}>You don’t have permission to start a work order.</div>
+              ) : allowedLocations.length === 0 ? (
                 <div style={{ fontSize: 14, opacity: 0.85 }}>
                   You don’t have any locations assigned yet. Ask an admin to assign your primary/optional locations.
                 </div>
@@ -578,74 +671,80 @@ export default async function MaintenanceWorkOrdersPage() {
                 <b>In progress:</b> {inProgress.location?.name ?? "—"} • Started: {fmtLocal(inProgress.startTime)}
               </div>
 
-              <form action={endWorkOrderAction} style={{ display: "grid", gap: 12 }}>
-                <input type="hidden" name="id" value={inProgress.id} />
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  <label style={label}>
-                    Starting Mileage
-                    <input
-                      type="number"
-                      value={inProgress.startingMileage ?? ""}
-                      readOnly
-                      style={{ ...input, opacity: 0.85 }}
-                    />
-                  </label>
-
-                  <label style={label}>
-                    Ending Mileage (required)
-                    <input
-                      name="endingMileage"
-                      type="number"
-                      defaultValue={inProgress.endingMileage ?? ""}
-                      placeholder="e.g. 12555"
-                      style={input}
-                      required
-                    />
-                  </label>
-                </div>
-
-                <label style={label}>
-                  Notes (optional)
-                  <textarea
-                    name="notes"
-                    defaultValue={inProgress.notes ?? ""}
-                    placeholder="What was done (optional)..."
-                    style={{ ...textareaBase, minHeight: 110 }}
-                  />
-                </label>
-
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 900, opacity: 0.95 }}>
-                    Equipment Areas (check what you worked on)
-                  </div>
-                  <div style={gridWrap}>
-                    {EQUIPMENT_AREAS.map((area) => (
-                      <label key={`end-area-${area}`} style={gridItem}>
-                        <input
-                          type="checkbox"
-                          name="areas"
-                          value={area}
-                          defaultChecked={inProgressChecked.has(area)}
-                          style={checkboxStyle}
-                        />
-                        <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                          {formatAreaLabel(area)}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <button type="submit" style={{ ...btnEndTime, width: 340 }}>
-                  End (sets End Time + Submits)
-                </button>
-
+              {!canSubmitOwn ? (
                 <div style={{ fontSize: 14, opacity: 0.85 }}>
-                  This will set <b>end time</b>, save mileage/notes/areas, mark the work order <b>SUBMITTED</b>, and
-                  return you to the Start screen.
+                  You don’t have permission to end/submit your work orders.
                 </div>
-              </form>
+              ) : (
+                <form action={endWorkOrderAction} style={{ display: "grid", gap: 12 }}>
+                  <input type="hidden" name="id" value={inProgress.id} />
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <label style={label}>
+                      Starting Mileage
+                      <input
+                        type="number"
+                        value={inProgress.startingMileage ?? ""}
+                        readOnly
+                        style={{ ...input, opacity: 0.85 }}
+                      />
+                    </label>
+
+                    <label style={label}>
+                      Ending Mileage (required)
+                      <input
+                        name="endingMileage"
+                        type="number"
+                        defaultValue={inProgress.endingMileage ?? ""}
+                        placeholder="e.g. 12555"
+                        style={input}
+                        required
+                      />
+                    </label>
+                  </div>
+
+                  <label style={label}>
+                    Notes (optional)
+                    <textarea
+                      name="notes"
+                      defaultValue={inProgress.notes ?? ""}
+                      placeholder="What was done (optional)..."
+                      style={{ ...textareaBase, minHeight: 110 }}
+                    />
+                  </label>
+
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 900, opacity: 0.95 }}>
+                      Equipment Areas (check what you worked on)
+                    </div>
+                    <div style={gridWrap}>
+                      {EQUIPMENT_AREAS.map((area) => (
+                        <label key={`end-area-${area}`} style={gridItem}>
+                          <input
+                            type="checkbox"
+                            name="areas"
+                            value={area}
+                            defaultChecked={inProgressChecked.has(area)}
+                            style={checkboxStyle}
+                          />
+                          <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {formatAreaLabel(area)}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button type="submit" style={{ ...btnEndTime, width: 340 }}>
+                    End (sets End Time + Submits)
+                  </button>
+
+                  <div style={{ fontSize: 14, opacity: 0.85 }}>
+                    This will set <b>end time</b>, save mileage/notes/areas, mark the work order <b>SUBMITTED</b>, and
+                    return you to the Start screen.
+                  </div>
+                </form>
+              )}
             </>
           )}
         </div>
@@ -678,17 +777,101 @@ export default async function MaintenanceWorkOrdersPage() {
 
               <tbody>
                 {workOrders.map((wo) => {
-                  const areas = wo.equipmentAreas?.length
+                  const areasText = wo.equipmentAreas?.length
                     ? wo.equipmentAreas.map((a) => formatAreaLabelWithLegacy(a.area as EquipmentAreaDb)).join(", ")
                     : "—";
 
                   const hasLegacy = wo.equipmentAreas?.some((a) => isLegacyArea(a.area as EquipmentAreaDb)) ?? false;
+
+                  const isSubmitted = (wo.status as WorkOrderStatus) === "SUBMITTED";
+                  const isFinalized = (wo.status as WorkOrderStatus) === "FINALIZED";
+
+                  const checked = new Set<string>((wo.equipmentAreas ?? []).map((x) => String(x.area)));
 
                   return (
                     <tr key={wo.id}>
                       <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)" }}>
                         <div style={{ fontWeight: 900 }}>{fmtLocal(wo.createdAt)}</div>
                         <div style={{ fontSize: 13, opacity: 0.85 }}>id: {wo.id}</div>
+
+                        {/* ✅ Edit submitted (own) */}
+                        {canUpdateOwn && isSubmitted ? (
+                          <details style={{ marginTop: 10 }}>
+                            <summary style={{ cursor: "pointer", fontWeight: 900 }}>
+                              Edit (Submitted)
+                            </summary>
+
+                            <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                              <form action={updateSubmittedWorkOrderAction} style={{ display: "grid", gap: 10 }}>
+                                <input type="hidden" name="id" value={wo.id} />
+
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                                  <label style={label}>
+                                    Ending Mileage (required)
+                                    <input
+                                      name="endingMileage"
+                                      type="number"
+                                      defaultValue={wo.endingMileage ?? ""}
+                                      style={input}
+                                      required
+                                    />
+                                  </label>
+
+                                  <label style={label}>
+                                    Starting Mileage (read-only)
+                                    <input
+                                      type="number"
+                                      value={wo.startingMileage ?? ""}
+                                      readOnly
+                                      style={{ ...input, opacity: 0.85 }}
+                                    />
+                                  </label>
+                                </div>
+
+                                <label style={label}>
+                                  Notes (optional)
+                                  <textarea
+                                    name="notes"
+                                    defaultValue={wo.notes ?? ""}
+                                    style={{ ...textareaBase, minHeight: 90 }}
+                                  />
+                                </label>
+
+                                <div>
+                                  <div style={{ fontSize: 14, fontWeight: 900, opacity: 0.95 }}>
+                                    Equipment Areas
+                                  </div>
+                                  <div style={gridWrap}>
+                                    {EQUIPMENT_AREAS.map((area) => (
+                                      <label key={`edit-area-${wo.id}-${area}`} style={gridItem}>
+                                        <input
+                                          type="checkbox"
+                                          name="areas"
+                                          value={area}
+                                          defaultChecked={checked.has(area)}
+                                          style={checkboxStyle}
+                                        />
+                                        <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                          {formatAreaLabel(area)}
+                                        </span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                <button type="submit" style={{ ...btnSaveEdit, width: 240 }}>
+                                  Save Changes
+                                </button>
+
+                                <div style={{ fontSize: 12, opacity: 0.75 }}>
+                                  Editing is allowed for <b>SUBMITTED</b> work orders only. FINALIZED work orders cannot be edited.
+                                </div>
+                              </form>
+                            </div>
+                          </details>
+                        ) : isFinalized ? (
+                          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>Finalized (locked)</div>
+                        ) : null}
                       </td>
 
                       <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)" }}>
@@ -715,7 +898,7 @@ export default async function MaintenanceWorkOrdersPage() {
                           maxWidth: 560,
                         }}
                       >
-                        {areas}
+                        {areasText}
                         {hasLegacy ? <div style={{ fontSize: 13, opacity: 0.85 }}>(contains legacy values)</div> : null}
                       </td>
                     </tr>
@@ -734,7 +917,7 @@ export default async function MaintenanceWorkOrdersPage() {
           </div>
 
           <div style={{ marginTop: 12, fontSize: 14, opacity: 0.85 }}>
-            This page uses a simple Start → End flow (no separate Submit screen).
+            This page uses a simple Start → End flow. Submitted work orders can be edited if you have the Update permission.
           </div>
         </div>
       </div>
