@@ -29,7 +29,7 @@ function requireSession(session: SessionShape) {
 function roleBypassesPermissions(session: SessionShape): boolean {
   const role = session?.user?.role ?? null;
   // Employees + Maintenance staff can use Work Orders by default.
-  return role === Role.EMPLOYEE || role === Role.MAINTENANCE;
+  return role === Role.EMPLOYEE || role === (Role as unknown as { MAINTENANCE?: Role }).MAINTENANCE;
 }
 
 async function requireWorkOrdersView(session: SessionShape) {
@@ -65,15 +65,14 @@ async function requireWorkOrdersSubmitOwn(session: SessionShape) {
   if (!ok) redirect("/");
 }
 
+/**
+ * ✅ CHANGE:
+ * Everyone who is logged in can edit their OWN submitted work orders.
+ * Ownership is enforced inside the server action (createdByUserId === me.id).
+ */
 async function requireWorkOrdersUpdateOwn(session: SessionShape) {
   requireSession(session);
-  if (roleBypassesPermissions(session)) return;
-
-  const perms = await loadUserPermissions(session);
-  if (perms.allowAll) return;
-
-  const ok = hasAnyPermission(perms, [Permission.UPDATE_OWN_WORK_ORDERS]);
-  if (!ok) redirect("/");
+  return;
 }
 
 type WorkOrderStatus = "DRAFT" | "SUBMITTED" | "FINALIZED";
@@ -218,7 +217,9 @@ export default async function MaintenanceWorkOrdersPage() {
 
   const canCreate = bypass || allowAll || hasAnyPermission(perms, [Permission.CREATE_WORK_ORDERS]);
   const canSubmitOwn = bypass || allowAll || hasAnyPermission(perms, [Permission.SUBMIT_OWN_WORK_ORDERS]);
-  const canUpdateOwn = bypass || allowAll || hasAnyPermission(perms, [Permission.UPDATE_OWN_WORK_ORDERS]);
+
+  // ✅ CHANGE: editing own submitted work orders is allowed for all logged-in users
+  const canUpdateOwn = true;
 
   const me = await prisma.user.findUnique({
     where: { email },
@@ -526,7 +527,7 @@ export default async function MaintenanceWorkOrdersPage() {
     redirect(CANONICAL_RETURN);
   }
 
-  // ✅ NEW: Edit Submitted work orders (own only)
+  // ✅ Edit Submitted work orders (own only)
   async function updateSubmittedWorkOrderAction(formData: FormData) {
     "use server";
 
@@ -595,12 +596,6 @@ export default async function MaintenanceWorkOrdersPage() {
           {!canSubmitOwn ? (
             <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
               You can view/create, but you don’t have permission to end/submit your work orders.
-            </div>
-          ) : null}
-
-          {!canUpdateOwn ? (
-            <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
-              You don’t have permission to edit submitted work orders.
             </div>
           ) : null}
         </div>
@@ -672,9 +667,7 @@ export default async function MaintenanceWorkOrdersPage() {
               </div>
 
               {!canSubmitOwn ? (
-                <div style={{ fontSize: 14, opacity: 0.85 }}>
-                  You don’t have permission to end/submit your work orders.
-                </div>
+                <div style={{ fontSize: 14, opacity: 0.85 }}>You don’t have permission to end/submit your work orders.</div>
               ) : (
                 <form action={endWorkOrderAction} style={{ display: "grid", gap: 12 }}>
                   <input type="hidden" name="id" value={inProgress.id} />
@@ -682,12 +675,7 @@ export default async function MaintenanceWorkOrdersPage() {
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                     <label style={label}>
                       Starting Mileage
-                      <input
-                        type="number"
-                        value={inProgress.startingMileage ?? ""}
-                        readOnly
-                        style={{ ...input, opacity: 0.85 }}
-                      />
+                      <input type="number" value={inProgress.startingMileage ?? ""} readOnly style={{ ...input, opacity: 0.85 }} />
                     </label>
 
                     <label style={label}>
@@ -714,9 +702,7 @@ export default async function MaintenanceWorkOrdersPage() {
                   </label>
 
                   <div>
-                    <div style={{ fontSize: 14, fontWeight: 900, opacity: 0.95 }}>
-                      Equipment Areas (check what you worked on)
-                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 900, opacity: 0.95 }}>Equipment Areas (check what you worked on)</div>
                     <div style={gridWrap}>
                       {EQUIPMENT_AREAS.map((area) => (
                         <label key={`end-area-${area}`} style={gridItem}>
@@ -740,8 +726,7 @@ export default async function MaintenanceWorkOrdersPage() {
                   </button>
 
                   <div style={{ fontSize: 14, opacity: 0.85 }}>
-                    This will set <b>end time</b>, save mileage/notes/areas, mark the work order <b>SUBMITTED</b>, and
-                    return you to the Start screen.
+                    This will set <b>end time</b>, save mileage/notes/areas, mark the work order <b>SUBMITTED</b>, and return you to the Start screen.
                   </div>
                 </form>
               )}
@@ -797,9 +782,7 @@ export default async function MaintenanceWorkOrdersPage() {
                         {/* ✅ Edit submitted (own) */}
                         {canUpdateOwn && isSubmitted ? (
                           <details style={{ marginTop: 10 }}>
-                            <summary style={{ cursor: "pointer", fontWeight: 900 }}>
-                              Edit (Submitted)
-                            </summary>
+                            <summary style={{ cursor: "pointer", fontWeight: 900 }}>Edit (Submitted)</summary>
 
                             <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
                               <form action={updateSubmittedWorkOrderAction} style={{ display: "grid", gap: 10 }}>
@@ -808,39 +791,22 @@ export default async function MaintenanceWorkOrdersPage() {
                                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                                   <label style={label}>
                                     Ending Mileage (required)
-                                    <input
-                                      name="endingMileage"
-                                      type="number"
-                                      defaultValue={wo.endingMileage ?? ""}
-                                      style={input}
-                                      required
-                                    />
+                                    <input name="endingMileage" type="number" defaultValue={wo.endingMileage ?? ""} style={input} required />
                                   </label>
 
                                   <label style={label}>
                                     Starting Mileage (read-only)
-                                    <input
-                                      type="number"
-                                      value={wo.startingMileage ?? ""}
-                                      readOnly
-                                      style={{ ...input, opacity: 0.85 }}
-                                    />
+                                    <input type="number" value={wo.startingMileage ?? ""} readOnly style={{ ...input, opacity: 0.85 }} />
                                   </label>
                                 </div>
 
                                 <label style={label}>
                                   Notes (optional)
-                                  <textarea
-                                    name="notes"
-                                    defaultValue={wo.notes ?? ""}
-                                    style={{ ...textareaBase, minHeight: 90 }}
-                                  />
+                                  <textarea name="notes" defaultValue={wo.notes ?? ""} style={{ ...textareaBase, minHeight: 90 }} />
                                 </label>
 
                                 <div>
-                                  <div style={{ fontSize: 14, fontWeight: 900, opacity: 0.95 }}>
-                                    Equipment Areas
-                                  </div>
+                                  <div style={{ fontSize: 14, fontWeight: 900, opacity: 0.95 }}>Equipment Areas</div>
                                   <div style={gridWrap}>
                                     {EQUIPMENT_AREAS.map((area) => (
                                       <label key={`edit-area-${wo.id}-${area}`} style={gridItem}>
@@ -891,13 +857,7 @@ export default async function MaintenanceWorkOrdersPage() {
                         <span style={{ fontWeight: 900 }}>{wo.endingMileage ?? "—"}</span>
                       </td>
 
-                      <td
-                        style={{
-                          padding: "12px 10px",
-                          borderBottom: "1px solid rgba(128,128,128,0.18)",
-                          maxWidth: 560,
-                        }}
-                      >
+                      <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)", maxWidth: 560 }}>
                         {areasText}
                         {hasLegacy ? <div style={{ fontSize: 13, opacity: 0.85 }}>(contains legacy values)</div> : null}
                       </td>
@@ -917,7 +877,7 @@ export default async function MaintenanceWorkOrdersPage() {
           </div>
 
           <div style={{ marginTop: 12, fontSize: 14, opacity: 0.85 }}>
-            This page uses a simple Start → End flow. Submitted work orders can be edited if you have the Update permission.
+            This page uses a simple Start → End flow. Submitted work orders can be edited by the person who created them. FINALIZED work orders are locked.
           </div>
         </div>
       </div>
