@@ -203,10 +203,16 @@ function buildPermissionGroups(all: Permission[]): PermGroup[] {
   return groups;
 }
 
-export default async function AdminAccessTitlesPage() {
+type PageProps = {
+  searchParams?: {
+    titleId?: string;
+    group?: string;
+  };
+};
+
+export default async function AdminAccessTitlesPage({ searchParams }: PageProps) {
   await requireAdmin();
 
-  // Verify DB tables exist (prevents runtime crash if migrations not deployed)
   try {
     await prisma.permissionTitle.count();
   } catch {
@@ -230,13 +236,13 @@ export default async function AdminAccessTitlesPage() {
 
     if (!name) redirect("/admin/access-titles");
 
-    await prisma.permissionTitle.create({
+    const created = await prisma.permissionTitle.create({
       data: { name, description, active: true },
       select: { id: true },
     });
 
     revalidatePath("/admin/access-titles");
-    redirect("/admin/access-titles");
+    redirect(`/admin/access-titles?titleId=${encodeURIComponent(created.id)}&group=ALL`);
   }
 
   async function updateTitleAction(formData: FormData) {
@@ -255,7 +261,7 @@ export default async function AdminAccessTitlesPage() {
     });
 
     revalidatePath("/admin/access-titles");
-    redirect("/admin/access-titles");
+    redirect(`/admin/access-titles?titleId=${encodeURIComponent(id)}&group=ALL`);
   }
 
   async function updatePermissionsAction(formData: FormData) {
@@ -263,6 +269,7 @@ export default async function AdminAccessTitlesPage() {
     await requireAdmin();
 
     const titleId = nonEmpty(formData.get("id"));
+    const group = nonEmpty(formData.get("group")) || "ALL";
     if (!titleId) redirect("/admin/access-titles");
 
     const selected = safePermissionsFromFormData(formData, "permissions");
@@ -279,7 +286,7 @@ export default async function AdminAccessTitlesPage() {
     });
 
     revalidatePath("/admin/access-titles");
-    redirect("/admin/access-titles");
+    redirect(`/admin/access-titles?titleId=${encodeURIComponent(titleId)}&group=${encodeURIComponent(group || "ALL")}`);
   }
 
   async function deleteTitleAction(formData: FormData) {
@@ -295,39 +302,92 @@ export default async function AdminAccessTitlesPage() {
     redirect("/admin/access-titles");
   }
 
-  // Load titles + permissions
-  const base = await prisma.permissionTitle.findMany({
+  const titles = await prisma.permissionTitle.findMany({
     orderBy: [{ active: "desc" }, { name: "asc" }],
-    select: {
-      id: true,
-      name: true,
-      description: true,
-      permissions: { select: { permission: true } },
-    },
+    select: { id: true, name: true, description: true, active: true },
   });
 
-  const ids = base.map((b) => b.id);
+  if (titles.length === 0) {
+    const border = "1px solid rgba(128,128,128,0.25)";
+    const surface = "var(--background)";
+    const fg = "var(--foreground)";
+    const card: CSSProperties = { border, borderRadius: 14, background: surface, padding: 12 };
+    const label: CSSProperties = { display: "grid", gap: 6, fontSize: 12, opacity: 0.9, fontWeight: 900 };
+    const input: CSSProperties = {
+      width: "100%",
+      boxSizing: "border-box",
+      padding: "10px 12px",
+      borderRadius: 12,
+      border,
+      background: surface,
+      color: fg,
+      outline: "none",
+      fontSize: 14,
+    };
+    const btn: CSSProperties = {
+      padding: "10px 14px",
+      borderRadius: 12,
+      border,
+      background: "rgba(33,150,243,0.18)",
+      color: fg,
+      fontWeight: 900,
+      cursor: "pointer",
+      lineHeight: 1,
+      whiteSpace: "nowrap",
+    };
 
-  // User counts (how many users assigned each title)
-  const counts =
-    ids.length === 0
-      ? []
-      : await prisma.userPermissionTitle.groupBy({
-          by: ["titleId"],
-          where: { titleId: { in: ids } },
-          _count: { _all: true },
-        });
+    return (
+      <main style={{ padding: 16 }}>
+        <div style={{ padding: 16, maxWidth: 1200, margin: "0 auto", color: fg }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <h1 style={{ fontSize: 26, fontWeight: 900, margin: 0 }}>Admin: Access Titles</h1>
+            <Link
+              href="/admin/users"
+              style={{
+                padding: "10px 14px",
+                borderRadius: 12,
+                border,
+                background: surface,
+                color: fg,
+                textDecoration: "none",
+                fontWeight: 900,
+              }}
+            >
+              ← Users
+            </Link>
+          </div>
 
-  const countById = new Map<string, number>();
-  for (const row of counts) countById.set(row.titleId, row._count._all);
+          <div style={{ marginTop: 12, ...card }}>
+            <div style={{ fontWeight: 900, marginBottom: 8 }}>Create your first title</div>
+            <form action={createTitleAction} style={{ display: "grid", gap: 10 }}>
+              <label style={label}>
+                Title name
+                <input name="name" style={input} placeholder="e.g. Maintenance" required />
+              </label>
+              <label style={label}>
+                Description (optional)
+                <input name="description" style={input} placeholder="What this title is for" />
+              </label>
+              <div>
+                <button type="submit" style={btn}>
+                  Create
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
-  const titles = base.map((t) => ({
-    id: t.id,
-    name: t.name,
-    description: t.description,
-    permissions: t.permissions,
-    _count: { users: countById.get(t.id) ?? 0 },
-  }));
+  const requestedTitleId = (searchParams?.titleId ?? "").trim();
+  const selectedTitle = requestedTitleId ? titles.find((t) => t.id === requestedTitleId) ?? null : null;
+
+  if (!selectedTitle) {
+    redirect(`/admin/access-titles?titleId=${encodeURIComponent(titles[0].id)}&group=ALL`);
+  }
+
+  const requestedGroup = (searchParams?.group ?? "").trim();
 
   const border = "1px solid rgba(128,128,128,0.25)";
   const surface = "var(--background)";
@@ -358,17 +418,93 @@ export default async function AdminAccessTitlesPage() {
     lineHeight: 1,
     whiteSpace: "nowrap",
   };
-  const btnPrimary: CSSProperties = { ...btn, background: "rgba(33,150,243,0.18)", border: "1px solid rgba(33,150,243,0.55)" };
-  const btnDanger: CSSProperties = { ...btn, background: "rgba(244,67,54,0.14)", border: "1px solid rgba(244,67,54,0.55)" };
+  const btnPrimary: CSSProperties = {
+    ...btn,
+    background: "rgba(33,150,243,0.18)",
+    border: "1px solid rgba(33,150,243,0.55)",
+  };
+  const btnDanger: CSSProperties = {
+    ...btn,
+    background: "rgba(244,67,54,0.14)",
+    border: "1px solid rgba(244,67,54,0.55)",
+  };
+  const pill: CSSProperties = {
+    padding: "6px 10px",
+    borderRadius: 999,
+    border,
+    background: "rgba(255,255,255,0.03)",
+    fontWeight: 900,
+    fontSize: 12,
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+  };
+
+  const selectedWithPerms = await prisma.permissionTitle.findUnique({
+    where: { id: selectedTitle.id },
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      permissions: { select: { permission: true } },
+    },
+  });
+
+  const userCount = await prisma.userPermissionTitle.count({
+    where: { titleId: selectedTitle.id },
+  });
+
+  const selectedPerms = new Set<Permission>((selectedWithPerms?.permissions ?? []).map((p) => p.permission));
 
   const allPermissions = Object.values(Permission);
-  const groups = buildPermissionGroups(allPermissions);
+  const allGroups = buildPermissionGroups(allPermissions);
+
+  const activeGroup = requestedGroup && allGroups.some((g) => g.key === requestedGroup) ? requestedGroup : "ALL";
+  const shownGroups = activeGroup === "ALL" ? allGroups : allGroups.filter((g) => g.key === activeGroup);
+
+  const sidebarLink = (groupKey: string) =>
+    groupKey === "ALL"
+      ? `/admin/access-titles?titleId=${encodeURIComponent(selectedTitle.id)}&group=ALL`
+      : `/admin/access-titles?titleId=${encodeURIComponent(selectedTitle.id)}&group=${encodeURIComponent(groupKey)}`;
+
+  const sidebarItemStyle = (isActive: boolean): CSSProperties => ({
+    display: "block",
+    padding: "10px 12px",
+    borderRadius: 12,
+    textDecoration: "none",
+    border: isActive ? "1px solid rgba(33,150,243,0.65)" : "1px solid rgba(128,128,128,0.25)",
+    background: isActive ? "rgba(33,150,243,0.12)" : "rgba(255,255,255,0.02)",
+    color: fg,
+    fontWeight: isActive ? 900 : 800,
+  });
+
+  const titleSwitchAction = async (formData: FormData) => {
+    "use server";
+    await requireAdmin();
+    const id = nonEmpty(formData.get("titleId"));
+    const group = nonEmpty(formData.get("group")) || "ALL";
+    if (!id) redirect("/admin/access-titles");
+    redirect(`/admin/access-titles?titleId=${encodeURIComponent(id)}&group=${encodeURIComponent(group)}`);
+  };
+
+  const permFormId = `permform-${selectedTitle.id}`;
+
+  // Button-group styles (base + active applied by JS)
+  const modeBtnBase: CSSProperties = {
+    ...btn,
+    padding: "10px 12px",
+    borderRadius: 12,
+    fontSize: 14,
+  };
 
   return (
     <main style={{ padding: 16 }}>
-      <div style={{ padding: 16, maxWidth: 1200, margin: "0 auto", color: fg }}>
+      <div style={{ padding: 16, maxWidth: 1500, margin: "0 auto", color: fg }}>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <h1 style={{ fontSize: 26, fontWeight: 900, margin: 0 }}>Admin: Access Titles</h1>
+          <h1 style={{ fontSize: 26, fontWeight: 900, margin: 0 }}>
+            Permissions: {selectedWithPerms?.name ?? selectedTitle.name}
+          </h1>
+
           <Link
             href="/admin/users"
             style={{
@@ -383,207 +519,326 @@ export default async function AdminAccessTitlesPage() {
           >
             ← Users
           </Link>
+
+          <span style={{ ...pill, marginLeft: "auto" }}>
+            Assigned users: <b>{userCount}</b>
+          </span>
         </div>
 
-        {/* Create */}
         <div style={{ marginTop: 12, ...card }}>
-          <div style={{ fontWeight: 900, marginBottom: 8 }}>Create new title</div>
-          <form action={createTitleAction} style={{ display: "grid", gap: 10 }}>
-            <label style={label}>
-              Title name
-              <input name="name" style={input} placeholder="e.g. Maintenance" required />
+          <form action={titleSwitchAction} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
+            <label style={{ ...label, minWidth: 320 }}>
+              Access Title
+              <select name="titleId" defaultValue={selectedTitle.id} style={input}>
+                {titles.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
             </label>
-            <label style={label}>
-              Description (optional)
-              <input name="description" style={input} placeholder="What this title is for" />
-            </label>
-            <div>
-              <button type="submit" style={btnPrimary}>
-                Create
-              </button>
+
+            <input type="hidden" name="group" value={activeGroup} />
+
+            <button type="submit" style={btnPrimary}>
+              Switch
+            </button>
+
+            <div style={{ marginLeft: "auto", display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <details>
+                <summary style={{ cursor: "pointer", fontWeight: 900 }}>Create new title</summary>
+                <div style={{ marginTop: 10 }}>
+                  <form action={createTitleAction} style={{ display: "grid", gap: 10 }}>
+                    <label style={label}>
+                      Title name
+                      <input name="name" style={input} placeholder="e.g. Payroll Admin" required />
+                    </label>
+                    <label style={label}>
+                      Description (optional)
+                      <input name="description" style={input} placeholder="What this title is for" />
+                    </label>
+                    <div>
+                      <button type="submit" style={btnPrimary}>
+                        Create
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </details>
             </div>
           </form>
         </div>
 
-        {/* List */}
-        <div style={{ marginTop: 12, ...card }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-            <div style={{ fontWeight: 900 }}>Titles</div>
-            <div style={{ fontSize: 12, opacity: 0.8 }}>
-              Total: <b>{titles.length}</b>
+        <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "260px 1fr", gap: 12 }}>
+          <aside style={{ ...card, height: "fit-content", position: "sticky", top: 12 }}>
+            <div style={{ fontWeight: 900, marginBottom: 10 }}>Workspace Permissions</div>
+
+            <div style={{ display: "grid", gap: 8 }}>
+              <Link href={sidebarLink("ALL")} style={sidebarItemStyle(activeGroup === "ALL")}>
+                All Permissions
+              </Link>
+
+              {allGroups.map((g) => (
+                <Link key={g.key} href={sidebarLink(g.key)} style={sidebarItemStyle(activeGroup === g.key)}>
+                  {g.title}
+                </Link>
+              ))}
             </div>
-          </div>
 
-          {titles.length === 0 ? (
-            <div style={{ marginTop: 10, fontSize: 13, opacity: 0.8 }}>No titles yet.</div>
-          ) : (
-            <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
-              {titles.map((t) => {
-                const selected = new Set(t.permissions.map((x) => x.permission));
-                const formId = `permform-${t.id}`;
-                const allChecked = allPermissions.length > 0 && allPermissions.every((p) => selected.has(p));
-                const selectedCount = selected.size;
+            <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75, lineHeight: 1.45 }}>
+              Click a category to filter the permission list.
+            </div>
+          </aside>
 
-                return (
-                  <details key={t.id} style={{ borderTop: border, paddingTop: 10 }}>
-                    <summary style={{ cursor: "pointer", fontWeight: 900 }}>
-                      {t.name}{" "}
-                      <span style={{ opacity: 0.75, fontWeight: 700 }}>
-                        • {t._count.users} user{t._count.users === 1 ? "" : "s"} • {selectedCount} perm
-                      </span>
-                    </summary>
+          <section style={{ display: "grid", gap: 12 }}>
+            <div style={{ ...card }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                <div style={{ display: "grid", gap: 4 }}>
+                  <div style={{ fontWeight: 900 }}>Title Details</div>
+                  <div style={{ fontSize: 12, opacity: 0.8 }}>
+                    Editing permissions for <b>{selectedWithPerms?.name ?? selectedTitle.name}</b>
+                  </div>
+                </div>
 
-                    <div style={{ marginTop: 10, display: "grid", gap: 12 }}>
-                      {/* Edit name/desc */}
-                      <form action={updateTitleAction} style={{ display: "grid", gap: 8 }}>
-                        <input type="hidden" name="id" value={t.id} />
+                <span style={pill}>
+                  Category:{" "}
+                  <b>{activeGroup === "ALL" ? "All" : allGroups.find((g) => g.key === activeGroup)?.title ?? activeGroup}</b>
+                </span>
+              </div>
 
-                        <label style={label}>
-                          Name
-                          <input name="name" defaultValue={t.name} style={input} required />
-                        </label>
+              <form action={updateTitleAction} style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                <input type="hidden" name="id" value={selectedTitle.id} />
 
-                        <label style={label}>
-                          Description
-                          <input name="description" defaultValue={t.description ?? ""} style={input} />
-                        </label>
+                <label style={label}>
+                  Name
+                  <input name="name" defaultValue={selectedWithPerms?.name ?? selectedTitle.name} style={input} required />
+                </label>
 
-                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                          <button type="submit" style={btnPrimary}>
-                            Save title
-                          </button>
+                <label style={label}>
+                  Description
+                  <input name="description" defaultValue={selectedWithPerms?.description ?? ""} style={input} />
+                </label>
+
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                  <button type="submit" style={btnPrimary}>
+                    Save title details
+                  </button>
+
+                  <form action={deleteTitleAction}>
+                    <input type="hidden" name="id" value={selectedTitle.id} />
+                    <button type="submit" style={btnDanger}>
+                      Delete title
+                    </button>
+                  </form>
+
+                  <div style={{ fontSize: 12, opacity: 0.75 }}>
+                    Deleting removes it from all users automatically.
+                  </div>
+                </div>
+              </form>
+            </div>
+
+            <div style={{ ...card }}>
+              <form id={permFormId} action={updatePermissionsAction} style={{ display: "grid", gap: 10 }}>
+                <input type="hidden" name="id" value={selectedTitle.id} />
+                <input type="hidden" name="group" value={activeGroup} />
+
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                  <div style={{ display: "grid", gap: 4 }}>
+                    <div style={{ fontWeight: 900 }}>Permissions</div>
+                    <div style={{ fontSize: 12, opacity: 0.8 }}>Use the mode buttons, search, then save.</div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                    <span style={pill}>
+                      Selected: <b data-selected-count="1">{selectedPerms.size}</b>
+                    </span>
+
+                    <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 900 }}>
+                      Search Permissions
+                      <input
+                        type="text"
+                        placeholder="Search permissions..."
+                        style={{ ...input, width: 280 }}
+                        defaultValue=""
+                        data-search="1"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                {/* ✅ Button group instead of radios */}
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 12,
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    border,
+                    borderRadius: 14,
+                    padding: 10,
+                    background: "rgba(255,255,255,0.02)",
+                  }}
+                >
+                  <span style={{ fontWeight: 900 }}>Selection Mode:</span>
+
+                  <div
+                    style={{
+                      display: "inline-flex",
+                      gap: 8,
+                      padding: 6,
+                      borderRadius: 14,
+                      border,
+                      background: "rgba(255,255,255,0.02)",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      data-mode-btn="CUSTOM"
+                      aria-pressed="true"
+                      style={modeBtnBase}
+                    >
+                      Custom
+                    </button>
+                    <button
+                      type="button"
+                      data-mode-btn="ALL"
+                      aria-pressed="false"
+                      style={modeBtnBase}
+                    >
+                      All
+                    </button>
+                    <button
+                      type="button"
+                      data-mode-btn="NONE"
+                      aria-pressed="false"
+                      style={modeBtnBase}
+                    >
+                      None
+                    </button>
+                  </div>
+
+                  <div style={{ marginLeft: "auto", display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <label style={{ display: "inline-flex", gap: 8, alignItems: "center", fontWeight: 900 }}>
+                      <input type="checkbox" data-select-all="1" />
+                      Select all (toggle)
+                    </label>
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gap: 10, border, borderRadius: 14, padding: 10 }}>
+                  {shownGroups.map((g) => (
+                    <details key={g.key} open data-group-wrap="1" data-group={g.key}>
+                      <summary
+                        style={{
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 10,
+                          padding: "8px 6px",
+                          borderRadius: 10,
+                          background: "rgba(255,255,255,0.02)",
+                        }}
+                      >
+                        <div style={{ display: "grid" }}>
+                          <span style={{ fontWeight: 900 }}>{g.title}</span>
+                          {g.subtitle ? <span style={{ fontSize: 12, color: muted }}>{g.subtitle}</span> : null}
                         </div>
-                      </form>
 
-                      {/* Permissions */}
-                      <form id={formId} action={updatePermissionsAction} style={{ display: "grid", gap: 10 }}>
-                        <input type="hidden" name="id" value={t.id} />
+                        <label
+                          style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 900 }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <input type="checkbox" data-group-toggle={g.key} aria-label={`Select all in ${g.title}`} />
+                          All
+                        </label>
+                      </summary>
 
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                          <div>
-                            <div style={{ fontWeight: 900 }}>Permissions</div>
-                            <div style={{ fontSize: 12, opacity: 0.8 }}>
-                              Select permissions this title grants. Users assigned this title inherit them.
+                      <div
+                        style={{
+                          marginTop: 8,
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(330px, 1fr))",
+                          gap: 8,
+                          padding: "6px 4px 10px",
+                        }}
+                      >
+                        {g.permissions.map((perm) => (
+                          <label
+                            key={perm}
+                            style={{
+                              display: "flex",
+                              gap: 10,
+                              alignItems: "flex-start",
+                              padding: "8px 10px",
+                              borderRadius: 12,
+                              border,
+                              background: "rgba(255,255,255,0.02)",
+                            }}
+                            data-perm-row="1"
+                            data-text={`${permLabel(perm)} ${String(perm)}`.toLowerCase()}
+                            data-group={g.key}
+                          >
+                            <input
+                              type="checkbox"
+                              name="permissions"
+                              value={perm}
+                              data-perm="1"
+                              data-group={g.key}
+                              defaultChecked={selectedPerms.has(perm)}
+                              style={{ marginTop: 2 }}
+                            />
+                            <div style={{ display: "grid", gap: 2 }}>
+                              <div style={{ fontWeight: 900 }}>{permLabel(perm)}</div>
+                              <div
+                                style={{
+                                  fontSize: 12,
+                                  opacity: 0.85,
+                                  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                                }}
+                              >
+                                {perm}
+                              </div>
                             </div>
-                          </div>
-
-                          <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 900 }}>
-                            <input type="checkbox" data-select-all="1" defaultChecked={allChecked} />
-                            Select all
                           </label>
-                        </div>
+                        ))}
+                      </div>
+                    </details>
+                  ))}
+                </div>
 
-                        <div style={{ display: "grid", gap: 10, border, borderRadius: 14, padding: 10 }}>
-                          {groups.map((g) => {
-                            const groupCheckedCount = g.permissions.reduce((acc, p) => acc + (selected.has(p) ? 1 : 0), 0);
-                            const groupAllChecked = g.permissions.length > 0 && groupCheckedCount === g.permissions.length;
-                            const groupNoneChecked = groupCheckedCount === 0;
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                  <button type="submit" style={btnPrimary}>
+                    Save Changes
+                  </button>
+                  <div style={{ fontSize: 12, opacity: 0.75 }}>
+                    Saves permissions for <b>{selectedWithPerms?.name ?? selectedTitle.name}</b>.
+                  </div>
+                </div>
 
-                            return (
-                              <details key={`${t.id}-${g.key}`} open>
-                                <summary
-                                  style={{
-                                    cursor: "pointer",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "space-between",
-                                    gap: 10,
-                                    padding: "8px 6px",
-                                    borderRadius: 10,
-                                    background: "rgba(255,255,255,0.02)",
-                                  }}
-                                >
-                                  <div style={{ display: "grid" }}>
-                                    <span style={{ fontWeight: 900 }}>{g.title}</span>
-                                    {g.subtitle ? <span style={{ fontSize: 12, color: muted }}>{g.subtitle}</span> : null}
-                                  </div>
-
-                                  <label
-                                    style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 900 }}
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      data-group-toggle={g.key}
-                                      defaultChecked={groupAllChecked}
-                                      aria-label={`Select all in ${g.title}`}
-                                    />
-                                    All
-                                  </label>
-                                </summary>
-
-                                <div
-                                  style={{
-                                    marginTop: 8,
-                                    display: "grid",
-                                    gridTemplateColumns: "repeat(auto-fit, minmax(330px, 1fr))",
-                                    gap: 8,
-                                    padding: "6px 4px 10px",
-                                  }}
-                                >
-                                  {g.permissions.map((perm) => (
-                                    <label
-                                      key={`${t.id}-${perm}`}
-                                      style={{
-                                        display: "flex",
-                                        gap: 10,
-                                        alignItems: "flex-start",
-                                        padding: "8px 10px",
-                                        borderRadius: 12,
-                                        border,
-                                        background: "rgba(255,255,255,0.02)",
-                                      }}
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        name="permissions"
-                                        value={perm}
-                                        data-perm="1"
-                                        data-group={g.key}
-                                        defaultChecked={selected.has(perm)}
-                                        style={{ marginTop: 2 }}
-                                      />
-                                      <div style={{ display: "grid", gap: 2 }}>
-                                        <div style={{ fontWeight: 900 }}>{permLabel(perm)}</div>
-                                        <div
-                                          style={{
-                                            fontSize: 12,
-                                            opacity: 0.85,
-                                            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-                                          }}
-                                        >
-                                          {perm}
-                                        </div>
-                                      </div>
-                                    </label>
-                                  ))}
-                                </div>
-                              </details>
-                            );
-                          })}
-                        </div>
-
-                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                          <button type="submit" style={btnPrimary}>
-                            Save permissions
-                          </button>
-                          <div style={{ fontSize: 12, opacity: 0.75 }}>
-                            Selected: <b>{selected.size}</b>
-                          </div>
-                        </div>
-
-                        <script
-                          dangerouslySetInnerHTML={{
-                            __html: `
+                <script
+                  dangerouslySetInnerHTML={{
+                    __html: `
 (function(){
-  const form = document.getElementById(${JSON.stringify(formId)});
+  const form = document.getElementById(${JSON.stringify(permFormId)});
   if(!form) return;
 
   const permBoxes = () => Array.from(form.querySelectorAll('input[type="checkbox"][data-perm="1"]'));
   const selectAll = form.querySelector('input[type="checkbox"][data-select-all="1"]');
+  const selectedCountEl = form.querySelector('[data-selected-count="1"]');
+  const searchInput = form.querySelector('input[data-search="1"]');
+
+  const modeButtons = Array.from(form.querySelectorAll('button[type="button"][data-mode-btn]'));
 
   function setIndeterminate(el, on){
     try { el.indeterminate = !!on; } catch(e) {}
+  }
+
+  function syncSelectedCount(){
+    const boxes = permBoxes();
+    const checked = boxes.filter(b => b.checked).length;
+    if(selectedCountEl) selectedCountEl.textContent = String(checked);
   }
 
   function syncSelectAll(){
@@ -605,30 +860,93 @@ export default async function AdminAccessTitlesPage() {
 
   function syncAllGroups(){
     const toggles = Array.from(form.querySelectorAll('input[type="checkbox"][data-group-toggle]'));
-    toggles.forEach(t => syncGroup(t.getAttribute('data-group-toggle')));
+    toggles.forEach(t => {
+      const k = t.getAttribute('data-group-toggle');
+      if(k) syncGroup(k);
+    });
   }
 
+  function setAll(on){
+    permBoxes().forEach(b => { b.checked = !!on; });
+    syncAllGroups();
+    syncSelectAll();
+    syncSelectedCount();
+  }
+
+  function setModeActive(mode){
+    modeButtons.forEach(btn => {
+      const m = btn.getAttribute('data-mode-btn');
+      const active = (m === mode);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+
+      // Active style
+      if(active){
+        btn.style.background = "rgba(33,150,243,0.18)";
+        btn.style.border = "1px solid rgba(33,150,243,0.55)";
+        btn.style.boxShadow = "0 0 0 1px rgba(33,150,243,0.12) inset";
+      } else {
+        btn.style.background = "var(--background)";
+        btn.style.border = "1px solid rgba(128,128,128,0.25)";
+        btn.style.boxShadow = "none";
+      }
+    });
+  }
+
+  function applyMode(mode){
+    if(mode === "ALL") setAll(true);
+    else if(mode === "NONE") setAll(false);
+    // CUSTOM does not change selection; it just changes UI mode
+  }
+
+  function applySearch(qRaw){
+    const q = String(qRaw || "").trim().toLowerCase();
+    const rows = Array.from(form.querySelectorAll('[data-perm-row="1"]'));
+    rows.forEach(r => {
+      const text = (r.getAttribute('data-text') || "").toLowerCase();
+      r.style.display = (!q || text.includes(q)) ? "" : "none";
+    });
+
+    const groups = Array.from(form.querySelectorAll('[data-group-wrap="1"]'));
+    groups.forEach(g => {
+      const rowsIn = Array.from(g.querySelectorAll('[data-perm-row="1"]'));
+      const anyVisible = rowsIn.some(r => r.style.display !== "none");
+      g.style.display = anyVisible ? "" : "none";
+    });
+  }
+
+  // init visuals
+  setModeActive("CUSTOM");
   syncAllGroups();
   syncSelectAll();
+  syncSelectedCount();
+
+  // mode button clicks
+  modeButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.getAttribute('data-mode-btn') || "CUSTOM";
+      setModeActive(mode);
+      applyMode(mode);
+    });
+  });
 
   form.addEventListener('change', (e) => {
     const t = e.target;
     if(!(t instanceof HTMLInputElement)) return;
 
     if(t.matches('input[type="checkbox"][data-select-all="1"]')){
-      const on = t.checked;
-      permBoxes().forEach(b => { b.checked = on; });
-      syncAllGroups();
-      syncSelectAll();
+      setAll(!!t.checked);
+      setModeActive("CUSTOM");
       return;
     }
 
     if(t.matches('input[type="checkbox"][data-group-toggle]')){
       const groupKey = t.getAttribute('data-group-toggle');
-      const on = t.checked;
+      const on = !!t.checked;
       permBoxes().filter(b => b.getAttribute('data-group') === groupKey).forEach(b => { b.checked = on; });
-      syncGroup(groupKey);
+      if(groupKey) syncGroup(groupKey);
       syncSelectAll();
+      syncSelectedCount();
+      setModeActive("CUSTOM");
       return;
     }
 
@@ -636,33 +954,21 @@ export default async function AdminAccessTitlesPage() {
       const groupKey = t.getAttribute('data-group');
       if(groupKey) syncGroup(groupKey);
       syncSelectAll();
+      syncSelectedCount();
+      setModeActive("CUSTOM");
+      return;
     }
   });
+
+  if(searchInput){
+    searchInput.addEventListener('input', () => applySearch(searchInput.value));
+  }
 })();`,
-                          }}
-                        />
-                      </form>
-
-                      {/* Delete */}
-                      <form action={deleteTitleAction}>
-                        <input type="hidden" name="id" value={t.id} />
-                        <button type="submit" style={btnDanger}>
-                          Delete title
-                        </button>
-                        <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-                          Deleting a title removes it from all users automatically.
-                        </div>
-                      </form>
-                    </div>
-                  </details>
-                );
-              })}
+                  }}
+                />
+              </form>
             </div>
-          )}
-        </div>
-
-        <div style={{ marginTop: 10, fontSize: 12, opacity: 0.8, lineHeight: 1.5 }}>
-          Tip: create a title named <b>Maintenance</b> and check the permissions you want maintenance staff to have.
+          </section>
         </div>
       </div>
     </main>
