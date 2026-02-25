@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { Role, Permission } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
-import { loadUserPermissions, hasAnyPermission } from "@/app/lib/permissions";
+import { loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -34,15 +34,25 @@ async function requireAdmin() {
   return session;
 }
 
+function hasAnyPermissionLocal(perms: PermissionsResult, required: Permission[]) {
+  if (perms.allowAll) return true;
+  for (const p of required) {
+    if (perms.permissions.has(p)) return true;
+  }
+  return false;
+}
+
 export default async function AdminHomePage() {
   const session = await requireAdmin();
 
+  // loadUserPermissions returns a value that we treat as PermissionsResult here,
+  // matching your actual usage across the app.
   const sessionArg = session as unknown as Parameters<typeof loadUserPermissions>[0];
   const perms = (await loadUserPermissions(sessionArg)) as unknown as PermissionsResult;
 
   const canItems =
     perms.allowAll ||
-    hasAnyPermission(perms, [
+    hasAnyPermissionLocal(perms, [
       Permission.ADMIN_VIEW_ITEMS,
       Permission.ADMIN_EDIT_ITEMS,
       Permission.ADMIN_IMPORT_EXPORT_ITEMS,
@@ -50,24 +60,25 @@ export default async function AdminHomePage() {
 
   const canOrders =
     perms.allowAll ||
-    hasAnyPermission(perms, [
+    hasAnyPermissionLocal(perms, [
       Permission.ADMIN_VIEW_WORK_ORDERS,
       Permission.ADMIN_EDIT_WORK_ORDERS,
       Permission.ADMIN_DELETE_WORK_ORDERS,
     ]) ||
     // inventory orders often align with items permissions
-    hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
+    hasAnyPermissionLocal(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
 
   const canUsers =
-    perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_USERS, Permission.ADMIN_EDIT_USERS]);
+    perms.allowAll ||
+    hasAnyPermissionLocal(perms, [Permission.ADMIN_VIEW_USERS, Permission.ADMIN_EDIT_USERS]);
 
   const canLocations =
     perms.allowAll ||
-    hasAnyPermission(perms, [Permission.ADMIN_VIEW_LOCATIONS, Permission.ADMIN_EDIT_LOCATIONS]);
+    hasAnyPermissionLocal(perms, [Permission.ADMIN_VIEW_LOCATIONS, Permission.ADMIN_EDIT_LOCATIONS]);
 
   const canWorkOrders =
     perms.allowAll ||
-    hasAnyPermission(perms, [
+    hasAnyPermissionLocal(perms, [
       Permission.ADMIN_VIEW_WORK_ORDERS,
       Permission.ADMIN_EDIT_WORK_ORDERS,
       Permission.ADMIN_DELETE_WORK_ORDERS,
@@ -75,7 +86,7 @@ export default async function AdminHomePage() {
 
   const canTickets =
     perms.allowAll ||
-    hasAnyPermission(perms, [
+    hasAnyPermissionLocal(perms, [
       Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
       Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS,
     ]);
