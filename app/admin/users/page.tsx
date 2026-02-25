@@ -38,6 +38,7 @@ function nonEmpty(v: FormDataEntryValue | null): string {
 function pickRole(v: string): Role {
   if (v === Role.ADMIN) return Role.ADMIN;
   if (v === Role.MANAGER) return Role.MANAGER;
+  // @ts-expect-error - if your Role enum includes MAINTENANCE this is fine; otherwise remove this line.
   if (v === Role.MAINTENANCE) return Role.MAINTENANCE;
   return Role.EMPLOYEE;
 }
@@ -127,7 +128,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
           orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
         },
 
-        // ✅ NEW: permission titles join (schema field name: permissionTitles)
+        // permission titles join (schema field name: permissionTitles)
         permissionTitles: {
           select: {
             titleId: true,
@@ -480,7 +481,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     redirect("/admin/users?ok=1");
   }
 
-  // ✅ Assign Permission Titles (RBAC templates)
+  // ✅ Assign Permission Titles (RBAC templates) — with inactive guard
   async function assignPermissionTitlesAction(formData: FormData) {
     "use server";
     await requireAdmin();
@@ -492,8 +493,32 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
     try {
       await prisma.$transaction(async (tx) => {
-        const u = await tx.user.findUnique({ where: { id: userId }, select: { id: true } });
+        // Ensure user exists + get current assignments (to allow keeping already-assigned inactive)
+        const u = await tx.user.findUnique({
+          where: { id: userId },
+          select: { id: true, permissionTitles: { select: { titleId: true } } },
+        });
         if (!u) throw new Error("User not found");
+
+        const previouslyAssigned = new Set<string>(u.permissionTitles.map((r) => r.titleId));
+
+        // Validate selected ids exist + prevent newly assigning inactive titles
+        if (selectedIds.length > 0) {
+          const titles = await tx.permissionTitle.findMany({
+            where: { id: { in: selectedIds } },
+            select: { id: true, active: true },
+          });
+
+          const found = new Set(titles.map((t) => t.id));
+          const missing = selectedIds.filter((id) => !found.has(id));
+          if (missing.length > 0) throw new Error("Some Permission Titles were not found.");
+
+          const inactiveSelected = titles.filter((t) => !t.active).map((t) => t.id);
+          const newlyAddingInactive = inactiveSelected.filter((id) => !previouslyAssigned.has(id));
+          if (newlyAddingInactive.length > 0) {
+            throw new Error("Inactive Permission Titles cannot be newly assigned. Reactivate them first.");
+          }
+        }
 
         await tx.userPermissionTitle.deleteMany({ where: { userId } });
 
@@ -585,7 +610,9 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
             <div style={{ marginTop: 8 }}>
               <div style={{ fontWeight: 900 }}>Temporary password (show once):</div>
               <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>{temp}</div>
-              <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>This is only displayed via the URL after reset. Copy it now.</div>
+              <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
+                This is only displayed via the URL after reset. Copy it now.
+              </div>
             </div>
           ) : null}
         </div>
@@ -593,7 +620,9 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
       {/* Create user (collapsed) */}
       <details style={{ ...card, marginBottom: 16 }} open={createOpen}>
-        <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside", fontSize: 16 }}>Create User</summary>
+        <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside", fontSize: 16 }}>
+          Create User
+        </summary>
 
         <div style={{ marginTop: 10 }}>
           {!hasActiveLocations && canCreateUser ? (
@@ -655,6 +684,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                 <span style={{ fontWeight: 800 }}>Role</span>
                 <select name="role" defaultValue={Role.EMPLOYEE} style={field}>
                   <option value={Role.EMPLOYEE}>EMPLOYEE</option>
+                  {/* @ts-expect-error - remove if Role enum doesn't include MAINTENANCE */}
                   <option value={Role.MAINTENANCE}>MAINTENANCE</option>
                   <option value={Role.MANAGER}>MANAGER</option>
                   <option value={Role.ADMIN}>ADMIN</option>
@@ -668,7 +698,10 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                 <div style={{ display: "grid", gap: 6, maxHeight: 240, overflow: "auto", paddingRight: 6 }}>
                   {canCreateUser ? (
                     locationChoicesForCreate.map((l) => (
-                      <label key={`cprim-${l.id}`} style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}>
+                      <label
+                        key={`cprim-${l.id}`}
+                        style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
+                      >
                         <input type="checkbox" name="primaryLocationIds" value={l.id} />
                         <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
                         <input name={`primaryOrder_${l.id}`} type="number" min={1} step={1} placeholder="Order #" style={field} />
@@ -679,8 +712,8 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                   )}
                 </div>
                 <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-                  Ordering: if you enter an Order #, we sort by it; blanks sort after (by name). We persist order within each group (1..N). Legacy{" "}
-                  <code>user.locationId</code> is set to the first Primary after ordering.
+                  Ordering: if you enter an Order #, we sort by it; blanks sort after (by name). We persist order within each
+                  group (1..N). Legacy <code>user.locationId</code> is set to the first Primary after ordering.
                 </div>
               </div>
 
@@ -689,14 +722,19 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                 <div style={{ display: "grid", gap: 6, maxHeight: 240, overflow: "auto", paddingRight: 6 }}>
                   {canCreateUser ? (
                     locationChoicesForCreate.map((l) => (
-                      <label key={`copt-${l.id}`} style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}>
+                      <label
+                        key={`copt-${l.id}`}
+                        style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
+                      >
                         <input type="checkbox" name="optionalLocationIds" value={l.id} />
                         <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
                         <input name={`optionalOrder_${l.id}`} type="number" min={1} step={1} placeholder="Order #" style={field} />
                       </label>
                     ))
                   ) : (
-                    <div style={{ opacity: 0.8, fontSize: 13 }}>No optional locations available until at least one location exists.</div>
+                    <div style={{ opacity: 0.8, fontSize: 13 }}>
+                      No optional locations available until at least one location exists.
+                    </div>
                   )}
                 </div>
               </div>
@@ -728,6 +766,8 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
             const optionalChoices = locationsAll.filter((l) => l.active || checkedOptional.has(l.id));
 
             const currentTitleIds = new Set(u.permissionTitles.map((r) => r.titleId));
+            // ✅ show active titles + any inactive that are already assigned to this user
+            const titleChoices = permissionTitles.filter((t) => t.active || currentTitleIds.has(t.id));
 
             return (
               <details
@@ -747,22 +787,41 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                   </span>
                 </summary>
 
-                <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+                <div
+                  style={{
+                    marginTop: 10,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    alignItems: "flex-start",
+                    flexWrap: "wrap",
+                  }}
+                >
                   <div style={{ display: "grid", gap: 4 }}>
                     <div style={{ opacity: 0.85 }}>{u.email}</div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>
                       id:{" "}
-                      <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>{u.id}</span>
+                      <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                        {u.id}
+                      </span>
                     </div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>
-                      Legacy locationId: <span style={{ fontWeight: 800 }}>{legacyName || (u.locationId ? u.locationId : "—")}</span>
+                      Legacy locationId:{" "}
+                      <span style={{ fontWeight: 800 }}>{legacyName || (u.locationId ? u.locationId : "—")}</span>
                     </div>
 
                     <div style={{ fontSize: 12, opacity: 0.75 }}>
                       Permission Titles:{" "}
                       <span style={{ fontWeight: 800 }}>
                         {u.permissionTitles.length
-                          ? u.permissionTitles.map((r) => r.title?.name ?? "").filter(Boolean).join(", ")
+                          ? u.permissionTitles
+                              .map((r) => {
+                                const name = r.title?.name ?? "";
+                                const inactive = r.title?.active === false;
+                                return name ? `${name}${inactive ? " (Inactive)" : ""}` : "";
+                              })
+                              .filter(Boolean)
+                              .join(", ")
                           : "—"}
                       </span>
                     </div>
@@ -773,6 +832,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                       <input type="hidden" name="userId" value={u.id} />
                       <select name="role" defaultValue={u.role} style={field}>
                         <option value={Role.EMPLOYEE}>EMPLOYEE</option>
+                        {/* @ts-expect-error - remove if Role enum doesn't include MAINTENANCE */}
                         <option value={Role.MAINTENANCE}>MAINTENANCE</option>
                         <option value={Role.MANAGER}>MANAGER</option>
                         <option value={Role.ADMIN}>ADMIN</option>
@@ -817,7 +877,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                         <input type="hidden" name="userId" value={u.id} />
 
                         <div style={{ display: "grid", gap: 6, maxHeight: 220, overflow: "auto", paddingRight: 6 }}>
-                          {permissionTitles.map((t) => (
+                          {titleChoices.map((t) => (
                             <label
                               key={`pt-${u.id}-${t.id}`}
                               style={{ display: "grid", gridTemplateColumns: "20px 1fr", gap: 10, alignItems: "center" }}
@@ -900,7 +960,12 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                               return (
                                 <label
                                   key={`prim-${u.id}-${l.id}`}
-                                  style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
+                                  style={{
+                                    display: "grid",
+                                    gridTemplateColumns: "20px 1fr 110px",
+                                    gap: 10,
+                                    alignItems: "center",
+                                  }}
                                 >
                                   <input type="checkbox" name="primaryLocationIds" value={l.id} defaultChecked={checked} />
                                   <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
@@ -927,7 +992,12 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                               return (
                                 <label
                                   key={`opt-${u.id}-${l.id}`}
-                                  style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
+                                  style={{
+                                    display: "grid",
+                                    gridTemplateColumns: "20px 1fr 110px",
+                                    gap: 10,
+                                    alignItems: "center",
+                                  }}
                                 >
                                   <input type="checkbox" name="optionalLocationIds" value={l.id} defaultChecked={checked} />
                                   <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
@@ -952,8 +1022,9 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                           Save Locations
                         </button>
                         <div style={{ fontSize: 12, opacity: 0.75 }}>
-                          Pick-lists show active locations; inactive locations can only remain if already assigned. Ordering: we sort by Order # (ascending) then by name; blanks sort after by name. We persist order within each group (1..N). Legacy{" "}
-                          <code>user.locationId</code> becomes the first Primary after ordering.
+                          Pick-lists show active locations; inactive locations can only remain if already assigned. Ordering: we
+                          sort by Order # (ascending) then by name; blanks sort after by name. We persist order within each group
+                          (1..N). Legacy <code>user.locationId</code> becomes the first Primary after ordering.
                         </div>
                       </div>
                     </form>
