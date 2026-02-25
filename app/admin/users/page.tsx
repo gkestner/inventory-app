@@ -44,11 +44,9 @@ function pickRole(v: string): Role {
   const roles = new Set<string>(Object.values(Role) as string[]);
   const wanted = String(v ?? "").trim();
 
-  // allow the ones you use most
   if (wanted === Role.ADMIN) return Role.ADMIN;
   if (wanted === Role.MANAGER) return Role.MANAGER;
 
-  // only allow MAINTENANCE if it exists in the enum
   if (roles.has("MAINTENANCE") && wanted === "MAINTENANCE") {
     return "MAINTENANCE" as Role;
   }
@@ -104,8 +102,6 @@ function safeRoleIdsFromFormData(fd: FormData): string[] {
 /**
  * ✅ Runtime DB guard: do dynamic-role reads ONLY if the tables exist.
  * This prevents Prisma P2021 on prod before migrations are deployed.
- *
- * NOTE: Use information_schema (most reliable across pooled connections).
  */
 async function dynamicRolesTablesReady(): Promise<boolean> {
   try {
@@ -133,7 +129,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
   const rolesReady = await dynamicRolesTablesReady();
 
-  const [locationsAll, permissionTitles] = await Promise.all([
+  const [locationsAll, allTitles] = await Promise.all([
     prisma.location.findMany({
       orderBy: [{ active: "desc" }, { name: "asc" }],
       select: { id: true, name: true, active: true },
@@ -144,7 +140,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     }),
   ]);
 
-  // Users query MUST be different depending on rolesReady, otherwise Prisma will hit missing tables.
+  // Users query MUST be different depending on rolesReady, otherwise Prisma can hit missing tables.
   const users = rolesReady
     ? await prisma.user.findMany({
         orderBy: [{ name: "asc" }, { email: "asc" }],
@@ -570,6 +566,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     redirect("/admin/users?ok=1");
   }
 
+  // ✅ FIXED: allow-list titleIds + skipDuplicates
   async function assignPermissionTitlesAction(formData: FormData) {
     "use server";
     await requireAdmin();
@@ -584,11 +581,23 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         const u = await tx.user.findUnique({ where: { id: userId }, select: { id: true } });
         if (!u) throw new Error("User not found");
 
+        // allow-list against DB
+        let finalIds: string[] = [];
+        if (selectedIds.length > 0) {
+          const existing = await tx.permissionTitle.findMany({
+            where: { id: { in: selectedIds } },
+            select: { id: true },
+          });
+          const found = new Set(existing.map((x) => x.id));
+          finalIds = selectedIds.filter((id) => found.has(id));
+        }
+
         await tx.userPermissionTitle.deleteMany({ where: { userId } });
 
-        if (selectedIds.length > 0) {
+        if (finalIds.length > 0) {
           await tx.userPermissionTitle.createMany({
-            data: selectedIds.map((titleId) => ({ userId, titleId })),
+            data: finalIds.map((titleId) => ({ userId, titleId })),
+            skipDuplicates: true,
           });
         }
       });
@@ -601,7 +610,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     redirect("/admin/users?ok=1");
   }
 
-  // ✅ NEW: assign dynamic AppRoles to user (atomic replace)
+  // ✅ assign dynamic AppRoles to user (atomic replace)
   async function assignAppRolesAction(formData: FormData) {
     "use server";
     await requireAdmin();
@@ -691,21 +700,11 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
   }
 
   const createOpen = Boolean(error || created);
-
-  // Role options shown in UI should only show values that exist in Prisma enum
   const roleOptions = Object.values(Role) as Role[];
 
   return (
     <div style={pageWrap}>
-      <div
-        style={{
-          display: "flex",
-          gap: 10,
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexWrap: "wrap",
-        }}
-      >
+      <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 900, marginBottom: 6 }}>Admin Users</h1>
           <div style={{ opacity: 0.8, marginBottom: 16 }}>
@@ -748,56 +747,16 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
             <div style={{ marginTop: 8 }}>
               <div style={{ fontWeight: 900 }}>Temporary password (show once):</div>
               <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>{temp}</div>
-              <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-                This is only displayed via the URL after reset. Copy it now.
-              </div>
+              <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>This is only displayed via the URL after reset. Copy it now.</div>
             </div>
           ) : null}
         </div>
       ) : null}
 
       <details style={{ ...card, marginBottom: 16 }} open={createOpen}>
-        <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside", fontSize: 16 }}>
-          Create User
-        </summary>
+        <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside", fontSize: 16 }}>Create User</summary>
 
         <div style={{ marginTop: 10 }}>
-          {!hasActiveLocations && canCreateUser ? (
-            <div
-              style={{
-                marginBottom: 12,
-                padding: 10,
-                border: "1px solid rgba(255,180,0,0.5)",
-                borderRadius: 8,
-                opacity: 0.9,
-              }}
-            >
-              No active locations are available. You can still assign currently inactive locations below, or reactivate one in{" "}
-              <a href="/admin/locations" style={{ textDecoration: "underline" }}>
-                Admin Locations
-              </a>
-              .
-            </div>
-          ) : null}
-
-          {!canCreateUser ? (
-            <div
-              style={{
-                marginBottom: 12,
-                padding: 10,
-                border: "1px solid rgba(255,80,80,0.5)",
-                borderRadius: 8,
-                opacity: 0.95,
-              }}
-            >
-              No locations exist yet. Create a location in{" "}
-              <a href="/admin/locations" style={{ textDecoration: "underline" }}>
-                Admin Locations
-              </a>{" "}
-              before creating users.
-            </div>
-          ) : null}
-
           <form action={createUserAction} style={{ display: "grid", gap: 12 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <label style={label}>
@@ -833,60 +792,46 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
               <div>
                 <div style={{ fontWeight: 900, marginBottom: 6 }}>Primary Locations (active preferred)</div>
                 <div style={{ display: "grid", gap: 6, maxHeight: 240, overflow: "auto", paddingRight: 6 }}>
-                  {canCreateUser ? (
-                    locationChoicesForCreate.map((l) => (
-                      <label
-                        key={`cprim-${l.id}`}
-                        style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
-                      >
-                        <input type="checkbox" name="primaryLocationIds" value={l.id} />
-                        <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
-                        <input
-                          name={`primaryOrder_${l.id}`}
-                          type="number"
-                          min={1}
-                          step={1}
-                          placeholder="Order #"
-                          style={field}
-                        />
-                      </label>
-                    ))
-                  ) : (
-                    <div style={{ opacity: 0.8, fontSize: 13 }}>No locations are available to select yet.</div>
-                  )}
-                </div>
-                <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-                  Ordering: if you enter an Order #, we sort by it; blanks sort after (by name). We persist order within each
-                  group (1..N). Legacy <code>user.locationId</code> is set to the first Primary after ordering.
+                  {locationChoicesForCreate.map((l) => (
+                    <label
+                      key={`cprim-${l.id}`}
+                      style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
+                    >
+                      <input type="checkbox" name="primaryLocationIds" value={l.id} />
+                      <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
+                      <input
+                        name={`primaryOrder_${l.id}`}
+                        type="number"
+                        min={1}
+                        step={1}
+                        placeholder="Order #"
+                        style={field}
+                      />
+                    </label>
+                  ))}
                 </div>
               </div>
 
               <div>
                 <div style={{ fontWeight: 900, marginBottom: 6 }}>Optional Locations (active preferred)</div>
                 <div style={{ display: "grid", gap: 6, maxHeight: 240, overflow: "auto", paddingRight: 6 }}>
-                  {canCreateUser ? (
-                    locationChoicesForCreate.map((l) => (
-                      <label
-                        key={`copt-${l.id}`}
-                        style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
-                      >
-                        <input type="checkbox" name="optionalLocationIds" value={l.id} />
-                        <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
-                        <input
-                          name={`optionalOrder_${l.id}`}
-                          type="number"
-                          min={1}
-                          step={1}
-                          placeholder="Order #"
-                          style={field}
-                        />
-                      </label>
-                    ))
-                  ) : (
-                    <div style={{ opacity: 0.8, fontSize: 13 }}>
-                      No optional locations available until at least one location exists.
-                    </div>
-                  )}
+                  {locationChoicesForCreate.map((l) => (
+                    <label
+                      key={`copt-${l.id}`}
+                      style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
+                    >
+                      <input type="checkbox" name="optionalLocationIds" value={l.id} />
+                      <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
+                      <input
+                        name={`optionalOrder_${l.id}`}
+                        type="number"
+                        min={1}
+                        step={1}
+                        placeholder="Order #"
+                        style={field}
+                      />
+                    </label>
+                  ))}
                 </div>
               </div>
             </div>
@@ -917,7 +862,9 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
             const currentTitleIds = new Set(u.permissionTitles.map((r) => r.titleId));
 
-            // roles are only present when rolesReady
+            // show active titles + any inactive already assigned (so you can remove them)
+            const permissionTitles = allTitles.filter((t) => t.active || currentTitleIds.has(t.id));
+
             const rolesAny =
               (u as unknown as { roles?: Array<{ roleId: string; role?: { name: string } | null }> }).roles ?? [];
             const currentAppRoleIds = new Set(rolesAny.map((r) => r.roleId));
@@ -941,32 +888,24 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                   </span>
                 </summary>
 
-                <div
-                  style={{
-                    marginTop: 10,
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 12,
-                    alignItems: "flex-start",
-                    flexWrap: "wrap",
-                  }}
-                >
+                <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                   <div style={{ display: "grid", gap: 4 }}>
                     <div style={{ opacity: 0.85 }}>{u.email}</div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>
                       id:{" "}
-                      <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
-                        {u.id}
-                      </span>
+                      <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>{u.id}</span>
                     </div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>
-                      Legacy locationId: <span style={{ fontWeight: 800 }}>{legacyName || (u.locationId ? u.locationId : "—")}</span>
+                      Legacy locationId:{" "}
+                      <span style={{ fontWeight: 800 }}>{legacyName || (u.locationId ? u.locationId : "—")}</span>
                     </div>
 
                     <div style={{ fontSize: 12, opacity: 0.75 }}>
                       Permission Titles:{" "}
                       <span style={{ fontWeight: 800 }}>
-                        {u.permissionTitles.length ? u.permissionTitles.map((r) => r.title?.name ?? "").filter(Boolean).join(", ") : "—"}
+                        {u.permissionTitles.length
+                          ? u.permissionTitles.map((r) => r.title?.name ?? "").filter(Boolean).join(", ")
+                          : "—"}
                       </span>
                     </div>
 
@@ -1026,32 +965,20 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
                           <div style={{ display: "grid", gap: 6, maxHeight: 220, overflow: "auto", paddingRight: 6 }}>
                             {appRoles.map((r) => (
-                              <label
-                                key={`ar-${u.id}-${r.id}`}
-                                style={{
-                                  display: "grid",
-                                  gridTemplateColumns: "20px 1fr",
-                                  gap: 10,
-                                  alignItems: "center",
-                                }}
-                              >
+                              <label key={`ar-${u.id}-${r.id}`} style={{ display: "grid", gridTemplateColumns: "20px 1fr", gap: 10 }}>
                                 <input type="checkbox" name="appRoleIds" value={r.id} defaultChecked={currentAppRoleIds.has(r.id)} />
                                 <span>
-                                  <span style={{ fontWeight: 900 }}>{r.name}</span>{" "}
-                                  {r.isSystem ? <span style={{ opacity: 0.75 }}>(System)</span> : null}
+                                  <span style={{ fontWeight: 900 }}>{r.name}</span> {r.isSystem ? <span style={{ opacity: 0.75 }}>(System)</span> : null}
                                   {r.description ? <span style={{ opacity: 0.75 }}> — {r.description}</span> : null}
                                 </span>
                               </label>
                             ))}
                           </div>
 
-                          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                             <button type="submit" style={{ ...btn, width: 240 }}>
                               Save Dynamic Roles
                             </button>
-                            <div style={{ fontSize: 12, opacity: 0.75 }}>
-                              These roles grant their permissions (direct + via titles) to the user.
-                            </div>
                           </div>
                         </form>
                       )}
@@ -1077,15 +1004,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
                         <div style={{ display: "grid", gap: 6, maxHeight: 220, overflow: "auto", paddingRight: 6 }}>
                           {permissionTitles.map((t) => (
-                            <label
-                              key={`pt-${u.id}-${t.id}`}
-                              style={{
-                                display: "grid",
-                                gridTemplateColumns: "20px 1fr",
-                                gap: 10,
-                                alignItems: "center",
-                              }}
-                            >
+                            <label key={`pt-${u.id}-${t.id}`} style={{ display: "grid", gridTemplateColumns: "20px 1fr", gap: 10 }}>
                               <input type="checkbox" name="permissionTitleIds" value={t.id} defaultChecked={currentTitleIds.has(t.id)} />
                               <span>
                                 <span style={{ fontWeight: 900 }}>{t.name}</span> {!t.active ? <span style={{ opacity: 0.75 }}>(Inactive)</span> : null}
@@ -1095,13 +1014,10 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                           ))}
                         </div>
 
-                        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                           <button type="submit" style={{ ...btn, width: 240 }}>
                             Save Permission Titles
                           </button>
-                          <div style={{ fontSize: 12, opacity: 0.75 }}>
-                            These titles grant their permissions to the user (in addition to any direct user permissions).
-                          </div>
                         </div>
                       </form>
                     )}
@@ -1158,12 +1074,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                               return (
                                 <label
                                   key={`prim-${u.id}-${l.id}`}
-                                  style={{
-                                    display: "grid",
-                                    gridTemplateColumns: "20px 1fr 110px",
-                                    gap: 10,
-                                    alignItems: "center",
-                                  }}
+                                  style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
                                 >
                                   <input type="checkbox" name="primaryLocationIds" value={l.id} defaultChecked={checked} />
                                   <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
@@ -1190,12 +1101,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                               return (
                                 <label
                                   key={`opt-${u.id}-${l.id}`}
-                                  style={{
-                                    display: "grid",
-                                    gridTemplateColumns: "20px 1fr 110px",
-                                    gap: 10,
-                                    alignItems: "center",
-                                  }}
+                                  style={{ display: "grid", gridTemplateColumns: "20px 1fr 110px", gap: 10, alignItems: "center" }}
                                 >
                                   <input type="checkbox" name="optionalLocationIds" value={l.id} defaultChecked={checked} />
                                   <span>{l.active ? l.name : `${l.name} (Inactive)`}</span>
@@ -1215,15 +1121,10 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                         </div>
                       </div>
 
-                      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                         <button type="submit" style={{ ...btn, width: 220 }}>
                           Save Locations
                         </button>
-                        <div style={{ fontSize: 12, opacity: 0.75 }}>
-                          Pick-lists show active locations; inactive locations can only remain if already assigned. Ordering: we
-                          sort by Order # (ascending) then by name; blanks sort after by name. We persist order within each group
-                          (1..N). Legacy <code>user.locationId</code> becomes the first Primary after ordering.
-                        </div>
                       </div>
                     </form>
                   </div>
