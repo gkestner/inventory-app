@@ -104,21 +104,18 @@ function safeRoleIdsFromFormData(fd: FormData): string[] {
 /**
  * ✅ Runtime DB guard: do dynamic-role reads ONLY if the tables exist.
  * This prevents Prisma P2021 on prod before migrations are deployed.
+ *
+ * NOTE: Use information_schema (most reliable across pooled connections).
  */
 async function dynamicRolesTablesReady(): Promise<boolean> {
   try {
-    // to_regclass returns NULL if table doesn't exist
-    const rows = await prisma.$queryRaw<Array<{ t: string | null }>>`
-      SELECT to_regclass('public."AppRole"') as t
+    const rows = await prisma.$queryRaw<Array<{ c: bigint }>>`
+      SELECT COUNT(*)::bigint AS c
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name IN ('AppRole','UserRole')
     `;
-    const ok1 = Boolean(rows?.[0]?.t);
-
-    const rows2 = await prisma.$queryRaw<Array<{ t: string | null }>>`
-      SELECT to_regclass('public."UserRole"') as t
-    `;
-    const ok2 = Boolean(rows2?.[0]?.t);
-
-    return ok1 && ok2;
+    return Number(rows?.[0]?.c ?? 0) === 2;
   } catch {
     return false;
   }
@@ -921,7 +918,8 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
             const currentTitleIds = new Set(u.permissionTitles.map((r) => r.titleId));
 
             // roles are only present when rolesReady
-            const rolesAny = (u as unknown as { roles?: Array<{ roleId: string; role?: { name: string } | null }> }).roles ?? [];
+            const rolesAny =
+              (u as unknown as { roles?: Array<{ roleId: string; role?: { name: string } | null }> }).roles ?? [];
             const currentAppRoleIds = new Set(rolesAny.map((r) => r.roleId));
             const roleNames = rolesAny.map((r) => r.role?.name ?? "").filter(Boolean);
 
@@ -962,16 +960,13 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                       </span>
                     </div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>
-                      Legacy locationId:{" "}
-                      <span style={{ fontWeight: 800 }}>{legacyName || (u.locationId ? u.locationId : "—")}</span>
+                      Legacy locationId: <span style={{ fontWeight: 800 }}>{legacyName || (u.locationId ? u.locationId : "—")}</span>
                     </div>
 
                     <div style={{ fontSize: 12, opacity: 0.75 }}>
                       Permission Titles:{" "}
                       <span style={{ fontWeight: 800 }}>
-                        {u.permissionTitles.length
-                          ? u.permissionTitles.map((r) => r.title?.name ?? "").filter(Boolean).join(", ")
-                          : "—"}
+                        {u.permissionTitles.length ? u.permissionTitles.map((r) => r.title?.name ?? "").filter(Boolean).join(", ") : "—"}
                       </span>
                     </div>
 
@@ -1040,12 +1035,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                                   alignItems: "center",
                                 }}
                               >
-                                <input
-                                  type="checkbox"
-                                  name="appRoleIds"
-                                  value={r.id}
-                                  defaultChecked={currentAppRoleIds.has(r.id)}
-                                />
+                                <input type="checkbox" name="appRoleIds" value={r.id} defaultChecked={currentAppRoleIds.has(r.id)} />
                                 <span>
                                   <span style={{ fontWeight: 900 }}>{r.name}</span>{" "}
                                   {r.isSystem ? <span style={{ opacity: 0.75 }}>(System)</span> : null}
@@ -1096,15 +1086,9 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                                 alignItems: "center",
                               }}
                             >
-                              <input
-                                type="checkbox"
-                                name="permissionTitleIds"
-                                value={t.id}
-                                defaultChecked={currentTitleIds.has(t.id)}
-                              />
+                              <input type="checkbox" name="permissionTitleIds" value={t.id} defaultChecked={currentTitleIds.has(t.id)} />
                               <span>
-                                <span style={{ fontWeight: 900 }}>{t.name}</span>{" "}
-                                {!t.active ? <span style={{ opacity: 0.75 }}>(Inactive)</span> : null}
+                                <span style={{ fontWeight: 900 }}>{t.name}</span> {!t.active ? <span style={{ opacity: 0.75 }}>(Inactive)</span> : null}
                                 {t.description ? <span style={{ opacity: 0.75 }}> — {t.description}</span> : null}
                               </span>
                             </label>
