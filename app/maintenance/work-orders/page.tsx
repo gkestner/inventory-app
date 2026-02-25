@@ -25,8 +25,15 @@ function requireSession(session: SessionShape) {
   if (!email) redirect("/login");
 }
 
+function roleBypassesPermissions(session: SessionShape): boolean {
+  const role = session?.user?.role ?? null;
+  // Employees + Maintenance staff should be able to use Work Orders by default.
+  return role === Role.EMPLOYEE || role === Role.MAINTENANCE;
+}
+
 async function requireWorkOrdersView(session: SessionShape) {
   requireSession(session);
+  if (roleBypassesPermissions(session)) return;
 
   const perms = await loadUserPermissions(session);
   if (perms.allowAll) return;
@@ -37,6 +44,7 @@ async function requireWorkOrdersView(session: SessionShape) {
 
 async function requireWorkOrdersCreate(session: SessionShape) {
   requireSession(session);
+  if (roleBypassesPermissions(session)) return;
 
   const perms = await loadUserPermissions(session);
   if (perms.allowAll) return;
@@ -47,6 +55,7 @@ async function requireWorkOrdersCreate(session: SessionShape) {
 
 async function requireWorkOrdersSubmitOwn(session: SessionShape) {
   requireSession(session);
+  if (roleBypassesPermissions(session)) return;
 
   const perms = await loadUserPermissions(session);
   if (perms.allowAll) return;
@@ -403,7 +412,7 @@ export default async function MaintenanceWorkOrdersPage() {
       select: { id: true },
       orderBy: { createdAt: "desc" },
     });
-    if (existing) redirect("/maintenance/work-orders");
+    if (existing) redirect("/work-orders");
 
     const locationId = String(formData.get("locationId") ?? "").trim();
     if (!locationId) throw new Error("Location is required");
@@ -438,8 +447,9 @@ export default async function MaintenanceWorkOrdersPage() {
       }
     });
 
+    revalidatePath("/work-orders");
     revalidatePath("/maintenance/work-orders");
-    redirect("/maintenance/work-orders");
+    redirect("/work-orders");
   }
 
   async function endWorkOrderAction(formData: FormData) {
@@ -487,8 +497,9 @@ export default async function MaintenanceWorkOrdersPage() {
       }
     });
 
+    revalidatePath("/work-orders");
     revalidatePath("/maintenance/work-orders");
-    redirect("/maintenance/work-orders");
+    redirect("/work-orders");
   }
 
   const inProgressChecked = new Set<string>(inProgress?.equipmentAreas?.map((x) => String(x.area)) ?? []);
