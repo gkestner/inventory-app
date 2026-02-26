@@ -58,8 +58,12 @@ function fmtDateTime(d: Date | null | undefined) {
 
 function fmtMoney(v: unknown) {
   if (v == null) return "—";
-  // Prisma Decimal serializes as object in some contexts; stringify safely.
-  const s = typeof v === "string" ? v : typeof v === "number" ? String(v) : (v as any)?.toString?.() ?? String(v);
+  const s =
+    typeof v === "string"
+      ? v
+      : typeof v === "number"
+        ? String(v)
+        : (v as any)?.toString?.() ?? String(v);
   const n = Number(s);
   if (!Number.isFinite(n)) return s;
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
@@ -112,11 +116,19 @@ export default async function LiveOrdersPage() {
 
   type OrderRow = (typeof orders)[number];
 
+  // === Theme-safe tokens (match your admin dark look) ===
+  const border = "1px solid rgba(128,128,128,0.25)";
+  const fg = "var(--foreground)";
+  const surface = "var(--background)";
+  const soft = "rgba(255,255,255,0.03)";
+  const soft2 = "rgba(255,255,255,0.06)";
+
   const wrap: CSSProperties = {
     padding: 16,
     display: "flex",
     flexDirection: "column",
     gap: 12,
+    color: fg,
   };
 
   const headerRow: CSSProperties = {
@@ -127,41 +139,62 @@ export default async function LiveOrdersPage() {
     flexWrap: "wrap",
   };
 
-  const card: CSSProperties = {
-    border: "1px solid #e5e7eb",
-    borderRadius: 12,
-    padding: 12,
-    background: "white",
+  const h1: CSSProperties = { fontSize: 20, fontWeight: 900, margin: 0 };
+
+  const muted: CSSProperties = { opacity: 0.75, fontSize: 12, lineHeight: 1.35 };
+
+  const topLinks: CSSProperties = {
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
   };
 
-  const muted: CSSProperties = { color: "#6b7280", fontSize: 12 };
-  const h1: CSSProperties = { fontSize: 20, fontWeight: 700, margin: 0 };
+  const topLinkStyle: CSSProperties = {
+    fontSize: 13,
+    textDecoration: "none",
+    padding: "8px 10px",
+    borderRadius: 10,
+    border,
+    background: surface,
+    color: fg,
+    fontWeight: 900,
+    opacity: 0.92,
+  };
+
+  const card: CSSProperties = {
+    border,
+    borderRadius: 14,
+    padding: 14,
+    background: surface,
+  };
 
   const tableWrap: CSSProperties = {
-    border: "1px solid #e5e7eb",
-    borderRadius: 12,
-    overflow: "hidden",
-    background: "white",
+    border,
+    borderRadius: 14,
+    overflowX: "auto",
+    background: surface,
   };
 
   const table: CSSProperties = {
     width: "100%",
     borderCollapse: "collapse",
+    minWidth: 1050,
   };
 
   const th: CSSProperties = {
     textAlign: "left",
     fontSize: 12,
-    color: "#374151",
-    padding: "10px 8px",
-    borderBottom: "1px solid #e5e7eb",
-    background: "#fafafa",
+    padding: "10px 10px",
+    borderBottom: border,
+    background: soft,
     whiteSpace: "nowrap",
+    fontWeight: 900,
+    opacity: 0.9,
   };
 
   const td: CSSProperties = {
-    padding: "10px 8px",
-    borderBottom: "1px solid #f1f5f9",
+    padding: "10px 10px",
+    borderBottom: "1px solid rgba(128,128,128,0.18)",
     verticalAlign: "top",
     fontSize: 13,
   };
@@ -172,21 +205,39 @@ export default async function LiveOrdersPage() {
 
   const right: CSSProperties = { textAlign: "right", whiteSpace: "nowrap" };
 
+  function statusPillStyle(status: string): CSSProperties {
+    // subtle in dark mode, readable
+    const base: CSSProperties = {
+      display: "inline-flex",
+      alignItems: "center",
+      padding: "4px 10px",
+      borderRadius: 999,
+      border,
+      fontWeight: 900,
+      fontSize: 12,
+      background: soft,
+      opacity: 0.95,
+    };
+
+    if (status === "ORDERED") return { ...base, background: "rgba(255,193,7,0.12)" };
+    if (status === "ARRIVED") return { ...base, background: "rgba(33,150,243,0.12)" };
+    if (status === "ADDED_TO_INVENTORY") return { ...base, background: "rgba(76,175,80,0.14)" };
+    return base;
+  }
+
   return (
     <div style={wrap}>
       <div style={headerRow}>
         <div>
           <h1 style={h1}>Live Orders</h1>
-          <div style={muted}>
-            Each row is one InventoryOrder (item + quantity). Refresh to see updates.
-          </div>
+          <div style={muted}>Each row is one InventoryOrder (item + quantity). Refresh to see updates.</div>
         </div>
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <Link href="/admin/inventory-orders" style={{ fontSize: 13, textDecoration: "underline" }}>
+        <div style={topLinks}>
+          <Link href="/admin/inventory-orders" style={topLinkStyle}>
             Inventory Orders
           </Link>
-          <Link href="/admin/items" style={{ fontSize: 13, textDecoration: "underline" }}>
+          <Link href="/admin/items" style={topLinkStyle}>
             Items
           </Link>
         </div>
@@ -194,7 +245,7 @@ export default async function LiveOrdersPage() {
 
       {orders.length === 0 ? (
         <div style={card}>
-          <div style={{ fontWeight: 600 }}>No inventory orders found</div>
+          <div style={{ fontWeight: 900, marginBottom: 6, opacity: 0.9 }}>No inventory orders found</div>
           <div style={muted}>Once orders exist, they’ll appear here.</div>
         </div>
       ) : (
@@ -216,6 +267,7 @@ export default async function LiveOrdersPage() {
                 <th style={th}>Note</th>
               </tr>
             </thead>
+
             <tbody>
               {orders.map((o: OrderRow) => {
                 const storeLabel = o.forStore
@@ -227,15 +279,20 @@ export default async function LiveOrdersPage() {
                 return (
                   <tr key={o.id}>
                     <td style={{ ...td, whiteSpace: "nowrap" }}>{fmtDateTime(o.orderedAt)}</td>
-                    <td style={{ ...td, whiteSpace: "nowrap" }}>{String(o.status)}</td>
+
+                    <td style={{ ...td, whiteSpace: "nowrap" }}>
+                      <span style={statusPillStyle(String(o.status))}>{String(o.status)}</span>
+                    </td>
+
                     <td style={{ ...td, whiteSpace: "nowrap" }}>{String(o.vendor)}</td>
 
                     <td style={td}>
-                      <div style={{ fontWeight: 700, display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+                      <div style={{ fontWeight: 900, display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
                         <span style={mono}>{o.item.sku}</span>
                         <span>{o.item.name}</span>
                       </div>
-                      <div style={muted}>
+
+                      <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72, lineHeight: 1.35 }}>
                         {o.item.partNumber ? <>Part: {o.item.partNumber} • </> : null}
                         Default Vendor: {String(o.item.vendor)}
                         {o.item.active ? "" : " • INACTIVE"}
@@ -245,13 +302,25 @@ export default async function LiveOrdersPage() {
                     <td style={td}>{storeLabel}</td>
                     <td style={td}>{userLabel}</td>
 
-                    <td style={{ ...td, whiteSpace: "nowrap" }}>{o.quantity}</td>
+                    <td style={{ ...td, whiteSpace: "nowrap", fontWeight: 900 }}>{o.quantity}</td>
                     <td style={{ ...td, ...right }}>{fmtMoney(o.unitPrice)}</td>
                     <td style={{ ...td, ...right }}>{fmtMoney(o.shippingCost)}</td>
                     <td style={{ ...td, ...right }}>{fmtMoney(o.taxCost)}</td>
 
                     <td style={td}>{createdByLabel}</td>
-                    <td style={td}>{o.note ?? <span style={muted}>—</span>}</td>
+
+                    <td style={td}>
+                      {o.note ? (
+                        <div style={{ whiteSpace: "pre-wrap" }}>{o.note}</div>
+                      ) : (
+                        <span style={muted}>—</span>
+                      )}
+                      <div style={{ marginTop: 6, fontSize: 12, opacity: 0.6 }}>
+                        <span style={{ ...mono, background: soft2, padding: "2px 6px", borderRadius: 8, border }}>
+                          {o.id}
+                        </span>
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
