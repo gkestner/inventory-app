@@ -7,6 +7,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/lib/auth";
 import { Permission } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import SignOutButton from "@/app/components/SignOutButton";
 
 export const dynamic = "force-dynamic";
 
@@ -152,11 +153,10 @@ export default async function AdminNav() {
     Permission.SUBMIT_OWN_WORK_ORDERS,
   ]);
 
-  const canCheckout = hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
-
-  // ✅ RBAC management (Permission Titles + Roles)
-  // Keep it simple: if you can administer users, you can manage RBAC.
-  const canManageRbac = canAdminUsers;
+  const canCheckout = hasAnyPermission(perms, [
+    Permission.VIEW_CHECKOUT,
+    Permission.CREATE_CHECKOUT,
+  ]);
 
   // For now: gate invoices + order history under items perms (no enum changes)
   const canAdminOrderHistory = canAdminItems;
@@ -164,59 +164,42 @@ export default async function AdminNav() {
 
   const showAccounting = canAdminInvoices;
   const showInventory = canAdminItems || canAdminOrderHistory;
-  const showAdmin = canAdminUsers || canAdminLocations || canManageRbac;
-  const showMaintenance = canAdminMaintenanceTickets || canAdminWorkOrders || canUserWorkOrders || canCheckout;
+  const showAdmin = canAdminUsers || canAdminLocations;
+  const showMaintenance =
+    canAdminMaintenanceTickets || canAdminWorkOrders || canUserWorkOrders || canCheckout;
 
   return (
     <div style={shell} data-admin-nav-root>
-      {/* Ensure disclosure marker is hidden consistently */}
-      <style>{`
-        details > summary::-webkit-details-marker { display: none; }
-      `}</style>
+      <style>{`details > summary::-webkit-details-marker { display: none; }`}</style>
 
-      {/* ✅ This script WILL execute in App Router */}
       <Script id="admin-nav-autoclose" strategy="afterInteractive">{`
 (function () {
-  function getRoot() {
-    return document.querySelector('[data-admin-nav-root]');
-  }
-
+  function getRoot() { return document.querySelector('[data-admin-nav-root]'); }
   function closeAll(root) {
     var nodes = (root || document).querySelectorAll('details[data-admin-dropdown][open]');
     for (var i = 0; i < nodes.length; i++) nodes[i].removeAttribute('open');
   }
-
   function closeOthers(root, keep) {
     var nodes = (root || document).querySelectorAll('details[data-admin-dropdown][open]');
-    for (var i = 0; i < nodes.length; i++) {
-      if (nodes[i] !== keep) nodes[i].removeAttribute('open');
-    }
+    for (var i = 0; i < nodes.length; i++) if (nodes[i] !== keep) nodes[i].removeAttribute('open');
   }
-
   function bindOnce() {
     var root = getRoot();
     if (!root) return;
-
     if (root.__adminNavBound) return;
     root.__adminNavBound = true;
 
-    // Close dropdown when clicking a link inside it
     root.addEventListener('click', function (e) {
       var t = e.target;
       if (!t || !t.closest) return;
-
       var a = t.closest('a');
       if (!a) return;
-
       var dd = a.closest('details[data-admin-dropdown]');
       if (!dd) return;
-
-      // close immediately before navigation
       dd.removeAttribute('open');
       closeAll(root);
     }, true);
 
-    // Only one open at a time: when a details toggles open, close the others
     root.addEventListener('toggle', function (e) {
       var t = e.target;
       if (!t || t.tagName !== 'DETAILS') return;
@@ -224,27 +207,16 @@ export default async function AdminNav() {
       if (t.hasAttribute('open')) closeOthers(root, t);
     }, true);
 
-    // Click outside closes everything
     document.addEventListener('click', function (e) {
       var root = getRoot();
       if (!root) return;
-
       var t = e.target;
       if (!t || !t.closest) { closeAll(root); return; }
-
-      // If click is inside an admin dropdown, ignore
       if (t.closest('details[data-admin-dropdown]')) return;
-
-      // If click is inside the nav root but not a dropdown, still close
-      if (t.closest('[data-admin-nav-root]')) {
-        closeAll(root);
-        return;
-      }
-
+      if (t.closest('[data-admin-nav-root]')) { closeAll(root); return; }
       closeAll(root);
     }, true);
 
-    // Escape closes
     document.addEventListener('keydown', function (e) {
       if (!e || e.key !== 'Escape') return;
       var root = getRoot();
@@ -253,7 +225,6 @@ export default async function AdminNav() {
     }, true);
   }
 
-  // Bind now, and again shortly after to survive fast refresh / streaming
   bindOnce();
   setTimeout(bindOnce, 250);
 })();
@@ -267,16 +238,11 @@ export default async function AdminNav() {
 
           <span style={groupLabel}>Admin</span>
 
-          {/* Accounting */}
           {showAccounting ? (
             <details data-admin-dropdown style={detailsStyle}>
               <summary style={summaryStyle}>Accounting</summary>
               <div style={menuStyle}>
-                {canAdminInvoices ? (
-                  <Link href="/admin/invoices" style={menuItemStyle}>
-                    Invoices
-                  </Link>
-                ) : null}
+                {canAdminInvoices ? <Link href="/admin/invoices" style={menuItemStyle}>Invoices</Link> : null}
                 {canAdminInvoices ? (
                   <Link href="/admin/invoices/print-batch" style={menuItemStyle}>
                     Invoices Batch Print
@@ -286,16 +252,11 @@ export default async function AdminNav() {
             </details>
           ) : null}
 
-          {/* Inventory */}
           {showInventory ? (
             <details data-admin-dropdown style={detailsStyle}>
               <summary style={summaryStyle}>Inventory</summary>
               <div style={menuStyle}>
-                {canAdminItems ? (
-                  <Link href="/admin/items" style={menuItemStyle}>
-                    Items
-                  </Link>
-                ) : null}
+                {canAdminItems ? <Link href="/admin/items" style={menuItemStyle}>Items</Link> : null}
                 {canAdminOrderHistory ? (
                   <Link href="/admin/inventory-orders" style={menuItemStyle}>
                     Order History
@@ -305,38 +266,16 @@ export default async function AdminNav() {
             </details>
           ) : null}
 
-          {/* Admin */}
           {showAdmin ? (
             <details data-admin-dropdown style={detailsStyle}>
               <summary style={summaryStyle}>Admin</summary>
               <div style={menuStyle}>
-                {canAdminUsers ? (
-                  <Link href="/admin/users" style={menuItemStyle}>
-                    Users
-                  </Link>
-                ) : null}
-                {canAdminLocations ? (
-                  <Link href="/admin/locations" style={menuItemStyle}>
-                    Locations
-                  </Link>
-                ) : null}
-
-                {/* ✅ RBAC management */}
-                {canManageRbac ? (
-                  <Link href="/admin/access-titles" style={menuItemStyle}>
-                    Permission Titles
-                  </Link>
-                ) : null}
-                {canManageRbac ? (
-                  <Link href="/admin/roles" style={menuItemStyle}>
-                    Roles
-                  </Link>
-                ) : null}
+                {canAdminUsers ? <Link href="/admin/users" style={menuItemStyle}>Users</Link> : null}
+                {canAdminLocations ? <Link href="/admin/locations" style={menuItemStyle}>Locations</Link> : null}
               </div>
             </details>
           ) : null}
 
-          {/* Maintenance */}
           {showMaintenance ? (
             <details data-admin-dropdown style={detailsStyle}>
               <summary style={summaryStyle}>Maintenance</summary>
@@ -346,28 +285,32 @@ export default async function AdminNav() {
                     Maintenance Tickets
                   </Link>
                 ) : null}
-                {canAdminWorkOrders ? (
-                  <Link href="/admin/work-orders" style={menuItemStyle}>
-                    Work Orders
-                  </Link>
-                ) : null}
+                {canAdminWorkOrders ? <Link href="/admin/work-orders" style={menuItemStyle}>Work Orders</Link> : null}
                 <span style={menuItemDisabled}>Travel Logs (coming soon)</span>
                 {canUserWorkOrders ? (
                   <Link href="/maintenance/work-orders" style={menuItemStyle}>
                     Work Orders (User)
                   </Link>
                 ) : null}
-                {canCheckout ? (
-                  <Link href="/maintenance/checkout" style={menuItemStyle}>
-                    Checkout
-                  </Link>
-                ) : null}
+                {canCheckout ? <Link href="/maintenance/checkout" style={menuItemStyle}>Checkout</Link> : null}
               </div>
             </details>
           ) : null}
         </div>
 
-        <div style={right}>{/* intentionally minimal */}</div>
+        <div style={right}>
+          <SignOutButton
+            style={{
+              padding: "6px 12px",
+              borderRadius: 10,
+              border: "1px solid rgba(128,128,128,0.25)",
+              background: "var(--background)",
+              color: "var(--foreground)",
+              fontWeight: 800,
+              cursor: "pointer",
+            }}
+          />
+        </div>
       </div>
     </div>
   );
