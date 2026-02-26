@@ -743,13 +743,7 @@ export default async function MaintenanceWorkOrdersPage() {
                     <div style={gridWrap}>
                       {EQUIPMENT_AREAS.map((area) => (
                         <label key={`end-area-${area}`} style={gridItem}>
-                          <input
-                            type="checkbox"
-                            name="areas"
-                            value={area}
-                            defaultChecked={inProgressChecked.has(area)}
-                            style={checkboxStyle}
-                          />
+                          <input type="checkbox" name="areas" value={area} defaultChecked={inProgressChecked.has(area)} style={checkboxStyle} />
                           <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                             {formatAreaLabel(area)}
                           </span>
@@ -779,11 +773,11 @@ export default async function MaintenanceWorkOrdersPage() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 15 }}>
               <thead>
                 <tr>
-                  {["Created", "Status", "Location", "Start/End", "Mileage", "Areas"].map((h) => (
+                  {["Created", "Status", "Location", "Start/End", "Mileage", "Areas", "Actions"].map((h) => (
                     <th
                       key={h}
                       style={{
-                        textAlign: "left",
+                        textAlign: h === "Actions" ? "right" : "left",
                         padding: "10px 10px",
                         borderBottom: "1px solid rgba(128,128,128,0.25)",
                         fontSize: 13,
@@ -817,10 +811,43 @@ export default async function MaintenanceWorkOrdersPage() {
                       <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)" }}>
                         <div style={{ fontWeight: 900 }}>{fmtLocal(wo.createdAt)}</div>
                         <div style={{ fontSize: 13, opacity: 0.85 }}>id: {wo.id}</div>
+                      </td>
 
+                      <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)" }}>
+                        <span style={{ fontWeight: 900 }}>{statusLabel(wo.status as WorkOrderStatus)}</span>
+                      </td>
+
+                      <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)" }}>
+                        {wo.location?.name ?? "—"}
+                      </td>
+
+                      <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)" }}>
+                        {fmtLocal(wo.startTime)} → {fmtLocal(wo.endTime)}
+                      </td>
+
+                      <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)" }}>
+                        <span style={{ fontWeight: 900 }}>{wo.startingMileage ?? "—"}</span> →{" "}
+                        <span style={{ fontWeight: 900 }}>{wo.endingMileage ?? "—"}</span>
+                      </td>
+
+                      <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)", maxWidth: 560 }}>
+                        {areasText}
+                        {hasLegacy ? <div style={{ fontSize: 13, opacity: 0.85 }}>(contains legacy values)</div> : null}
+                      </td>
+
+                      {/* ACTIONS (moved from Created column) */}
+                      <td
+                        style={{
+                          padding: "12px 10px",
+                          borderBottom: "1px solid rgba(128,128,128,0.18)",
+                          textAlign: "right",
+                          verticalAlign: "top",
+                          width: 260,
+                        }}
+                      >
                         {canUpdateOwn && isOpenDraft ? (
-                          <details style={{ marginTop: 10 }}>
-                            <summary style={{ cursor: "pointer", fontWeight: 900 }}>Edit (In Progress)</summary>
+                          <details style={{ marginLeft: "auto", textAlign: "left", display: "inline-block", width: "100%" }}>
+                            <summary style={{ cursor: "pointer", fontWeight: 900, textAlign: "right" }}>Edit</summary>
 
                             <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
                               <form action={updateInProgressWorkOrderAction} style={{ display: "grid", gap: 10 }}>
@@ -868,10 +895,9 @@ export default async function MaintenanceWorkOrdersPage() {
                           </details>
                         ) : null}
 
-                        {/* ✅ Submitted edit now allows editing starting mileage too */}
                         {canUpdateOwn && isSubmitted ? (
-                          <details style={{ marginTop: 10 }}>
-                            <summary style={{ cursor: "pointer", fontWeight: 900 }}>Edit (Submitted)</summary>
+                          <details style={{ marginLeft: "auto", textAlign: "left", display: "inline-block", width: "100%", marginTop: isOpenDraft ? 8 : 0 }}>
+                            <summary style={{ cursor: "pointer", fontWeight: 900, textAlign: "right" }}>Edit</summary>
 
                             <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
                               <form action={updateSubmittedWorkOrderAction} style={{ display: "grid", gap: 10 }}>
@@ -918,31 +944,13 @@ export default async function MaintenanceWorkOrdersPage() {
                               </form>
                             </div>
                           </details>
-                        ) : isFinalized ? (
-                          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>Finalized (locked)</div>
                         ) : null}
-                      </td>
 
-                      <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)" }}>
-                        <span style={{ fontWeight: 900 }}>{statusLabel(wo.status as WorkOrderStatus)}</span>
-                      </td>
+                        {isFinalized ? <div style={{ fontSize: 12, opacity: 0.7, textAlign: "right" }}>Finalized</div> : null}
 
-                      <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)" }}>
-                        {wo.location?.name ?? "—"}
-                      </td>
-
-                      <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)" }}>
-                        {fmtLocal(wo.startTime)} → {fmtLocal(wo.endTime)}
-                      </td>
-
-                      <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)" }}>
-                        <span style={{ fontWeight: 900 }}>{wo.startingMileage ?? "—"}</span> →{" "}
-                        <span style={{ fontWeight: 900 }}>{wo.endingMileage ?? "—"}</span>
-                      </td>
-
-                      <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)", maxWidth: 560 }}>
-                        {areasText}
-                        {hasLegacy ? <div style={{ fontSize: 13, opacity: 0.85 }}>(contains legacy values)</div> : null}
+                        {!isOpenDraft && !isSubmitted && !isFinalized ? (
+                          <div style={{ fontSize: 12, opacity: 0.7, textAlign: "right" }}>—</div>
+                        ) : null}
                       </td>
                     </tr>
                   );
@@ -950,7 +958,7 @@ export default async function MaintenanceWorkOrdersPage() {
 
                 {workOrders.length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ padding: 14, opacity: 0.85 }}>
+                    <td colSpan={7} style={{ padding: 14, opacity: 0.85 }}>
                       No work orders yet.
                     </td>
                   </tr>
