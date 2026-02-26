@@ -1,9 +1,9 @@
 // app/admin/access-titles/page.tsx
 import type { CSSProperties } from "react";
+import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import Link from "next/link";
 import { Permission, Role } from "@prisma/client";
 
 import { prisma } from "@/app/lib/prisma";
@@ -37,84 +37,188 @@ function parseBool(v: FormDataEntryValue | null): boolean {
   return s === "1" || s === "true" || s === "on" || s === "yes";
 }
 
-function cardStyle(): CSSProperties {
+function pageWrap(): CSSProperties {
+  return { padding: 16, maxWidth: 1320, margin: "0 auto" };
+}
+
+function card(): CSSProperties {
   return {
-    border: "1px solid #e5e7eb",
-    borderRadius: 12,
-    padding: 16,
-    background: "white",
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(0,0,0,0.25)",
+    borderRadius: 14,
+    padding: 14,
+    backdropFilter: "blur(6px)",
   };
 }
 
-function btnStyle(variant: "primary" | "danger" | "ghost" = "ghost"): CSSProperties {
-  const base: CSSProperties = {
-    display: "inline-block",
-    padding: "8px 10px",
-    borderRadius: 10,
-    border: "1px solid #e5e7eb",
-    textDecoration: "none",
-    fontSize: 14,
-    lineHeight: "20px",
-    cursor: "pointer",
-  };
-  if (variant === "primary") return { ...base, background: "#111827", color: "white", borderColor: "#111827" };
-  if (variant === "danger") return { ...base, background: "#991b1b", color: "white", borderColor: "#991b1b" };
-  return { ...base, background: "white", color: "#111827" };
+function label(): CSSProperties {
+  return { fontSize: 12, color: "rgba(255,255,255,0.65)", display: "block", marginBottom: 6 };
 }
 
-function labelStyle(): CSSProperties {
-  return { fontSize: 12, color: "#6b7280", display: "block", marginBottom: 6 };
-}
-
-function inputStyle(): CSSProperties {
+function input(): CSSProperties {
   return {
     width: "100%",
     padding: "10px 12px",
-    border: "1px solid #e5e7eb",
-    borderRadius: 10,
-    fontSize: 14,
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(0,0,0,0.35)",
+    color: "white",
+    outline: "none",
   };
 }
 
-function rowStyle(): CSSProperties {
-  return { display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" };
+function btn(variant: "primary" | "danger" | "ghost" = "ghost"): CSSProperties {
+  const base: CSSProperties = {
+    borderRadius: 12,
+    padding: "10px 12px",
+    fontSize: 14,
+    lineHeight: "18px",
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(0,0,0,0.25)",
+    color: "white",
+    cursor: "pointer",
+    textDecoration: "none",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    whiteSpace: "nowrap",
+  };
+  if (variant === "primary") return { ...base, background: "rgba(37,99,235,0.85)", borderColor: "rgba(37,99,235,0.85)" };
+  if (variant === "danger") return { ...base, background: "rgba(220,38,38,0.85)", borderColor: "rgba(220,38,38,0.85)" };
+  return base;
 }
 
-function hrStyle(): CSSProperties {
-  return { border: "none", borderTop: "1px solid #e5e7eb", margin: "14px 0" };
+function pill(active: boolean): CSSProperties {
+  return {
+    padding: "8px 10px",
+    borderRadius: 12,
+    border: `1px solid ${active ? "rgba(59,130,246,0.55)" : "rgba(255,255,255,0.14)"}`,
+    background: active ? "rgba(59,130,246,0.20)" : "rgba(0,0,0,0.25)",
+    color: "white",
+    textDecoration: "none",
+    display: "block",
+    fontSize: 14,
+    cursor: "pointer",
+  };
 }
 
-// --- Server Actions ---
+function hr(): CSSProperties {
+  return { border: "none", borderTop: "1px solid rgba(255,255,255,0.10)", margin: "12px 0" };
+}
+
+/**
+ * Permission catalog used for:
+ * - module grouping
+ * - human labels
+ * - “parent applies to descendants” messaging (we group by feature buckets)
+ */
+type PermMeta = {
+  perm: Permission;
+  module: "Admin" | "Inventory" | "Maintenance" | "Navigation";
+  group: string; // e.g. "Items"
+  label: string; // e.g. "View Items"
+};
+
+const PERMS: PermMeta[] = [
+  // Navigation
+  { perm: Permission.VIEW_HOME, module: "Navigation", group: "Navigation", label: "View Home" },
+
+  // Inventory (checkout)
+  { perm: Permission.VIEW_CHECKOUT, module: "Inventory", group: "Checkout", label: "View Checkout" },
+  { perm: Permission.CREATE_CHECKOUT, module: "Inventory", group: "Checkout", label: "Create Checkout" },
+
+  // Maintenance (work orders)
+  { perm: Permission.VIEW_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "View Work Orders" },
+  { perm: Permission.CREATE_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "Create Work Orders" },
+  { perm: Permission.UPDATE_OWN_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "Update Own Work Orders" },
+  { perm: Permission.SUBMIT_OWN_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "Submit Own Work Orders" },
+
+  // Admin modules
+  { perm: Permission.ADMIN_VIEW_ITEMS, module: "Admin", group: "Items", label: "View Items" },
+  { perm: Permission.ADMIN_EDIT_ITEMS, module: "Admin", group: "Items", label: "Edit Items" },
+  { perm: Permission.ADMIN_IMPORT_EXPORT_ITEMS, module: "Admin", group: "Items", label: "Import / Export Items" },
+
+  { perm: Permission.ADMIN_VIEW_USERS, module: "Admin", group: "Users", label: "View Users" },
+  { perm: Permission.ADMIN_EDIT_USERS, module: "Admin", group: "Users", label: "Edit Users" },
+
+  { perm: Permission.ADMIN_VIEW_LOCATIONS, module: "Admin", group: "Locations", label: "View Locations" },
+  { perm: Permission.ADMIN_EDIT_LOCATIONS, module: "Admin", group: "Locations", label: "Edit Locations" },
+
+  { perm: Permission.ADMIN_VIEW_WORK_ORDERS, module: "Admin", group: "Work Orders (Admin)", label: "View Work Orders" },
+  { perm: Permission.ADMIN_EDIT_WORK_ORDERS, module: "Admin", group: "Work Orders (Admin)", label: "Edit Work Orders" },
+  { perm: Permission.ADMIN_DELETE_WORK_ORDERS, module: "Admin", group: "Work Orders (Admin)", label: "Delete Work Orders" },
+
+  { perm: Permission.ADMIN_VIEW_MAINTENANCE_TICKETS, module: "Admin", group: "Maintenance Tickets", label: "View Maintenance Tickets" },
+  { perm: Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS, module: "Admin", group: "Maintenance Tickets", label: "Export Maintenance Tickets" },
+];
+
+const MODULES: Array<PermMeta["module"]> = ["Admin", "Inventory", "Maintenance", "Navigation"];
+
+function normalizeQuery(q: string) {
+  return q.trim().toLowerCase();
+}
+
+function permsForScope(module: PermMeta["module"] | "All") {
+  if (module === "All") return PERMS.map((p) => p.perm);
+  return PERMS.filter((p) => p.module === module).map((p) => p.perm);
+}
+
+// -------------------- Server Actions --------------------
+
 async function createTitleAction(formData: FormData) {
   "use server";
   await requireAdmin();
 
   const name = nonEmpty(formData.get("name"));
+  const description = nonEmpty(formData.get("description"));
+
   if (!name) return;
 
-  await prisma.permissionTitle.create({
-    data: { name, active: true },
+  const created = await prisma.permissionTitle.create({
+    data: {
+      name,
+      active: true,
+      // if you don't have description in your schema, Prisma will error here and we’ll remove it
+      description: description || null,
+    } as any,
   });
 
   revalidatePath("/admin/access-titles");
+  redirect(`/admin/access-titles?titleId=${created.id}`);
 }
 
-async function updateTitleMetaAction(formData: FormData) {
+async function switchTitleAction(formData: FormData) {
+  "use server";
+  await requireAdmin();
+
+  const titleId = nonEmpty(formData.get("titleId"));
+  if (!titleId) redirect("/admin/access-titles");
+  redirect(`/admin/access-titles?titleId=${encodeURIComponent(titleId)}`);
+}
+
+async function saveTitleDetailsAction(formData: FormData) {
   "use server";
   await requireAdmin();
 
   const id = nonEmpty(formData.get("id"));
   const name = nonEmpty(formData.get("name"));
+  const description = nonEmpty(formData.get("description"));
   const active = parseBool(formData.get("active"));
 
   if (!id || !name) return;
 
   await prisma.permissionTitle.update({
     where: { id },
-    data: { name, active },
+    data: {
+      name,
+      active,
+      description: description || null,
+    } as any,
   });
 
   revalidatePath("/admin/access-titles");
+  redirect(`/admin/access-titles?titleId=${encodeURIComponent(id)}`);
 }
 
 async function deleteTitleAction(formData: FormData) {
@@ -124,221 +228,500 @@ async function deleteTitleAction(formData: FormData) {
   const id = nonEmpty(formData.get("id"));
   if (!id) return;
 
-  // remove permissions first (if you have FK constraints)
-  // NOTE: if your join model name differs, tell me and I’ll adjust
-  await prisma.permissionTitlePermission.deleteMany({ where: { titleId: id } });
-  await prisma.permissionTitle.delete({ where: { id } });
+  await prisma.$transaction(async (tx) => {
+    await tx.permissionTitlePermission.deleteMany({ where: { titleId: id } });
+    await tx.permissionTitle.delete({ where: { id } });
+  });
 
   revalidatePath("/admin/access-titles");
+  redirect("/admin/access-titles");
 }
 
-async function setTitlePermissionsAction(formData: FormData) {
+async function savePermissionsAction(formData: FormData) {
   "use server";
   await requireAdmin();
 
   const titleId = nonEmpty(formData.get("titleId"));
+  const scope = nonEmpty(formData.get("scope")); // "All" | module
+  const module = (scope === "All" ? "All" : (scope as PermMeta["module"])) as PermMeta["module"] | "All";
+
   if (!titleId) return;
 
-  const selected = formData.getAll("perm").map((v) => String(v)) as Permission[];
+  const checked = new Set(
+    formData
+      .getAll("perm")
+      .map((v) => String(v))
+      .filter(Boolean)
+  );
+
+  const scopePerms = permsForScope(module);
 
   await prisma.$transaction(async (tx) => {
-    await tx.permissionTitlePermission.deleteMany({ where: { titleId } });
-    if (selected.length) {
+    if (module === "All") {
+      await tx.permissionTitlePermission.deleteMany({ where: { titleId } });
+    } else {
+      await tx.permissionTitlePermission.deleteMany({
+        where: { titleId, permission: { in: scopePerms } },
+      });
+    }
+
+    const toInsert = scopePerms.filter((p) => checked.has(p));
+    if (toInsert.length) {
       await tx.permissionTitlePermission.createMany({
-        data: selected.map((permission) => ({ titleId, permission })),
+        data: toInsert.map((permission) => ({ titleId, permission })),
       });
     }
   });
 
   revalidatePath("/admin/access-titles");
+  // preserve current filters
+  const mod = nonEmpty(formData.get("module"));
+  const q = nonEmpty(formData.get("q"));
+  const params = new URLSearchParams();
+  params.set("titleId", titleId);
+  if (mod) params.set("module", mod);
+  if (q) params.set("q", q);
+  redirect(`/admin/access-titles?${params.toString()}`);
 }
 
-// --- Page ---
+async function selectAllInScopeAction(formData: FormData) {
+  "use server";
+  await requireAdmin();
+
+  const titleId = nonEmpty(formData.get("titleId"));
+  const scope = nonEmpty(formData.get("scope"));
+  const module = (scope === "All" ? "All" : (scope as PermMeta["module"])) as PermMeta["module"] | "All";
+  if (!titleId) return;
+
+  const scopePerms = permsForScope(module);
+
+  await prisma.$transaction(async (tx) => {
+    if (module === "All") {
+      await tx.permissionTitlePermission.deleteMany({ where: { titleId } });
+    } else {
+      await tx.permissionTitlePermission.deleteMany({
+        where: { titleId, permission: { in: scopePerms } },
+      });
+    }
+    if (scopePerms.length) {
+      await tx.permissionTitlePermission.createMany({
+        data: scopePerms.map((permission) => ({ titleId, permission })),
+      });
+    }
+  });
+
+  revalidatePath("/admin/access-titles");
+  const mod = nonEmpty(formData.get("module"));
+  const q = nonEmpty(formData.get("q"));
+  const params = new URLSearchParams();
+  params.set("titleId", titleId);
+  if (mod) params.set("module", mod);
+  if (q) params.set("q", q);
+  redirect(`/admin/access-titles?${params.toString()}`);
+}
+
+async function clearAllInScopeAction(formData: FormData) {
+  "use server";
+  await requireAdmin();
+
+  const titleId = nonEmpty(formData.get("titleId"));
+  const scope = nonEmpty(formData.get("scope"));
+  const module = (scope === "All" ? "All" : (scope as PermMeta["module"])) as PermMeta["module"] | "All";
+  if (!titleId) return;
+
+  const scopePerms = permsForScope(module);
+
+  if (module === "All") {
+    await prisma.permissionTitlePermission.deleteMany({ where: { titleId } });
+  } else {
+    await prisma.permissionTitlePermission.deleteMany({
+      where: { titleId, permission: { in: scopePerms } },
+    });
+  }
+
+  revalidatePath("/admin/access-titles");
+  const mod = nonEmpty(formData.get("module"));
+  const q = nonEmpty(formData.get("q"));
+  const params = new URLSearchParams();
+  params.set("titleId", titleId);
+  if (mod) params.set("module", mod);
+  if (q) params.set("q", q);
+  redirect(`/admin/access-titles?${params.toString()}`);
+}
+
+// -------------------- Page --------------------
+
 export default async function AccessTitlesPage({
   searchParams,
 }: {
-  searchParams?: { titleId?: string };
+  searchParams?: { titleId?: string; module?: string; q?: string };
 }) {
   await requireAdmin();
-
-  const titleId = searchParams?.titleId ?? null;
 
   const titles = await prisma.permissionTitle.findMany({
     orderBy: [{ active: "desc" }, { name: "asc" }],
   });
 
-  // Load selected title + its permissions (if requested)
-  const selectedTitle = titleId
-    ? await prisma.permissionTitle.findUnique({ where: { id: titleId } })
-    : null;
+  const titleId = searchParams?.titleId ?? titles[0]?.id ?? null;
+  const selectedTitle = titleId ? await prisma.permissionTitle.findUnique({ where: { id: titleId } }) : null;
 
-  const selectedPerms = titleId
-    ? await prisma.permissionTitlePermission.findMany({
-        where: { titleId },
-        orderBy: [{ permission: "asc" }],
-      })
+  const existingPermRows = titleId
+    ? await prisma.permissionTitlePermission.findMany({ where: { titleId } })
     : [];
 
-  const selectedSet = new Set<Permission>(selectedPerms.map((p) => p.permission));
+  const selectedSet = new Set<Permission>(existingPermRows.map((r) => r.permission as Permission));
+  const selectedCount = selectedSet.size;
+  const totalCount = PERMS.length;
 
-  const allPermissions = Object.values(Permission);
+  const moduleParamRaw = nonEmpty(searchParams?.module ?? "");
+  const moduleFilter: PermMeta["module"] | "All" =
+    MODULES.includes(moduleParamRaw as any) ? (moduleParamRaw as PermMeta["module"]) : "Admin";
+
+  const q = nonEmpty(searchParams?.q ?? "");
+  const nq = normalizeQuery(q);
+
+  const visible = PERMS.filter((p) => (moduleFilter === "All" ? true : p.module === moduleFilter)).filter((p) => {
+    if (!nq) return true;
+    return p.label.toLowerCase().includes(nq) || String(p.perm).toLowerCase().includes(nq) || p.group.toLowerCase().includes(nq);
+  });
+
+  const groups = Array.from(
+    visible.reduce((m, p) => {
+      const arr = m.get(p.group) ?? [];
+      arr.push(p);
+      m.set(p.group, arr);
+      return m;
+    }, new Map<string, PermMeta[]>())
+  );
+
+  const moduleCounts = MODULES.map((m) => {
+    const perms = PERMS.filter((p) => p.module === m).map((p) => p.perm);
+    const sel = perms.filter((p) => selectedSet.has(p)).length;
+    return { module: m, sel, total: perms.length };
+  });
 
   return (
-    <div style={{ padding: 16, maxWidth: 1100, margin: "0 auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
+    <div style={pageWrap()}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
         <div>
-          <h1 style={{ fontSize: 22, margin: 0 }}>Access Titles</h1>
-          <div style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>
+          <div style={{ fontSize: 26, fontWeight: 700, color: "white" }}>Access Titles</div>
+          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", marginTop: 6 }}>
             Create titles (roles) and assign permissions.
           </div>
         </div>
-        <Link href="/admin" style={btnStyle("ghost")}>
+
+        <Link href="/admin" style={btn("ghost")}>
           Back to Admin
         </Link>
       </div>
 
       <div style={{ height: 14 }} />
 
-      <div style={{ display: "grid", gridTemplateColumns: "380px 1fr", gap: 16, alignItems: "start" }}>
-        {/* Left: Titles list + create */}
-        <div style={cardStyle()}>
-          <h2 style={{ margin: 0, fontSize: 16 }}>Titles</h2>
-          <div style={{ height: 10 }} />
-
-          <form action={createTitleAction} style={{ display: "grid", gap: 10 }}>
-            <div>
-              <label style={labelStyle()}>New title name</label>
-              <input name="name" placeholder="e.g., Warehouse Tech" style={inputStyle()} />
-            </div>
-            <button type="submit" style={btnStyle("primary")}>
-              Create Title
-            </button>
-          </form>
-
-          <hr style={hrStyle()} />
+      <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 14, alignItems: "start" }}>
+        {/* Left nav */}
+        <div style={{ ...card(), padding: 12 }}>
+          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.65)", marginBottom: 10 }}>Navigation</div>
 
           <div style={{ display: "grid", gap: 10 }}>
-            {titles.length === 0 ? (
-              <div style={{ fontSize: 13, color: "#6b7280" }}>No titles yet.</div>
-            ) : (
-              titles.map((t) => (
-                <div
-                  key={t.id}
-                  style={{
-                    border: "1px solid #e5e7eb",
-                    borderRadius: 12,
-                    padding: 12,
-                    background: titleId === t.id ? "#f9fafb" : "white",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 14 }}>{t.name}</div>
-                      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
-                        {t.active ? "Active" : "Inactive"}
-                      </div>
-                    </div>
-                    <Link href={`/admin/access-titles?titleId=${t.id}`} style={btnStyle("ghost")}>
-                      Manage
-                    </Link>
-                  </div>
-                </div>
-              ))
-            )}
+            <Link href="/admin/users" style={pill(false)}>
+              Users <span style={{ float: "right", opacity: 0.7 }}>Security</span>
+            </Link>
+            <Link href="/admin/access-titles" style={pill(true)}>
+              Permission Titles <span style={{ float: "right", opacity: 0.9 }}>RBAC</span>
+            </Link>
+            <Link href="/admin/locations" style={pill(false)}>
+              Locations <span style={{ float: "right", opacity: 0.7 }}>Setup</span>
+            </Link>
+            <Link href="/admin/items" style={pill(false)}>
+              Items <span style={{ float: "right", opacity: 0.7 }}>Catalog</span>
+            </Link>
+            <Link href="/admin/work-orders" style={pill(false)}>
+              Work Orders <span style={{ float: "right", opacity: 0.7 }}>Ops</span>
+            </Link>
+            <Link href="/admin/maintenance-tickets" style={pill(false)}>
+              Maintenance Tickets <span style={{ float: "right", opacity: 0.7 }}>Export</span>
+            </Link>
           </div>
+
+          <div style={{ height: 14 }} />
+          <Link href="/" style={btn("ghost")}>
+            ← Back to App
+          </Link>
         </div>
 
-        {/* Right: Manage selected */}
-        <div style={cardStyle()}>
-          {!selectedTitle ? (
-            <div style={{ fontSize: 14, color: "#6b7280" }}>Select a title to edit.</div>
-          ) : (
-            <>
-              <h2 style={{ margin: 0, fontSize: 16 }}>Manage: {selectedTitle.name}</h2>
-              <div style={{ height: 12 }} />
-
-              <form action={updateTitleMetaAction} style={{ display: "grid", gap: 12 }}>
-                <input type="hidden" name="id" value={selectedTitle.id} />
-                <div style={rowStyle()}>
-                  <div style={{ flex: 1, minWidth: 240 }}>
-                    <label style={labelStyle()}>Title name</label>
-                    <input name="name" defaultValue={selectedTitle.name} style={inputStyle()} />
-                  </div>
-
-                  <div style={{ minWidth: 180 }}>
-                    <label style={labelStyle()}>Active</label>
-                    <select name="active" defaultValue={selectedTitle.active ? "1" : "0"} style={inputStyle()}>
-                      <option value="1">Active</option>
-                      <option value="0">Inactive</option>
-                    </select>
-                  </div>
-
-                  <div style={{ alignSelf: "end" }}>
-                    <button type="submit" style={btnStyle("primary")}>
-                      Save
-                    </button>
-                  </div>
-                </div>
-              </form>
-
-              <hr style={hrStyle()} />
-
-              <form action={setTitlePermissionsAction} style={{ display: "grid", gap: 12 }}>
-                <input type="hidden" name="titleId" value={selectedTitle.id} />
-
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>Permissions</div>
-                    <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
-                      Check what this title can access.
-                    </div>
-                  </div>
-                  <button type="submit" style={btnStyle("primary")}>
-                    Save Permissions
-                  </button>
+        {/* Main */}
+        <div style={{ display: "grid", gap: 14 }}>
+          {/* Title selector row */}
+          <div style={card()}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+              <form action={switchTitleAction} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <div style={{ minWidth: 320 }}>
+                  <div style={label()}>Access Title</div>
+                  <select name="titleId" defaultValue={titleId ?? ""} style={input()}>
+                    {titles.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
-                  {allPermissions.map((p) => (
-                    <label
-                      key={p}
-                      style={{
-                        border: "1px solid #e5e7eb",
-                        borderRadius: 12,
-                        padding: 10,
-                        display: "flex",
-                        gap: 10,
-                        alignItems: "center",
-                        fontSize: 13,
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        name="perm"
-                        value={p}
-                        defaultChecked={selectedSet.has(p)}
-                      />
-                      <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
-                        {p}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </form>
-
-              <hr style={hrStyle()} />
-
-              <form action={deleteTitleAction} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                <input type="hidden" name="id" value={selectedTitle.id} />
-                <Link href="/admin/access-titles" style={btnStyle("ghost")}>
-                  Done
-                </Link>
-                <button type="submit" style={btnStyle("danger")}>
-                  Delete Title
+                <button type="submit" style={{ ...btn("primary"), marginTop: 18 }}>
+                  Switch
                 </button>
               </form>
-            </>
-          )}
+
+              <details>
+                <summary style={{ ...btn("ghost"), listStyle: "none" as any }}>▶ Create new title</summary>
+                <div style={{ marginTop: 10, ...card(), padding: 12 }}>
+                  <form action={createTitleAction} style={{ display: "grid", gap: 10, width: 420, maxWidth: "100%" }}>
+                    <div>
+                      <div style={label()}>Name</div>
+                      <input name="name" style={input()} placeholder="Accounting" />
+                    </div>
+                    <div>
+                      <div style={label()}>Description</div>
+                      <input name="description" style={input()} placeholder="Optional" />
+                    </div>
+                    <button type="submit" style={btn("primary")}>
+                      Create
+                    </button>
+                  </form>
+                </div>
+              </details>
+            </div>
+          </div>
+
+          {/* 2-column content */}
+          <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 14, alignItems: "start" }}>
+            {/* Title details */}
+            <div style={card()}>
+              {!selectedTitle ? (
+                <div style={{ color: "rgba(255,255,255,0.7)" }}>Select a title to edit.</div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "white" }}>Title Details</div>
+                  <div style={{ height: 10 }} />
+
+                  <form action={saveTitleDetailsAction} style={{ display: "grid", gap: 10 }}>
+                    <input type="hidden" name="id" value={selectedTitle.id} />
+
+                    <div>
+                      <div style={label()}>Name</div>
+                      <input name="name" defaultValue={(selectedTitle as any).name ?? ""} style={input()} />
+                    </div>
+
+                    <div>
+                      <div style={label()}>Description</div>
+                      <input name="description" defaultValue={(selectedTitle as any).description ?? ""} style={input()} />
+                    </div>
+
+                    <div>
+                      <div style={label()}>Active</div>
+                      <select name="active" defaultValue={(selectedTitle as any).active ? "1" : "0"} style={input()}>
+                        <option value="1">Active</option>
+                        <option value="0">Inactive</option>
+                      </select>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <button type="submit" style={btn("primary")}>
+                        Save title details
+                      </button>
+                      <form action={deleteTitleAction as any}>
+                        <input type="hidden" name="id" value={selectedTitle.id} />
+                      </form>
+                    </div>
+                  </form>
+
+                  <div style={{ marginTop: 10 }}>
+                    <form action={deleteTitleAction}>
+                      <input type="hidden" name="id" value={selectedTitle.id} />
+                      <button type="submit" style={btn("danger")}>
+                        Delete title
+                      </button>
+                    </form>
+                    <div style={{ marginTop: 8, fontSize: 12, color: "rgba(255,255,255,0.55)" }}>
+                      Deleting removes it from all users automatically.
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Permissions */}
+            <div style={card()}>
+              {!selectedTitle ? (
+                <div style={{ color: "rgba(255,255,255,0.7)" }}>Select a title to edit.</div>
+              ) : (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "white" }}>Permissions</div>
+                      <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", marginTop: 4 }}>
+                        Select by module + feature group. (Parent selection behavior is represented by grouping.)
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)" }}>
+                        Selected: <strong>{selectedCount}</strong> / {totalCount}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ height: 10 }} />
+
+                  {/* Search + scope actions */}
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    <form method="GET" action="/admin/access-titles" style={{ flex: 1, minWidth: 260 }}>
+                      <input type="hidden" name="titleId" value={selectedTitle.id} />
+                      <input type="hidden" name="module" value={moduleFilter} />
+                      <input name="q" defaultValue={q} style={input()} placeholder="Search permissions..." />
+                    </form>
+
+                    <form action={selectAllInScopeAction}>
+                      <input type="hidden" name="titleId" value={selectedTitle.id} />
+                      <input type="hidden" name="scope" value={moduleFilter} />
+                      <input type="hidden" name="module" value={moduleFilter} />
+                      <input type="hidden" name="q" value={q} />
+                      <button type="submit" style={btn("primary")}>
+                        Select all
+                      </button>
+                    </form>
+
+                    <form action={clearAllInScopeAction}>
+                      <input type="hidden" name="titleId" value={selectedTitle.id} />
+                      <input type="hidden" name="scope" value={moduleFilter} />
+                      <input type="hidden" name="module" value={moduleFilter} />
+                      <input type="hidden" name="q" value={q} />
+                      <button type="submit" style={btn("ghost")}>
+                        Clear all
+                      </button>
+                    </form>
+
+                    <div style={{ fontSize: 12, color: "rgba(255,255,255,0.65)" }}>
+                      Scope: <strong>{moduleFilter}</strong>
+                    </div>
+                  </div>
+
+                  <div style={{ height: 12 }} />
+
+                  <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 12, alignItems: "start" }}>
+                    {/* Modules */}
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "white", marginBottom: 8 }}>Modules</div>
+
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {moduleCounts.map((m) => {
+                          const isActive = moduleFilter === m.module;
+                          const params = new URLSearchParams();
+                          params.set("titleId", selectedTitle.id);
+                          params.set("module", m.module);
+                          if (q) params.set("q", q);
+                          return (
+                            <Link key={m.module} href={`/admin/access-titles?${params.toString()}`} style={pill(isActive)}>
+                              {m.module}
+                              <span style={{ float: "right", opacity: 0.85 }}>
+                                {m.sel}/{m.total}
+                              </span>
+                            </Link>
+                          );
+                        })}
+                      </div>
+
+                      <div style={{ marginTop: 10 }}>
+                        <Link
+                          href={`/admin/access-titles?${new URLSearchParams({ titleId: selectedTitle.id, module: "All" }).toString()}`}
+                          style={pill(moduleFilter === "All")}
+                        >
+                          All
+                          <span style={{ float: "right", opacity: 0.85 }}>
+                            {selectedCount}/{totalCount}
+                          </span>
+                        </Link>
+                      </div>
+                    </div>
+
+                    {/* Permission list */}
+                    <div>
+                      <form action={savePermissionsAction} style={{ display: "grid", gap: 10 }}>
+                        <input type="hidden" name="titleId" value={selectedTitle.id} />
+                        <input type="hidden" name="scope" value={moduleFilter} />
+                        <input type="hidden" name="module" value={moduleFilter} />
+                        <input type="hidden" name="q" value={q} />
+
+                        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                          <button type="submit" style={btn("primary")}>
+                            Save permissions
+                          </button>
+                        </div>
+
+                        <div style={hr()} />
+
+                        {visible.length === 0 ? (
+                          <div style={{ color: "rgba(255,255,255,0.65)", fontSize: 13 }}>
+                            No permissions match your filters.
+                          </div>
+                        ) : (
+                          <div style={{ display: "grid", gap: 10 }}>
+                            {groups.map(([groupName, perms]) => {
+                              const total = perms.length;
+                              const sel = perms.filter((p) => selectedSet.has(p.perm)).length;
+
+                              return (
+                                <div key={groupName} style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, padding: 12 }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
+                                    <div style={{ fontSize: 14, fontWeight: 700, color: "white" }}>
+                                      {groupName} <span style={{ opacity: 0.7, fontWeight: 600 }}>({sel}/{total})</span>
+                                    </div>
+                                  </div>
+
+                                  <div style={{ height: 8 }} />
+
+                                  <div style={{ display: "grid", gap: 8 }}>
+                                    {perms.map((p) => (
+                                      <label
+                                        key={p.perm}
+                                        style={{
+                                          display: "flex",
+                                          alignItems: "flex-start",
+                                          gap: 10,
+                                          padding: 10,
+                                          borderRadius: 12,
+                                          border: "1px solid rgba(255,255,255,0.10)",
+                                          background: "rgba(0,0,0,0.20)",
+                                          cursor: "pointer",
+                                        }}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          name="perm"
+                                          value={p.perm}
+                                          defaultChecked={selectedSet.has(p.perm)}
+                                          style={{ marginTop: 3 }}
+                                        />
+                                        <div style={{ display: "grid", gap: 2 }}>
+                                          <div style={{ fontSize: 14, color: "white" }}>{p.label}</div>
+                                          <div style={{ fontSize: 12, opacity: 0.75, fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                                            {p.perm}
+                                          </div>
+                                        </div>
+                                      </label>
+                                    ))}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </form>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
