@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
-import { Permission, Role } from "@prisma/client";
+import { Permission } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
@@ -19,21 +19,6 @@ function requireSession(session: SessionShape) {
   if (!session) redirect("/login");
   const email = session.user?.email ?? null;
   if (!email) redirect("/login");
-}
-
-async function isEmployeeSession(session: SessionShape): Promise<boolean> {
-  const role = (session?.user as { role?: Role | null } | undefined)?.role ?? null;
-  if (role === Role.EMPLOYEE) return true;
-
-  const email = (session?.user?.email ?? "").toLowerCase().trim();
-  if (!email) return false;
-
-  const me = await prisma.user.findUnique({
-    where: { email },
-    select: { role: true },
-  });
-
-  return me?.role === Role.EMPLOYEE;
 }
 
 function fmtLocalTime(d: Date | null): string {
@@ -87,7 +72,6 @@ function getNYOffsetMinutes(atUtc: Date): number {
 }
 
 function nyMidnightUtc(ymd: { y: number; m: number; d: number }): Date {
-  // Sample at noon UTC to get the offset for that NY calendar day.
   const sampleNoonUtc = new Date(Date.UTC(ymd.y, ymd.m - 1, ymd.d, 12, 0, 0));
   const offsetMin = getNYOffsetMinutes(sampleNoonUtc);
   const utcMillis = Date.UTC(ymd.y, ymd.m - 1, ymd.d, 0, 0, 0) - offsetMin * 60_000;
@@ -115,7 +99,6 @@ function getNYTodayYMD(): { y: number; m: number; d: number } {
 }
 
 function getNYDayOfWeekMon0(dUtc: Date): number {
-  // 0=Mon ... 6=Sun using NY local weekday
   const dow = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
     weekday: "short",
@@ -126,7 +109,6 @@ function getNYDayOfWeekMon0(dUtc: Date): number {
 }
 
 function fmtISODateNY(dUtc: Date): string {
-  // YYYY-MM-DD in America/New_York (stable for date inputs + query params)
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(dUtc);
 }
 
@@ -147,7 +129,7 @@ function hoursBetweenNumber(start: Date | null, end: Date | null): number | null
 
 function fmtFixed2(n: number): string {
   if (!Number.isFinite(n)) return "0.00";
-  return (Math.round(n * 100) / 100).toFixed(2);
+  return (Math.round(n * 100) / (100)).toFixed(2);
 }
 
 export default async function MaintenanceTravelLogPage({
@@ -158,13 +140,10 @@ export default async function MaintenanceTravelLogPage({
   const session = (await getServerSession(authOptions)) as SessionShape;
   requireSession(session);
 
-  // Permission gate (admin allowAll handled in loadUserPermissions).
-  // Employees are always allowed to view their own travel log.
-  if (!(await isEmployeeSession(session))) {
-    const perms = await loadUserPermissions(session);
-    if (!perms.allowAll && !hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS])) {
-      redirect("/");
-    }
+  // ✅ Permission gate (no EMPLOYEE bypass): require VIEW_WORK_ORDERS or allowAll
+  const perms = await loadUserPermissions(session);
+  if (!perms.allowAll && !hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS])) {
+    redirect("/");
   }
 
   const email = (session?.user?.email ?? "").toLowerCase().trim();
@@ -188,7 +167,6 @@ export default async function MaintenanceTravelLogPage({
 
   const sp = await searchParams;
 
-  // Allowed locations (primary first, then optionals, dedup)
   const allowedLocations: Array<{ id: string; name: string; source: "PRIMARY" | "OPTIONAL" }> = [];
   const seen = new Set<string>();
 
@@ -203,17 +181,15 @@ export default async function MaintenanceTravelLogPage({
     allowedLocations.push({ id: ul.location.id, name: ul.location.name, source: "OPTIONAL" });
   }
 
-  // Location filter
   const rawLocationId = typeof sp.locationId === "string" && sp.locationId.trim() ? sp.locationId.trim() : "ALL";
   const locationId = rawLocationId === "ALL" || seen.has(rawLocationId) ? rawLocationId : "ALL";
 
-  // Default: This Week (Mon–Sun) in America/New_York
   const todayYMD = getNYTodayYMD();
   const todayMidnightUtc = nyMidnightUtc(todayYMD);
   const dowMon0 = getNYDayOfWeekMon0(todayMidnightUtc);
 
-  const thisWeekFromUtc = addDaysUtc(todayMidnightUtc, -dowMon0); // Monday 00:00
-  const thisWeekToUtc = addDaysUtc(thisWeekFromUtc, 6); // Sunday 00:00
+  const thisWeekFromUtc = addDaysUtc(todayMidnightUtc, -dowMon0);
+  const thisWeekToUtc = addDaysUtc(thisWeekFromUtc, 6);
   const lastWeekFromUtc = addDaysUtc(thisWeekFromUtc, -7);
   const lastWeekToUtc = addDaysUtc(thisWeekToUtc, -7);
 
@@ -228,8 +204,6 @@ export default async function MaintenanceTravelLogPage({
   const toStr = toParam?.raw ?? fmtISODateNY(toUtc);
   const rangeLabel = `${fromStr} to ${toStr}`;
 
-  // Travel Log is derived from SUBMITTED work orders only
-  // Semantics: range is based on Departure (startTime), not createdAt.
   const where: {
     createdByUserId: string;
     status: "SUBMITTED";
@@ -260,7 +234,6 @@ export default async function MaintenanceTravelLogPage({
     },
   });
 
-  // Totals (match print semantics)
   let totalHours = 0;
   let totalMiles = 0;
   let milesCounted = 0;

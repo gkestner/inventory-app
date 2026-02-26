@@ -16,7 +16,7 @@ type SessionUser = {
 };
 
 function isAllowed(role: Role | undefined) {
-  return role === Role.EMPLOYEE || role === Role.MANAGER || role === Role.ADMIN;
+  return role === Role.EMPLOYEE || role === Role.MAINTENANCE || role === Role.MANAGER || role === Role.ADMIN;
 }
 
 export default async function MaintenanceHomePage() {
@@ -31,12 +31,13 @@ export default async function MaintenanceHomePage() {
   if (!isAllowed(user.role)) redirect("/");
 
   const perms = await loadUserPermissions(session);
+  const allowAll = !!perms.allowAll;
 
-  const canCheckout =
-    user.role !== Role.EMPLOYEE && hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
-  const canWorkOrders = user.role === Role.EMPLOYEE || hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
+  // ✅ Permission-based only (no role overrides)
+  const canCheckout = allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
+  const canWorkOrders = allowAll || hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
 
-  // ✅ Don’t rely on session.user.id (may not exist). Resolve user id from DB by email.
+  // ✅ Resolve user id from DB by email.
   const dbUser = await prisma.user.findUnique({
     where: { email },
     select: { id: true, name: true },
@@ -163,9 +164,7 @@ export default async function MaintenanceHomePage() {
                     <td style={{ padding: 8, borderBottom: border }}>{t.storeName}</td>
                     <td style={{ padding: 8, borderBottom: border }}>{t.quantity}</td>
                     <td style={{ padding: 8, borderBottom: border }}>{t.status}</td>
-                    <td style={{ padding: 8, borderBottom: border }}>
-                      {new Date(t.createdAt).toLocaleString()}
-                    </td>
+                    <td style={{ padding: 8, borderBottom: border }}>{new Date(t.createdAt).toLocaleString()}</td>
                   </tr>
                 ))}
               </tbody>

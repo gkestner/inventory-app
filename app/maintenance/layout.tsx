@@ -18,7 +18,8 @@ type SessionUser = {
 };
 
 function isAllowed(role: Role | undefined) {
-  return role === Role.EMPLOYEE || role === Role.MANAGER || role === Role.ADMIN;
+  // Allow anyone who can be in maintenance at all (you can tighten later).
+  return role === Role.EMPLOYEE || role === Role.MAINTENANCE || role === Role.MANAGER || role === Role.ADMIN;
 }
 
 export default async function MaintenanceLayout({ children }: { children: ReactNode }) {
@@ -33,13 +34,14 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
   if (!isAllowed(user.role)) redirect("/");
 
   const perms = await loadUserPermissions(session);
+  const allowAll = !!perms.allowAll;
 
-  // Match your existing rules from app/maintenance/page.tsx
-  const canCheckout =
-    user.role !== Role.EMPLOYEE && hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
+  // ✅ Checkout: permission-based (do NOT block EMPLOYEE)
+  const canCheckout = allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
 
+  // ✅ Work Orders: permission-based ONLY (no EMPLOYEE bypass)
   const canWorkOrders =
-    user.role === Role.EMPLOYEE ||
+    allowAll ||
     hasAnyPermission(perms, [
       Permission.VIEW_WORK_ORDERS,
       Permission.CREATE_WORK_ORDERS,
@@ -47,8 +49,7 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
       Permission.SUBMIT_OWN_WORK_ORDERS,
     ]);
 
-  // Travel Log is currently treated as part of the "work" area.
-  // If you later add a dedicated permission for Travel Log, swap this condition accordingly.
+  // ✅ Travel Log: for now, tie to Work Orders access (since schema has no VIEW_TRAVEL_LOG)
   const canTravelLog = canWorkOrders;
 
   const shell: CSSProperties = {
@@ -74,7 +75,7 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
     flexWrap: "wrap",
   };
 
-  const pill = (active?: boolean): CSSProperties => ({
+  const pill = (): CSSProperties => ({
     display: "inline-flex",
     alignItems: "center",
     padding: "6px 12px",
@@ -83,7 +84,7 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
     textDecoration: "none",
     color: "var(--foreground)",
     fontWeight: 800,
-    opacity: active ? 1 : 0.9,
+    opacity: 0.9,
   });
 
   return (
@@ -95,7 +96,6 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
               Maintenance
             </Link>
 
-            {/* Only show "Work" area tabs if permitted */}
             {canWorkOrders ? (
               <>
                 <Link href="/maintenance/work-orders" style={pill()}>
@@ -110,16 +110,12 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
               </>
             ) : null}
 
-            {/* Only show Checkout if permitted */}
             {canCheckout ? (
               <Link href="/maintenance/checkout" style={pill()}>
                 Checkout
               </Link>
             ) : null}
           </div>
-
-          {/* Keep whatever else you might already render on the right (logout button usually lives elsewhere)
-              If your logout button is part of another layout, this won't interfere. */}
         </div>
       </nav>
 
