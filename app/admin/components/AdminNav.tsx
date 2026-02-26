@@ -7,7 +7,6 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/lib/auth";
 import { Permission } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import SignOutButton from "@/app/components/SignOutButton";
 
 export const dynamic = "force-dynamic";
 
@@ -111,13 +110,6 @@ export default async function AdminNav() {
     whiteSpace: "nowrap",
   };
 
-  const right: CSSProperties = {
-    display: "flex",
-    gap: 10,
-    alignItems: "center",
-    flexWrap: "wrap",
-  };
-
   // permissions
   const canAdminItems = hasAnyPermission(perms, [
     Permission.ADMIN_VIEW_ITEMS,
@@ -170,7 +162,9 @@ export default async function AdminNav() {
 
   return (
     <div style={shell} data-admin-nav-root>
-      <style>{`details > summary::-webkit-details-marker { display: none; }`}</style>
+      <style>{`
+        details > summary::-webkit-details-marker { display: none; }
+      `}</style>
 
       <Script id="admin-nav-autoclose" strategy="afterInteractive">{`
 (function () {
@@ -298,19 +292,8 @@ export default async function AdminNav() {
           ) : null}
         </div>
 
-        <div style={right}>
-          <SignOutButton
-            style={{
-              padding: "6px 12px",
-              borderRadius: 10,
-              border: "1px solid rgba(128,128,128,0.25)",
-              background: "var(--background)",
-              color: "var(--foreground)",
-              fontWeight: 800,
-              cursor: "pointer",
-            }}
-          />
-        </div>
+        {/* Intentionally empty right side: logout lives in the admin sidebar layout */}
+        <div />
       </div>
     </div>
   );
