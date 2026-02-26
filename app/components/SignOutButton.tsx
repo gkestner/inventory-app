@@ -7,7 +7,6 @@ import { Role, Permission } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
 import { loadUserPermissions, hasAnyPermission, type LoadedPermissions } from "@/app/lib/permissions";
-import SignOutButton from "@/app/components/SignOutButton";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -86,7 +85,6 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     padding: 0,
     background: "var(--background)",
     color: "var(--foreground)",
-    minWidth: 0,
   };
 
   const brand: CSSProperties = {
@@ -145,29 +143,6 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     padding: 16,
   };
 
-  const topBar: CSSProperties = {
-    display: "flex",
-    justifyContent: "flex-end",
-    alignItems: "center",
-    gap: 10,
-    padding: "12px 16px",
-    borderBottom: "1px solid var(--border)",
-    background: "var(--surface)",
-    position: "sticky",
-    top: 0,
-    zIndex: 10,
-  };
-
-  const topLogoutBtn: CSSProperties = {
-    padding: "8px 12px",
-    borderRadius: 10,
-    border: "1px solid var(--border)",
-    background: "var(--surface-2)",
-    color: "var(--foreground)",
-    fontWeight: 900,
-    cursor: "pointer",
-  };
-
   const email = (session.user as unknown as { email?: string | null } | null)?.email ?? "—";
 
   return (
@@ -210,6 +185,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
             </Link>
           ) : null}
 
+          {/* ✅ Roles / Permission Titles */}
           {canRoles ? (
             <Link href="/admin/access-titles" style={linkStyle}>
               <span>Permission Titles</span>
@@ -244,20 +220,14 @@ export default async function AdminLayout({ children }: { children: ReactNode })
             ← Back to App
           </Link>
 
-          <SignOutButton
-            label="Logout"
-            callbackUrl="/login"
-            style={{ ...linkStyle, justifyContent: "center", cursor: "pointer" }}
-          />
+          {/* ✅ Logout: use NextAuth signout endpoint (GET shows confirm page) */}
+          <a href="/api/auth/signout" style={{ ...linkStyle, justifyContent: "center" }}>
+            Logout
+          </a>
         </div>
       </aside>
 
       <section style={main}>
-        {/* ✅ Visible on every admin page */}
-        <div style={topBar}>
-          <SignOutButton label="Logout" callbackUrl="/login" style={topLogoutBtn} />
-        </div>
-
         <div style={contentWrap}>{children}</div>
       </section>
     </div>
