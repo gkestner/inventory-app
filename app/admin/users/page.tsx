@@ -20,7 +20,7 @@ type SearchParams = {
 
   created?: string; // userId
   resetUser?: string; // userId
-  temp?: string; // temporary password (one-time display)
+  temp?: string; // temporary password (one-time display, only when generated)
 };
 
 async function requireAdmin() {
@@ -423,6 +423,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     redirect("/admin/users?ok=1");
   }
 
+  // ✅ UPDATED: allow admin-entered password (with confirm). If blank, generate temp like before.
   async function resetPasswordAction(formData: FormData) {
     "use server";
     await requireAdmin();
@@ -430,8 +431,28 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     const userId = nonEmpty(formData.get("userId"));
     if (!userId) redirect("/admin/users?error=" + encodeURIComponent("Missing userId"));
 
-    const tempPassword = makeTempPassword();
-    const passwordHash = await bcrypt.hash(tempPassword, 10);
+    const newPassword = nonEmpty(formData.get("newPassword"));
+    const confirmPassword = nonEmpty(formData.get("confirmPassword"));
+
+    const adminProvided = Boolean(newPassword || confirmPassword);
+
+    let finalPassword: string;
+    if (adminProvided) {
+      if (!newPassword || !confirmPassword) {
+        redirect("/admin/users?error=" + encodeURIComponent("Enter both New Password and Confirm Password."));
+      }
+      if (newPassword !== confirmPassword) {
+        redirect("/admin/users?error=" + encodeURIComponent("New Password and Confirm Password do not match."));
+      }
+      if (newPassword.length < 8) {
+        redirect("/admin/users?error=" + encodeURIComponent("Password must be at least 8 characters."));
+      }
+      finalPassword = newPassword;
+    } else {
+      finalPassword = makeTempPassword();
+    }
+
+    const passwordHash = await bcrypt.hash(finalPassword, 10);
 
     try {
       await prisma.user.update({
@@ -444,7 +465,13 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     }
 
     revalidatePath("/admin/users");
-    redirect(`/admin/users?ok=1&resetUser=${encodeURIComponent(userId)}&temp=${encodeURIComponent(tempPassword)}`);
+
+    // Only show password in URL when we generated it (one-time display).
+    if (adminProvided) {
+      redirect(`/admin/users?ok=1&resetUser=${encodeURIComponent(userId)}`);
+    }
+
+    redirect(`/admin/users?ok=1&resetUser=${encodeURIComponent(userId)}&temp=${encodeURIComponent(finalPassword)}`);
   }
 
   async function assignLocationsAction(formData: FormData) {
@@ -743,11 +770,19 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         <div style={{ ...card, marginBottom: 12 }}>
           <div style={{ fontWeight: 900, marginBottom: 6 }}>✅ Saved</div>
           {created ? <div>Created user id: {created}</div> : null}
+          {resetUser ? <div>Password reset for user id: {resetUser}</div> : null}
           {resetUser && temp ? (
             <div style={{ marginTop: 8 }}>
               <div style={{ fontWeight: 900 }}>Temporary password (show once):</div>
               <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>{temp}</div>
-              <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>This is only displayed via the URL after reset. Copy it now.</div>
+              <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
+                This is only displayed via the URL after reset. Copy it now.
+              </div>
+            </div>
+          ) : null}
+          {resetUser && !temp ? (
+            <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
+              Admin-entered password was set (not displayed).
             </div>
           ) : null}
         </div>
@@ -893,19 +928,18 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                     <div style={{ opacity: 0.85 }}>{u.email}</div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>
                       id:{" "}
-                      <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>{u.id}</span>
+                      <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                        {u.id}
+                      </span>
                     </div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>
-                      Legacy locationId:{" "}
-                      <span style={{ fontWeight: 800 }}>{legacyName || (u.locationId ? u.locationId : "—")}</span>
+                      Legacy locationId: <span style={{ fontWeight: 800 }}>{legacyName || (u.locationId ? u.locationId : "—")}</span>
                     </div>
 
                     <div style={{ fontSize: 12, opacity: 0.75 }}>
                       Permission Titles:{" "}
                       <span style={{ fontWeight: 800 }}>
-                        {u.permissionTitles.length
-                          ? u.permissionTitles.map((r) => r.title?.name ?? "").filter(Boolean).join(", ")
-                          : "—"}
+                        {u.permissionTitles.length ? u.permissionTitles.map((r) => r.title?.name ?? "").filter(Boolean).join(", ") : "—"}
                       </span>
                     </div>
 
@@ -937,11 +971,36 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                       </button>
                     </form>
 
-                    <form action={resetPasswordAction}>
+                    {/* ✅ UPDATED UI: type a new password (optional). Leave blank to auto-generate. */}
+                    <form action={resetPasswordAction} style={{ display: "grid", gap: 6, alignItems: "start" }}>
                       <input type="hidden" name="userId" value={u.id} />
-                      <button type="submit" style={btn}>
-                        Reset Password
-                      </button>
+
+                      <div style={{ display: "grid", gridTemplateColumns: "170px 170px", gap: 8 }}>
+                        <input
+                          name="newPassword"
+                          type="password"
+                          placeholder="New password (optional)"
+                          style={field}
+                          autoComplete="new-password"
+                        />
+                        <input
+                          name="confirmPassword"
+                          type="password"
+                          placeholder="Confirm password"
+                          style={field}
+                          autoComplete="new-password"
+                        />
+                      </div>
+
+                      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                        <button type="submit" style={btn}>
+                          Reset Password
+                        </button>
+                      </div>
+
+                      <div style={{ fontSize: 12, opacity: 0.7, textAlign: "right" }}>
+                        Leave blank to generate a temporary password.
+                      </div>
                     </form>
                   </div>
                 </div>
@@ -968,7 +1027,8 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                               <label key={`ar-${u.id}-${r.id}`} style={{ display: "grid", gridTemplateColumns: "20px 1fr", gap: 10 }}>
                                 <input type="checkbox" name="appRoleIds" value={r.id} defaultChecked={currentAppRoleIds.has(r.id)} />
                                 <span>
-                                  <span style={{ fontWeight: 900 }}>{r.name}</span> {r.isSystem ? <span style={{ opacity: 0.75 }}>(System)</span> : null}
+                                  <span style={{ fontWeight: 900 }}>{r.name}</span>{" "}
+                                  {r.isSystem ? <span style={{ opacity: 0.75 }}>(System)</span> : null}
                                   {r.description ? <span style={{ opacity: 0.75 }}> — {r.description}</span> : null}
                                 </span>
                               </label>
@@ -1007,7 +1067,8 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                             <label key={`pt-${u.id}-${t.id}`} style={{ display: "grid", gridTemplateColumns: "20px 1fr", gap: 10 }}>
                               <input type="checkbox" name="permissionTitleIds" value={t.id} defaultChecked={currentTitleIds.has(t.id)} />
                               <span>
-                                <span style={{ fontWeight: 900 }}>{t.name}</span> {!t.active ? <span style={{ opacity: 0.75 }}>(Inactive)</span> : null}
+                                <span style={{ fontWeight: 900 }}>{t.name}</span>{" "}
+                                {!t.active ? <span style={{ opacity: 0.75 }}>(Inactive)</span> : null}
                                 {t.description ? <span style={{ opacity: 0.75 }}> — {t.description}</span> : null}
                               </span>
                             </label>
