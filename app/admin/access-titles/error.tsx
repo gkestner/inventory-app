@@ -14,57 +14,39 @@ export default function AccessTitlesError({
   }, [error]);
 
   return (
-    <main style={{ padding: 16 }}>
-      <div style={{ maxWidth: 1100, margin: "0 auto", color: "var(--foreground)" }}>
-        <h1 style={{ margin: 0, fontSize: 26, fontWeight: 900 }}>⚠️ Access Titles crashed</h1>
+    <main style={{ padding: 16, background: "#ffffff", color: "#111111" }}>
+      <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+        <h1 style={{ margin: 0, fontSize: 26, fontWeight: 900 }}>Access Titles crashed</h1>
 
-        <div
+        <pre
           style={{
             marginTop: 12,
             padding: 14,
-            borderRadius: 14,
-            border: "1px solid rgba(244,67,54,0.55)",
-            background: "rgba(244,67,54,0.08)",
+            borderRadius: 12,
+            border: "2px solid #e53935",
+            background: "#fff5f5",
             whiteSpace: "pre-wrap",
-            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
           }}
         >
           {error?.message ?? "Unknown error"}
           {error?.digest ? `\n\ndigest: ${error.digest}` : ""}
-        </div>
+        </pre>
 
-        <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button
-            type="button"
-            onClick={() => reset()}
-            style={{
-              padding: "10px 14px",
-              borderRadius: 12,
-              border: "1px solid rgba(128,128,128,0.25)",
-              background: "rgba(33,150,243,0.18)",
-              color: "var(--foreground)",
-              fontWeight: 900,
-              cursor: "pointer",
-            }}
-          >
-            Retry
-          </button>
-
-          <a
-            href="/admin/users"
-            style={{
-              padding: "10px 14px",
-              borderRadius: 12,
-              border: "1px solid rgba(128,128,128,0.25)",
-              background: "var(--background)",
-              color: "var(--foreground)",
-              textDecoration: "none",
-              fontWeight: 900,
-            }}
-          >
-            ← Back to Users
-          </a>
-        </div>
+        <button
+          type="button"
+          onClick={() => reset()}
+          style={{
+            marginTop: 12,
+            padding: "10px 14px",
+            borderRadius: 10,
+            border: "2px solid #1976d2",
+            background: "#e3f2fd",
+            fontWeight: 900,
+            cursor: "pointer",
+          }}
+        >
+          Retry
+        </button>
       </div>
     </main>
   );
