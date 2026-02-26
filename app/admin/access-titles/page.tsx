@@ -167,15 +167,6 @@ async function createTitleAction(formData: FormData) {
   redirect(`/admin/access-titles?titleId=${created.id}`);
 }
 
-async function switchTitleAction(formData: FormData) {
-  "use server";
-  await requireAdmin();
-
-  const titleId = nonEmpty(formData.get("titleId"));
-  if (!titleId) redirect("/admin/access-titles");
-  redirect(`/admin/access-titles?titleId=${encodeURIComponent(titleId)}`);
-}
-
 async function saveTitleDetailsAction(formData: FormData) {
   "use server";
   await requireAdmin();
@@ -398,11 +389,14 @@ export default async function AccessTitlesPage({
 
       <div style={card()}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          <form action={switchTitleAction} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          {/* FIX: Switching titles is navigation -> use GET */}
+          <form method="GET" action="/admin/access-titles" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            {/* preserve current filters when switching */}
+            <input type="hidden" name="module" value={moduleFilter} />
+            <input type="hidden" name="q" value={q} />
+
             <div style={{ minWidth: 320 }}>
               <div style={label()}>Access Title</div>
-
-              {/* FIX: key forces remount so defaultValue updates on navigation */}
               <select key={titleId ?? "none"} name="titleId" defaultValue={titleId ?? ""} style={input()}>
                 {titles.map((t) => (
                   <option key={t.id} value={t.id}>
