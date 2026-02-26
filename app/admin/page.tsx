@@ -52,49 +52,31 @@ export default async function AdminHomePage() {
 
   const canItems =
     perms.allowAll ||
-    hasAnyPermissionLocal(perms, [
-      Permission.ADMIN_VIEW_ITEMS,
-      Permission.ADMIN_EDIT_ITEMS,
-      Permission.ADMIN_IMPORT_EXPORT_ITEMS,
-    ]);
+    hasAnyPermissionLocal(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS, Permission.ADMIN_IMPORT_EXPORT_ITEMS]);
 
   const canOrders =
     perms.allowAll ||
-    hasAnyPermissionLocal(perms, [
-      Permission.ADMIN_VIEW_WORK_ORDERS,
-      Permission.ADMIN_EDIT_WORK_ORDERS,
-      Permission.ADMIN_DELETE_WORK_ORDERS,
-    ]) ||
+    hasAnyPermissionLocal(perms, [Permission.ADMIN_VIEW_WORK_ORDERS, Permission.ADMIN_EDIT_WORK_ORDERS, Permission.ADMIN_DELETE_WORK_ORDERS]) ||
     // inventory orders often align with items permissions
     hasAnyPermissionLocal(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
 
-  const canUsers =
-    perms.allowAll ||
-    hasAnyPermissionLocal(perms, [Permission.ADMIN_VIEW_USERS, Permission.ADMIN_EDIT_USERS]);
+  const canUsers = perms.allowAll || hasAnyPermissionLocal(perms, [Permission.ADMIN_VIEW_USERS, Permission.ADMIN_EDIT_USERS]);
 
-  const canLocations =
-    perms.allowAll ||
-    hasAnyPermissionLocal(perms, [Permission.ADMIN_VIEW_LOCATIONS, Permission.ADMIN_EDIT_LOCATIONS]);
+  const canLocations = perms.allowAll || hasAnyPermissionLocal(perms, [Permission.ADMIN_VIEW_LOCATIONS, Permission.ADMIN_EDIT_LOCATIONS]);
 
   const canWorkOrders =
     perms.allowAll ||
-    hasAnyPermissionLocal(perms, [
-      Permission.ADMIN_VIEW_WORK_ORDERS,
-      Permission.ADMIN_EDIT_WORK_ORDERS,
-      Permission.ADMIN_DELETE_WORK_ORDERS,
-    ]);
+    hasAnyPermissionLocal(perms, [Permission.ADMIN_VIEW_WORK_ORDERS, Permission.ADMIN_EDIT_WORK_ORDERS, Permission.ADMIN_DELETE_WORK_ORDERS]);
 
   const canTickets =
     perms.allowAll ||
-    hasAnyPermissionLocal(perms, [
-      Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
-      Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS,
-    ]);
+    hasAnyPermissionLocal(perms, [Permission.ADMIN_VIEW_MAINTENANCE_TICKETS, Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS]);
 
   const wrap: CSSProperties = {
     padding: 16,
     maxWidth: 1100,
     margin: "0 auto",
+    color: "var(--foreground)",
   };
 
   const grid: CSSProperties = {
@@ -104,19 +86,26 @@ export default async function AdminHomePage() {
     marginTop: 12,
   };
 
+  const border = "1px solid rgba(128,128,128,0.25)";
+  const surface = "var(--background)";
+  const fg = "var(--foreground)";
+  const soft = "rgba(255,255,255,0.03)";
+
   const card: CSSProperties = {
-    border: "1px solid #e5e7eb",
-    borderRadius: 12,
-    background: "#fff",
+    border,
+    borderRadius: 14,
+    background: surface,
     padding: 14,
+    boxShadow: "0 12px 30px rgba(0,0,0,0.28)",
   };
 
-  const title: CSSProperties = { fontSize: 18, fontWeight: 800, margin: 0 };
+  const title: CSSProperties = { fontSize: 16, fontWeight: 900, margin: 0, color: fg };
   const desc: CSSProperties = {
     margin: "8px 0 0 0",
-    color: "#4b5563",
+    opacity: 0.82,
     fontSize: 13,
     lineHeight: 1.35,
+    color: fg,
   };
 
   const linkStyle: CSSProperties = {
@@ -124,35 +113,34 @@ export default async function AdminHomePage() {
     alignItems: "center",
     gap: 8,
     marginTop: 12,
-    padding: "8px 10px",
-    borderRadius: 10,
-    border: "1px solid #111827",
-    background: "#111827",
-    color: "#fff",
+    padding: "10px 12px",
+    borderRadius: 12,
+    border,
+    background: "rgba(17,24,39,0.35)", // subtle “primary” but still dark-mode safe
+    color: fg,
     fontSize: 13,
     textDecoration: "none",
     width: "fit-content",
+    fontWeight: 900,
   };
 
   const mutedLink: CSSProperties = {
     ...linkStyle,
-    background: "#fff",
-    color: "#111827",
+    background: soft,
+    opacity: 0.92,
   };
 
   const email = (session.user as unknown as { email?: string | null } | null)?.email ?? "—";
 
   return (
     <main style={wrap}>
-      <h1 style={{ margin: 0, fontSize: 22 }}>Admin</h1>
-      <div style={{ marginTop: 6, color: "#6b7280", fontSize: 13 }}>Signed in: {email}</div>
+      <h1 style={{ margin: 0, fontSize: 22, fontWeight: 950 }}>Admin</h1>
+      <div style={{ marginTop: 6, opacity: 0.8, fontSize: 13 }}>Signed in: {email}</div>
 
       <div style={grid}>
         <div style={card}>
           <h2 style={title}>Live Orders Board</h2>
-          <p style={desc}>
-            Day-to-day operational board with 3 columns (ORDERED / ARRIVED / COMPLETED) and quick actions.
-          </p>
+          <p style={desc}>Day-to-day operational board with 3 columns (ORDERED / ARRIVED / COMPLETED) and quick actions.</p>
           <Link href="/admin/live-orders" style={linkStyle}>
             Open Live Orders →
           </Link>
@@ -161,9 +149,7 @@ export default async function AdminHomePage() {
         {canOrders ? (
           <div style={card}>
             <h2 style={title}>Inventory Orders</h2>
-            <p style={desc}>
-              Order history + receive/process screen. Create orders, track phases, move qty into inventory with guards.
-            </p>
+            <p style={desc}>Order history + receive/process screen. Create orders, track phases, move qty into inventory with guards.</p>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <Link href="/admin/inventory-orders" style={linkStyle}>
                 Open Orders →
