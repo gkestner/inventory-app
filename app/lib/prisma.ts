@@ -28,21 +28,21 @@ function getClient(): PrismaClient {
   return client;
 }
 
+function throwIfBuildTime() {
+  if (isBuildTimeEvaluation) {
+    throw new Error(
+      "Prisma client was accessed during Next.js build-time evaluation. " +
+        "A module is doing DB/auth work at build time (often at module scope). " +
+        "Move DB access to request-time."
+    );
+  }
+}
+
 export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
   get(_target, prop: PropertyKey) {
-    // If anything attempts to use Prisma during build-time evaluation,
-    // throw a crisp error so we can find the offending module.
-    if (isBuildTimeEvaluation) {
-      throw new Error(
-        "Prisma client was accessed during Next.js build-time evaluation. " +
-          "A module is doing DB/auth work at build time (often at module scope). " +
-          "Move DB access to request-time."
-      );
-    }
+    throwIfBuildTime();
 
     const c = getClient();
-
-    // Avoid `any` while still allowing dynamic property access.
     const value = (c as unknown as Record<PropertyKey, unknown>)[prop];
 
     // Ensure methods keep correct `this` binding.
@@ -51,5 +51,32 @@ export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
     }
 
     return value;
+  },
+
+  // ✅ IMPORTANT: makes `"modelName" in prisma` work
+  has(_target, prop: PropertyKey) {
+    throwIfBuildTime();
+    const c = getClient();
+    return prop in (c as unknown as Record<PropertyKey, unknown>);
+  },
+
+  // ✅ Helps some reflection-based checks (rare, but nice to have)
+  ownKeys() {
+    throwIfBuildTime();
+    return Reflect.ownKeys(getClient() as unknown as object);
+  },
+
+  // ✅ Keeps TS/JS runtime happy when using reflection
+  getOwnPropertyDescriptor(_target, prop: PropertyKey) {
+    throwIfBuildTime();
+    const desc = Object.getOwnPropertyDescriptor(getClient() as unknown as object, prop);
+    if (desc) return desc;
+
+    // Fallback: if it exists, claim it's configurable so reflection doesn't explode
+    const c = getClient() as unknown as Record<PropertyKey, unknown>;
+    if (prop in c) {
+      return { configurable: true, enumerable: true };
+    }
+    return undefined;
   },
 });
