@@ -396,28 +396,20 @@ export default async function AccessTitlesPage({
 
       <div style={{ height: 14 }} />
 
-      {/* Title selector */}
       <div style={card()}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
           <form action={switchTitleAction} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <div style={{ minWidth: 320 }}>
               <div style={label()}>Access Title</div>
 
-              {/* FIX: use value + key instead of defaultValue */}
-              <select
-                key={titleId ?? "none"}
-                name="titleId"
-                value={titleId ?? ""}
-                style={input()}
-                readOnly
-              >
+              {/* FIX: key forces remount so defaultValue updates on navigation */}
+              <select key={titleId ?? "none"} name="titleId" defaultValue={titleId ?? ""} style={input()}>
                 {titles.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.name}
                   </option>
                 ))}
               </select>
-              {/* NOTE: readOnly avoids React warning since this is server-rendered */}
             </div>
 
             <button type="submit" style={{ ...btn("primary"), marginTop: 18 }}>
@@ -448,9 +440,7 @@ export default async function AccessTitlesPage({
 
       <div style={{ height: 14 }} />
 
-      {/* Main 2-column content */}
       <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 14, alignItems: "start" }}>
-        {/* Title details */}
         <div style={card()}>
           {!selectedTitle ? (
             <div style={{ color: "rgba(255,255,255,0.7)" }}>Select a title to edit.</div>
@@ -500,7 +490,6 @@ export default async function AccessTitlesPage({
           )}
         </div>
 
-        {/* Permissions */}
         <div style={card()}>
           {!selectedTitle ? (
             <div style={{ color: "rgba(255,255,255,0.7)" }}>Select a title to edit.</div>
@@ -556,7 +545,6 @@ export default async function AccessTitlesPage({
               <div style={{ height: 12 }} />
 
               <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 12, alignItems: "start" }}>
-                {/* Modules */}
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "white", marginBottom: 8 }}>Modules</div>
 
@@ -622,7 +610,6 @@ export default async function AccessTitlesPage({
                   </div>
                 </div>
 
-                {/* Permission list */}
                 <div>
                   <form action={savePermissionsAction} style={{ display: "grid", gap: 10 }}>
                     <input type="hidden" name="titleId" value={selectedTitle.id} />
