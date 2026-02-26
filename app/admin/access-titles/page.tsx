@@ -107,34 +107,24 @@ function hr(): CSSProperties {
   return { border: "none", borderTop: "1px solid rgba(255,255,255,0.10)", margin: "12px 0" };
 }
 
-/**
- * Permission catalog used for:
- * - module grouping
- * - human labels
- * - “parent applies to descendants” messaging (we group by feature buckets)
- */
 type PermMeta = {
   perm: Permission;
   module: "Admin" | "Inventory" | "Maintenance" | "Navigation";
-  group: string; // e.g. "Items"
-  label: string; // e.g. "View Items"
+  group: string;
+  label: string;
 };
 
 const PERMS: PermMeta[] = [
-  // Navigation
   { perm: Permission.VIEW_HOME, module: "Navigation", group: "Navigation", label: "View Home" },
 
-  // Inventory (checkout)
   { perm: Permission.VIEW_CHECKOUT, module: "Inventory", group: "Checkout", label: "View Checkout" },
   { perm: Permission.CREATE_CHECKOUT, module: "Inventory", group: "Checkout", label: "Create Checkout" },
 
-  // Maintenance (work orders)
   { perm: Permission.VIEW_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "View Work Orders" },
   { perm: Permission.CREATE_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "Create Work Orders" },
   { perm: Permission.UPDATE_OWN_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "Update Own Work Orders" },
   { perm: Permission.SUBMIT_OWN_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "Submit Own Work Orders" },
 
-  // Admin modules
   { perm: Permission.ADMIN_VIEW_ITEMS, module: "Admin", group: "Items", label: "View Items" },
   { perm: Permission.ADMIN_EDIT_ITEMS, module: "Admin", group: "Items", label: "Edit Items" },
   { perm: Permission.ADMIN_IMPORT_EXPORT_ITEMS, module: "Admin", group: "Items", label: "Import / Export Items" },
@@ -153,13 +143,15 @@ const PERMS: PermMeta[] = [
   { perm: Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS, module: "Admin", group: "Maintenance Tickets", label: "Export Maintenance Tickets" },
 ];
 
-const MODULES: Array<PermMeta["module"]> = ["Admin", "Inventory", "Maintenance", "Navigation"];
+const MODULES: PermMeta["module"][] = ["Admin", "Inventory", "Maintenance", "Navigation"];
+
+type ModuleFilter = PermMeta["module"] | "All";
 
 function normalizeQuery(q: string) {
   return q.trim().toLowerCase();
 }
 
-function permsForScope(module: PermMeta["module"] | "All") {
+function permsForScope(module: ModuleFilter) {
   if (module === "All") return PERMS.map((p) => p.perm);
   return PERMS.filter((p) => p.module === module).map((p) => p.perm);
 }
@@ -172,14 +164,12 @@ async function createTitleAction(formData: FormData) {
 
   const name = nonEmpty(formData.get("name"));
   const description = nonEmpty(formData.get("description"));
-
   if (!name) return;
 
   const created = await prisma.permissionTitle.create({
     data: {
       name,
       active: true,
-      // if you don't have description in your schema, Prisma will error here and we’ll remove it
       description: description || null,
     } as any,
   });
@@ -242,8 +232,8 @@ async function savePermissionsAction(formData: FormData) {
   await requireAdmin();
 
   const titleId = nonEmpty(formData.get("titleId"));
-  const scope = nonEmpty(formData.get("scope")); // "All" | module
-  const module = (scope === "All" ? "All" : (scope as PermMeta["module"])) as PermMeta["module"] | "All";
+  const scopeRaw = nonEmpty(formData.get("scope"));
+  const scope: ModuleFilter = scopeRaw === "All" ? "All" : (scopeRaw as PermMeta["module"]);
 
   if (!titleId) return;
 
@@ -254,10 +244,10 @@ async function savePermissionsAction(formData: FormData) {
       .filter(Boolean)
   );
 
-  const scopePerms = permsForScope(module);
+  const scopePerms = permsForScope(scope);
 
   await prisma.$transaction(async (tx) => {
-    if (module === "All") {
+    if (scope === "All") {
       await tx.permissionTitlePermission.deleteMany({ where: { titleId } });
     } else {
       await tx.permissionTitlePermission.deleteMany({
@@ -274,7 +264,7 @@ async function savePermissionsAction(formData: FormData) {
   });
 
   revalidatePath("/admin/access-titles");
-  // preserve current filters
+
   const mod = nonEmpty(formData.get("module"));
   const q = nonEmpty(formData.get("q"));
   const params = new URLSearchParams();
@@ -289,14 +279,14 @@ async function selectAllInScopeAction(formData: FormData) {
   await requireAdmin();
 
   const titleId = nonEmpty(formData.get("titleId"));
-  const scope = nonEmpty(formData.get("scope"));
-  const module = (scope === "All" ? "All" : (scope as PermMeta["module"])) as PermMeta["module"] | "All";
+  const scopeRaw = nonEmpty(formData.get("scope"));
+  const scope: ModuleFilter = scopeRaw === "All" ? "All" : (scopeRaw as PermMeta["module"]);
   if (!titleId) return;
 
-  const scopePerms = permsForScope(module);
+  const scopePerms = permsForScope(scope);
 
   await prisma.$transaction(async (tx) => {
-    if (module === "All") {
+    if (scope === "All") {
       await tx.permissionTitlePermission.deleteMany({ where: { titleId } });
     } else {
       await tx.permissionTitlePermission.deleteMany({
@@ -325,13 +315,13 @@ async function clearAllInScopeAction(formData: FormData) {
   await requireAdmin();
 
   const titleId = nonEmpty(formData.get("titleId"));
-  const scope = nonEmpty(formData.get("scope"));
-  const module = (scope === "All" ? "All" : (scope as PermMeta["module"])) as PermMeta["module"] | "All";
+  const scopeRaw = nonEmpty(formData.get("scope"));
+  const scope: ModuleFilter = scopeRaw === "All" ? "All" : (scopeRaw as PermMeta["module"]);
   if (!titleId) return;
 
-  const scopePerms = permsForScope(module);
+  const scopePerms = permsForScope(scope);
 
-  if (module === "All") {
+  if (scope === "All") {
     await prisma.permissionTitlePermission.deleteMany({ where: { titleId } });
   } else {
     await prisma.permissionTitlePermission.deleteMany({
@@ -374,15 +364,23 @@ export default async function AccessTitlesPage({
   const totalCount = PERMS.length;
 
   const moduleParamRaw = nonEmpty(searchParams?.module ?? "");
-  const moduleFilter: PermMeta["module"] | "All" =
-    MODULES.includes(moduleParamRaw as any) ? (moduleParamRaw as PermMeta["module"]) : "Admin";
+  const moduleFilter: ModuleFilter =
+    moduleParamRaw === "All"
+      ? "All"
+      : MODULES.includes(moduleParamRaw as PermMeta["module"])
+        ? (moduleParamRaw as PermMeta["module"])
+        : "Admin";
 
   const q = nonEmpty(searchParams?.q ?? "");
   const nq = normalizeQuery(q);
 
   const visible = PERMS.filter((p) => (moduleFilter === "All" ? true : p.module === moduleFilter)).filter((p) => {
     if (!nq) return true;
-    return p.label.toLowerCase().includes(nq) || String(p.perm).toLowerCase().includes(nq) || p.group.toLowerCase().includes(nq);
+    return (
+      p.label.toLowerCase().includes(nq) ||
+      String(p.perm).toLowerCase().includes(nq) ||
+      p.group.toLowerCase().includes(nq)
+    );
   });
 
   const groups = Array.from(
@@ -524,14 +522,9 @@ export default async function AccessTitlesPage({
                       </select>
                     </div>
 
-                    <div style={{ display: "flex", gap: 10 }}>
-                      <button type="submit" style={btn("primary")}>
-                        Save title details
-                      </button>
-                      <form action={deleteTitleAction as any}>
-                        <input type="hidden" name="id" value={selectedTitle.id} />
-                      </form>
-                    </div>
+                    <button type="submit" style={btn("primary")}>
+                      Save title details
+                    </button>
                   </form>
 
                   <div style={{ marginTop: 10 }}>
@@ -559,20 +552,17 @@ export default async function AccessTitlesPage({
                     <div>
                       <div style={{ fontSize: 14, fontWeight: 700, color: "white" }}>Permissions</div>
                       <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", marginTop: 4 }}>
-                        Select by module + feature group. (Parent selection behavior is represented by grouping.)
+                        Select by module + feature group.
                       </div>
                     </div>
 
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)" }}>
-                        Selected: <strong>{selectedCount}</strong> / {totalCount}
-                      </div>
+                    <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)" }}>
+                      Selected: <strong>{selectedCount}</strong> / {totalCount}
                     </div>
                   </div>
 
                   <div style={{ height: 10 }} />
 
-                  {/* Search + scope actions */}
                   <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                     <form method="GET" action="/admin/access-titles" style={{ flex: 1, minWidth: 260 }}>
                       <input type="hidden" name="titleId" value={selectedTitle.id} />
@@ -631,15 +621,20 @@ export default async function AccessTitlesPage({
                       </div>
 
                       <div style={{ marginTop: 10 }}>
-                        <Link
-                          href={`/admin/access-titles?${new URLSearchParams({ titleId: selectedTitle.id, module: "All" }).toString()}`}
-                          style={pill(moduleFilter === "All")}
-                        >
-                          All
-                          <span style={{ float: "right", opacity: 0.85 }}>
-                            {selectedCount}/{totalCount}
-                          </span>
-                        </Link>
+                        {(() => {
+                          const params = new URLSearchParams();
+                          params.set("titleId", selectedTitle.id);
+                          params.set("module", "All");
+                          if (q) params.set("q", q);
+                          return (
+                            <Link href={`/admin/access-titles?${params.toString()}`} style={pill(moduleFilter === "All")}>
+                              All
+                              <span style={{ float: "right", opacity: 0.85 }}>
+                                {selectedCount}/{totalCount}
+                              </span>
+                            </Link>
+                          );
+                        })()}
                       </div>
                     </div>
 
@@ -665,12 +660,22 @@ export default async function AccessTitlesPage({
                           </div>
                         ) : (
                           <div style={{ display: "grid", gap: 10 }}>
-                            {groups.map(([groupName, perms]) => {
+                            {Array.from(
+                              visible.reduce((m, p) => {
+                                const arr = m.get(p.group) ?? [];
+                                arr.push(p);
+                                m.set(p.group, arr);
+                                return m;
+                              }, new Map<string, PermMeta[]>())
+                            ).map(([groupName, perms]) => {
                               const total = perms.length;
                               const sel = perms.filter((p) => selectedSet.has(p.perm)).length;
 
                               return (
-                                <div key={groupName} style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, padding: 12 }}>
+                                <div
+                                  key={groupName}
+                                  style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, padding: 12 }}
+                                >
                                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
                                     <div style={{ fontSize: 14, fontWeight: 700, color: "white" }}>
                                       {groupName} <span style={{ opacity: 0.7, fontWeight: 600 }}>({sel}/{total})</span>
@@ -703,7 +708,14 @@ export default async function AccessTitlesPage({
                                         />
                                         <div style={{ display: "grid", gap: 2 }}>
                                           <div style={{ fontSize: 14, color: "white" }}>{p.label}</div>
-                                          <div style={{ fontSize: 12, opacity: 0.75, fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                                          <div
+                                            style={{
+                                              fontSize: 12,
+                                              opacity: 0.75,
+                                              fontFamily:
+                                                "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                                            }}
+                                          >
                                             {p.perm}
                                           </div>
                                         </div>
