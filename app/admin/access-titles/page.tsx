@@ -91,18 +91,13 @@ function safePermissionsFromFormData(fd: FormData, key: string): Permission[] {
 }
 
 type PageProps = {
-  // ✅ Next 16: searchParams is a Promise
-  searchParams: Promise<{
+  searchParams?: {
     titleId?: string;
-    group?: string;
-  }>;
+  };
 };
 
 export default async function AdminAccessTitlesPage({ searchParams }: PageProps) {
   await requireAdmin();
-
-  // ✅ Next 16: MUST await
-  const sp = await searchParams;
 
   try {
     await prisma.permissionTitle.count();
@@ -119,14 +114,12 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
   }
 
   // ===== Actions =====
-
   async function createTitleAction(formData: FormData) {
     "use server";
     await requireAdmin();
 
     const name = nonEmpty(formData.get("name"));
     const description = nonEmpty(formData.get("description")) || null;
-
     if (!name) redirect("/admin/access-titles");
 
     const created = await prisma.permissionTitle.create({
@@ -145,14 +138,9 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
     const id = nonEmpty(formData.get("id"));
     const name = nonEmpty(formData.get("name"));
     const description = nonEmpty(formData.get("description")) || null;
-
     if (!id || !name) redirect("/admin/access-titles");
 
-    await prisma.permissionTitle.update({
-      where: { id },
-      data: { name, description },
-    });
-
+    await prisma.permissionTitle.update({ where: { id }, data: { name, description } });
     revalidatePath("/admin/access-titles");
     redirect(`/admin/access-titles?titleId=${encodeURIComponent(id)}`);
   }
@@ -168,7 +156,6 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
 
     await prisma.$transaction(async (tx) => {
       await tx.permissionTitlePermission.deleteMany({ where: { titleId } });
-
       if (selected.length > 0) {
         await tx.permissionTitlePermission.createMany({
           data: selected.map((permission) => ({ titleId, permission })),
@@ -189,7 +176,6 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
     if (!id) redirect("/admin/access-titles");
 
     await prisma.permissionTitle.delete({ where: { id } });
-
     revalidatePath("/admin/access-titles");
     redirect("/admin/access-titles");
   }
@@ -199,7 +185,7 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
     select: { id: true, name: true, description: true, active: true },
   });
 
-  // ===== Empty state =====
+  // Empty state
   if (titles.length === 0) {
     const border = "1px solid rgba(128,128,128,0.25)";
     const surface = "var(--background)";
@@ -273,12 +259,9 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
     );
   }
 
-  const requestedTitleId = (sp.titleId ?? "").trim();
+  const requestedTitleId = (searchParams?.titleId ?? "").trim();
   const selectedTitle = requestedTitleId ? titles.find((t) => t.id === requestedTitleId) ?? null : null;
-
-  if (!selectedTitle) {
-    redirect(`/admin/access-titles?titleId=${encodeURIComponent(titles[0].id)}`);
-  }
+  if (!selectedTitle) redirect(`/admin/access-titles?titleId=${encodeURIComponent(titles[0].id)}`);
 
   const border = "1px solid rgba(128,128,128,0.25)";
   const surface = "var(--background)";
@@ -308,17 +291,8 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
     lineHeight: 1,
     whiteSpace: "nowrap",
   };
-  const btnPrimary: CSSProperties = {
-    ...btn,
-    background: "rgba(33,150,243,0.18)",
-    border: "1px solid rgba(33,150,243,0.55)",
-  };
-  const btnDanger: CSSProperties = {
-    ...btn,
-    background: "rgba(244,67,54,0.14)",
-    border: "1px solid rgba(244,67,54,0.55)",
-  };
-
+  const btnPrimary: CSSProperties = { ...btn, background: "rgba(33,150,243,0.18)", border: "1px solid rgba(33,150,243,0.55)" };
+  const btnDanger: CSSProperties = { ...btn, background: "rgba(244,67,54,0.14)", border: "1px solid rgba(244,67,54,0.55)" };
   const pill: CSSProperties = {
     padding: "6px 10px",
     borderRadius: 999,
@@ -329,6 +303,7 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
     display: "inline-flex",
     alignItems: "center",
     gap: 8,
+    whiteSpace: "nowrap",
   };
 
   const selectedWithPerms = await prisma.permissionTitle.findUnique({
@@ -384,47 +359,48 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
           </span>
         </div>
 
-        {/* Title switch + create */}
+        {/* Switch + Create (NO nested forms) */}
         <div style={{ marginTop: 12, ...card }}>
-          <form action={titleSwitchAction} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
-            <label style={{ ...label, minWidth: 320 }}>
-              Access Title
-              <select name="titleId" defaultValue={selectedTitle.id} style={input}>
-                {titles.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
+            <form action={titleSwitchAction} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
+              <label style={{ ...label, minWidth: 320 }}>
+                Access Title
+                <select name="titleId" defaultValue={selectedTitle.id} style={input}>
+                  {titles.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-            <button type="submit" style={btnPrimary}>
-              Switch
-            </button>
+              <button type="submit" style={btnPrimary}>
+                Switch
+              </button>
+            </form>
 
-            <div style={{ marginLeft: "auto", display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ marginLeft: "auto" }}>
               <details>
                 <summary style={{ cursor: "pointer", fontWeight: 900 }}>Create new title</summary>
-                <div style={{ marginTop: 10 }}>
-                  <form action={createTitleAction} style={{ display: "grid", gap: 10 }}>
-                    <label style={label}>
-                      Title name
-                      <input name="name" style={input} placeholder="e.g. Inventory Clerk" required />
-                    </label>
-                    <label style={label}>
-                      Description (optional)
-                      <input name="description" style={input} placeholder="What this title is for" />
-                    </label>
-                    <div>
-                      <button type="submit" style={btnPrimary}>
-                        Create
-                      </button>
-                    </div>
-                  </form>
-                </div>
+
+                <form action={createTitleAction} style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                  <label style={label}>
+                    Title name
+                    <input name="name" style={input} placeholder="e.g. Inventory Clerk" required />
+                  </label>
+                  <label style={label}>
+                    Description (optional)
+                    <input name="description" style={input} placeholder="What this title is for" />
+                  </label>
+                  <div>
+                    <button type="submit" style={btnPrimary}>
+                      Create
+                    </button>
+                  </div>
+                </form>
               </details>
             </div>
-          </form>
+          </div>
         </div>
 
         <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "360px 1fr", gap: 12 }}>
@@ -435,10 +411,12 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
 
               <form action={updateTitleAction} style={{ display: "grid", gap: 10 }}>
                 <input type="hidden" name="id" value={selectedTitle.id} />
+
                 <label style={label}>
                   Name
                   <input name="name" defaultValue={selectedWithPerms?.name ?? selectedTitle.name} style={input} required />
                 </label>
+
                 <label style={label}>
                   Description
                   <input name="description" defaultValue={selectedWithPerms?.description ?? ""} style={input} />
@@ -469,7 +447,7 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
             </div>
           </section>
 
-          {/* Permissions Tree */}
+          {/* Permissions */}
           <section style={card}>
             <form action={updatePermissionsAction} style={{ display: "grid", gap: 12 }}>
               <input type="hidden" name="id" value={selectedTitle.id} />
@@ -477,9 +455,7 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                 <div style={{ display: "grid", gap: 4 }}>
                   <div style={{ fontWeight: 900 }}>Permissions</div>
-                  <div style={{ fontSize: 12, opacity: 0.8 }}>
-                    Select by module + path. Parent checks apply to all descendants.
-                  </div>
+                  <div style={{ fontSize: 12, opacity: 0.8 }}>Select by module + path. Parent checks apply to all descendants.</div>
                 </div>
 
                 <span style={pill}>

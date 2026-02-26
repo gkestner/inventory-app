@@ -52,7 +52,7 @@ export const PERMISSION_CATALOG: PermissionCatalogEntry[] = [
   { permission: Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS, module: "Admin", path: ["Maintenance Tickets"], label: "Export Maintenance Tickets" },
 ];
 
-// ✅ exported name exactly as imported
+// ✅ export exists (matches your import)
 export function getPermissionModules(): string[] {
   const s = new Set<string>();
   for (const e of PERMISSION_CATALOG) s.add(e.module);
