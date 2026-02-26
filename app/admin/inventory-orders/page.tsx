@@ -207,9 +207,66 @@ type OrderRow = Prisma.InventoryOrderGetPayload<{ include: typeof ORDER_INCLUDE 
 export default async function AdminInventoryOrdersPage({ searchParams }: { searchParams: SearchParams }) {
   await requireOrderHistoryView();
 
-  // If Prisma Client isn't regenerated yet, avoid crashing.
-  const anyPrisma = prisma as unknown as { inventoryOrder?: unknown };
-  if (!("inventoryOrder" in anyPrisma) || !anyPrisma.inventoryOrder) {
+  // IMPORTANT: prisma is a Proxy (lazy client). The `in` operator checks the Proxy TARGET ({}),
+  // not the real PrismaClient, because we don't define a `has` trap. So using `"inventoryOrder" in prisma`
+  // will incorrectly return false forever.
+  //
+  // We still must NOT touch Prisma during build-time evaluation (your prisma.ts intentionally throws).
+  const isBuildTimeEvaluation =
+    process.env.npm_lifecycle_event === "build" || process.env.NEXT_PHASE === "phase-production-build";
+
+  if (isBuildTimeEvaluation) {
+    return (
+      <main style={{ padding: 16 }}>
+        <div style={{ padding: 16, maxWidth: 1400, margin: "0 auto", color: "var(--foreground)" }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <h1 style={{ fontSize: 26, fontWeight: 900, margin: 0 }}>Admin: Order History</h1>
+            <Link
+              href="/admin/items"
+              style={{
+                padding: "8px 12px",
+                borderRadius: 12,
+                border: "1px solid rgba(128,128,128,0.25)",
+                background: "var(--background)",
+                color: "var(--foreground)",
+                textDecoration: "none",
+                fontWeight: 900,
+              }}
+            >
+              ← Items
+            </Link>
+          </div>
+
+          <div
+            style={{
+              marginTop: 12,
+              padding: 14,
+              borderRadius: 14,
+              border: "1px solid rgba(128,128,128,0.25)",
+              background: "var(--background)",
+            }}
+          >
+            <div style={{ fontWeight: 900, marginBottom: 6 }}>Not ready during build</div>
+            <div style={{ opacity: 0.85, lineHeight: 1.5 }}>
+              This route was evaluated during build-time. Prisma access is intentionally blocked during build to prevent crashes.
+              <br />
+              This is expected during build; at runtime the page will load normally.
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  // Runtime: safely check the delegate by actually reading it (triggers Proxy get → real PrismaClient).
+  let inventoryOrderDelegate: unknown = null;
+  try {
+    inventoryOrderDelegate = (prisma as unknown as Record<string, unknown>)["inventoryOrder"];
+  } catch {
+    inventoryOrderDelegate = null;
+  }
+
+  if (!inventoryOrderDelegate) {
     return (
       <main style={{ padding: 16 }}>
         <div style={{ padding: 16, maxWidth: 1400, margin: "0 auto", color: "var(--foreground)" }}>
