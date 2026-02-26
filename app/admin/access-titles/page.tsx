@@ -105,20 +105,16 @@ type PermMeta = {
 };
 
 const PERMS: PermMeta[] = [
-  // Navigation
   { perm: Permission.VIEW_HOME, module: "Navigation", group: "Navigation", label: "View Home" },
 
-  // Inventory (checkout)
   { perm: Permission.VIEW_CHECKOUT, module: "Inventory", group: "Checkout", label: "View Checkout" },
   { perm: Permission.CREATE_CHECKOUT, module: "Inventory", group: "Checkout", label: "Create Checkout" },
 
-  // Maintenance (work orders)
   { perm: Permission.VIEW_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "View Work Orders" },
   { perm: Permission.CREATE_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "Create Work Orders" },
   { perm: Permission.UPDATE_OWN_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "Update Own Work Orders" },
   { perm: Permission.SUBMIT_OWN_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "Submit Own Work Orders" },
 
-  // Admin modules
   { perm: Permission.ADMIN_VIEW_ITEMS, module: "Admin", group: "Items", label: "View Items" },
   { perm: Permission.ADMIN_EDIT_ITEMS, module: "Admin", group: "Items", label: "Edit Items" },
   { perm: Permission.ADMIN_IMPORT_EXPORT_ITEMS, module: "Admin", group: "Items", label: "Import / Export Items" },
@@ -385,7 +381,6 @@ export default async function AccessTitlesPage({
 
   return (
     <div style={pageWrap()}>
-      {/* Header row (no extra page navigation) */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
         <div>
           <div style={{ fontSize: 26, fontWeight: 700, color: "white" }}>Access Titles</div>
@@ -394,7 +389,6 @@ export default async function AccessTitlesPage({
           </div>
         </div>
 
-        {/* optional link; doesn't create a second nav bar */}
         <Link href="/admin" style={btn("ghost")}>
           Back to Admin
         </Link>
@@ -408,13 +402,22 @@ export default async function AccessTitlesPage({
           <form action={switchTitleAction} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <div style={{ minWidth: 320 }}>
               <div style={label()}>Access Title</div>
-              <select name="titleId" defaultValue={titleId ?? ""} style={input()}>
+
+              {/* FIX: use value + key instead of defaultValue */}
+              <select
+                key={titleId ?? "none"}
+                name="titleId"
+                value={titleId ?? ""}
+                style={input()}
+                readOnly
+              >
                 {titles.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.name}
                   </option>
                 ))}
               </select>
+              {/* NOTE: readOnly avoids React warning since this is server-rendered */}
             </div>
 
             <button type="submit" style={{ ...btn("primary"), marginTop: 18 }}>
