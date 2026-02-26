@@ -169,7 +169,8 @@ function buildSystemAuditLine(args: {
     | "MARK_ARRIVED"
     | "ADD_TO_INVENTORY"
     | "DELETE_ORDER"
-    | "SYNC_ITEM_FROM_LATEST_ORDER";
+    | "SYNC_ITEM_FROM_LATEST_ORDER"
+    | "CREATE_ITEM_FROM_ORDER";
   itemSku?: string | null;
   prevCost?: string | null;
   newCost?: string | null;
@@ -204,69 +205,22 @@ const ORDER_INCLUDE = {
 
 type OrderRow = Prisma.InventoryOrderGetPayload<{ include: typeof ORDER_INCLUDE }>;
 
+function parseBool(v: FormDataEntryValue | null): boolean {
+  if (!v) return false;
+  const s = String(v).trim().toLowerCase();
+  return s === "1" || s === "true" || s === "on" || s === "yes";
+}
+
+function nonEmptyString(v: FormDataEntryValue | null): string {
+  return String(v ?? "").trim();
+}
+
 export default async function AdminInventoryOrdersPage({ searchParams }: { searchParams: SearchParams }) {
   await requireOrderHistoryView();
 
-  // IMPORTANT: prisma is a Proxy (lazy client). The `in` operator checks the Proxy TARGET ({}),
-  // not the real PrismaClient, because we don't define a `has` trap. So using `"inventoryOrder" in prisma`
-  // will incorrectly return false forever.
-  //
-  // We still must NOT touch Prisma during build-time evaluation (your prisma.ts intentionally throws).
-  const isBuildTimeEvaluation =
-    process.env.npm_lifecycle_event === "build" || process.env.NEXT_PHASE === "phase-production-build";
-
-  if (isBuildTimeEvaluation) {
-    return (
-      <main style={{ padding: 16 }}>
-        <div style={{ padding: 16, maxWidth: 1400, margin: "0 auto", color: "var(--foreground)" }}>
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <h1 style={{ fontSize: 26, fontWeight: 900, margin: 0 }}>Admin: Order History</h1>
-            <Link
-              href="/admin/items"
-              style={{
-                padding: "8px 12px",
-                borderRadius: 12,
-                border: "1px solid rgba(128,128,128,0.25)",
-                background: "var(--background)",
-                color: "var(--foreground)",
-                textDecoration: "none",
-                fontWeight: 900,
-              }}
-            >
-              ← Items
-            </Link>
-          </div>
-
-          <div
-            style={{
-              marginTop: 12,
-              padding: 14,
-              borderRadius: 14,
-              border: "1px solid rgba(128,128,128,0.25)",
-              background: "var(--background)",
-            }}
-          >
-            <div style={{ fontWeight: 900, marginBottom: 6 }}>Not ready during build</div>
-            <div style={{ opacity: 0.85, lineHeight: 1.5 }}>
-              This route was evaluated during build-time. Prisma access is intentionally blocked during build to prevent crashes.
-              <br />
-              This is expected during build; at runtime the page will load normally.
-            </div>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  // Runtime: safely check the delegate by actually reading it (triggers Proxy get → real PrismaClient).
-  let inventoryOrderDelegate: unknown = null;
-  try {
-    inventoryOrderDelegate = (prisma as unknown as Record<string, unknown>)["inventoryOrder"];
-  } catch {
-    inventoryOrderDelegate = null;
-  }
-
-  if (!inventoryOrderDelegate) {
+  // If Prisma Client isn't regenerated yet, avoid crashing.
+  const anyPrisma = prisma as unknown as { inventoryOrder?: unknown };
+  if (!("inventoryOrder" in anyPrisma) || !anyPrisma.inventoryOrder) {
     return (
       <main style={{ padding: 16 }}>
         <div style={{ padding: 16, maxWidth: 1400, margin: "0 auto", color: "var(--foreground)" }}>
@@ -491,7 +445,20 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
 
     const { session: s } = await requireOrderHistoryEdit();
 
-    const itemId = String(formData.get("itemId") ?? "").trim();
+    const isNewItem = parseBool(formData.get("isNewItem"));
+
+    let itemId = nonEmptyString(formData.get("itemId"));
+
+    // new item fields (only required when isNewItem)
+    const newSku = nonEmptyString(formData.get("newSku"));
+    const newName = nonEmptyString(formData.get("newName"));
+    const newPartNumber = nonEmptyString(formData.get("newPartNumber"));
+    const newVendorRaw = nonEmptyString(formData.get("newVendor")); // SUCCESS_PLUS / AMERICAN_PLUS
+    const newCategory = nonEmptyString(formData.get("newCategory"));
+    const newManufacturer = nonEmptyString(formData.get("newManufacturer"));
+    const newOrderFrom = nonEmptyString(formData.get("newOrderFrom"));
+    const newWebUrl = nonEmptyString(formData.get("newWebUrl"));
+
     const qty = parseRequiredInt(formData.get("qty"));
     const supplierName = String(formData.get("supplierName") ?? "").trim();
     const supplierPartNumber = String(formData.get("supplierPartNumber") ?? "").trim();
@@ -506,7 +473,13 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     const orderedAt = parseOptionalDateTimeLocal(formData.get("orderedAt")) ?? new Date();
     const note = String(formData.get("note") ?? "").trim();
 
-    if (!itemId) throw new Error("Missing item");
+    if (isNewItem) {
+      if (!newSku) throw new Error("New item SKU is required");
+      if (!newName) throw new Error("New item name is required");
+    } else {
+      if (!itemId) throw new Error("Missing item");
+    }
+
     if (!Number.isFinite(qty) || qty <= 0) throw new Error("Invalid quantity");
     if (!unitPriceStr) throw new Error("Unit price is required");
 
@@ -514,6 +487,40 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     if (!createdByUserId) throw new Error("Missing session user id");
 
     await prisma.$transaction(async (tx) => {
+      // If this order is for a brand-new item (SKU not in list), create it first (or reuse if it exists).
+      if (isNewItem) {
+        const vendor = newVendorRaw === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS";
+
+        const createdOrExisting = await tx.item.upsert({
+          where: { sku: newSku },
+          update: {
+            // Keep this conservative: fill in details, but do not touch quantities here.
+            name: newName,
+            partNumber: newPartNumber || null,
+            vendor,
+            category: newCategory || null,
+            manufacturer: newManufacturer || null,
+            orderFrom: newOrderFrom || null,
+            webUrl: newWebUrl || null,
+            active: true,
+          },
+          create: {
+            sku: newSku,
+            name: newName,
+            partNumber: newPartNumber || null,
+            vendor,
+            category: newCategory || null,
+            manufacturer: newManufacturer || null,
+            orderFrom: newOrderFrom || null,
+            webUrl: newWebUrl || null,
+            active: true,
+          },
+          select: { id: true, sku: true },
+        });
+
+        itemId = createdOrExisting.id;
+      }
+
       const item = await tx.item.findUnique({
         where: { id: itemId },
         select: { id: true, sku: true, cost: true, orderFrom: true, orderedQty: true },
@@ -524,21 +531,25 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
       const newCostStr = new Decimal(unitPriceStr).toFixed(2);
 
       const prevOrderFrom = item.orderFrom ?? null;
-      const newOrderFrom = supplierName ? supplierName : prevOrderFrom;
+      const newOrderFromFinal = supplierName ? supplierName : prevOrderFrom;
 
       const prevOrderedQty = item.orderedQty ?? 0;
       const newOrderedQty = prevOrderedQty + qty;
 
       const auditLine = buildSystemAuditLine({
-        action: "CREATE_ORDER",
+        action: isNewItem ? "CREATE_ITEM_FROM_ORDER" : "CREATE_ORDER",
         itemSku: item.sku,
         prevCost: prevCostStr,
         newCost: newCostStr,
         prevOrderFrom,
-        newOrderFrom,
+        newOrderFrom: newOrderFromFinal,
         prevOrderedQty,
         newOrderedQty,
-        note: supplierName ? "item.cost + item.orderFrom updated" : "item.cost updated",
+        note: isNewItem
+          ? "item created (or reused by sku) + item.cost updated"
+          : supplierName
+            ? "item.cost + item.orderFrom updated"
+            : "item.cost updated",
       });
 
       // Create the order (this IS the audit trail row)
@@ -678,11 +689,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
         note: `order=${id}`,
       });
 
-      const mergedNote = userNote
-        ? `${userNote}\n${auditLine}`
-        : existing.note
-          ? `${existing.note}\n${auditLine}`
-          : auditLine;
+      const mergedNote = userNote ? `${userNote}\n${auditLine}` : existing.note ? `${existing.note}\n${auditLine}` : auditLine;
 
       await tx.inventoryOrder.update({
         where: { id },
@@ -969,112 +976,202 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           </Link>
         </div>
 
-        {/* CREATE ORDER */}
-        <div style={{ marginTop: 12, border, borderRadius: 14, background: surface, padding: 12 }}>
-          <div style={{ fontWeight: 900, marginBottom: 8, fontSize: 14 }}>Create Order</div>
+        {/* CREATE ORDER (collapsed by default) */}
+        <details style={{ marginTop: 12 }}>
+          <summary
+            style={{
+              cursor: "pointer",
+              userSelect: "none",
+              fontWeight: 900,
+              padding: 12,
+              border,
+              borderRadius: 14,
+              background: surface,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 10,
+            }}
+          >
+            <span>Create Order</span>
+            <span style={{ fontSize: 12, opacity: 0.75 }}>Click to expand</span>
+          </summary>
 
-          <form action={createOrderAction} style={{ display: "grid", gap: 10 }}>
-            <div style={wrapRow}>
-              <label style={{ ...controlLabel, ...flexItem(420, 3) }}>
-                Item
-                <select name="itemId" required style={controlBase}>
-                  <option value="">Select item…</option>
-                  {items.map((it) => (
-                    <option key={it.id} value={it.id}>
-                      {it.sku}
-                      {it.partNumber ? ` • ${it.partNumber}` : ""} • {it.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+          <div style={{ marginTop: 10, border, borderRadius: 14, background: surface, padding: 12 }}>
+            <div style={{ fontWeight: 900, marginBottom: 8, fontSize: 14 }}>Create Order</div>
 
-              <label style={{ ...controlLabel, ...flexItem(110, 0) }}>
-                Qty
-                <input name="qty" type="number" min={1} step={1} defaultValue={1} required style={controlBase} />
-              </label>
+            <form action={createOrderAction} style={{ display: "grid", gap: 10 }}>
+              <div style={wrapRow}>
+                <label style={{ ...controlLabel, ...flexItem(420, 3) }}>
+                  Item (select existing)
+                  <select name="itemId" defaultValue="" style={controlBase}>
+                    <option value="">Select item…</option>
+                    {items.map((it) => (
+                      <option key={it.id} value={it.id}>
+                        {it.sku}
+                        {it.partNumber ? ` • ${it.partNumber}` : ""} • {it.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>
+                    If you’re creating a brand-new item, use the “New item” section below instead.
+                  </div>
+                </label>
 
-              <label style={{ ...controlLabel, ...flexItem(200, 1) }}>
-                Supplier (optional)
-                <input name="supplierName" placeholder="Supplier…" style={controlBase} />
-              </label>
+                <label style={{ ...controlLabel, ...flexItem(110, 0) }}>
+                  Qty
+                  <input name="qty" type="number" min={1} step={1} defaultValue={1} required style={controlBase} />
+                </label>
 
-              <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
-                Supplier Part # (optional)
-                <input name="supplierPartNumber" placeholder="Supplier part #…" style={controlBase} />
-              </label>
+                <label style={{ ...controlLabel, ...flexItem(200, 1) }}>
+                  Supplier (optional)
+                  <input name="supplierName" placeholder="Supplier…" style={controlBase} />
+                </label>
 
-              <label style={{ ...controlLabel, ...flexItem(170, 0) }}>
-                Unit price (required)
-                <input name="unitPrice" placeholder="0.00" inputMode="decimal" required style={controlBase} />
-              </label>
+                <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
+                  Supplier Part # (optional)
+                  <input name="supplierPartNumber" placeholder="Supplier part #…" style={controlBase} />
+                </label>
 
-              <label style={{ ...controlLabel, ...flexItem(220, 0) }}>
-                Ordered at
-                <input name="orderedAt" type="datetime-local" defaultValue={fmtForDatetimeLocal(new Date())} style={controlBase} />
-              </label>
-            </div>
+                <label style={{ ...controlLabel, ...flexItem(170, 0) }}>
+                  Unit price (required)
+                  <input name="unitPrice" placeholder="0.00" inputMode="decimal" required style={controlBase} />
+                </label>
 
-            <div style={wrapRow}>
-              <label style={{ ...controlLabel, ...flexItem(170, 0) }}>
-                Shipping (optional)
-                <input name="shippingCost" placeholder="0.00" inputMode="decimal" style={controlBase} />
-              </label>
-
-              <label style={{ ...controlLabel, ...flexItem(150, 0) }}>
-                Tax (optional)
-                <input name="taxCost" placeholder="0.00" inputMode="decimal" style={controlBase} />
-              </label>
-
-              <label style={{ ...controlLabel, ...flexItem(240, 1) }}>
-                For tech (optional)
-                <select name="forUserId" defaultValue="" style={controlBase}>
-                  <option value="">—</option>
-                  {users.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name} ({u.role})
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label style={{ ...controlLabel, ...flexItem(240, 1) }}>
-                For store (optional)
-                <select name="forStoreId" defaultValue="" style={controlBase}>
-                  <option value="">—</option>
-                  {locations.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label style={{ ...controlLabel, ...flexItem(420, 3) }}>
-                Note (optional)
-                <input name="note" placeholder="Optional note…" style={controlBase} />
-              </label>
-
-              <div style={{ ...flexItem(200, 0), display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                <button type="submit" style={btnPrimary}>
-                  Create
-                </button>
+                <label style={{ ...controlLabel, ...flexItem(220, 0) }}>
+                  Ordered at
+                  <input name="orderedAt" type="datetime-local" defaultValue={fmtForDatetimeLocal(new Date())} style={controlBase} />
+                </label>
               </div>
-            </div>
 
-            <div style={{ fontSize: 12, opacity: 0.8, lineHeight: 1.5 }}>
-              Creating an order immediately increments <b>Item.orderedQty</b> and also updates:
-              <ul style={{ margin: "6px 0 0 18px" }}>
-                <li>
-                  <b>Item.cost</b> → set to the order <b>unit price</b>
-                </li>
-                <li>
-                  <b>Item.orderFrom</b> → set to <b>Supplier</b> (if provided)
-                </li>
-              </ul>
-              Each order row includes an <b>AUDIT</b> line in <b>Note</b> so you can see what changed.
-            </div>
-          </form>
-        </div>
+              {/* NEW ITEM (optional) */}
+              <details style={{ marginTop: 6, border, borderRadius: 12, padding: 10, background: soft }}>
+                <summary style={{ cursor: "pointer", fontWeight: 900 }}>
+                  New item (creates Item automatically if SKU doesn’t exist)
+                </summary>
+
+                <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                  <label style={{ display: "flex", gap: 10, alignItems: "center", fontWeight: 900 }}>
+                    <input type="checkbox" name="isNewItem" />
+                    Create / use item by SKU (instead of selecting)
+                  </label>
+
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                    <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
+                      SKU (required for new)
+                      <input name="newSku" placeholder="SKU…" style={controlBase} />
+                    </label>
+
+                    <label style={{ ...controlLabel, ...flexItem(360, 2) }}>
+                      Name (required for new)
+                      <input name="newName" placeholder="Item name…" style={controlBase} />
+                    </label>
+
+                    <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
+                      Part #
+                      <input name="newPartNumber" placeholder="Part number…" style={controlBase} />
+                    </label>
+
+                    <label style={{ ...controlLabel, ...flexItem(220, 0) }}>
+                      Vendor
+                      <select name="newVendor" defaultValue="SUCCESS_PLUS" style={controlBase}>
+                        <option value="SUCCESS_PLUS">SUCCESS_PLUS</option>
+                        <option value="AMERICAN_PLUS">AMERICAN_PLUS</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                    <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
+                      Category
+                      <input name="newCategory" placeholder="Category…" style={controlBase} />
+                    </label>
+
+                    <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
+                      Manufacturer
+                      <input name="newManufacturer" placeholder="Manufacturer…" style={controlBase} />
+                    </label>
+
+                    <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
+                      Order From
+                      <input name="newOrderFrom" placeholder="Order from…" style={controlBase} />
+                    </label>
+
+                    <label style={{ ...controlLabel, ...flexItem(360, 2) }}>
+                      Web URL
+                      <input name="newWebUrl" placeholder="https://…" style={controlBase} />
+                    </label>
+                  </div>
+
+                  <div style={{ fontSize: 12, opacity: 0.8, lineHeight: 1.5 }}>
+                    When checked, the system does an <b>upsert</b> by <b>SKU</b>: creates the item if missing, otherwise reuses the
+                    existing item with that SKU.
+                  </div>
+                </div>
+              </details>
+
+              <div style={wrapRow}>
+                <label style={{ ...controlLabel, ...flexItem(170, 0) }}>
+                  Shipping (optional)
+                  <input name="shippingCost" placeholder="0.00" inputMode="decimal" style={controlBase} />
+                </label>
+
+                <label style={{ ...controlLabel, ...flexItem(150, 0) }}>
+                  Tax (optional)
+                  <input name="taxCost" placeholder="0.00" inputMode="decimal" style={controlBase} />
+                </label>
+
+                <label style={{ ...controlLabel, ...flexItem(240, 1) }}>
+                  For tech (optional)
+                  <select name="forUserId" defaultValue="" style={controlBase}>
+                    <option value="">—</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name} ({u.role})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label style={{ ...controlLabel, ...flexItem(240, 1) }}>
+                  For store (optional)
+                  <select name="forStoreId" defaultValue="" style={controlBase}>
+                    <option value="">—</option>
+                    {locations.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label style={{ ...controlLabel, ...flexItem(420, 3) }}>
+                  Note (optional)
+                  <input name="note" placeholder="Optional note…" style={controlBase} />
+                </label>
+
+                <div style={{ ...flexItem(200, 0), display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                  <button type="submit" style={btnPrimary}>
+                    Create
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ fontSize: 12, opacity: 0.8, lineHeight: 1.5 }}>
+                Creating an order immediately increments <b>Item.orderedQty</b> and also updates:
+                <ul style={{ margin: "6px 0 0 18px" }}>
+                  <li>
+                    <b>Item.cost</b> → set to the order <b>unit price</b>
+                  </li>
+                  <li>
+                    <b>Item.orderFrom</b> → set to <b>Supplier</b> (if provided)
+                  </li>
+                </ul>
+                Each order row includes an <b>AUDIT</b> line in <b>Note</b> so you can see what changed.
+              </div>
+            </form>
+          </div>
+        </details>
 
         {/* FILTERS */}
         <div style={{ marginTop: 14, border, borderRadius: 14, background: surface, padding: 12 }}>
@@ -1319,15 +1416,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
 
                             <label style={controlLabel}>
                               Qty
-                              <input
-                                name="qty"
-                                type="number"
-                                min={1}
-                                step={1}
-                                defaultValue={o.quantity}
-                                required
-                                style={controlBase}
-                              />
+                              <input name="qty" type="number" min={1} step={1} defaultValue={o.quantity} required style={controlBase} />
                             </label>
 
                             <label style={controlLabel}>
@@ -1349,22 +1438,11 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                             <label style={controlLabel}>
                               Unit price
-                              <input
-                                name="unitPrice"
-                                defaultValue={o.unitPrice ? String(o.unitPrice) : ""}
-                                placeholder="0.00"
-                                required
-                                style={controlBase}
-                              />
+                              <input name="unitPrice" defaultValue={o.unitPrice ? String(o.unitPrice) : ""} placeholder="0.00" required style={controlBase} />
                             </label>
                             <label style={controlLabel}>
                               Shipping
-                              <input
-                                name="shippingCost"
-                                defaultValue={o.shippingCost ? String(o.shippingCost) : ""}
-                                placeholder="0.00"
-                                style={controlBase}
-                              />
+                              <input name="shippingCost" defaultValue={o.shippingCost ? String(o.shippingCost) : ""} placeholder="0.00" style={controlBase} />
                             </label>
                             <label style={controlLabel}>
                               Tax
