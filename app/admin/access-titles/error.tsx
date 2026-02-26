@@ -10,7 +10,6 @@ export default function AccessTitlesError({
   reset: () => void;
 }) {
   useEffect(() => {
-    // logs in browser console
     console.error("Access Titles crashed:", error);
   }, [error]);
 
