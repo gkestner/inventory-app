@@ -6,13 +6,13 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/lib/auth";
 import { Permission, Role } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import LogoutButton from "@/app/components/LogoutButton";
+import SignOutButton from "@/app/components/SignOutButton";
 
 export const dynamic = "force-dynamic";
 
 /**
  * UserNav
- * - ADMIN role => allow-all (via loadUserPermissions) though typically swapped in via preview mode
+ * - ADMIN role => allow-all
  * - Non-admin => permission-gated
  */
 export default async function UserNav() {
@@ -84,12 +84,12 @@ export default async function UserNav() {
       Permission.SUBMIT_OWN_WORK_ORDERS,
     ]);
 
-  // Travel Log is derived from Work Orders, so gate it the same way (view permission is sufficient).
-  const canTravelLog = isEmployee || hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
+  const canTravelLog =
+    isEmployee || hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
 
-  // Employees should not see Parts Checkout in nav.
   const canCheckout =
-    !isEmployee && hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
+    !isEmployee &&
+    hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
 
   const homeHref = isEmployee ? "/employee" : "/maintenance";
 
@@ -103,27 +103,29 @@ export default async function UserNav() {
 
           <span style={groupLabel}>Work</span>
 
-          {canWorkOrders ? (
+          {canWorkOrders && (
             <Link href="/maintenance/work-orders" style={linkStyle}>
               Work Orders
             </Link>
-          ) : null}
+          )}
 
-          {canTravelLog ? (
+          {canTravelLog && (
             <Link href="/maintenance/travel-log" style={linkStyle}>
               Travel Log
             </Link>
-          ) : null}
+          )}
 
-          {canCheckout ? (
+          {canCheckout && (
             <Link href="/maintenance/checkout" style={linkStyle}>
               Checkout
             </Link>
-          ) : null}
+          )}
         </div>
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <LogoutButton
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <SignOutButton
+            label="Logout"
+            callbackUrl="/login"
             style={{
               padding: "6px 12px",
               borderRadius: 10,

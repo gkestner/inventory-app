@@ -1,21 +1,26 @@
+// app/components/SignOutButton.tsx
 "use client";
 
-import * as React from "react";
 import { signOut } from "next-auth/react";
+import type { CSSProperties, ReactNode } from "react";
 
-export type SignOutButtonProps = {
+type Props = {
   label?: string;
   callbackUrl?: string;
-  style?: React.CSSProperties;
+  style?: CSSProperties;
   className?: string;
+  children?: ReactNode;
 };
 
 export default function SignOutButton({
-  label = "Logout",
+  label,
   callbackUrl = "/login",
   style,
   className,
-}: SignOutButtonProps) {
+  children,
+}: Props) {
+  const text = children ?? label ?? "Logout";
+
   return (
     <button
       type="button"
@@ -23,7 +28,7 @@ export default function SignOutButton({
       style={style}
       className={className}
     >
-      {label}
+      {text}
     </button>
   );
 }
