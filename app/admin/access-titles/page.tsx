@@ -145,6 +145,17 @@ function permsForScope(module: ModuleFilter) {
   return PERMS.filter((p) => p.module === module).map((p) => p.perm);
 }
 
+type RawSearchParams = {
+  titleId?: string | string[];
+  module?: string | string[];
+  q?: string | string[];
+};
+
+function firstParam(v: string | string[] | undefined): string {
+  if (!v) return "";
+  return Array.isArray(v) ? v[0] ?? "" : v;
+}
+
 // -------------------- Server Actions --------------------
 
 async function createTitleAction(formData: FormData) {
@@ -319,15 +330,22 @@ async function clearAllInScopeAction(formData: FormData) {
 export default async function AccessTitlesPage({
   searchParams,
 }: {
-  searchParams?: { titleId?: string; module?: string; q?: string };
+  // Next.js 16: searchParams can be a Promise
+  searchParams?: RawSearchParams | Promise<RawSearchParams>;
 }) {
   await requireAdmin();
+
+  const sp = await Promise.resolve(searchParams);
+
+  const titleIdFromUrl = firstParam(sp?.titleId);
+  const moduleFromUrl = firstParam(sp?.module);
+  const qFromUrl = firstParam(sp?.q);
 
   const titles = await prisma.permissionTitle.findMany({
     orderBy: [{ active: "desc" }, { name: "asc" }],
   });
 
-  const titleId = searchParams?.titleId ?? titles[0]?.id ?? null;
+  const titleId = titleIdFromUrl || titles[0]?.id || null;
   const selectedTitle = titleId ? await prisma.permissionTitle.findUnique({ where: { id: titleId } }) : null;
 
   const existingPermRows = titleId ? await prisma.permissionTitlePermission.findMany({ where: { titleId } }) : [];
@@ -335,15 +353,14 @@ export default async function AccessTitlesPage({
   const selectedCount = selectedSet.size;
   const totalCount = PERMS.length;
 
-  const moduleParamRaw = nonEmpty(searchParams?.module ?? "");
   const moduleFilter: ModuleFilter =
-    moduleParamRaw === "All"
+    moduleFromUrl === "All"
       ? "All"
-      : MODULES.includes(moduleParamRaw as PermMeta["module"])
-        ? (moduleParamRaw as PermMeta["module"])
+      : MODULES.includes(moduleFromUrl as PermMeta["module"])
+        ? (moduleFromUrl as PermMeta["module"])
         : "Admin";
 
-  const q = nonEmpty(searchParams?.q ?? "");
+  const q = (qFromUrl || "").trim();
   const nq = normalizeQuery(q);
 
   const visible = PERMS.filter((p) => (moduleFilter === "All" ? true : p.module === moduleFilter)).filter((p) => {
@@ -389,9 +406,7 @@ export default async function AccessTitlesPage({
 
       <div style={card()}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          {/* FIX: Switching titles is navigation -> use GET */}
           <form method="GET" action="/admin/access-titles" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            {/* preserve current filters when switching */}
             <input type="hidden" name="module" value={moduleFilter} />
             <input type="hidden" name="q" value={q} />
 
@@ -630,7 +645,14 @@ export default async function AccessTitlesPage({
                           const sel = perms.filter((p) => selectedSet.has(p.perm)).length;
 
                           return (
-                            <div key={groupName} style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, padding: 12 }}>
+                            <div
+                              key={groupName}
+                              style={{
+                                border: "1px solid rgba(255,255,255,0.10)",
+                                borderRadius: 14,
+                                padding: 12,
+                              }}
+                            >
                               <div style={{ fontSize: 14, fontWeight: 700, color: "white" }}>
                                 {groupName} <span style={{ opacity: 0.7, fontWeight: 600 }}>({sel}/{total})</span>
                               </div>
