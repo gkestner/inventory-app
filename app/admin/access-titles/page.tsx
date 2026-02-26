@@ -9,6 +9,7 @@ import { Permission, Role } from "@prisma/client";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import PermissionsTreeClient from "./PermissionsTreeClient";
+import { PERMISSION_CATALOG } from "@/app/lib/permissionCatalog";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -343,6 +344,15 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
   const selectedPermissions = (selectedWithPerms?.permissions ?? []).map((p) => String(p.permission));
   const allPermissions = Object.values(Permission).map((p) => String(p));
 
+  // ✅ PASS CATALOG TO CLIENT AS PLAIN STRINGS (NO PRISMA IMPORT IN CLIENT)
+  const catalogForClient = PERMISSION_CATALOG.map((e) => ({
+    permission: String(e.permission),
+    module: e.module,
+    path: e.path,
+    label: e.label,
+    description: e.description,
+  }));
+
   const titleSwitchAction = async (formData: FormData) => {
     "use server";
     await requireAdmin();
@@ -379,7 +389,6 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
           </span>
         </div>
 
-        {/* Title switch + create */}
         <div style={{ marginTop: 12, ...card }}>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
             <form action={titleSwitchAction} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
@@ -403,7 +412,6 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
               <details>
                 <summary style={{ cursor: "pointer", fontWeight: 900 }}>Create new title</summary>
                 <div style={{ marginTop: 10 }}>
-                  {/* ✅ separate form, not nested */}
                   <form action={createTitleAction} style={{ display: "grid", gap: 10, minWidth: 320 }}>
                     <label style={label}>
                       Title name
@@ -426,46 +434,26 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
         </div>
 
         <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "360px 1fr", gap: 12 }}>
-          {/* Title details */}
           <section style={{ display: "grid", gap: 12 }}>
             <div style={card}>
               <div style={{ fontWeight: 900, marginBottom: 8 }}>Title Details</div>
 
-              {/* ✅ Save form (ONLY save) */}
               <form action={updateTitleAction} style={{ display: "grid", gap: 10 }}>
                 <input type="hidden" name="id" value={selectedTitle.id} />
-
                 <label style={label}>
                   Name
-                  <input
-                    name="name"
-                    defaultValue={selectedWithPerms?.name ?? selectedTitle.name}
-                    style={input}
-                    required
-                  />
+                  <input name="name" defaultValue={selectedWithPerms?.name ?? selectedTitle.name} style={input} required />
                 </label>
-
                 <label style={label}>
                   Description
-                  <input
-                    name="description"
-                    defaultValue={selectedWithPerms?.description ?? ""}
-                    style={input}
-                  />
+                  <input name="description" defaultValue={selectedWithPerms?.description ?? ""} style={input} />
                 </label>
 
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                  <button type="submit" style={btnPrimary}>
-                    Save title details
-                  </button>
-                </div>
-
-                <div style={{ fontSize: 12, opacity: 0.75 }}>
-                  Deleting removes it from all users automatically.
-                </div>
+                <button type="submit" style={btnPrimary}>
+                  Save title details
+                </button>
               </form>
 
-              {/* ✅ Delete form (SEPARATE, NOT NESTED) */}
               <form action={deleteTitleAction} style={{ marginTop: 10 }}>
                 <input type="hidden" name="id" value={selectedTitle.id} />
                 <button type="submit" style={btnDanger}>
@@ -473,16 +461,8 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
                 </button>
               </form>
             </div>
-
-            <div style={card}>
-              <div style={{ fontWeight: 900, marginBottom: 6 }}>How to use</div>
-              <div style={{ fontSize: 13, opacity: 0.85, lineHeight: 1.45 }}>
-                Use the tree to select permissions by module and path, then click <b>Save Changes</b>.
-              </div>
-            </div>
           </section>
 
-          {/* Permissions Tree */}
           <section style={card}>
             <form action={updatePermissionsAction} style={{ display: "grid", gap: 12 }}>
               <input type="hidden" name="id" value={selectedTitle.id} />
@@ -500,15 +480,16 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
                 </span>
               </div>
 
-              <PermissionsTreeClient allPermissions={allPermissions} selectedPermissions={selectedPermissions} />
+              <PermissionsTreeClient
+                allPermissions={allPermissions}
+                selectedPermissions={selectedPermissions}
+                catalog={catalogForClient}
+              />
 
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                 <button type="submit" style={btnPrimary}>
                   Save Changes
                 </button>
-                <div style={{ fontSize: 12, opacity: 0.75 }}>
-                  Saves permissions for <b>{selectedWithPerms?.name ?? selectedTitle.name}</b>.
-                </div>
               </div>
             </form>
           </section>

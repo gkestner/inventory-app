@@ -2,16 +2,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Permission } from "@prisma/client";
-import { PERMISSION_CATALOG, getPermissionModules, buildPermissionTreeForModule } from "@/app/lib/permissionCatalog";
 
-type UiEntry = {
+type CatalogEntry = {
   permission: string;
   module: string;
   path: string[];
   label: string;
   description?: string;
 };
+
+type UiEntry = CatalogEntry;
 
 type UiNode =
   | { kind: "group"; key: string; name: string; children: UiNode[] }
@@ -30,8 +30,17 @@ function uniqStrings(vals: string[]): string[] {
   return out;
 }
 
-function buildOtherModuleTree(entries: UiEntry[]): UiNode[] {
-  const root: UiNode = { kind: "group", key: "module:Other", name: "Other", children: [] };
+function buildPermissionTreeForModuleFromCatalog(module: string, catalog: CatalogEntry[]): UiNode[] {
+  const entries = catalog.filter((e) => e.module === module).slice();
+
+  entries.sort((a, b) => {
+    const ap = (a.path ?? []).join(" > ");
+    const bp = (b.path ?? []).join(" > ");
+    if (ap !== bp) return ap.localeCompare(bp);
+    return a.label.localeCompare(b.label);
+  });
+
+  const root: UiNode = { kind: "group", key: `module:${module}`, name: module, children: [] };
 
   function getOrCreateGroup(parent: UiNode[], name: string, key: string) {
     const existing = parent.find((n) => n.kind === "group" && n.key === key);
@@ -41,25 +50,18 @@ function buildOtherModuleTree(entries: UiEntry[]): UiNode[] {
     return g as Extract<UiNode, { kind: "group" }>;
   }
 
-  const sorted = [...entries].sort((a, b) => {
-    const ap = a.path.join(" > ");
-    const bp = b.path.join(" > ");
-    if (ap !== bp) return ap.localeCompare(bp);
-    return a.label.localeCompare(b.label);
-  });
-
-  for (const e of sorted) {
+  for (const entry of entries) {
     let children = (root as Extract<UiNode, { kind: "group" }>).children;
-    let currentKey = "module:Other";
+    let currentKey = `module:${module}`;
 
-    const segs = e.path?.length ? e.path : ["Uncategorized"];
+    const segs = entry.path?.length ? entry.path : ["General"];
     for (const seg of segs) {
       currentKey += `/${seg}`;
       const g = getOrCreateGroup(children, seg, currentKey);
       children = g.children;
     }
 
-    children.push({ kind: "leaf", key: `perm:${e.permission}`, entry: e });
+    children.push({ kind: "leaf", key: `perm:${entry.permission}`, entry });
   }
 
   return (root as Extract<UiNode, { kind: "group" }>).children;
@@ -77,9 +79,10 @@ function filterTreeByQuery(nodes: UiNode[], qLower: string): UiNode[] {
 
   function keepNode(n: UiNode): UiNode | null {
     if (n.kind === "leaf") {
-      const hay = `${n.entry.permission} ${n.entry.label} ${n.entry.description ?? ""} ${n.entry.path.join(" ")}`.toLowerCase();
+      const hay = `${n.entry.permission} ${n.entry.label} ${n.entry.description ?? ""} ${(n.entry.path ?? []).join(" ")}`.toLowerCase();
       return hay.includes(qLower) ? n : null;
     }
+
     const keptChildren = n.children.map(keepNode).filter(Boolean) as UiNode[];
     if (keptChildren.length === 0) return null;
     return { ...n, children: keptChildren };
@@ -99,24 +102,20 @@ function TreeNode({
   setSelected: (next: Set<string>) => void;
   depth: number;
 }) {
-  const border = "1px solid rgba(128,128,128,0.18)";
-  const indent = depth ? depth * 14 : 0;
-
   if (node.kind === "leaf") {
     const checked = selected.has(node.entry.permission);
 
     return (
       <label
         style={{
-          display: "grid",
-          gridTemplateColumns: "18px 1fr",
+          display: "flex",
           gap: 10,
-          alignItems: "start",
+          alignItems: "flex-start",
           padding: "10px 12px",
           borderRadius: 12,
-          border,
+          border: "1px solid rgba(128,128,128,0.18)",
           background: "rgba(255,255,255,0.02)",
-          marginLeft: indent,
+          marginLeft: depth ? depth * 14 : 0,
         }}
       >
         <input
@@ -128,10 +127,10 @@ function TreeNode({
             else next.delete(node.entry.permission);
             setSelected(next);
           }}
-          style={{ width: 18, height: 18, marginTop: 2 }}
+          style={{ width: 18, height: 18, marginTop: 3 }}
         />
 
-        <div style={{ display: "grid", gap: 3 }}>
+        <div style={{ display: "grid", gap: 2 }}>
           <div style={{ fontWeight: 900, lineHeight: 1.2 }}>{node.entry.label}</div>
           <div
             style={{
@@ -144,7 +143,9 @@ function TreeNode({
             {node.entry.permission}
           </div>
           {node.entry.description ? (
-            <div style={{ fontSize: 12, opacity: 0.8, marginTop: 2, lineHeight: 1.25 }}>{node.entry.description}</div>
+            <div style={{ fontSize: 12, opacity: 0.8, marginTop: 2, lineHeight: 1.25 }}>
+              {node.entry.description}
+            </div>
           ) : null}
         </div>
       </label>
@@ -157,18 +158,16 @@ function TreeNode({
 
   return (
     <div style={{ display: "grid", gap: 8 }}>
-      {/* Group header */}
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: "18px 1fr auto",
-          gap: 10,
+          display: "flex",
           alignItems: "center",
+          gap: 10,
           padding: "10px 12px",
           borderRadius: 12,
           border: "1px solid rgba(128,128,128,0.25)",
           background: "rgba(255,255,255,0.02)",
-          marginLeft: indent,
+          marginLeft: depth ? depth * 14 : 0,
         }}
       >
         <input
@@ -187,14 +186,14 @@ function TreeNode({
           style={{ width: 18, height: 18 }}
         />
 
-        <div style={{ fontWeight: 900, lineHeight: 1.15 }}>{node.name}</div>
-
-        <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 800, whiteSpace: "nowrap" }}>
-          ({leafPerms.filter((p) => selected.has(p)).length}/{leafPerms.length})
+        <div style={{ fontWeight: 900, lineHeight: 1.2 }}>
+          {node.name}{" "}
+          <span style={{ fontSize: 12, opacity: 0.75 }}>
+            ({leafPerms.filter((p) => selected.has(p)).length}/{leafPerms.length})
+          </span>
         </div>
       </div>
 
-      {/* Children */}
       <div style={{ display: "grid", gap: 8 }}>
         {node.children.map((ch) => (
           <TreeNode key={ch.key} node={ch} selected={selected} setSelected={setSelected} depth={depth + 1} />
@@ -207,120 +206,82 @@ function TreeNode({
 export default function PermissionsTreeClient({
   allPermissions,
   selectedPermissions,
+  catalog,
 }: {
   allPermissions: string[];
   selectedPermissions: string[];
+  catalog: CatalogEntry[];
 }) {
-  const catalogByPerm = useMemo(() => {
-    const m = new Map<string, UiEntry>();
-    for (const ce of PERMISSION_CATALOG) {
-      const key = String(ce.permission);
-      m.set(key, {
-        permission: key,
-        module: ce.module,
-        path: ce.path,
-        label: ce.label,
-        description: ce.description,
-      });
-    }
-    return m;
-  }, []);
-
   const allPermStrings = useMemo(() => uniqStrings(allPermissions.map((p) => String(p))), [allPermissions]);
 
+  const catalogByPerm = useMemo(() => {
+    const m = new Map<string, UiEntry>();
+    for (const ce of catalog) m.set(String(ce.permission), ce);
+    return m;
+  }, [catalog]);
+
+  const modules = useMemo(() => {
+    const s = new Set<string>();
+    for (const e of catalog) s.add(e.module);
+    // include "Other" if unknown perms exist
+    const unknown = allPermStrings.filter((p) => !catalogByPerm.has(p));
+    if (unknown.length) s.add("Other");
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [catalog, allPermStrings, catalogByPerm]);
+
   const initialSelected = useMemo(
-    () => new Set(uniqStrings(selectedPermissions.map((p) => String(p))).filter((p) => allPermStrings.includes(p))),
+    () => new Set(uniqStrings(selectedPermissions.map(String)).filter((p) => allPermStrings.includes(p))),
     [selectedPermissions, allPermStrings]
   );
 
   const [selected, setSelected] = useState<Set<string>>(initialSelected);
   const [q, setQ] = useState("");
 
-  useEffect(() => {
-    setSelected(initialSelected);
-  }, [initialSelected]);
+  useEffect(() => setSelected(initialSelected), [initialSelected]);
 
-  const baseModules = useMemo(() => getPermissionModules(), []);
-  const allModules = useMemo(() => {
-    const unknown = allPermStrings.filter((p) => !catalogByPerm.has(p));
-    const mods = new Set<string>(baseModules);
-    if (unknown.length > 0) mods.add("Other");
-    return Array.from(mods).sort((a, b) => a.localeCompare(b));
-  }, [baseModules, allPermStrings, catalogByPerm]);
-
-  const defaultModule = useMemo(() => {
-    for (const mod of allModules) {
-      if (mod === "Other") {
-        const unknown = allPermStrings.filter((p) => !catalogByPerm.has(p));
-        if (unknown.length) return "Other";
-      } else {
-        const raw = buildPermissionTreeForModule(mod);
-
-        const collect = (x: any): string[] => {
-          if (x.kind === "leaf") return [String(x.entry.permission)];
-          return (x.children ?? []).flatMap(collect);
-        };
-
-        const modulePerms = raw.flatMap(collect).filter((p) => allPermStrings.includes(p));
-        if (modulePerms.length) return mod;
-      }
-    }
-    return allModules[0] ?? "Other";
-  }, [allModules, allPermStrings, catalogByPerm]);
-
+  const defaultModule = useMemo(() => modules[0] ?? "Other", [modules]);
   const [activeModule, setActiveModule] = useState<string>(defaultModule);
-
-  useEffect(() => {
-    setActiveModule(defaultModule);
-  }, [defaultModule]);
+  useEffect(() => setActiveModule(defaultModule), [defaultModule]);
 
   const moduleTree: UiNode[] = useMemo(() => {
     const qLower = q.trim().toLowerCase();
 
     if (activeModule === "Other") {
-      const unknown = allPermStrings
+      const unknownEntries: UiEntry[] = allPermStrings
         .filter((p) => !catalogByPerm.has(p))
-        .map<UiEntry>((p) => ({
+        .map((p) => ({
           permission: p,
           module: "Other",
           path: ["Uncategorized"],
           label: p,
         }));
 
-      return filterTreeByQuery(buildOtherModuleTree(unknown), qLower);
+      const root: UiNode = { kind: "group", key: "module:Other", name: "Other", children: [] };
+      root.children = buildPermissionTreeForModuleFromCatalog("Other", unknownEntries);
+      return filterTreeByQuery(root.children, qLower);
     }
 
-    const raw = buildPermissionTreeForModule(activeModule);
+    const rawTree = buildPermissionTreeForModuleFromCatalog(activeModule, catalog);
 
-    const convert = (n: any): UiNode | null => {
-      if (n.kind === "leaf") {
-        const permStr = String(n.entry.permission);
-        if (!allPermStrings.includes(permStr)) return null;
-
-        const ce = catalogByPerm.get(permStr);
-        const entry: UiEntry =
-          ce ??
-          ({
-            permission: permStr,
-            module: activeModule,
-            path: [],
-            label: permStr,
-          } satisfies UiEntry);
-
-        return { kind: "leaf", key: `perm:${permStr}`, entry };
-      }
-
-      const children = (n.children ?? []).map(convert).filter(Boolean) as UiNode[];
-      if (children.length === 0) return null;
-      return { kind: "group", key: String(n.key), name: String(n.name), children };
+    // Only show permissions that exist in current Prisma enum list
+    const filterExisting = (nodes: UiNode[]): UiNode[] => {
+      const walk = (n: UiNode): UiNode | null => {
+        if (n.kind === "leaf") {
+          return allPermStrings.includes(n.entry.permission) ? n : null;
+        }
+        const children = n.children.map(walk).filter(Boolean) as UiNode[];
+        if (!children.length) return null;
+        return { ...n, children };
+      };
+      return nodes.map(walk).filter(Boolean) as UiNode[];
     };
 
-    return filterTreeByQuery(raw.map(convert).filter(Boolean) as UiNode[], qLower);
-  }, [activeModule, q, allPermStrings, catalogByPerm]);
+    const trimmed = filterExisting(rawTree);
+    return filterTreeByQuery(trimmed, qLower);
+  }, [activeModule, q, catalog, allPermStrings, catalogByPerm]);
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
-      {/* Top controls */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
         <input
           value={q}
@@ -349,7 +310,6 @@ export default function PermissionsTreeClient({
             color: "var(--foreground)",
             fontWeight: 900,
             cursor: "pointer",
-            whiteSpace: "nowrap",
           }}
         >
           Select all
@@ -366,18 +326,16 @@ export default function PermissionsTreeClient({
             color: "var(--foreground)",
             fontWeight: 900,
             cursor: "pointer",
-            whiteSpace: "nowrap",
           }}
         >
           Clear all
         </button>
 
-        <div style={{ fontSize: 12, opacity: 0.75, whiteSpace: "nowrap" }}>
+        <div style={{ fontSize: 12, opacity: 0.75 }}>
           Selected: <b>{selected.size}</b> / Total: <b>{allPermStrings.length}</b>
         </div>
       </div>
 
-      {/* Layout */}
       <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 12 }}>
         <aside
           style={{
@@ -393,7 +351,7 @@ export default function PermissionsTreeClient({
           <div style={{ fontWeight: 900, marginBottom: 10 }}>Modules</div>
 
           <div style={{ display: "grid", gap: 8 }}>
-            {allModules.map((m) => {
+            {modules.map((m) => {
               const active = m === activeModule;
               return (
                 <button
@@ -433,7 +391,7 @@ export default function PermissionsTreeClient({
             </div>
           )}
 
-          {/* Submit values */}
+          {/* submit values */}
           <div style={{ display: "none" }}>
             {Array.from(selected)
               .sort((a, b) => a.localeCompare(b))
