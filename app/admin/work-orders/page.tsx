@@ -51,23 +51,19 @@ export default async function AdminWorkOrdersPage() {
     const id = String(formData.get("id") ?? "").trim();
     if (!id) throw new Error("Missing work order id");
 
-    const confirmText = String(formData.get("confirm") ?? "")
-      .trim()
-      .toUpperCase();
-
+    const confirmText = String(formData.get("confirm") ?? "").trim().toUpperCase();
     if (confirmText !== "DELETE") {
       throw new Error('Type "DELETE" to confirm purge.');
     }
 
     await prisma.$transaction(async (tx) => {
-      // remove children first (avoids FK constraint problems)
       await tx.workOrderEquipmentArea.deleteMany({ where: { workOrderId: id } });
       await tx.workOrder.delete({ where: { id } });
     });
 
     revalidatePath("/admin/work-orders");
     revalidatePath(`/admin/work-orders/${id}`);
-    revalidatePath("/maintenance/work-orders"); // if maintenance list shows them
+    revalidatePath("/maintenance/work-orders");
     redirect("/admin/work-orders");
   }
 
@@ -130,6 +126,51 @@ export default async function AdminWorkOrdersPage() {
     width: 110,
   };
 
+  const tableWrap: CSSProperties = {
+    width: "100%",
+    overflowX: "auto",
+    WebkitOverflowScrolling: "touch",
+  };
+
+  const table: CSSProperties = {
+    width: "100%",
+    borderCollapse: "collapse",
+    tableLayout: "fixed",
+  };
+
+  const th: CSSProperties = {
+    textAlign: "left",
+    padding: "10px 10px",
+    borderBottom: "1px solid rgba(128,128,128,0.25)",
+    fontSize: 12,
+    opacity: 0.9,
+    whiteSpace: "nowrap",
+  };
+
+  const td: CSSProperties = {
+    padding: "12px 10px",
+    verticalAlign: "top",
+  };
+
+  const ellipsis: CSSProperties = {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  };
+
+  // Column widths (must sum <= 100%; fixed table layout will respect these)
+  // Adjust anytime without causing page overflow.
+  const colId = "14%";
+  const colLoc = "10%";
+  const colStatus = "8%";
+  const colStart = "10%";
+  const colEnd = "10%";
+  const colCreated = "10%";
+  const colUpdated = "10%";
+  const colBy = "12%";
+  const colNotes = "12%";
+  const colActions = "14%";
+
   return (
     <main style={{ padding: 16 }}>
       <div style={{ maxWidth: 1300, margin: "0 auto" }}>
@@ -140,94 +181,111 @@ export default async function AdminWorkOrdersPage() {
           </div>
         </div>
 
-        <div style={{ ...card, marginTop: 12 }}>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1180 }}>
-              <thead>
-                <tr style={{ background: "rgba(255,255,255,0.03)" }}>
-                  {["ID", "Location", "Status", "Start", "End", "Created", "Updated", "Created By", "Notes", "Actions"].map(
-                    (h) => (
-                      <th
-                        key={h}
-                        style={{
-                          textAlign: "left",
-                          padding: "10px 10px",
-                          borderBottom: "1px solid rgba(128,128,128,0.25)",
-                          fontSize: 12,
-                          opacity: 0.9,
-                          whiteSpace: "nowrap",
-                        }}
-                      >
+        <div style={{ ...card, marginTop: 12, padding: 0 }}>
+          <div style={{ padding: 14 }}>
+            <div style={tableWrap}>
+              <table style={table}>
+                <colgroup>
+                  <col style={{ width: colId }} />
+                  <col style={{ width: colLoc }} />
+                  <col style={{ width: colStatus }} />
+                  <col style={{ width: colStart }} />
+                  <col style={{ width: colEnd }} />
+                  <col style={{ width: colCreated }} />
+                  <col style={{ width: colUpdated }} />
+                  <col style={{ width: colBy }} />
+                  <col style={{ width: colNotes }} />
+                  <col style={{ width: colActions }} />
+                </colgroup>
+
+                <thead>
+                  <tr style={{ background: "rgba(255,255,255,0.03)" }}>
+                    {["ID", "Location", "Status", "Start", "End", "Created", "Updated", "Created By", "Notes", "Actions"].map((h) => (
+                      <th key={h} style={th}>
                         {h}
                       </th>
-                    )
-                  )}
-                </tr>
-              </thead>
+                    ))}
+                  </tr>
+                </thead>
 
-              <tbody>
-                {workOrders.map((wo) => {
-                  const createdByLabel = wo.createdByUser
-                    ? `${wo.createdByUser.name} (${wo.createdByUser.email})`
-                    : wo.createdByUserId;
+                <tbody>
+                  {workOrders.map((wo) => {
+                    const createdByLabel = wo.createdByUser
+                      ? `${wo.createdByUser.name} (${wo.createdByUser.email})`
+                      : wo.createdByUserId;
 
-                  return (
-                    <tr key={wo.id} style={{ borderTop: "1px solid rgba(128,128,128,0.18)" }}>
-                      <td style={{ padding: "12px 10px", fontWeight: 900 }}>
-                        {wo.id.slice(0, 10)}…
-                        <div style={{ fontSize: 12, opacity: 0.75 }}>id: {wo.id}</div>
-                      </td>
+                    return (
+                      <tr key={wo.id} style={{ borderTop: "1px solid rgba(128,128,128,0.18)" }}>
+                        <td style={{ ...td, fontWeight: 900 }}>
+                          <div style={ellipsis}>{wo.id.slice(0, 10)}…</div>
+                          <div style={{ fontSize: 12, opacity: 0.75, ...ellipsis }}>id: {wo.id}</div>
+                        </td>
 
-                      <td style={{ padding: "12px 10px" }}>{wo.location?.name ?? "—"}</td>
-                      <td style={{ padding: "12px 10px", fontWeight: 900 }}>{String(wo.status ?? "—")}</td>
-                      <td style={{ padding: "12px 10px" }}>{fmtLocal(wo.startTime)}</td>
-                      <td style={{ padding: "12px 10px" }}>{fmtLocal(wo.endTime)}</td>
-                      <td style={{ padding: "12px 10px" }}>{fmtLocal(wo.createdAt)}</td>
-                      <td style={{ padding: "12px 10px" }}>{fmtLocal(wo.updatedAt)}</td>
-                      <td style={{ padding: "12px 10px", maxWidth: 240 }}>
-                        <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                          {createdByLabel}
-                        </div>
-                      </td>
+                        <td style={td}>
+                          <div style={ellipsis}>{wo.location?.name ?? "—"}</div>
+                        </td>
 
-                      <td style={{ padding: "12px 10px", maxWidth: 320 }}>
-                        <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                          {wo.notes ?? "—"}
-                        </div>
-                      </td>
+                        <td style={{ ...td, fontWeight: 900 }}>
+                          <div style={ellipsis}>{String(wo.status ?? "—")}</div>
+                        </td>
 
-                      <td style={{ padding: "12px 10px" }}>
-                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                          <Link href={`/admin/work-orders/${wo.id}`} style={btn}>
-                            Edit / View
-                          </Link>
+                        <td style={td}>
+                          <div style={ellipsis}>{fmtLocal(wo.startTime)}</div>
+                        </td>
 
-                          <form action={purgeWorkOrderAction} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                            <input type="hidden" name="id" value={wo.id} />
-                            <input name="confirm" placeholder="DELETE" style={input} />
-                            <button type="submit" style={btnDanger}>
-                              Purge
-                            </button>
-                          </form>
-                        </div>
+                        <td style={td}>
+                          <div style={ellipsis}>{fmtLocal(wo.endTime)}</div>
+                        </td>
 
-                        <div style={{ marginTop: 6, fontSize: 11, opacity: 0.7 }}>
-                          To purge, type <code>DELETE</code>.
-                        </div>
+                        <td style={td}>
+                          <div style={ellipsis}>{fmtLocal(wo.createdAt)}</div>
+                        </td>
+
+                        <td style={td}>
+                          <div style={ellipsis}>{fmtLocal(wo.updatedAt)}</div>
+                        </td>
+
+                        <td style={td}>
+                          <div style={ellipsis}>{createdByLabel ?? "—"}</div>
+                        </td>
+
+                        <td style={td}>
+                          <div style={ellipsis}>{wo.notes ?? "—"}</div>
+                        </td>
+
+                        <td style={td}>
+                          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                            <Link href={`/admin/work-orders/${wo.id}`} style={btn}>
+                              Edit / View
+                            </Link>
+
+                            <form action={purgeWorkOrderAction} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                              <input type="hidden" name="id" value={wo.id} />
+                              <input name="confirm" placeholder="DELETE" style={input} />
+                              <button type="submit" style={btnDanger}>
+                                Purge
+                              </button>
+                            </form>
+                          </div>
+
+                          <div style={{ marginTop: 6, fontSize: 11, opacity: 0.7 }}>
+                            To purge, type <code>DELETE</code>.
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+
+                  {workOrders.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} style={{ padding: 14, opacity: 0.85 }}>
+                        No work orders found.
                       </td>
                     </tr>
-                  );
-                })}
-
-                {workOrders.length === 0 ? (
-                  <tr>
-                    <td colSpan={10} style={{ padding: 14, opacity: 0.85 }}>
-                      No work orders found.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
