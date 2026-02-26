@@ -6,7 +6,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/lib/auth";
 import { Permission, Role } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import SignOutButton from "@/app/components/SignOutButton";
+import LogoutSlot from "@/app/components/LogoutSlot";
 
 export const dynamic = "force-dynamic";
 
@@ -91,7 +91,7 @@ export default async function TopNav() {
           ) : null}
         </div>
 
-        <SignOutButton
+        <LogoutSlot
           style={{
             padding: "6px 12px",
             borderRadius: 10,
