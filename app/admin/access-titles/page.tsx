@@ -91,13 +91,18 @@ function safePermissionsFromFormData(fd: FormData, key: string): Permission[] {
 }
 
 type PageProps = {
-  searchParams?: {
+  // ✅ Next 16: searchParams is a Promise
+  searchParams: Promise<{
     titleId?: string;
-  };
+    group?: string;
+  }>;
 };
 
 export default async function AdminAccessTitlesPage({ searchParams }: PageProps) {
   await requireAdmin();
+
+  // ✅ Next 16: MUST await
+  const sp = await searchParams;
 
   try {
     await prisma.permissionTitle.count();
@@ -268,7 +273,7 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
     );
   }
 
-  const requestedTitleId = (searchParams?.titleId ?? "").trim();
+  const requestedTitleId = (sp.titleId ?? "").trim();
   const selectedTitle = requestedTitleId ? titles.find((t) => t.id === requestedTitleId) ?? null : null;
 
   if (!selectedTitle) {
@@ -303,8 +308,16 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
     lineHeight: 1,
     whiteSpace: "nowrap",
   };
-  const btnPrimary: CSSProperties = { ...btn, background: "rgba(33,150,243,0.18)", border: "1px solid rgba(33,150,243,0.55)" };
-  const btnDanger: CSSProperties = { ...btn, background: "rgba(244,67,54,0.14)", border: "1px solid rgba(244,67,54,0.55)" };
+  const btnPrimary: CSSProperties = {
+    ...btn,
+    background: "rgba(33,150,243,0.18)",
+    border: "1px solid rgba(33,150,243,0.55)",
+  };
+  const btnDanger: CSSProperties = {
+    ...btn,
+    background: "rgba(244,67,54,0.14)",
+    border: "1px solid rgba(244,67,54,0.55)",
+  };
 
   const pill: CSSProperties = {
     padding: "6px 10px",
@@ -444,9 +457,7 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
                   </form>
                 </div>
 
-                <div style={{ fontSize: 12, opacity: 0.75 }}>
-                  Deleting removes it from all users automatically.
-                </div>
+                <div style={{ fontSize: 12, opacity: 0.75 }}>Deleting removes it from all users automatically.</div>
               </form>
             </div>
 
@@ -466,7 +477,9 @@ export default async function AdminAccessTitlesPage({ searchParams }: PageProps)
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                 <div style={{ display: "grid", gap: 4 }}>
                   <div style={{ fontWeight: 900 }}>Permissions</div>
-                  <div style={{ fontSize: 12, opacity: 0.8 }}>Select by module + path. Parent checks apply to all descendants.</div>
+                  <div style={{ fontSize: 12, opacity: 0.8 }}>
+                    Select by module + path. Parent checks apply to all descendants.
+                  </div>
                 </div>
 
                 <span style={pill}>
