@@ -2,7 +2,6 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
 
 type Vendor = "SUCCESS_PLUS" | "AMERICAN_PLUS";
 function isCostPlusVendor(v: unknown): v is Vendor {
@@ -432,6 +431,39 @@ function isItemVersionArray(v: unknown): v is ItemVersion[] {
   });
 }
 
+function readQFromLocation(): string {
+  try {
+    const p = new URLSearchParams(window.location.search);
+    return (p.get("q") || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * ✅ Client-side row matcher so typing filters instantly.
+ * Matches across common fields.
+ */
+function rowMatchesQuery(row: ItemRow, q: string): boolean {
+  const needle = q.trim().toLowerCase();
+  if (!needle) return true;
+
+  const hay = [
+    row.sku,
+    row.partNumber ?? "",
+    row.name ?? "",
+    row.category ?? "",
+    row.description ?? "",
+    row.manufacturer ?? "",
+    row.orderFrom ?? "",
+    row.webUrl ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return hay.includes(needle);
+}
+
 export default function ItemsTableClient({
   initialItems,
   createdSku,
@@ -449,13 +481,20 @@ export default function ItemsTableClient({
   // ✅ ONE formula per vendor (passed from server)
   vendorFormulas: Record<Vendor, string>;
 }) {
-  const router = useRouter();
-  const sp = useSearchParams();
-
   const [rows, setRows] = useState<ItemRow[]>(initialItems ?? []);
 
-  // Search UI for q param (sync from URL)
-  const [qInput, setQInput] = useState<string>((sp.get("q") || "").trim());
+  // Search UI for q param
+  const [qInput, setQInput] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return readQFromLocation();
+  });
+
+  // ✅ Instant filtering view (does NOT change server pagination; it filters the current page snapshot)
+  const filteredRows = useMemo(() => {
+    const q = (qInput || "").trim();
+    if (!q) return rows;
+    return rows.filter((r) => rowMatchesQuery(r, q));
+  }, [rows, qInput]);
 
   // Edit
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -464,7 +503,7 @@ export default function ItemsTableClient({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Cost-plus preview (vendor-level formula)
+  // ✅ Cost-plus preview (vendor-level formula)
   const [formulaPreview, setFormulaPreview] = useState<string | null>(null);
   const [formulaError, setFormulaError] = useState<string | null>(null);
 
@@ -518,14 +557,16 @@ export default function ItemsTableClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialItems, page, perPage]);
 
-  // ✅ Keep qInput synced to the URL (back/forward too)
   useEffect(() => {
-    setQInput((sp.get("q") || "").trim());
-  }, [sp]);
+    const onPop = () => setQInput(readQFromLocation());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
-  const pageIdSet = useMemo(() => new Set(rows.map((r) => r.id)), [rows]);
+  // ✅ Page-scoped selection set should match what’s visible (filtered)
+  const pageIdSet = useMemo(() => new Set(filteredRows.map((r) => r.id)), [filteredRows]);
 
-  // Prune any selected ids not on this page (also covers local deletes)
+  // Prune any selected ids not on this (filtered) page (also covers local deletes)
   useEffect(() => {
     setSelectedIds((prev) => {
       let changed = false;
@@ -544,40 +585,47 @@ export default function ItemsTableClient({
   }, [total, perPage]);
 
   function goToPage(nextPage: number) {
-    const p = new URLSearchParams(sp.toString());
+    const p = new URLSearchParams(window.location.search);
     p.set("page", String(Math.max(1, Math.min(totalPages, nextPage))));
-    router.push(`?${p.toString()}`);
+    window.location.assign(`${window.location.pathname}?${p.toString()}`);
   }
 
+  /**
+   * Keep your existing server search behavior on submit:
+   * - this navigates with ?q=... and reloads results from the server
+   */
   function applySearch(nextQ: string) {
-    const p = new URLSearchParams(sp.toString());
+    const p = new URLSearchParams(window.location.search);
     const v = nextQ.trim();
 
     if (v) p.set("q", v);
     else p.delete("q");
 
     p.set("page", "1");
-    router.push(`?${p.toString()}`);
+    window.location.assign(`${window.location.pathname}?${p.toString()}`);
   }
 
   const createdIndex = useMemo(() => {
     if (!createdSku) return -1;
-    return rows.findIndex((r) => r.sku === createdSku);
-  }, [rows, createdSku]);
+    return filteredRows.findIndex((r) => r.sku === createdSku);
+  }, [filteredRows, createdSku]);
 
-  const selectedOnPage = useMemo(() => rows.filter((r) => !!selectedIds[r.id]).map((r) => r.id), [rows, selectedIds]);
+  const selectedOnPage = useMemo(
+    () => filteredRows.filter((r) => !!selectedIds[r.id]).map((r) => r.id),
+    [filteredRows, selectedIds]
+  );
 
   const allOnPageSelected = useMemo(() => {
-    if (rows.length === 0) return false;
-    return rows.every((r) => !!selectedIds[r.id]);
-  }, [rows, selectedIds]);
+    if (filteredRows.length === 0) return false;
+    return filteredRows.every((r) => !!selectedIds[r.id]);
+  }, [filteredRows, selectedIds]);
 
-  const anyOnPageSelected = useMemo(() => rows.some((r) => !!selectedIds[r.id]), [rows, selectedIds]);
+  const anyOnPageSelected = useMemo(() => filteredRows.some((r) => !!selectedIds[r.id]), [filteredRows, selectedIds]);
 
   function toggleAllOnPage(next: boolean) {
     setSelectedIds((prev) => {
       const copy: Record<string, boolean> = { ...prev };
-      for (const r of rows) copy[r.id] = next;
+      for (const r of filteredRows) copy[r.id] = next;
       return copy;
     });
   }
@@ -1056,8 +1104,7 @@ export default function ItemsTableClient({
       <div style={{ padding: 10, borderBottom: "1px solid var(--border)", background: surface }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <div style={{ fontSize: 12, opacity: 0.85 }}>
-            {(total ?? 0).toLocaleString()} results • page {page ?? 1} /{" "}
-            {Math.max(1, Math.ceil((total || 0) / (perPage || 25)))}
+            {(total ?? 0).toLocaleString()} results • page {page ?? 1} / {Math.max(1, Math.ceil((total || 0) / (perPage || 25)))}
           </div>
 
           <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
@@ -1147,12 +1194,15 @@ export default function ItemsTableClient({
           >
             Clear
           </button>
+
+          {/* ✅ Optional: show “filtered X of Y on this page” */}
+          <div style={{ fontSize: 12, opacity: 0.8 }}>
+            Showing <b>{filteredRows.length}</b> of <b>{rows.length}</b> on this page
+          </div>
         </form>
       </div>
 
-      {saveError ? (
-        <div style={{ padding: 12, borderBottom: "1px solid var(--border)", color: danger }}>{saveError}</div>
-      ) : null}
+      {saveError ? <div style={{ padding: 12, borderBottom: "1px solid var(--border)", color: danger }}>{saveError}</div> : null}
 
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -1214,7 +1264,7 @@ export default function ItemsTableClient({
           </thead>
 
           <tbody>
-            {rows.map((row, idx) => {
+            {filteredRows.map((row, idx) => {
               const isEditing = editingId === row.id;
               const isCreated = createdIndex === idx;
               const isSelected = !!selectedIds[row.id];
@@ -1308,7 +1358,9 @@ export default function ItemsTableClient({
                           value={draft?.vendor ?? "SUCCESS_PLUS"}
                           onChange={(e) =>
                             setDraft((d) =>
-                              d ? { ...d, vendor: e.target.value === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS" } : d
+                              d
+                                ? { ...d, vendor: e.target.value === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS" }
+                                : d
                             )
                           }
                           style={{
@@ -1745,7 +1797,12 @@ export default function ItemsTableClient({
                           <span>
                             <strong>Web:</strong>{" "}
                             {web ? (
-                              <a href={web} target="_blank" rel="noreferrer" style={{ textDecoration: "underline", color: "inherit" }}>
+                              <a
+                                href={web}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{ textDecoration: "underline", color: "inherit" }}
+                              >
                                 {detailText.webLabel}
                               </a>
                             ) : (
@@ -1760,7 +1817,7 @@ export default function ItemsTableClient({
               );
             })}
 
-            {rows.length === 0 ? (
+            {filteredRows.length === 0 ? (
               <tr>
                 <td colSpan={COLS} style={{ padding: 16, opacity: 0.8 }}>
                   No results.
