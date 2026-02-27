@@ -601,6 +601,27 @@ export default function ItemsTableClient({
     return rows.filter((r) => rowMatchesQuery(r, q));
   }, [rows, qInput]);
 
+  // Auto-run server search as user types (debounced)
+useEffect(() => {
+  // only do this if you want true global search-as-you-type
+  const t = window.setTimeout(() => {
+    const current = readQFromLocation();
+    const next = (qInput || "").trim();
+
+    // avoid reload loop if URL already matches
+    if (next === current) return;
+
+    const p = new URLSearchParams(window.location.search);
+    if (next) p.set("q", next);
+    else p.delete("q");
+
+    p.set("page", "1");
+    window.location.assign(`${window.location.pathname}?${p.toString()}`);
+  }, 350);
+
+  return () => window.clearTimeout(t);
+}, [qInput]);
+
   // Selection should be scoped to what's visible on this page (after filter)
   const pageIdSet = useMemo(() => new Set(viewRows.map((r) => r.id)), [viewRows]);
 

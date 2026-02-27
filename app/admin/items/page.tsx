@@ -5,107 +5,79 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
-import { Role, Permission } from "@prisma/client";
-import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-
 import ItemsTableClient from "./ItemsTableClient";
+import { Role } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-type SearchParams = {
-  page?: string;
-  perPage?: string;
-  q?: string;
-  createdSku?: string;
-};
-
 type Vendor = "SUCCESS_PLUS" | "AMERICAN_PLUS";
 
-type AdminSession = {
-  user?: { email?: string | null; role?: Role | null } | null;
-} | null;
+type SearchParams = {
+  page?: string | string[];
+  perPage?: string | string[];
+  q?: string | string[];
+  createdSku?: string | string[];
+};
+
+function first(v: string | string[] | undefined): string | undefined {
+  if (!v) return undefined;
+  return Array.isArray(v) ? v[0] : v;
+}
+
+function toInt(v: string | undefined, fallback: number): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  const x = Math.floor(n);
+  return x > 0 ? x : fallback;
+}
 
 async function requireAdmin() {
-  const session = (await getServerSession(authOptions)) as AdminSession;
+  const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
-  const role = session.user?.role ?? null;
+  const role = (session.user as unknown as { role?: Role | null } | null)?.role ?? null;
   if (role !== Role.ADMIN) redirect("/");
   return session;
-}
-
-function toInt(v: string | undefined, fallback: number) {
-  const n = Number(String(v ?? ""));
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(1, Math.floor(n));
-}
-
-function tokenizeQ(q: string): string[] {
-  return q
-    .trim()
-    .toLowerCase()
-    .split(/\s+/g)
-    .map((t) => t.trim())
-    .filter(Boolean);
-}
-
-function buildItemSearchWhere(qRaw: string) {
-  const q = (qRaw || "").trim();
-  if (!q) return {};
-
-  // AND semantics across tokens: every word must be found somewhere (any field)
-  const tokens = tokenizeQ(q);
-  if (tokens.length === 0) return {};
-
-  const fields = [
-    "sku",
-    "partNumber",
-    "name",
-    "category",
-    "description",
-    "manufacturer",
-    "orderFrom",
-    "webUrl",
-  ] as const;
-
-  return {
-    AND: tokens.map((tok) => ({
-      OR: fields.map((f) => ({
-        [f]: { contains: tok, mode: "insensitive" as const },
-      })),
-    })),
-  };
 }
 
 export default async function AdminItemsPage({ searchParams }: { searchParams: SearchParams }) {
   await requireAdmin();
 
-  // Optional: permissions gate if you use it
-  const session = await getServerSession(authOptions);
-  const perms = await loadUserPermissions(session);
-  const canView = hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS]);
-  if (!canView) redirect("/");
+  const page = toInt(first(searchParams.page), 1);
+  const perPage = Math.min(200, toInt(first(searchParams.perPage), 25));
+  const qRaw = (first(searchParams.q) ?? "").trim();
+  const createdSku = (first(searchParams.createdSku) ?? "").trim() || null;
 
-  const page = toInt(searchParams.page, 1);
-  const perPage = Math.min(100, toInt(searchParams.perPage, 25));
-  const q = (searchParams.q || "").trim();
-  const createdSku = (searchParams.createdSku || "").trim() || null;
+  const where =
+    qRaw.length > 0
+      ? {
+          OR: [
+            { sku: { contains: qRaw, mode: "insensitive" as const } },
+            { partNumber: { contains: qRaw, mode: "insensitive" as const } },
+            { name: { contains: qRaw, mode: "insensitive" as const } },
+            { category: { contains: qRaw, mode: "insensitive" as const } },
+            { description: { contains: qRaw, mode: "insensitive" as const } },
+            { manufacturer: { contains: qRaw, mode: "insensitive" as const } },
+            { orderFrom: { contains: qRaw, mode: "insensitive" as const } },
+          ],
+        }
+      : {};
 
-  // ✅ Replace this with your CURRENT working way of loading vendor formulas:
-  // It must produce: Record<"SUCCESS_PLUS"|"AMERICAN_PLUS", string>
+  const skip = (page - 1) * perPage;
+
+  // ✅ Safe fallback: if you haven't wired vendor formulas on the server yet,
+  // keep them blank (client will allow manual price entry).
   const vendorFormulas: Record<Vendor, string> = {
     SUCCESS_PLUS: "",
     AMERICAN_PLUS: "",
   };
-
-  const where = buildItemSearchWhere(q);
 
   const [total, items] = await Promise.all([
     prisma.item.count({ where }),
     prisma.item.findMany({
       where,
       orderBy: { updatedAt: "desc" },
-      skip: (page - 1) * perPage,
+      skip,
       take: perPage,
       select: {
         id: true,
@@ -126,32 +98,31 @@ export default async function AdminItemsPage({ searchParams }: { searchParams: S
         orderFrom: true,
         webUrl: true,
 
-        // If you include qty fields in your table, adjust to your schema:
-        // onHandQty: true, usedQty: true, minQty: true, orderedQty: true,
+        onHandQty: true,
+        orderedQty: true,
+        usedQty: true,
+        minQty: true,
       },
     }),
   ]);
 
-  // ItemsTableClient expects strings for decimals; if Prisma returns Decimal, stringify it.
-  const initialItems = items.map((it) => ({
-    ...it,
-    cost: it.cost ? String(it.cost) : null,
-    price: it.price ? String(it.price) : null,
-    createdAt: it.createdAt.toISOString(),
-    updatedAt: it.updatedAt.toISOString(),
+  const initialItems = items.map((r) => ({
+    ...r,
+    cost: r.cost ? String(r.cost) : null,
+    price: r.price ? String(r.price) : null,
+    createdAt: r.createdAt.toISOString(),
+    updatedAt: r.updatedAt.toISOString(),
   }));
 
-  const shell: CSSProperties = {
-    padding: 16,
-  };
+  const shell: CSSProperties = { padding: 16 };
 
   return (
     <div style={shell}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-        <h1 style={{ margin: 0, fontSize: 22 }}>Items</h1>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
+        <h1 style={{ margin: 0 }}>Admin: Items</h1>
         <div style={{ marginLeft: "auto", display: "flex", gap: 10 }}>
-          <Link href="/admin" style={{ textDecoration: "none" }}>
-            Back
+          <Link href="/admin/items" style={{ textDecoration: "none" }}>
+            Items
           </Link>
         </div>
       </div>
