@@ -278,15 +278,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
   const from = fromStr ? parseOptionalDateOnlyToDate(fromStr, false) : null;
   const to = toStr ? parseOptionalDateOnlyToDate(toStr, true) : null;
 
-  // ✅ If a filter is applied and page isn't explicitly provided, start at page 1
-  const pageFromParam = Number(searchParams.page ?? "");
-  const hasExplicitPage = Number.isFinite(pageFromParam) && pageFromParam > 0;
-
-  const anyFilter =
-    !!q || !!phase || !!itemId || !!supplier || !!forStoreId || !!forUserId || !!fromStr || !!toStr;
-
-  const page = clamp((hasExplicitPage ? pageFromParam : anyFilter ? 1 : 1) || 1, 1, 9999);
-
+  const page = clamp(Number(searchParams.page ?? "1") || 1, 1, 9999);
   const perPageAllowed = new Set([10, 25, 50, 100]);
   const perPage = perPageAllowed.has(Number(searchParams.perPage)) ? Number(searchParams.perPage) : 25;
   const skip = (page - 1) * perPage;
@@ -355,21 +347,17 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
   }
 
   if (q) {
-    // ✅ FIX: relation filters must use `is: { ... }`
     where.OR = [
       { id: { contains: q, mode: "insensitive" } },
       { note: { contains: q, mode: "insensitive" } },
       { supplierName: { contains: q, mode: "insensitive" } },
       { supplierPartNumber: { contains: q, mode: "insensitive" } },
-
-      { item: { is: { sku: { contains: q, mode: "insensitive" } } } },
-      { item: { is: { name: { contains: q, mode: "insensitive" } } } },
-
-      { forStore: { is: { name: { contains: q, mode: "insensitive" } } } },
-      { forUser: { is: { name: { contains: q, mode: "insensitive" } } } },
-
-      { createdByUser: { is: { name: { contains: q, mode: "insensitive" } } } },
-      { createdByUser: { is: { email: { contains: q, mode: "insensitive" } } } },
+      { item: { sku: { contains: q, mode: "insensitive" } } },
+      { item: { name: { contains: q, mode: "insensitive" } } },
+      { forStore: { name: { contains: q, mode: "insensitive" } } },
+      { forUser: { name: { contains: q, mode: "insensitive" } } },
+      { createdByUser: { name: { contains: q, mode: "insensitive" } } },
+      { createdByUser: { email: { contains: q, mode: "insensitive" } } },
     ];
   }
 
@@ -945,9 +933,9 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
             style={{
               padding: "10px 14px",
               borderRadius: 12,
-              border: "1px solid rgba(128,128,128,0.25)",
-              background: "var(--background)",
-              color: "var(--foreground)",
+              border,
+              background: surface,
+              color: fg,
               textDecoration: "none",
               fontWeight: 900,
             }}
@@ -960,9 +948,9 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
             style={{
               padding: "10px 14px",
               borderRadius: 12,
-              border: "1px solid rgba(128,128,128,0.25)",
-              background: "var(--background)",
-              color: "var(--foreground)",
+              border,
+              background: surface,
+              color: fg,
               textDecoration: "none",
               fontWeight: 900,
               opacity: 0.92,
@@ -976,9 +964,9 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
             style={{
               padding: "10px 14px",
               borderRadius: 12,
-              border: "1px solid rgba(128,128,128,0.25)",
-              background: "var(--background)",
-              color: "var(--foreground)",
+              border,
+              background: surface,
+              color: fg,
               textDecoration: "none",
               fontWeight: 900,
               opacity: 0.92,
@@ -996,9 +984,9 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
               userSelect: "none",
               fontWeight: 900,
               padding: 12,
-              border: "1px solid rgba(128,128,128,0.25)",
+              border,
               borderRadius: 14,
-              background: "var(--background)",
+              background: surface,
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
@@ -1009,23 +997,281 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
             <span style={{ fontSize: 12, opacity: 0.75 }}>Click to expand</span>
           </summary>
 
-          <div style={{ marginTop: 10, border: "1px solid rgba(128,128,128,0.25)", borderRadius: 14, background: "var(--background)", padding: 12 }}>
+          <div style={{ marginTop: 10, border, borderRadius: 14, background: surface, padding: 12 }}>
             <div style={{ fontWeight: 900, marginBottom: 8, fontSize: 14 }}>Create Order</div>
 
             <form action={createOrderAction} style={{ display: "grid", gap: 10 }}>
-              {/* ... unchanged create form ... */}
-              {/* NOTE: Kept intact in your original; no search-related changes needed */}
-              {/* To keep this drop-in readable, I left your create form content as-is in your original file. */}
+              <div style={wrapRow}>
+                <label style={{ ...controlLabel, ...flexItem(420, 3) }}>
+                  Item (select existing)
+                  <select name="itemId" defaultValue="" style={controlBase}>
+                    <option value="">Select item…</option>
+                    {items.map((it) => (
+                      <option key={it.id} value={it.id}>
+                        {it.sku}
+                        {it.partNumber ? ` • ${it.partNumber}` : ""} • {it.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>
+                    If you’re creating a brand-new item, use the “New item” section below instead.
+                  </div>
+                </label>
+
+                <label style={{ ...controlLabel, ...flexItem(110, 0) }}>
+                  Qty
+                  <input name="qty" type="number" min={1} step={1} defaultValue={1} required style={controlBase} />
+                </label>
+
+                <label style={{ ...controlLabel, ...flexItem(200, 1) }}>
+                  Supplier (optional)
+                  <input name="supplierName" placeholder="Supplier…" style={controlBase} />
+                </label>
+
+                <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
+                  Supplier Part # (optional)
+                  <input name="supplierPartNumber" placeholder="Supplier part #…" style={controlBase} />
+                </label>
+
+                <label style={{ ...controlLabel, ...flexItem(170, 0) }}>
+                  Unit price (required)
+                  <input name="unitPrice" placeholder="0.00" inputMode="decimal" required style={controlBase} />
+                </label>
+
+                <label style={{ ...controlLabel, ...flexItem(220, 0) }}>
+                  Ordered at
+                  <input name="orderedAt" type="datetime-local" defaultValue={fmtForDatetimeLocal(new Date())} style={controlBase} />
+                </label>
+              </div>
+
+              {/* NEW ITEM (optional) */}
+              <details style={{ marginTop: 6, border, borderRadius: 12, padding: 10, background: soft }}>
+                <summary style={{ cursor: "pointer", fontWeight: 900 }}>
+                  New item (creates Item automatically if SKU doesn’t exist)
+                </summary>
+
+                <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                  <label style={{ display: "flex", gap: 10, alignItems: "center", fontWeight: 900 }}>
+                    <input type="checkbox" name="isNewItem" />
+                    Create / use item by SKU (instead of selecting)
+                  </label>
+
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                    <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
+                      SKU (required for new)
+                      <input name="newSku" placeholder="SKU…" style={controlBase} />
+                    </label>
+
+                    <label style={{ ...controlLabel, ...flexItem(360, 2) }}>
+                      Name (required for new)
+                      <input name="newName" placeholder="Item name…" style={controlBase} />
+                    </label>
+
+                    <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
+                      Part #
+                      <input name="newPartNumber" placeholder="Part number…" style={controlBase} />
+                    </label>
+
+                    <label style={{ ...controlLabel, ...flexItem(220, 0) }}>
+                      Vendor
+                      <select name="newVendor" defaultValue="SUCCESS_PLUS" style={controlBase}>
+                        <option value="SUCCESS_PLUS">SUCCESS_PLUS</option>
+                        <option value="AMERICAN_PLUS">AMERICAN_PLUS</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                    <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
+                      Category
+                      <input name="newCategory" placeholder="Category…" style={controlBase} />
+                    </label>
+
+                    <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
+                      Manufacturer
+                      <input name="newManufacturer" placeholder="Manufacturer…" style={controlBase} />
+                    </label>
+
+                    <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
+                      Order From
+                      <input name="newOrderFrom" placeholder="Order from…" style={controlBase} />
+                    </label>
+
+                    <label style={{ ...controlLabel, ...flexItem(360, 2) }}>
+                      Web URL
+                      <input name="newWebUrl" placeholder="https://…" style={controlBase} />
+                    </label>
+                  </div>
+
+                  <div style={{ fontSize: 12, opacity: 0.8, lineHeight: 1.5 }}>
+                    When checked, the system does an <b>upsert</b> by <b>SKU</b>: creates the item if missing, otherwise reuses the
+                    existing item with that SKU.
+                  </div>
+                </div>
+              </details>
+
+              <div style={wrapRow}>
+                <label style={{ ...controlLabel, ...flexItem(170, 0) }}>
+                  Shipping (optional)
+                  <input name="shippingCost" placeholder="0.00" inputMode="decimal" style={controlBase} />
+                </label>
+
+                <label style={{ ...controlLabel, ...flexItem(150, 0) }}>
+                  Tax (optional)
+                  <input name="taxCost" placeholder="0.00" inputMode="decimal" style={controlBase} />
+                </label>
+
+                <label style={{ ...controlLabel, ...flexItem(240, 1) }}>
+                  For tech (optional)
+                  <select name="forUserId" defaultValue="" style={controlBase}>
+                    <option value="">—</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name} ({u.role})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label style={{ ...controlLabel, ...flexItem(240, 1) }}>
+                  For store (optional)
+                  <select name="forStoreId" defaultValue="" style={controlBase}>
+                    <option value="">—</option>
+                    {locations.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label style={{ ...controlLabel, ...flexItem(420, 3) }}>
+                  Note (optional)
+                  <input name="note" placeholder="Optional note…" style={controlBase} />
+                </label>
+
+                <div style={{ ...flexItem(200, 0), display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                  <button type="submit" style={btnPrimary}>
+                    Create
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ fontSize: 12, opacity: 0.8, lineHeight: 1.5 }}>
+                Creating an order immediately increments <b>Item.orderedQty</b> and also updates:
+                <ul style={{ margin: "6px 0 0 18px" }}>
+                  <li>
+                    <b>Item.cost</b> → set to the order <b>unit price</b>
+                  </li>
+                  <li>
+                    <b>Item.orderFrom</b> → set to <b>Supplier</b> (if provided)
+                  </li>
+                </ul>
+                Each order row includes an <b>AUDIT</b> line in <b>Note</b> so you can see what changed.
+              </div>
             </form>
           </div>
         </details>
 
         {/* FILTERS */}
-        <div style={{ marginTop: 14, border: "1px solid rgba(128,128,128,0.25)", borderRadius: 14, background: "var(--background)", padding: 12 }}>
+        <div style={{ marginTop: 14, border, borderRadius: 14, background: surface, padding: 12 }}>
           <div style={{ fontWeight: 900, marginBottom: 8, fontSize: 14 }}>Search & Filters</div>
 
           <form action="/admin/inventory-orders" method="get" style={{ display: "grid", gap: 10 }}>
-            {/* ... unchanged filter form ... */}
+            <div style={wrapRow}>
+              <label style={{ ...controlLabel, ...flexItem(240, 2) }}>
+                Search
+                <input name="q" defaultValue={q} placeholder="id, sku, name, supplier, note…" style={controlBase} />
+              </label>
+
+              <label style={{ ...controlLabel, ...flexItem(170, 0) }}>
+                Phase
+                <select name="phase" defaultValue={phase || ""} style={controlBase}>
+                  <option value="">All</option>
+                  {PHASES.map((s) => (
+                    <option key={s} value={s}>
+                      {phaseLabel(s)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ ...controlLabel, ...flexItem(240, 1) }}>
+                Item
+                <select name="itemId" defaultValue={itemId} style={controlBase}>
+                  <option value="">All</option>
+                  {items.map((it) => (
+                    <option key={it.id} value={it.id}>
+                      {it.sku}
+                      {it.partNumber ? ` • ${it.partNumber}` : ""} • {it.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
+                Supplier
+                <input name="supplier" defaultValue={supplier} placeholder="Supplier…" style={controlBase} />
+              </label>
+
+              <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
+                For Tech
+                <select name="forUserId" defaultValue={forUserId} style={controlBase}>
+                  <option value="">All</option>
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name} ({u.role})
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
+                For Store
+                <select name="forStoreId" defaultValue={forStoreId} style={controlBase}>
+                  <option value="">All</option>
+                  {locations.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div style={wrapRow}>
+              <label style={{ ...controlLabel, ...flexItem(150, 0) }}>
+                From
+                <input type="date" name="from" defaultValue={fromStr} style={controlBase} />
+              </label>
+
+              <label style={{ ...controlLabel, ...flexItem(150, 0) }}>
+                To
+                <input type="date" name="to" defaultValue={toStr} style={controlBase} />
+              </label>
+
+              <label style={{ ...controlLabel, ...flexItem(130, 0) }}>
+                Per page
+                <select name="perPage" defaultValue={String(perPage)} style={controlBase}>
+                  {[10, 25, 50, 100].map((n) => (
+                    <option key={n} value={String(n)}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div style={{ ...flexItem(220, 0), display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <input type="hidden" name="page" value="1" />
+                <button type="submit" style={btn}>
+                  Apply
+                </button>
+                <Link href="/admin/inventory-orders" style={{ ...btn, textDecoration: "none", display: "inline-block", opacity: 0.92 }}>
+                  Clear
+                </Link>
+              </div>
+            </div>
+
             <div style={{ fontSize: 12, opacity: 0.8 }}>
               Showing <b>{orders.length}</b> of <b>{total}</b> results • Page <b>{page}</b> / <b>{pageCount}</b>
             </div>
@@ -1033,7 +1279,306 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
         </div>
 
         {/* TABLE */}
-        {/* ... unchanged table and pagination ... */}
+        <div style={{ marginTop: 14, overflowX: "auto", border, borderRadius: 14, background: surface }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                {[
+                  "Ordered",
+                  "Phase",
+                  "Item",
+                  "Qty",
+                  "Supplier",
+                  "Unit",
+                  "Ship",
+                  "Tax",
+                  "Total",
+                  "For Tech",
+                  "For Store",
+                  "Arrived",
+                  "Added",
+                  "Actions",
+                  "Edit",
+                  "Delete",
+                ].map((h) => (
+                  <th
+                    key={h}
+                    style={{
+                      textAlign: "left",
+                      padding: 10,
+                      borderBottom: border,
+                      fontSize: 12,
+                      opacity: 0.85,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+
+            <tbody>
+              {orders.map((o: OrderRow) => {
+                const unit = o.unitPrice ? Number(o.unitPrice) : 0;
+                const ship = o.shippingCost ? Number(o.shippingCost) : 0;
+                const tax = o.taxCost ? Number(o.taxCost) : 0;
+                const totalCost = unit * (o.quantity ?? 0) + ship + tax;
+
+                const itemLabel = o.item
+                  ? `${o.item.sku}${o.item.partNumber ? ` • ${o.item.partNumber}` : ""} • ${o.item.name}`
+                  : o.itemId;
+
+                const canArrive = o.status === "ORDERED";
+                const canAdd = o.status !== "ADDED_TO_INVENTORY";
+
+                return (
+                  <tr key={o.id} style={{ borderBottom: border, ...rowPhaseStyle(o.status as InventoryOrderPhase) }}>
+                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocal(o.orderedAt)}</td>
+                    <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{phaseLabel(o.status as InventoryOrderPhase)}</td>
+                    <td style={{ padding: 10, minWidth: 320 }}>
+                      <div style={{ fontWeight: 900 }}>{itemLabel}</div>
+                      <div style={{ fontSize: 12, opacity: 0.75 }}>id: {o.id}</div>
+                    </td>
+                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.quantity}</td>
+                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                      {o.supplierName ?? "—"}
+                      {o.supplierPartNumber ? <div style={{ fontSize: 12, opacity: 0.75 }}>Part #: {o.supplierPartNumber}</div> : null}
+                    </td>
+                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.unitPrice ? money(Number(o.unitPrice)) : "—"}</td>
+                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.shippingCost ? money(Number(o.shippingCost)) : "—"}</td>
+                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.taxCost ? money(Number(o.taxCost)) : "—"}</td>
+                    <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{money(totalCost)}</td>
+                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.forUser?.name ?? "—"}</td>
+                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.forStore?.name ?? "—"}</td>
+                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocal(o.arrivedAt)}</td>
+                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocal(o.addedToInventoryAt)}</td>
+
+                    {/* ACTIONS */}
+                    <td style={{ padding: 10, verticalAlign: "top" }}>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <form action={markArrivedAction}>
+                          <input type="hidden" name="id" value={o.id} />
+                          <button type="submit" style={{ ...btn, opacity: canArrive ? 1 : 0.5 }} disabled={!canArrive}>
+                            Mark Arrived
+                          </button>
+                        </form>
+
+                        <form action={addToInventoryAction}>
+                          <input type="hidden" name="id" value={o.id} />
+                          <button type="submit" style={{ ...btnPrimary, opacity: canAdd ? 1 : 0.5 }} disabled={!canAdd}>
+                            Add to Inventory
+                          </button>
+                        </form>
+                      </div>
+
+                      {o.note ? (
+                        <div style={{ marginTop: 8, fontSize: 12, opacity: 0.85, maxWidth: 340, whiteSpace: "pre-wrap" }}>
+                          <b>Note:</b> {o.note}
+                        </div>
+                      ) : null}
+                    </td>
+
+                    {/* EDIT */}
+                    <td style={{ padding: 10, verticalAlign: "top" }}>
+                      <details>
+                        <summary style={{ cursor: "pointer", fontWeight: 900 }}>Edit</summary>
+
+                        <form
+                          action={saveOrderDetailsAction}
+                          style={{
+                            marginTop: 10,
+                            padding: 10,
+                            border,
+                            borderRadius: 12,
+                            background: soft,
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 10,
+                            width: "100%",
+                            minWidth: 640,
+                          }}
+                        >
+                          <input type="hidden" name="id" value={o.id} />
+
+                          <div style={{ fontSize: 12, opacity: 0.85, lineHeight: 1.5 }}>
+                            Item is not changeable (keeps inventory adjustments safe). Quantity edits are applied to{" "}
+                            <b>{o.status === "ADDED_TO_INVENTORY" ? "on-hand" : "ordered"}</b>.
+                            <br />
+                            After saving, the system will sync <b>Item.cost</b> + <b>Item.orderFrom</b> from the latest order for that item.
+                          </div>
+
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                            <label style={controlLabel}>
+                              Ordered at
+                              <input name="orderedAt" type="datetime-local" defaultValue={fmtForDatetimeLocal(o.orderedAt)} style={controlBase} />
+                            </label>
+
+                            <label style={controlLabel}>
+                              Qty
+                              <input name="qty" type="number" min={1} step={1} defaultValue={o.quantity} required style={controlBase} />
+                            </label>
+
+                            <label style={controlLabel}>
+                              Supplier
+                              <input name="supplierName" defaultValue={o.supplierName ?? ""} placeholder="Supplier…" style={controlBase} />
+                            </label>
+
+                            <label style={controlLabel}>
+                              Supplier Part #
+                              <input
+                                name="supplierPartNumber"
+                                defaultValue={o.supplierPartNumber ?? ""}
+                                placeholder="Supplier part #…"
+                                style={controlBase}
+                              />
+                            </label>
+                          </div>
+
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                            <label style={controlLabel}>
+                              Unit price
+                              <input name="unitPrice" defaultValue={o.unitPrice ? String(o.unitPrice) : ""} placeholder="0.00" required style={controlBase} />
+                            </label>
+                            <label style={controlLabel}>
+                              Shipping
+                              <input name="shippingCost" defaultValue={o.shippingCost ? String(o.shippingCost) : ""} placeholder="0.00" style={controlBase} />
+                            </label>
+                            <label style={controlLabel}>
+                              Tax
+                              <input name="taxCost" defaultValue={o.taxCost ? String(o.taxCost) : ""} placeholder="0.00" style={controlBase} />
+                            </label>
+
+                            <label style={controlLabel}>
+                              For tech
+                              <select name="forUserId" defaultValue={o.forUserId ?? ""} style={controlBase}>
+                                <option value="">—</option>
+                                {users.map((u) => (
+                                  <option key={u.id} value={u.id}>
+                                    {u.name} ({u.role})
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+
+                            <label style={controlLabel}>
+                              For store
+                              <select name="forStoreId" defaultValue={o.forStoreId ?? ""} style={controlBase}>
+                                <option value="">—</option>
+                                {locations.map((l) => (
+                                  <option key={l.id} value={l.id}>
+                                    {l.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          </div>
+
+                          <label style={controlLabel}>
+                            Note
+                            <input name="note" defaultValue={o.note ?? ""} placeholder="Optional note…" style={controlBase} />
+                          </label>
+
+                          <button type="submit" style={btn}>
+                            Save
+                          </button>
+                        </form>
+                      </details>
+                    </td>
+
+                    {/* DELETE */}
+                    <td style={{ padding: 10, verticalAlign: "top" }}>
+                      <details>
+                        <summary style={{ cursor: "pointer", fontWeight: 900 }}>Delete</summary>
+                        <form
+                          action={deleteOrderAction}
+                          style={{
+                            marginTop: 10,
+                            padding: 10,
+                            border,
+                            borderRadius: 12,
+                            background: soft,
+                            display: "grid",
+                            gap: 8,
+                            minWidth: 260,
+                          }}
+                        >
+                          <input type="hidden" name="id" value={o.id} />
+                          <div style={{ fontSize: 12, opacity: 0.9 }}>
+                            Type <code>DELETE</code> to confirm deletion. This reverses inventory effects for the current phase, then syncs{" "}
+                            <b>Item.cost</b>/<b>Item.orderFrom</b> from the latest remaining order.
+                          </div>
+                          <input name="confirm" placeholder="DELETE" style={controlBase} />
+                          <button type="submit" style={btn}>
+                            Permanently Delete
+                          </button>
+                        </form>
+                      </details>
+                    </td>
+                  </tr>
+                );
+              })}
+
+              {orders.length === 0 ? (
+                <tr>
+                  <td colSpan={16} style={{ padding: 14, opacity: 0.8 }}>
+                    No orders found.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+
+        {/* PAGINATION */}
+        <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <Link
+            href={buildHref({ page: String(Math.max(1, page - 1)) })}
+            style={{
+              padding: "10px 14px",
+              borderRadius: 12,
+              border,
+              background: surface,
+              color: fg,
+              textDecoration: "none",
+              fontWeight: 900,
+              opacity: page <= 1 ? 0.5 : 0.95,
+              pointerEvents: page <= 1 ? "none" : "auto",
+            }}
+            aria-disabled={page <= 1}
+            tabIndex={page <= 1 ? -1 : 0}
+          >
+            Prev
+          </Link>
+
+          <div style={{ fontSize: 12, opacity: 0.85 }}>
+            Page <b>{page}</b> of <b>{pageCount}</b>
+          </div>
+
+          <Link
+            href={buildHref({ page: String(Math.min(pageCount, page + 1)) })}
+            style={{
+              padding: "10px 14px",
+              borderRadius: 12,
+              border,
+              background: surface,
+              color: fg,
+              textDecoration: "none",
+              fontWeight: 900,
+              opacity: page >= pageCount ? 0.5 : 0.95,
+              pointerEvents: page >= pageCount ? "none" : "auto",
+            }}
+            aria-disabled={page >= pageCount}
+            tabIndex={page >= pageCount ? -1 : 0}
+          >
+            Next
+          </Link>
+        </div>
+
+        <div style={{ marginTop: 10, fontSize: 12, opacity: 0.8 }}>
+          Phases: <b>ORDERED</b> → <b>ARRIVED</b> → <b>ADDED TO INVENTORY</b>. Row color indicates phase. Creating an order increments{" "}
+          <b>Item.orderedQty</b>. “Add to Inventory” moves qty from <b>orderedQty</b> to <b>onHandQty</b>.
+        </div>
       </div>
     </main>
   );
