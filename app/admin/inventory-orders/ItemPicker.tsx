@@ -1,7 +1,8 @@
 // app/admin/inventory-orders/ItemPicker.tsx
 "use client";
 
-import React from "react";
+import type { CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type ItemLite = {
   id: string;
@@ -16,10 +17,18 @@ type ItemLite = {
 type Props = {
   name?: string;
   items: ItemLite[];
+
+  /**
+   * Support BOTH names so your page can pass either one:
+   * - defaultId (what your page.tsx currently uses)
+   * - defaultItemId (what your old picker used)
+   */
+  defaultId?: string;
   defaultItemId?: string;
+
   placeholder?: string;
-  style?: React.CSSProperties;
-  inputStyle?: React.CSSProperties;
+  style?: CSSProperties;
+  inputStyle?: CSSProperties;
 };
 
 function normalize(s: string): string {
@@ -32,7 +41,12 @@ function normalize(s: string): string {
 function tokenize(q: string): string[] {
   const n = normalize(q).trim().replace(/\s+/g, " ");
   if (!n) return [];
+  // split on spaces + hyphens so "SATCO-ESCENT" can be found by "satco" or "escent"
   return n.split(/[ \-]+/g).filter((t) => t.length >= 2);
+}
+
+function label(it: ItemLite): string {
+  return `${it.sku}${it.partNumber ? ` • ${it.partNumber}` : ""} • ${it.name}`;
 }
 
 function haystack(it: ItemLite): string {
@@ -51,38 +65,50 @@ function haystack(it: ItemLite): string {
 export default function ItemPicker({
   name = "itemId",
   items,
+  defaultId,
   defaultItemId,
   placeholder = "Search SKU, part #, name, category, manufacturer…",
   style,
   inputStyle,
 }: Props) {
-  const rootRef = React.useRef<HTMLDivElement | null>(null);
-  const inputRef = React.useRef<HTMLInputElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const defaultItem = React.useMemo(
-    () => (defaultItemId ? items.find((x) => x.id === defaultItemId) ?? null : null),
-    [defaultItemId, items]
-  );
+  const initialId = (defaultId ?? defaultItemId ?? "").trim();
 
-  const [open, setOpen] = React.useState(false);
-  const [query, setQuery] = React.useState(() => {
-    if (!defaultItem) return "";
-    return `${defaultItem.sku}${
-      defaultItem.partNumber ? ` • ${defaultItem.partNumber}` : ""
-    } • ${defaultItem.name}`;
-  });
-  const [selectedId, setSelectedId] = React.useState<string>(
-    defaultItem?.id ?? ""
-  );
-  const [activeIndex, setActiveIndex] = React.useState(0);
+  const defaultItem = useMemo(() => {
+    if (!initialId) return null;
+    return items.find((x) => x.id === initialId) ?? null;
+  }, [initialId, items]);
 
-  const filtered = React.useMemo(() => {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState<string>(() => (defaultItem ? label(defaultItem) : ""));
+  const [selectedId, setSelectedId] = useState<string>(() => defaultItem?.id ?? "");
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  // If the URL filter changes (defaultId changes), update selection + input label.
+  useEffect(() => {
+    if (!defaultItem) {
+      // If you clear filters, we should clear selection + text.
+      if (initialId === "") {
+        setSelectedId("");
+        setQuery("");
+      }
+      return;
+    }
+    setSelectedId(defaultItem.id);
+    setQuery(label(defaultItem));
+  }, [defaultItem, initialId]);
+
+  const filtered = useMemo(() => {
     const toks = tokenize(query);
     if (toks.length === 0) return items.slice(0, 80);
 
     const out: ItemLite[] = [];
     for (const it of items) {
       const h = haystack(it);
+
+      // AND across tokens: all words must appear somewhere
       let ok = true;
       for (const t of toks) {
         if (!h.includes(t)) {
@@ -90,33 +116,30 @@ export default function ItemPicker({
           break;
         }
       }
+
       if (ok) out.push(it);
       if (out.length >= 120) break;
     }
     return out;
   }, [items, query]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (!rootRef.current) return;
-      if (!rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      if (!rootRef.current.contains(e.target as Node)) setOpen(false);
     }
     window.addEventListener("mousedown", handleClickOutside);
     return () => window.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!open) return;
     setActiveIndex((i) => Math.max(0, Math.min(i, filtered.length - 1)));
   }, [open, filtered.length]);
 
   function selectItem(it: ItemLite) {
     setSelectedId(it.id);
-    setQuery(
-      `${it.sku}${it.partNumber ? ` • ${it.partNumber}` : ""} • ${it.name}`
-    );
+    setQuery(label(it));
     setOpen(false);
     requestAnimationFrame(() => inputRef.current?.focus());
   }
@@ -135,6 +158,7 @@ export default function ItemPicker({
         ...style,
       }}
     >
+      {/* Hidden input the server action reads */}
       <input type="hidden" name={name} value={selectedId} />
 
       <input
@@ -144,7 +168,7 @@ export default function ItemPicker({
         onChange={(e) => {
           setQuery(e.target.value);
           setOpen(true);
-          setSelectedId("");
+          setSelectedId(""); // user is typing a new search; selection not valid until chosen
           setActiveIndex(0);
         }}
         onFocus={() => setOpen(true)}
@@ -161,14 +185,10 @@ export default function ItemPicker({
 
           if (e.key === "ArrowDown") {
             e.preventDefault();
-            setActiveIndex((i) =>
-              Math.min(i + 1, filtered.length - 1)
-            );
+            setActiveIndex((i) => Math.min(i + 1, filtered.length - 1));
           } else if (e.key === "ArrowUp") {
             e.preventDefault();
-            setActiveIndex((i) =>
-              Math.max(i - 1, 0)
-            );
+            setActiveIndex((i) => Math.max(i - 1, 0));
           } else if (e.key === "Enter") {
             e.preventDefault();
             const it = filtered[activeIndex];
@@ -206,9 +226,7 @@ export default function ItemPicker({
         >
           <div style={{ maxHeight: 320, overflowY: "auto" }}>
             {filtered.length === 0 ? (
-              <div style={{ padding: 12, opacity: 0.7 }}>
-                No matches.
-              </div>
+              <div style={{ padding: 12, opacity: 0.7 }}>No matches.</div>
             ) : (
               filtered.map((it, idx) => {
                 const active = idx === activeIndex;
@@ -223,28 +241,14 @@ export default function ItemPicker({
                       textAlign: "left",
                       border: "none",
                       padding: "10px 12px",
-                      background: active
-                        ? "rgba(255,255,255,0.06)"
-                        : "transparent",
+                      background: active ? "rgba(255,255,255,0.06)" : "transparent",
                       color: fg,
                       cursor: "pointer",
                     }}
                   >
-                    <div style={{ fontWeight: 900 }}>
-                      {it.sku}
-                      {it.partNumber ? ` • ${it.partNumber}` : ""} •{" "}
-                      {it.name}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 12,
-                        opacity: 0.7,
-                        marginTop: 2,
-                      }}
-                    >
-                      {[it.category, it.manufacturer, it.orderFrom]
-                        .filter(Boolean)
-                        .join(" • ")}
+                    <div style={{ fontWeight: 900 }}>{label(it)}</div>
+                    <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>
+                      {[it.category, it.manufacturer, it.orderFrom].filter(Boolean).join(" • ")}
                     </div>
                   </button>
                 );
