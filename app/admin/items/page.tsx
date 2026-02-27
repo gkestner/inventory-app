@@ -48,7 +48,6 @@ export default async function AdminItemsPage({ searchParams }: { searchParams: S
   const qRaw = (first(searchParams.q) ?? "").trim();
   const createdSku = (first(searchParams.createdSku) ?? "").trim() || null;
 
-  // Build WHERE clause for search
   const where =
     qRaw.length > 0
       ? {
@@ -66,25 +65,13 @@ export default async function AdminItemsPage({ searchParams }: { searchParams: S
 
   const skip = (page - 1) * perPage;
 
-  // Vendor formulas (global)
-  // Adjust this section to match where you store the formulas.
-  // If you already pass vendorFormulas from somewhere else, keep your version.
-  const vendorSettings = await prisma.vendorSettings.findMany({
-    select: { vendor: true, costPlusFormula: true },
-  });
-
+  // ✅ Safe fallback: if you haven't wired vendor formulas on the server yet,
+  // keep them blank (client will allow manual price entry).
   const vendorFormulas: Record<Vendor, string> = {
     SUCCESS_PLUS: "",
     AMERICAN_PLUS: "",
   };
 
-  for (const s of vendorSettings) {
-    if (s.vendor === "SUCCESS_PLUS" || s.vendor === "AMERICAN_PLUS") {
-      vendorFormulas[s.vendor] = (s.costPlusFormula ?? "").trim();
-    }
-  }
-
-  // IMPORTANT: total must respect the same WHERE, or pagination will be wrong
   const [total, items] = await Promise.all([
     prisma.item.count({ where }),
     prisma.item.findMany({
@@ -111,8 +98,6 @@ export default async function AdminItemsPage({ searchParams }: { searchParams: S
         orderFrom: true,
         webUrl: true,
 
-        // If you’re adding qty fields via joins/aggregates elsewhere,
-        // you can keep doing that; otherwise remove these from the client type.
         onHandQty: true,
         orderedQty: true,
         usedQty: true,
@@ -121,7 +106,6 @@ export default async function AdminItemsPage({ searchParams }: { searchParams: S
     }),
   ]);
 
-  // Shape to match your client expectations (decimal -> string)
   const initialItems = items.map((r) => ({
     ...r,
     cost: r.cost ? String(r.cost) : null,
