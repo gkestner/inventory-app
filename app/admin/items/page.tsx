@@ -237,6 +237,7 @@ export default async function AdminItemsPage({
       </div>
 
       <ItemsTableClient
+        key={`${q}::${page}::${perPage}`} // ✅ force remount so client state can’t “stick” across URL changes
         initialItems={initialItems}
         createdSku={createdSku}
         page={page}
