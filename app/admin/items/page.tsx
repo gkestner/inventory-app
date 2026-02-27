@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import ItemsTableClient from "./ItemsTableClient";
-import { Role } from "@prisma/client";
+import { Role, Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -40,6 +40,70 @@ async function requireAdmin() {
   return session;
 }
 
+/**
+ * Split input into tokens:
+ * - trims
+ * - collapses whitespace
+ * - splits on spaces
+ * - ignores very short tokens (1 char)
+ */
+function tokenize(q: string): string[] {
+  const s = (q || "").trim().replace(/\s+/g, " ");
+  if (!s) return [];
+  return s
+    .split(" ")
+    .map((x) => x.trim())
+    .filter((x) => x.length >= 2);
+}
+
+/**
+ * Simple singular/plural helper:
+ * - bulb -> bulbs
+ * - bulbs -> bulb
+ */
+function variants(t: string): string[] {
+  const lower = t.toLowerCase();
+  const out = new Set<string>([t, lower]);
+
+  if (lower.endsWith("s") && lower.length > 3) {
+    out.add(lower.slice(0, -1));
+  } else {
+    out.add(`${lower}s`);
+  }
+
+  return Array.from(out);
+}
+
+/**
+ * Build WHERE:
+ * - AND across tokens
+ * - OR across fields for each token
+ * - contains + insensitive for partial matches
+ */
+function buildWhere(qRaw: string): Prisma.ItemWhereInput {
+  const tokens = tokenize(qRaw);
+  if (tokens.length === 0) return {};
+
+  const tokenClauses: Prisma.ItemWhereInput[] = tokens.map((tok) => {
+    const vs = variants(tok);
+
+    const ors: Prisma.ItemWhereInput[] = vs.flatMap((v) => [
+      { sku: { contains: v, mode: "insensitive" } },
+      { partNumber: { contains: v, mode: "insensitive" } },
+      { name: { contains: v, mode: "insensitive" } },
+      { category: { contains: v, mode: "insensitive" } },
+      { description: { contains: v, mode: "insensitive" } },
+      { manufacturer: { contains: v, mode: "insensitive" } },
+      { orderFrom: { contains: v, mode: "insensitive" } },
+      { webUrl: { contains: v, mode: "insensitive" } }, // ✅ include webUrl too since it’s shown
+    ]);
+
+    return { OR: ors };
+  });
+
+  return { AND: tokenClauses };
+}
+
 export default async function AdminItemsPage({ searchParams }: { searchParams: SearchParams }) {
   await requireAdmin();
 
@@ -48,25 +112,11 @@ export default async function AdminItemsPage({ searchParams }: { searchParams: S
   const qRaw = (first(searchParams.q) ?? "").trim();
   const createdSku = (first(searchParams.createdSku) ?? "").trim() || null;
 
-  const where =
-    qRaw.length > 0
-      ? {
-          OR: [
-            { sku: { contains: qRaw, mode: "insensitive" as const } },
-            { partNumber: { contains: qRaw, mode: "insensitive" as const } },
-            { name: { contains: qRaw, mode: "insensitive" as const } },
-            { category: { contains: qRaw, mode: "insensitive" as const } },
-            { description: { contains: qRaw, mode: "insensitive" as const } },
-            { manufacturer: { contains: qRaw, mode: "insensitive" as const } },
-            { orderFrom: { contains: qRaw, mode: "insensitive" as const } },
-          ],
-        }
-      : {};
+  const where = buildWhere(qRaw);
 
   const skip = (page - 1) * perPage;
 
-  // ✅ Safe fallback: if you haven't wired vendor formulas on the server yet,
-  // keep them blank (client will allow manual price entry).
+  // ✅ Safe fallback: vendor formulas blank unless you’ve wired them.
   const vendorFormulas: Record<Vendor, string> = {
     SUCCESS_PLUS: "",
     AMERICAN_PLUS: "",
