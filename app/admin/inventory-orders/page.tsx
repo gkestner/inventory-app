@@ -1311,33 +1311,42 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           @media (max-width: 900px) { .hide-md { display: none !important; } }
           @media (max-width: 650px) { .hide-sm { display: none !important; } }
 
+          :root{
+            --stickyDeleteW: 180px;
+            --stickyEditW: 180px;
+            --stickyActionsW: 360px;
+            --stickyDivider: rgba(255,255,255,0.10);
+          }
+
           /* Keep Actions/Edit/Delete visible (sticky right) */
           th.stickyR, td.stickyR { position: sticky; z-index: 3; }
           th.stickyR { z-index: 4; }
-          .stickyActions { right: 300px; }
-          .stickyEdit { right: 150px; }
-          .stickyDelete { right: 0px; }
+          .stickyDelete { right: 0px; width: var(--stickyDeleteW); min-width: var(--stickyDeleteW); }
+          .stickyEdit   { right: var(--stickyDeleteW); width: var(--stickyEditW); min-width: var(--stickyEditW); }
+          .stickyActions{ right: calc(var(--stickyDeleteW) + var(--stickyEditW)); width: var(--stickyActionsW); min-width: var(--stickyActionsW); }
 
-          /* Make sticky cells blend with row bg */
-          td.stickyR, th.stickyR { background: var(--background); }
-          tr[data-rowbg="1"] td.stickyR { background: inherit; }
+          /* Make sticky cells blend with row bg and add a subtle divider so it feels "separate" */
+          td.stickyR, th.stickyR {
+            background: inherit;
+            box-shadow: -1px 0 0 var(--stickyDivider);
+          }
 
-          /* Allow table to scroll IF it must, but usually it won't */
+          /* Allow table to scroll (and prevent squeeze-overlap) */
           .tableWrap { overflow-x: auto; }
         `}</style>
 
         {/* TABLE */}
         <div className="tableWrap" style={{ marginTop: 14, border, borderRadius: 14, background: surface }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1700 }}>
             <thead>
               <tr>
+                {/* ✅ Combined: Ordered + Phase in top-left */}
                 <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Ordered
+                  Ordered / Phase
                 </th>
-                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Phase
-                </th>
+
                 <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85 }}>Item</th>
+
                 <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
                   Qty
                 </th>
@@ -1399,13 +1408,17 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                 const canArrive = o.status === "ORDERED";
                 const canAdd = o.status !== "ADDED_TO_INVENTORY";
 
+                const phaseText = phaseLabel(o.status as InventoryOrderPhase);
+
                 return (
                   <tr key={o.id} data-rowbg="1" style={{ borderBottom: border, ...rowPhaseStyle(o.status as InventoryOrderPhase) }}>
-                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocal(o.orderedAt)}</td>
+                    {/* ✅ Ordered + Phase stacked in top-left */}
+                    <td style={{ padding: 10, verticalAlign: "top", width: 200, minWidth: 200 }}>
+                      <div style={{ fontWeight: 900, whiteSpace: "nowrap" }}>{phaseText}</div>
+                      <div style={{ fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>{fmtLocal(o.orderedAt)}</div>
+                    </td>
 
-                    <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{phaseLabel(o.status as InventoryOrderPhase)}</td>
-
-                    <td style={{ padding: 10, minWidth: 220, maxWidth: 260 }}>
+                    <td style={{ padding: 10, minWidth: 260, maxWidth: 520 }}>
                       <div style={{ fontWeight: 900, whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.2 }}>{itemLabel}</div>
                       <div style={{ fontSize: 12, opacity: 0.75, whiteSpace: "normal", overflowWrap: "anywhere" }}>id: {o.id}</div>
                     </td>
@@ -1417,17 +1430,11 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                       {o.supplierPartNumber ? <div style={{ fontSize: 12, opacity: 0.75 }}>Part #: {o.supplierPartNumber}</div> : null}
                     </td>
 
-                    <td className="hide-sm" style={{ padding: 10, whiteSpace: "nowrap" }}>
-                      {o.unitPrice ? money(Number(o.unitPrice)) : "—"}
-                    </td>
+                    <td className="hide-sm" style={{ padding: 10, whiteSpace: "nowrap" }}>{o.unitPrice ? money(Number(o.unitPrice)) : "—"}</td>
 
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>
-                      {o.shippingCost ? money(Number(o.shippingCost)) : "—"}
-                    </td>
+                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>{o.shippingCost ? money(Number(o.shippingCost)) : "—"}</td>
 
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>
-                      {o.taxCost ? money(Number(o.taxCost)) : "—"}
-                    </td>
+                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>{o.taxCost ? money(Number(o.taxCost)) : "—"}</td>
 
                     <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{money(totalCost)}</td>
 
@@ -1461,7 +1468,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                       ) : null}
                     </td>
 
-                    {/* Sticky right: EDIT (this is what was “missing”) */}
+                    {/* Sticky right: EDIT */}
                     <td className="stickyR stickyEdit" style={{ padding: 10, verticalAlign: "top" }}>
                       <details>
                         <summary style={{ cursor: "pointer", fontWeight: 900 }}>Edit</summary>
@@ -1612,7 +1619,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
 
               {orders.length === 0 ? (
                 <tr>
-                  <td colSpan={16} style={{ padding: 14, opacity: 0.8 }}>
+                  <td colSpan={15} style={{ padding: 14, opacity: 0.8 }}>
                     No orders found.
                   </td>
                 </tr>
