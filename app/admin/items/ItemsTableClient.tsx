@@ -2,6 +2,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 type Vendor = "SUCCESS_PLUS" | "AMERICAN_PLUS";
 function isCostPlusVendor(v: unknown): v is Vendor {
@@ -431,15 +432,6 @@ function isItemVersionArray(v: unknown): v is ItemVersion[] {
   });
 }
 
-function readQFromLocation(): string {
-  try {
-    const p = new URLSearchParams(window.location.search);
-    return (p.get("q") || "").trim();
-  } catch {
-    return "";
-  }
-}
-
 export default function ItemsTableClient({
   initialItems,
   createdSku,
@@ -454,16 +446,16 @@ export default function ItemsTableClient({
   perPage: number;
   total: number;
 
-  // ✅ NEW: ONE formula per vendor (passed from server)
+  // ✅ ONE formula per vendor (passed from server)
   vendorFormulas: Record<Vendor, string>;
 }) {
+  const router = useRouter();
+  const sp = useSearchParams();
+
   const [rows, setRows] = useState<ItemRow[]>(initialItems ?? []);
 
-  // Search UI for q param
-  const [qInput, setQInput] = useState<string>(() => {
-    if (typeof window === "undefined") return "";
-    return readQFromLocation();
-  });
+  // Search UI for q param (sync from URL)
+  const [qInput, setQInput] = useState<string>((sp.get("q") || "").trim());
 
   // Edit
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -472,7 +464,7 @@ export default function ItemsTableClient({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // ✅ Cost-plus preview (vendor-level formula)
+  // Cost-plus preview (vendor-level formula)
   const [formulaPreview, setFormulaPreview] = useState<string | null>(null);
   const [formulaError, setFormulaError] = useState<string | null>(null);
 
@@ -526,11 +518,10 @@ export default function ItemsTableClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialItems, page, perPage]);
 
+  // ✅ Keep qInput synced to the URL (back/forward too)
   useEffect(() => {
-    const onPop = () => setQInput(readQFromLocation());
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-  }, []);
+    setQInput((sp.get("q") || "").trim());
+  }, [sp]);
 
   const pageIdSet = useMemo(() => new Set(rows.map((r) => r.id)), [rows]);
 
@@ -553,20 +544,20 @@ export default function ItemsTableClient({
   }, [total, perPage]);
 
   function goToPage(nextPage: number) {
-    const p = new URLSearchParams(window.location.search);
+    const p = new URLSearchParams(sp.toString());
     p.set("page", String(Math.max(1, Math.min(totalPages, nextPage))));
-    window.location.assign(`${window.location.pathname}?${p.toString()}`);
+    router.push(`?${p.toString()}`);
   }
 
   function applySearch(nextQ: string) {
-    const p = new URLSearchParams(window.location.search);
+    const p = new URLSearchParams(sp.toString());
     const v = nextQ.trim();
 
     if (v) p.set("q", v);
     else p.delete("q");
 
     p.set("page", "1");
-    window.location.assign(`${window.location.pathname}?${p.toString()}`);
+    router.push(`?${p.toString()}`);
   }
 
   const createdIndex = useMemo(() => {
@@ -1094,7 +1085,8 @@ export default function ItemsTableClient({
                 border: "1px solid var(--border)",
                 background: surface,
                 color: "var(--text)",
-                cursor: page >= Math.max(1, Math.ceil((total || 0) / (perPage || 25))) ? "not-allowed" : "pointer",
+                cursor:
+                  page >= Math.max(1, Math.ceil((total || 0) / (perPage || 25))) ? "not-allowed" : "pointer",
                 opacity: page >= Math.max(1, Math.ceil((total || 0) / (perPage || 25))) ? 0.6 : 1,
               }}
             >
@@ -1316,9 +1308,7 @@ export default function ItemsTableClient({
                           value={draft?.vendor ?? "SUCCESS_PLUS"}
                           onChange={(e) =>
                             setDraft((d) =>
-                              d
-                                ? { ...d, vendor: e.target.value === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS" }
-                                : d
+                              d ? { ...d, vendor: e.target.value === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS" } : d
                             )
                           }
                           style={{
@@ -1755,12 +1745,7 @@ export default function ItemsTableClient({
                           <span>
                             <strong>Web:</strong>{" "}
                             {web ? (
-                              <a
-                                href={web}
-                                target="_blank"
-                                rel="noreferrer"
-                                style={{ textDecoration: "underline", color: "inherit" }}
-                              >
+                              <a href={web} target="_blank" rel="noreferrer" style={{ textDecoration: "underline", color: "inherit" }}>
                                 {detailText.webLabel}
                               </a>
                             ) : (
