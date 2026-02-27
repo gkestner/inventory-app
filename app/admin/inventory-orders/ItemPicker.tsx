@@ -50,16 +50,7 @@ function label(it: ItemLite): string {
 }
 
 function haystack(it: ItemLite): string {
-  return normalize(
-    [
-      it.sku,
-      it.partNumber ?? "",
-      it.name,
-      it.category ?? "",
-      it.manufacturer ?? "",
-      it.orderFrom ?? "",
-    ].join(" ")
-  );
+  return normalize([it.sku, it.partNumber ?? "", it.name, it.category ?? "", it.manufacturer ?? "", it.orderFrom ?? ""].join(" "));
 }
 
 export default function ItemPicker({
@@ -148,13 +139,21 @@ export default function ItemPicker({
   const surface = "var(--background)";
   const fg = "var(--foreground)";
 
+  const isShowingSelectedLabel = useMemo(() => {
+    if (!selectedId) return false;
+    const it = items.find((x) => x.id === selectedId);
+    if (!it) return false;
+    return query === label(it);
+  }, [items, query, selectedId]);
+
   return (
     <div
       ref={rootRef}
       style={{
         position: "relative",
-        isolation: "isolate",
         width: "100%",
+        // give this its own stacking context so the menu reliably layers above neighbors
+        zIndex: open ? 50 : "auto",
         ...style,
       }}
     >
@@ -165,13 +164,21 @@ export default function ItemPicker({
         ref={inputRef}
         value={query}
         placeholder={placeholder}
+        onFocus={() => {
+          setOpen(true);
+
+          // ✅ Key fix: if a selection exists and the textbox is showing the selected label,
+          // select-all so the next keystroke REPLACES (prevents "overlap/append" feeling).
+          if (isShowingSelectedLabel) {
+            requestAnimationFrame(() => inputRef.current?.select());
+          }
+        }}
         onChange={(e) => {
           setQuery(e.target.value);
           setOpen(true);
           setSelectedId(""); // user is typing a new search; selection not valid until chosen
           setActiveIndex(0);
         }}
-        onFocus={() => setOpen(true)}
         onKeyDown={(e) => {
           if (!open && (e.key === "ArrowDown" || e.key === "Enter")) {
             setOpen(true);
@@ -205,6 +212,8 @@ export default function ItemPicker({
           outline: "none",
           fontSize: 14,
           boxSizing: "border-box",
+          position: "relative",
+          zIndex: 2,
           ...inputStyle,
         }}
       />
@@ -213,10 +222,11 @@ export default function ItemPicker({
         <div
           style={{
             position: "absolute",
-            top: "calc(100% + 8px)",
+            top: "100%",
             left: 0,
             right: 0,
-            zIndex: 99999,
+            transform: "translateY(8px)",
+            zIndex: 1000,
             border,
             borderRadius: 12,
             background: surface,
@@ -235,6 +245,10 @@ export default function ItemPicker({
                     key={it.id}
                     type="button"
                     onMouseEnter={() => setActiveIndex(idx)}
+                    onMouseDown={(e) => {
+                      // ✅ prevents focus/blur flicker in some browsers before click registers
+                      e.preventDefault();
+                    }}
                     onClick={() => selectItem(it)}
                     style={{
                       width: "100%",
