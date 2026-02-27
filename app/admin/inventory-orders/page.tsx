@@ -33,7 +33,6 @@ async function requireOrderHistoryView() {
   const perms = await loadUserPermissions(session);
   if (perms.allowAll) return { session, perms };
 
-  // Reuse Items Admin view permission for Order History module
   const ok = hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
   if (!ok) redirect("/");
 
@@ -87,7 +86,6 @@ type SearchParams = {
   to?: string; // yyyy-mm-dd
   page?: string; // 1-based
   perPage?: string; // 10/25/50/100
-
   ok?: string; // "1"
   error?: string;
 };
@@ -254,7 +252,6 @@ function nonEmptyString(v: FormDataEntryValue | null): string {
 export default async function AdminInventoryOrdersPage({ searchParams }: { searchParams: SearchParams }) {
   await requireOrderHistoryView();
 
-  // If Prisma Client isn't regenerated yet, avoid crashing.
   const anyPrisma = prisma as unknown as { inventoryOrder?: unknown };
   if (!("inventoryOrder" in anyPrisma) || !anyPrisma.inventoryOrder) {
     return (
@@ -340,6 +337,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     fontSize: 14,
     minWidth: 0,
   };
+
   const btn: CSSProperties = {
     padding: "10px 14px",
     borderRadius: 12,
@@ -351,6 +349,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     lineHeight: 1,
     whiteSpace: "nowrap",
   };
+
   const btnPrimary: CSSProperties = {
     ...btn,
     background: "var(--order-submit-bg, rgba(76, 175, 80, 0.18))",
@@ -365,10 +364,17 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     width: "100%",
     minWidth: 0,
   };
+
   const flexItem = (basis: number, grow = 1): CSSProperties => ({
     flex: `${grow} 1 ${basis}px`,
     minWidth: 0,
   });
+
+  // ✅ CELL ALIGNMENT FIX (prevents the “floating row” look)
+  const tdBase: CSSProperties = {
+    padding: 10,
+    verticalAlign: "top",
+  };
 
   const where: Prisma.InventoryOrderWhereInput = {};
   if (phase) where.status = phase;
@@ -435,9 +441,9 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
 
   const pageCount = Math.max(1, Math.ceil(total / perPage));
 
-  async function syncItemCostAndOrderFromFromLatestOrder(tx: Prisma.TransactionClient, itemId2: string) {
+  async function syncItemCostAndOrderFromFromLatestOrder(tx: Prisma.TransactionClient, itemIdArg: string) {
     const latest = await tx.inventoryOrder.findFirst({
-      where: { itemId: itemId2 },
+      where: { itemId: itemIdArg },
       orderBy: { orderedAt: "desc" },
       select: { id: true, unitPrice: true, supplierName: true, orderedAt: true, note: true },
     });
@@ -445,7 +451,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     if (!latest) return;
 
     const item = await tx.item.findUnique({
-      where: { id: itemId2 },
+      where: { id: itemIdArg },
       select: { id: true, sku: true, cost: true, orderFrom: true },
     });
     if (!item) return;
@@ -467,14 +473,16 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     });
 
     await tx.item.update({
-      where: { id: itemId2 },
+      where: { id: itemIdArg },
       data: {
         cost: latest.unitPrice,
         orderFrom: newOrderFrom,
         inventoryOrders: {
           update: {
             where: { id: latest.id },
-            data: { note: latest.note ? `${latest.note}\n${auditLine}` : auditLine },
+            data: {
+              note: latest.note ? `${latest.note}\n${auditLine}` : auditLine,
+            },
           },
         },
       },
@@ -627,7 +635,6 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
       revalidatePath("/admin/inventory-orders");
       revalidatePath("/admin/items");
 
-      // ✅ IMPORTANT: headers() is async in your build typing — always await it.
       const h = await headers();
       const back = safeReturnToPathFromReferer(h.get("referer"));
       redirect(withQuery(back, { ok: "1" }));
@@ -1189,6 +1196,19 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                   </button>
                 </div>
               </div>
+
+              <div style={{ fontSize: 12, opacity: 0.8, lineHeight: 1.5 }}>
+                Creating an order immediately increments <b>Item.orderedQty</b> and also updates:
+                <ul style={{ margin: "6px 0 0 18px" }}>
+                  <li>
+                    <b>Item.cost</b> → set to the order <b>unit price</b>
+                  </li>
+                  <li>
+                    <b>Item.orderFrom</b> → set to <b>Supplier</b> (if provided)
+                  </li>
+                </ul>
+                Each order row includes an <b>AUDIT</b> line in <b>Note</b> so you can see what changed.
+              </div>
             </form>
           </div>
         </details>
@@ -1292,68 +1312,86 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           </form>
         </div>
 
-        {/* ✅ Responsive: hide columns on smaller screens so you don't have to scroll sideways */}
+        {/* ✅ responsive helpers */}
         <style>{`
-          @media (max-width: 900px) { .hide-md { display: none !important; } }
-          @media (max-width: 650px) { .hide-sm { display: none !important; } }
+          @media (max-width: 900px) {
+            .hide-md { display: none !important; }
+          }
+          @media (max-width: 650px) {
+            .hide-sm { display: none !important; }
+          }
         `}</style>
 
         {/* TABLE */}
-        <div style={{ marginTop: 14, border, borderRadius: 14, background: surface }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <div style={{ marginTop: 14, border, borderRadius: 14, background: surface, overflowX: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+            {/* ✅ fixed column sizing keeps headers + body aligned */}
+            <colgroup>
+              <col style={{ width: 170 }} />
+              <col style={{ width: 110 }} />
+              <col style={{ width: 320 }} />
+              <col style={{ width: 70 }} />
+
+              <col className="hide-sm" style={{ width: 170 }} />
+              <col className="hide-sm" style={{ width: 100 }} />
+              <col className="hide-md" style={{ width: 90 }} />
+              <col className="hide-md" style={{ width: 90 }} />
+
+              <col style={{ width: 110 }} />
+
+              <col className="hide-md" style={{ width: 140 }} />
+              <col className="hide-md" style={{ width: 140 }} />
+              <col className="hide-md" style={{ width: 160 }} />
+              <col className="hide-md" style={{ width: 160 }} />
+
+              <col style={{ width: 260 }} />
+              <col style={{ width: 90 }} />
+              <col style={{ width: 110 }} />
+            </colgroup>
+
             <thead>
               <tr>
-                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Ordered
-                </th>
-                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Phase
-                </th>
-                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85 }}>Item</th>
-                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Qty
-                </th>
-
-                <th className="hide-sm" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85 }}>
-                  Supplier
-                </th>
-                <th className="hide-sm" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85 }}>
-                  Unit
-                </th>
-                <th className="hide-md" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85 }}>
-                  Ship
-                </th>
-                <th className="hide-md" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85 }}>
-                  Tax
-                </th>
-
-                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Total
-                </th>
-
-                <th className="hide-md" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85 }}>
-                  For Tech
-                </th>
-                <th className="hide-md" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85 }}>
-                  For Store
-                </th>
-
-                <th className="hide-md" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85 }}>
-                  Arrived
-                </th>
-                <th className="hide-md" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85 }}>
-                  Added
-                </th>
-
-                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Actions
-                </th>
-                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Edit
-                </th>
-                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Delete
-                </th>
+                {[
+                  "Ordered",
+                  "Phase",
+                  "Item",
+                  "Qty",
+                  "Supplier",
+                  "Unit",
+                  "Ship",
+                  "Tax",
+                  "Total",
+                  "For Tech",
+                  "For Store",
+                  "Arrived",
+                  "Added",
+                  "Actions",
+                  "Edit",
+                  "Delete",
+                ].map((h, idx) => {
+                  const cls =
+                    h === "Supplier" || h === "Unit"
+                      ? "hide-sm"
+                      : h === "Ship" || h === "Tax" || h === "For Tech" || h === "For Store" || h === "Arrived" || h === "Added"
+                        ? "hide-md"
+                        : "";
+                  return (
+                    <th
+                      key={`${h}-${idx}`}
+                      className={cls}
+                      style={{
+                        textAlign: "left",
+                        padding: 10,
+                        borderBottom: border,
+                        fontSize: 12,
+                        opacity: 0.85,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {h}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
 
@@ -1373,51 +1411,53 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
 
                 return (
                   <tr key={o.id} style={{ borderBottom: border, ...rowPhaseStyle(o.status as InventoryOrderPhase) }}>
-                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocal(o.orderedAt)}</td>
+                    <td style={{ ...tdBase, whiteSpace: "nowrap" }}>{fmtLocal(o.orderedAt)}</td>
 
-                    <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{phaseLabel(o.status as InventoryOrderPhase)}</td>
+                    <td style={{ ...tdBase, whiteSpace: "nowrap", fontWeight: 900 }}>{phaseLabel(o.status as InventoryOrderPhase)}</td>
 
-                    <td style={{ padding: 10, minWidth: 220, maxWidth: 260 }}>
+                    <td style={{ ...tdBase }}>
                       <div style={{ fontWeight: 900, whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.2 }}>{itemLabel}</div>
                       <div style={{ fontSize: 12, opacity: 0.75, whiteSpace: "normal", overflowWrap: "anywhere" }}>id: {o.id}</div>
                     </td>
 
-                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.quantity}</td>
+                    <td style={{ ...tdBase, whiteSpace: "nowrap" }}>{o.quantity}</td>
 
-                    <td className="hide-sm" style={{ padding: 10, whiteSpace: "nowrap" }}>
-                      {o.supplierName ?? "—"}
+                    <td className="hide-sm" style={{ ...tdBase }}>
+                      <div style={{ whiteSpace: "normal", overflowWrap: "anywhere" }}>{o.supplierName ?? "—"}</div>
                       {o.supplierPartNumber ? <div style={{ fontSize: 12, opacity: 0.75 }}>Part #: {o.supplierPartNumber}</div> : null}
                     </td>
 
-                    <td className="hide-sm" style={{ padding: 10, whiteSpace: "nowrap" }}>
+                    <td className="hide-sm" style={{ ...tdBase, whiteSpace: "nowrap" }}>
                       {o.unitPrice ? money(Number(o.unitPrice)) : "—"}
                     </td>
 
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>
+                    <td className="hide-md" style={{ ...tdBase, whiteSpace: "nowrap" }}>
                       {o.shippingCost ? money(Number(o.shippingCost)) : "—"}
                     </td>
 
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>
+                    <td className="hide-md" style={{ ...tdBase, whiteSpace: "nowrap" }}>
                       {o.taxCost ? money(Number(o.taxCost)) : "—"}
                     </td>
 
-                    <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{money(totalCost)}</td>
+                    <td style={{ ...tdBase, whiteSpace: "nowrap", fontWeight: 900 }}>{money(totalCost)}</td>
 
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>
+                    <td className="hide-md" style={{ ...tdBase, whiteSpace: "nowrap" }}>
                       {o.forUser?.name ?? "—"}
                     </td>
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>
+
+                    <td className="hide-md" style={{ ...tdBase, whiteSpace: "nowrap" }}>
                       {o.forStore?.name ?? "—"}
                     </td>
 
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>
+                    <td className="hide-md" style={{ ...tdBase, whiteSpace: "nowrap" }}>
                       {fmtLocal(o.arrivedAt)}
                     </td>
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>
+
+                    <td className="hide-md" style={{ ...tdBase, whiteSpace: "nowrap" }}>
                       {fmtLocal(o.addedToInventoryAt)}
                     </td>
 
-                    <td style={{ padding: 10, verticalAlign: "top" }}>
+                    <td style={{ ...tdBase }}>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <form action={markArrivedAction}>
                           <input type="hidden" name="id" value={o.id} />
@@ -1435,14 +1475,14 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                       </div>
 
                       {o.note ? (
-                        <div style={{ marginTop: 8, fontSize: 12, opacity: 0.85, maxWidth: 340, whiteSpace: "pre-wrap" }}>
+                        <div style={{ marginTop: 8, fontSize: 12, opacity: 0.85, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
                           <b>Note:</b> {o.note}
                         </div>
                       ) : null}
                     </td>
 
                     {/* EDIT */}
-                    <td style={{ padding: 10, verticalAlign: "top" }}>
+                    <td style={{ ...tdBase }}>
                       <details>
                         <summary style={{ cursor: "pointer", fontWeight: 900 }}>Edit</summary>
                         <form
@@ -1461,6 +1501,12 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                           }}
                         >
                           <input type="hidden" name="id" value={o.id} />
+                          <div style={{ fontSize: 12, opacity: 0.85, lineHeight: 1.5 }}>
+                            Item is not changeable (keeps inventory adjustments safe). Quantity edits are applied to{" "}
+                            <b>{o.status === "ADDED_TO_INVENTORY" ? "on-hand" : "ordered"}</b>.
+                            <br />
+                            After saving, the system will sync <b>Item.cost</b> + <b>Item.orderFrom</b> from the latest order for that item.
+                          </div>
 
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                             <label style={controlLabel}>
@@ -1480,19 +1526,37 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
 
                             <label style={controlLabel}>
                               Supplier Part #
-                              <input name="supplierPartNumber" defaultValue={o.supplierPartNumber ?? ""} placeholder="Supplier part #…" style={controlBase} />
+                              <input
+                                name="supplierPartNumber"
+                                defaultValue={o.supplierPartNumber ?? ""}
+                                placeholder="Supplier part #…"
+                                style={controlBase}
+                              />
                             </label>
                           </div>
 
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                             <label style={controlLabel}>
                               Unit price
-                              <input name="unitPrice" defaultValue={o.unitPrice ? String(o.unitPrice) : ""} placeholder="0.00" required style={controlBase} />
+                              <input
+                                name="unitPrice"
+                                defaultValue={o.unitPrice ? String(o.unitPrice) : ""}
+                                placeholder="0.00"
+                                required
+                                style={controlBase}
+                              />
                             </label>
+
                             <label style={controlLabel}>
                               Shipping
-                              <input name="shippingCost" defaultValue={o.shippingCost ? String(o.shippingCost) : ""} placeholder="0.00" style={controlBase} />
+                              <input
+                                name="shippingCost"
+                                defaultValue={o.shippingCost ? String(o.shippingCost) : ""}
+                                placeholder="0.00"
+                                style={controlBase}
+                              />
                             </label>
+
                             <label style={controlLabel}>
                               Tax
                               <input name="taxCost" defaultValue={o.taxCost ? String(o.taxCost) : ""} placeholder="0.00" style={controlBase} />
@@ -1536,7 +1600,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                     </td>
 
                     {/* DELETE */}
-                    <td style={{ padding: 10, verticalAlign: "top" }}>
+                    <td style={{ ...tdBase }}>
                       <details>
                         <summary style={{ cursor: "pointer", fontWeight: 900 }}>Delete</summary>
                         <form
@@ -1554,7 +1618,8 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                         >
                           <input type="hidden" name="id" value={o.id} />
                           <div style={{ fontSize: 12, opacity: 0.9 }}>
-                            Type <code>DELETE</code> to confirm deletion.
+                            Type <code>DELETE</code> to confirm deletion. This reverses inventory effects for the current phase, then syncs{" "}
+                            <b>Item.cost</b>/<b>Item.orderFrom</b> from the latest remaining order.
                           </div>
                           <input name="confirm" placeholder="DELETE" style={controlBase} />
                           <button type="submit" style={btn}>
@@ -1621,6 +1686,11 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           >
             Next
           </Link>
+        </div>
+
+        <div style={{ marginTop: 10, fontSize: 12, opacity: 0.8 }}>
+          Phases: <b>ORDERED</b> → <b>ARRIVED</b> → <b>ADDED TO INVENTORY</b>. Row color indicates phase. Creating an order increments{" "}
+          <b>Item.orderedQty</b>. “Add to Inventory” moves qty from <b>orderedQty</b> to <b>onHandQty</b>.
         </div>
       </div>
     </main>
