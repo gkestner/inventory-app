@@ -3,6 +3,7 @@
 
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 type ItemLite = {
   id: string;
@@ -53,6 +54,13 @@ function haystack(it: ItemLite): string {
   return normalize([it.sku, it.partNumber ?? "", it.name, it.category ?? "", it.manufacturer ?? "", it.orderFrom ?? ""].join(" "));
 }
 
+type MenuPos = {
+  top: number;
+  left: number;
+  width: number;
+  placeAbove: boolean;
+};
+
 export default function ItemPicker({
   name = "itemId",
   items,
@@ -77,10 +85,12 @@ export default function ItemPicker({
   const [selectedId, setSelectedId] = useState<string>(() => defaultItem?.id ?? "");
   const [activeIndex, setActiveIndex] = useState(0);
 
+  const [mounted, setMounted] = useState(false);
+  const [menuPos, setMenuPos] = useState<MenuPos | null>(null);
+
   // If the URL filter changes (defaultId changes), update selection + input label.
   useEffect(() => {
     if (!defaultItem) {
-      // If you clear filters, we should clear selection + text.
       if (initialId === "") {
         setSelectedId("");
         setQuery("");
@@ -99,7 +109,6 @@ export default function ItemPicker({
     for (const it of items) {
       const h = haystack(it);
 
-      // AND across tokens: all words must appear somewhere
       let ok = true;
       for (const t of toks) {
         if (!h.includes(t)) {
@@ -114,11 +123,28 @@ export default function ItemPicker({
     return out;
   }, [items, query]);
 
+  // Track mounting for createPortal safety.
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Close on outside click (works even with portal, because we check rootRef + the menu container id).
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (!rootRef.current) return;
-      if (!rootRef.current.contains(e.target as Node)) setOpen(false);
+      const root = rootRef.current;
+      if (!root) return;
+
+      const menuEl = document.getElementById(menuDomId);
+      const target = e.target as Node | null;
+
+      if (!target) return;
+
+      const inRoot = root.contains(target);
+      const inMenu = menuEl ? menuEl.contains(target) : false;
+
+      if (!inRoot && !inMenu) setOpen(false);
     }
+
     window.addEventListener("mousedown", handleClickOutside);
     return () => window.removeEventListener("mousedown", handleClickOutside);
   }, []);
@@ -135,6 +161,50 @@ export default function ItemPicker({
     requestAnimationFrame(() => inputRef.current?.focus());
   }
 
+  // --- Portal positioning ---
+  const menuDomId = useMemo(() => `itempicker-menu-${Math.random().toString(16).slice(2)}`, []);
+
+  function computeMenuPos() {
+    const el = inputRef.current;
+    if (!el) return;
+
+    const r = el.getBoundingClientRect();
+    const gap = 8;
+    const maxMenuH = 320;
+
+    const spaceBelow = window.innerHeight - r.bottom - gap;
+    const spaceAbove = r.top - gap;
+
+    const placeAbove = spaceBelow < 160 && spaceAbove > spaceBelow; // if tight below, and above is better
+    const top = placeAbove ? Math.max(8, r.top - gap) : r.bottom + gap;
+
+    setMenuPos({
+      top,
+      left: Math.max(8, r.left),
+      width: Math.max(240, r.width),
+      placeAbove,
+    });
+  }
+
+  useEffect(() => {
+    if (!open) return;
+
+    computeMenuPos();
+
+    function onScrollOrResize() {
+      computeMenuPos();
+    }
+
+    // capture scroll from any ancestor scrollers too
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+
+    return () => {
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
+  }, [open]);
+
   const border = "1px solid rgba(128,128,128,0.25)";
   const surface = "var(--background)";
   const fg = "var(--foreground)";
@@ -146,17 +216,67 @@ export default function ItemPicker({
     return query === label(it);
   }, [items, query, selectedId]);
 
+  const menu = open && mounted && menuPos
+    ? createPortal(
+        <div
+          id={menuDomId}
+          style={{
+            position: "fixed",
+            left: menuPos.left,
+            width: menuPos.width,
+            // If we place above, we anchor the menu's bottom to input's top by using translate.
+            top: menuPos.top,
+            transform: menuPos.placeAbove ? "translateY(calc(-100%))" : "none",
+            zIndex: 2147483647, // max practical z-index
+            border,
+            borderRadius: 12,
+            background: surface,
+            boxShadow: "0 12px 30px rgba(0,0,0,0.45)",
+            overflow: "hidden",
+          }}
+        >
+          <div style={{ maxHeight: 320, overflowY: "auto" }}>
+            {filtered.length === 0 ? (
+              <div style={{ padding: 12, opacity: 0.7 }}>No matches.</div>
+            ) : (
+              filtered.map((it, idx) => {
+                const active = idx === activeIndex;
+                return (
+                  <button
+                    key={it.id}
+                    type="button"
+                    onMouseEnter={() => setActiveIndex(idx)}
+                    onMouseDown={(e) => {
+                      // keep focus in the input while clicking options
+                      e.preventDefault();
+                    }}
+                    onClick={() => selectItem(it)}
+                    style={{
+                      width: "100%",
+                      textAlign: "left",
+                      border: "none",
+                      padding: "10px 12px",
+                      background: active ? "rgba(255,255,255,0.06)" : "transparent",
+                      color: fg,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <div style={{ fontWeight: 900 }}>{label(it)}</div>
+                    <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>
+                      {[it.category, it.manufacturer, it.orderFrom].filter(Boolean).join(" • ")}
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>,
+        document.body
+      )
+    : null;
+
   return (
-    <div
-      ref={rootRef}
-      style={{
-        position: "relative",
-        width: "100%",
-        // give this its own stacking context so the menu reliably layers above neighbors
-        zIndex: open ? 50 : "auto",
-        ...style,
-      }}
-    >
+    <div ref={rootRef} style={{ width: "100%", ...style }}>
       {/* Hidden input the server action reads */}
       <input type="hidden" name={name} value={selectedId} />
 
@@ -167,8 +287,7 @@ export default function ItemPicker({
         onFocus={() => {
           setOpen(true);
 
-          // ✅ Key fix: if a selection exists and the textbox is showing the selected label,
-          // select-all so the next keystroke REPLACES (prevents "overlap/append" feeling).
+          // if a selection exists and the textbox is showing that label, select-all
           if (isShowingSelectedLabel) {
             requestAnimationFrame(() => inputRef.current?.select());
           }
@@ -176,12 +295,14 @@ export default function ItemPicker({
         onChange={(e) => {
           setQuery(e.target.value);
           setOpen(true);
-          setSelectedId(""); // user is typing a new search; selection not valid until chosen
+          setSelectedId("");
           setActiveIndex(0);
+          requestAnimationFrame(() => computeMenuPos());
         }}
         onKeyDown={(e) => {
           if (!open && (e.key === "ArrowDown" || e.key === "Enter")) {
             setOpen(true);
+            requestAnimationFrame(() => computeMenuPos());
             return;
           }
           if (e.key === "Escape") {
@@ -212,65 +333,11 @@ export default function ItemPicker({
           outline: "none",
           fontSize: 14,
           boxSizing: "border-box",
-          position: "relative",
-          zIndex: 2,
           ...inputStyle,
         }}
       />
 
-      {open && (
-        <div
-          style={{
-            position: "absolute",
-            top: "100%",
-            left: 0,
-            right: 0,
-            transform: "translateY(8px)",
-            zIndex: 1000,
-            border,
-            borderRadius: 12,
-            background: surface,
-            boxShadow: "0 12px 30px rgba(0,0,0,0.45)",
-            overflow: "hidden",
-          }}
-        >
-          <div style={{ maxHeight: 320, overflowY: "auto" }}>
-            {filtered.length === 0 ? (
-              <div style={{ padding: 12, opacity: 0.7 }}>No matches.</div>
-            ) : (
-              filtered.map((it, idx) => {
-                const active = idx === activeIndex;
-                return (
-                  <button
-                    key={it.id}
-                    type="button"
-                    onMouseEnter={() => setActiveIndex(idx)}
-                    onMouseDown={(e) => {
-                      // ✅ prevents focus/blur flicker in some browsers before click registers
-                      e.preventDefault();
-                    }}
-                    onClick={() => selectItem(it)}
-                    style={{
-                      width: "100%",
-                      textAlign: "left",
-                      border: "none",
-                      padding: "10px 12px",
-                      background: active ? "rgba(255,255,255,0.06)" : "transparent",
-                      color: fg,
-                      cursor: "pointer",
-                    }}
-                  >
-                    <div style={{ fontWeight: 900 }}>{label(it)}</div>
-                    <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>
-                      {[it.category, it.manufacturer, it.orderFrom].filter(Boolean).join(" • ")}
-                    </div>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
+      {menu}
     </div>
   );
 }
