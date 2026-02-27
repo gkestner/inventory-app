@@ -7,9 +7,10 @@ import { headers } from "next/headers";
 import { getServerSession } from "next-auth";
 import { Decimal } from "@prisma/client/runtime/library";
 import type { Prisma } from "@prisma/client";
+import { Permission, Role } from "@prisma/client";
+
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
-import { Permission, Role } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 type AdminSession = {
@@ -34,6 +35,7 @@ async function requireOrderHistoryEdit() {
   return { session, perms };
 }
 
+// In some setups, session.user.id may not be present; resolve by email if needed.
 async function resolveSessionUserId(session: AdminSession): Promise<string> {
   const id = session?.user?.id ?? null;
   if (id) return id;
@@ -41,54 +43,8 @@ async function resolveSessionUserId(session: AdminSession): Promise<string> {
   const email = session?.user?.email ?? null;
   if (!email) return "";
 
-  const u = await prisma.user.findUnique({
-    where: { email },
-    select: { id: true },
-  });
-
+  const u = await prisma.user.findUnique({ where: { email }, select: { id: true } });
   return u?.id ?? "";
-}
-
-function parseOptionalInt(v: FormDataEntryValue | null): number | null {
-  if (v === null) return null;
-  const s = String(v).trim();
-  if (!s) return null;
-  const n = Number(s);
-  if (!Number.isFinite(n)) return null;
-  return Math.trunc(n);
-}
-function parseRequiredInt(v: FormDataEntryValue | null): number {
-  const n = parseOptionalInt(v);
-  if (n === null) return NaN;
-  return n;
-}
-function parseOptionalMoneyString(v: FormDataEntryValue | null): string | null {
-  if (v === null) return null;
-  const s = String(v).trim();
-  if (!s) return null;
-  const n = Number(s);
-  if (!Number.isFinite(n)) return null;
-  return n.toFixed(2);
-}
-function parseRequiredMoneyString(v: FormDataEntryValue | null): string {
-  const s = parseOptionalMoneyString(v);
-  if (s === null) return "";
-  return s;
-}
-function parseOptionalDateTimeLocal(v: FormDataEntryValue | null): Date | null {
-  if (v === null) return null;
-  const s = String(v).trim();
-  if (!s) return null;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-function parseBool(v: FormDataEntryValue | null): boolean {
-  if (!v) return false;
-  const s = String(v).trim().toLowerCase();
-  return s === "1" || s === "true" || s === "on" || s === "yes";
-}
-function nonEmptyString(v: FormDataEntryValue | null): string {
-  return String(v ?? "").trim();
 }
 
 function safeReturnToPathFromReferer(referer: string | null): string {
@@ -110,6 +66,54 @@ function withQuery(basePath: string, next: Record<string, string | undefined>) {
   }
   const qs = u.searchParams.toString();
   return qs ? `${u.pathname}?${qs}` : u.pathname;
+}
+
+function parseOptionalInt(v: FormDataEntryValue | null): number | null {
+  if (v === null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  const n = Number(s);
+  if (!Number.isFinite(n)) return null;
+  return Math.trunc(n);
+}
+
+function parseRequiredInt(v: FormDataEntryValue | null): number {
+  const n = parseOptionalInt(v);
+  if (n === null) return NaN;
+  return n;
+}
+
+function parseOptionalMoneyString(v: FormDataEntryValue | null): string | null {
+  if (v === null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  const n = Number(s);
+  if (!Number.isFinite(n)) return null;
+  return n.toFixed(2);
+}
+
+function parseRequiredMoneyString(v: FormDataEntryValue | null): string {
+  const s = parseOptionalMoneyString(v);
+  if (s === null) return "";
+  return s;
+}
+
+function parseOptionalDateTimeLocal(v: FormDataEntryValue | null): Date | null {
+  if (v === null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function parseBool(v: FormDataEntryValue | null): boolean {
+  if (!v) return false;
+  const s = String(v).trim().toLowerCase();
+  return s === "1" || s === "true" || s === "on" || s === "yes";
+}
+
+function nonEmptyString(v: FormDataEntryValue | null): string {
+  return String(v ?? "").trim();
 }
 
 function buildSystemAuditLine(args: {
@@ -135,8 +139,7 @@ function buildSystemAuditLine(args: {
   const now = new Date().toISOString();
   const parts: string[] = [`AUDIT ${now} ${args.action}`];
   if (args.itemSku) parts.push(`sku=${args.itemSku}`);
-  if (args.prevCost !== undefined || args.newCost !== undefined)
-    parts.push(`cost:${args.prevCost ?? "—"}→${args.newCost ?? "—"}`);
+  if (args.prevCost !== undefined || args.newCost !== undefined) parts.push(`cost:${args.prevCost ?? "—"}→${args.newCost ?? "—"}`);
   if (args.prevOrderFrom !== undefined || args.newOrderFrom !== undefined)
     parts.push(`orderFrom:${args.prevOrderFrom ?? "—"}→${args.newOrderFrom ?? "—"}`);
   if (args.prevOrderedQty !== undefined || args.newOrderedQty !== undefined)
@@ -153,6 +156,7 @@ async function syncItemCostAndOrderFromFromLatestOrder(tx: Prisma.TransactionCli
     orderBy: { orderedAt: "desc" },
     select: { id: true, unitPrice: true, supplierName: true, orderedAt: true, note: true },
   });
+
   if (!latest) return;
 
   const item = await tx.item.findUnique({
@@ -161,6 +165,7 @@ async function syncItemCostAndOrderFromFromLatestOrder(tx: Prisma.TransactionCli
   });
   if (!item) return;
 
+  // Only update if we have a cost value.
   if (!latest.unitPrice) return;
 
   const newCostStr = new Decimal(latest.unitPrice).toFixed(2);
@@ -182,6 +187,7 @@ async function syncItemCostAndOrderFromFromLatestOrder(tx: Prisma.TransactionCli
     data: {
       cost: latest.unitPrice,
       orderFrom: newOrderFrom,
+      // tack the audit line onto latest order note so you can see *why* item changed
       inventoryOrders: {
         update: {
           where: { id: latest.id },
@@ -194,6 +200,7 @@ async function syncItemCostAndOrderFromFromLatestOrder(tx: Prisma.TransactionCli
   });
 }
 
+/** CREATE */
 export async function createOrderAction(formData: FormData) {
   try {
     const { session } = await requireOrderHistoryEdit();
@@ -201,10 +208,11 @@ export async function createOrderAction(formData: FormData) {
     const isNewItem = parseBool(formData.get("isNewItem"));
     let itemId = nonEmptyString(formData.get("itemId"));
 
+    // new item fields (only required when isNewItem)
     const newSku = nonEmptyString(formData.get("newSku"));
     const newName = nonEmptyString(formData.get("newName"));
     const newPartNumber = nonEmptyString(formData.get("newPartNumber"));
-    const newVendorRaw = nonEmptyString(formData.get("newVendor"));
+    const newVendorRaw = nonEmptyString(formData.get("newVendor")); // SUCCESS_PLUS / AMERICAN_PLUS
     const newCategory = nonEmptyString(formData.get("newCategory"));
     const newManufacturer = nonEmptyString(formData.get("newManufacturer"));
     const newOrderFrom = nonEmptyString(formData.get("newOrderFrom"));
@@ -235,15 +243,17 @@ export async function createOrderAction(formData: FormData) {
     if (!unitPriceStr) throw new Error("Unit price is required");
 
     const createdByUserId = await resolveSessionUserId(session);
-    if (!createdByUserId) throw new Error("Could not resolve your user id.");
+    if (!createdByUserId) throw new Error("Missing session user id");
 
     await prisma.$transaction(async (tx) => {
+      // If this order is for a brand-new item (SKU not in list), create it first (or reuse if it exists).
       if (isNewItem) {
         const vendor = newVendorRaw === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS";
 
         const createdOrExisting = await tx.item.upsert({
           where: { sku: newSku },
           update: {
+            // Keep conservative: fill in details, but do not touch quantities here.
             name: newName,
             partNumber: newPartNumber || null,
             vendor,
@@ -294,6 +304,11 @@ export async function createOrderAction(formData: FormData) {
         newOrderFrom: newOrderFromFinal,
         prevOrderedQty,
         newOrderedQty,
+        note: isNewItem
+          ? "item created (or reused by sku) + item.cost updated"
+          : supplierName
+            ? "item.cost + item.orderFrom updated"
+            : "item.cost updated",
       });
 
       const created = await tx.inventoryOrder.create({
@@ -323,6 +338,7 @@ export async function createOrderAction(formData: FormData) {
         },
       });
 
+      // If for any reason orderedAt is not the latest, keep item cost/orderFrom in sync with the latest order row.
       if (created.orderedAt.getTime() !== orderedAt.getTime()) {
         await syncItemCostAndOrderFromFromLatestOrder(tx, itemId);
       }
@@ -331,12 +347,338 @@ export async function createOrderAction(formData: FormData) {
     revalidatePath("/admin/inventory-orders");
     revalidatePath("/admin/items");
 
-    const h = headers(); // ✅ sync
+    const h = await headers();
     const back = safeReturnToPathFromReferer(h.get("referer"));
     redirect(withQuery(back, { ok: "1" }));
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to create order.";
-    const h = headers(); // ✅ sync
+    const h = await headers();
+    const back = safeReturnToPathFromReferer(h.get("referer"));
+    redirect(withQuery(back, { error: msg }));
+  }
+}
+
+/** SAVE EDIT */
+export async function saveOrderDetailsAction(formData: FormData) {
+  try {
+    await requireOrderHistoryEdit();
+
+    const id = String(formData.get("id") ?? "").trim();
+    if (!id) throw new Error("Missing order id");
+
+    const qty = parseRequiredInt(formData.get("qty"));
+    if (!Number.isFinite(qty) || qty <= 0) throw new Error("Invalid quantity");
+
+    const supplierName = String(formData.get("supplierName") ?? "").trim();
+    const supplierPartNumber = String(formData.get("supplierPartNumber") ?? "").trim();
+
+    const unitPriceStr = parseRequiredMoneyString(formData.get("unitPrice"));
+    const shippingCostStr = parseOptionalMoneyString(formData.get("shippingCost"));
+    const taxCostStr = parseOptionalMoneyString(formData.get("taxCost"));
+
+    const forStoreId = String(formData.get("forStoreId") ?? "").trim();
+    const forUserId = String(formData.get("forUserId") ?? "").trim();
+
+    const orderedAt = parseOptionalDateTimeLocal(formData.get("orderedAt"));
+    const userNote = String(formData.get("note") ?? "").trim();
+
+    if (!unitPriceStr) throw new Error("Unit price is required");
+
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.inventoryOrder.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          status: true,
+          itemId: true,
+          quantity: true,
+          unitPrice: true,
+          supplierName: true,
+          note: true,
+          orderedAt: true,
+          forStoreId: true,
+          forUserId: true,
+          supplierPartNumber: true,
+          shippingCost: true,
+          taxCost: true,
+          addedToInventoryAt: true,
+        },
+      });
+      if (!existing) throw new Error("Order not found");
+
+      const item = await tx.item.findUnique({
+        where: { id: existing.itemId },
+        select: { id: true, sku: true, cost: true, orderFrom: true, orderedQty: true, onHandQty: true },
+      });
+      if (!item) throw new Error("Item not found");
+
+      const delta = qty - existing.quantity;
+
+      // Keep inventory consistent when changing qty:
+      // - ORDERED / ARRIVED => adjust Item.orderedQty by delta
+      // - ADDED_TO_INVENTORY => adjust Item.onHandQty by delta
+      if (delta !== 0) {
+        if (existing.status === "ADDED_TO_INVENTORY") {
+          if (delta < 0 && (item.onHandQty ?? 0) + delta < 0) {
+            throw new Error(`Cannot change qty: Item.onHandQty (${item.onHandQty}) would go negative by applying delta (${delta}).`);
+          }
+          await tx.item.update({
+            where: { id: existing.itemId },
+            data: { onHandQty: { increment: delta } },
+          });
+        } else {
+          if (delta < 0 && (item.orderedQty ?? 0) + delta < 0) {
+            throw new Error(`Cannot change qty: Item.orderedQty (${item.orderedQty}) would go negative by applying delta (${delta}).`);
+          }
+          await tx.item.update({
+            where: { id: existing.itemId },
+            data: { orderedQty: { increment: delta } },
+          });
+        }
+      }
+
+      const prevCostStr = item.cost ? new Decimal(item.cost).toFixed(2) : null;
+      const newCostStr = new Decimal(unitPriceStr).toFixed(2);
+
+      const prevOrderFrom = item.orderFrom ?? null;
+      const newOrderFrom = supplierName ? supplierName : prevOrderFrom;
+
+      const auditLine = buildSystemAuditLine({
+        action: "EDIT_ORDER",
+        itemSku: item.sku,
+        prevCost: prevCostStr,
+        newCost: newCostStr,
+        prevOrderFrom,
+        newOrderFrom,
+        note: `order=${id}`,
+      });
+
+      const mergedNote = userNote
+        ? `${userNote}\n${auditLine}`
+        : existing.note
+          ? `${existing.note}\n${auditLine}`
+          : auditLine;
+
+      await tx.inventoryOrder.update({
+        where: { id },
+        data: {
+          quantity: qty,
+          unitPrice: new Decimal(unitPriceStr),
+          shippingCost: shippingCostStr ? new Decimal(shippingCostStr) : null,
+          taxCost: taxCostStr ? new Decimal(taxCostStr) : null,
+          supplierName: supplierName || null,
+          supplierPartNumber: supplierPartNumber || null,
+          orderedAt: orderedAt ?? undefined,
+          forStoreId: forStoreId || null,
+          forUserId: forUserId || null,
+          note: mergedNote,
+        },
+      });
+
+      // Keep the Item's cost + orderFrom synced to the *latest* order for the item
+      await syncItemCostAndOrderFromFromLatestOrder(tx, existing.itemId);
+    });
+
+    revalidatePath("/admin/inventory-orders");
+    revalidatePath("/admin/items");
+
+    const h = await headers();
+    const back = safeReturnToPathFromReferer(h.get("referer"));
+    redirect(withQuery(back, { ok: "1" }));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Failed to save order.";
+    const h = await headers();
+    const back = safeReturnToPathFromReferer(h.get("referer"));
+    redirect(withQuery(back, { error: msg }));
+  }
+}
+
+/** MARK ARRIVED */
+export async function markArrivedAction(formData: FormData) {
+  try {
+    await requireOrderHistoryEdit();
+
+    const id = String(formData.get("id") ?? "").trim();
+    if (!id) throw new Error("Missing order id");
+
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.inventoryOrder.findUnique({
+        where: { id },
+        select: { id: true, status: true, itemId: true, note: true, item: { select: { sku: true } } },
+      });
+      if (!existing) throw new Error("Order not found");
+
+      const auditLine = buildSystemAuditLine({
+        action: "MARK_ARRIVED",
+        itemSku: existing.item?.sku ?? null,
+        note: `order=${id}`,
+      });
+
+      await tx.inventoryOrder.update({
+        where: { id },
+        data: {
+          status: "ARRIVED",
+          arrivedAt: new Date(),
+          note: existing.note ? `${existing.note}\n${auditLine}` : auditLine,
+        },
+      });
+    });
+
+    revalidatePath("/admin/inventory-orders");
+
+    const h = await headers();
+    const back = safeReturnToPathFromReferer(h.get("referer"));
+    redirect(withQuery(back, { ok: "1" }));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Failed to mark arrived.";
+    const h = await headers();
+    const back = safeReturnToPathFromReferer(h.get("referer"));
+    redirect(withQuery(back, { error: msg }));
+  }
+}
+
+/** ADD TO INVENTORY */
+export async function addToInventoryAction(formData: FormData) {
+  try {
+    await requireOrderHistoryEdit();
+
+    const id = String(formData.get("id") ?? "").trim();
+    if (!id) throw new Error("Missing order id");
+
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.inventoryOrder.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          status: true,
+          itemId: true,
+          quantity: true,
+          addedToInventoryAt: true,
+          note: true,
+          item: { select: { sku: true } },
+        },
+      });
+      if (!existing) throw new Error("Order not found");
+      if (existing.status === "ADDED_TO_INVENTORY") return;
+
+      const item = await tx.item.findUnique({
+        where: { id: existing.itemId },
+        select: { id: true, orderedQty: true, onHandQty: true },
+      });
+      if (!item) throw new Error("Item not found");
+
+      // GUARDRAIL: do not allow orderedQty to go negative from this workflow.
+      if ((item.orderedQty ?? 0) < existing.quantity) {
+        throw new Error(`Cannot add to inventory: Item.orderedQty (${item.orderedQty}) is less than order qty (${existing.quantity}).`);
+      }
+
+      const prevOrderedQty = item.orderedQty ?? 0;
+      const newOrderedQty = prevOrderedQty - existing.quantity;
+      const prevOnHand = item.onHandQty ?? 0;
+      const newOnHand = prevOnHand + existing.quantity;
+
+      const auditLine = buildSystemAuditLine({
+        action: "ADD_TO_INVENTORY",
+        prevOrderedQty,
+        newOrderedQty,
+        prevOnHandQty: prevOnHand,
+        newOnHandQty: newOnHand,
+        itemSku: existing.item?.sku ?? null,
+        note: `order=${id}`,
+      });
+
+      await tx.item.update({
+        where: { id: existing.itemId },
+        data: {
+          orderedQty: { decrement: existing.quantity },
+          onHandQty: { increment: existing.quantity },
+        },
+      });
+
+      await tx.inventoryOrder.update({
+        where: { id },
+        data: {
+          status: "ADDED_TO_INVENTORY",
+          arrivedAt: existing.status === "ORDERED" ? new Date() : undefined,
+          addedToInventoryAt: existing.addedToInventoryAt ?? new Date(),
+          note: existing.note ? `${existing.note}\n${auditLine}` : auditLine,
+        },
+      });
+    });
+
+    revalidatePath("/admin/inventory-orders");
+    revalidatePath("/admin/items");
+
+    const h = await headers();
+    const back = safeReturnToPathFromReferer(h.get("referer"));
+    redirect(withQuery(back, { ok: "1" }));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Failed to add to inventory.";
+    const h = await headers();
+    const back = safeReturnToPathFromReferer(h.get("referer"));
+    redirect(withQuery(back, { error: msg }));
+  }
+}
+
+/** DELETE */
+export async function deleteOrderAction(formData: FormData) {
+  try {
+    await requireOrderHistoryEdit();
+
+    const id = String(formData.get("id") ?? "").trim();
+    if (!id) throw new Error("Missing order id");
+
+    const confirmText = String(formData.get("confirm") ?? "").trim().toUpperCase();
+    if (confirmText !== "DELETE") throw new Error('Type "DELETE" to confirm deletion.');
+
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.inventoryOrder.findUnique({
+        where: { id },
+        select: { id: true, status: true, itemId: true, quantity: true, item: { select: { sku: true } } },
+      });
+      if (!existing) return;
+
+      const item = await tx.item.findUnique({
+        where: { id: existing.itemId },
+        select: { id: true, orderedQty: true, onHandQty: true },
+      });
+      if (!item) throw new Error("Item not found");
+
+      // Reverse inventory effect based on phase, but never allow negative results.
+      if (existing.status === "ADDED_TO_INVENTORY") {
+        if ((item.onHandQty ?? 0) < existing.quantity) {
+          throw new Error(`Cannot delete: Item.onHandQty (${item.onHandQty}) is less than order qty (${existing.quantity}).`);
+        }
+        await tx.item.update({
+          where: { id: existing.itemId },
+          data: { onHandQty: { decrement: existing.quantity } },
+        });
+      } else {
+        // ORDERED / ARRIVED => remove from orderedQty
+        if ((item.orderedQty ?? 0) < existing.quantity) {
+          throw new Error(`Cannot delete: Item.orderedQty (${item.orderedQty}) is less than order qty (${existing.quantity}).`);
+        }
+        await tx.item.update({
+          where: { id: existing.itemId },
+          data: { orderedQty: { decrement: existing.quantity } },
+        });
+      }
+
+      await tx.inventoryOrder.delete({ where: { id } });
+
+      // After deletion, re-sync item cost/orderFrom from latest order (if any)
+      await syncItemCostAndOrderFromFromLatestOrder(tx, existing.itemId);
+    });
+
+    revalidatePath("/admin/inventory-orders");
+    revalidatePath("/admin/items");
+
+    const h = await headers();
+    const back = safeReturnToPathFromReferer(h.get("referer"));
+    redirect(withQuery(back, { ok: "1" }));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Failed to delete order.";
+    const h = await headers();
     const back = safeReturnToPathFromReferer(h.get("referer"));
     redirect(withQuery(back, { error: msg }));
   }
