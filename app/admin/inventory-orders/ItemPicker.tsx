@@ -14,7 +14,7 @@ type ItemLite = {
 };
 
 type Props = {
-  name?: string; // hidden input name (defaults to "itemId")
+  name?: string;
   items: ItemLite[];
   defaultItemId?: string;
   placeholder?: string;
@@ -35,7 +35,7 @@ function tokenize(q: string): string[] {
   return n.split(/[ \-]+/g).filter((t) => t.length >= 2);
 }
 
-function itemHaystack(it: ItemLite): string {
+function haystack(it: ItemLite): string {
   return normalize(
     [
       it.sku,
@@ -67,22 +67,25 @@ export default function ItemPicker({
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState(() => {
     if (!defaultItem) return "";
-    return `${defaultItem.sku}${defaultItem.partNumber ? ` • ${defaultItem.partNumber}` : ""} • ${defaultItem.name}`;
+    return `${defaultItem.sku}${
+      defaultItem.partNumber ? ` • ${defaultItem.partNumber}` : ""
+    } • ${defaultItem.name}`;
   });
-  const [selectedId, setSelectedId] = React.useState<string>(defaultItem?.id ?? "");
+  const [selectedId, setSelectedId] = React.useState<string>(
+    defaultItem?.id ?? ""
+  );
   const [activeIndex, setActiveIndex] = React.useState(0);
 
   const filtered = React.useMemo(() => {
     const toks = tokenize(query);
-
     if (toks.length === 0) return items.slice(0, 80);
 
     const out: ItemLite[] = [];
     for (const it of items) {
-      const hay = itemHaystack(it);
+      const h = haystack(it);
       let ok = true;
       for (const t of toks) {
-        if (!hay.includes(t)) {
+        if (!h.includes(t)) {
           ok = false;
           break;
         }
@@ -94,13 +97,14 @@ export default function ItemPicker({
   }, [items, query]);
 
   React.useEffect(() => {
-    function onDown(e: MouseEvent) {
-      const el = rootRef.current;
-      if (!el) return;
-      if (!el.contains(e.target as Node)) setOpen(false);
+    function handleClickOutside(e: MouseEvent) {
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
     }
-    window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
+    window.addEventListener("mousedown", handleClickOutside);
+    return () => window.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   React.useEffect(() => {
@@ -110,7 +114,9 @@ export default function ItemPicker({
 
   function selectItem(it: ItemLite) {
     setSelectedId(it.id);
-    setQuery(`${it.sku}${it.partNumber ? ` • ${it.partNumber}` : ""} • ${it.name}`);
+    setQuery(
+      `${it.sku}${it.partNumber ? ` • ${it.partNumber}` : ""} • ${it.name}`
+    );
     setOpen(false);
     requestAnimationFrame(() => inputRef.current?.focus());
   }
@@ -126,7 +132,6 @@ export default function ItemPicker({
         position: "relative",
         isolation: "isolate",
         width: "100%",
-        minWidth: 0,
         ...style,
       }}
     >
@@ -139,8 +144,8 @@ export default function ItemPicker({
         onChange={(e) => {
           setQuery(e.target.value);
           setOpen(true);
-          setActiveIndex(0);
           setSelectedId("");
+          setActiveIndex(0);
         }}
         onFocus={() => setOpen(true)}
         onKeyDown={(e) => {
@@ -156,10 +161,14 @@ export default function ItemPicker({
 
           if (e.key === "ArrowDown") {
             e.preventDefault();
-            setActiveIndex((i) => Math.min(i + 1, filtered.length - 1));
+            setActiveIndex((i) =>
+              Math.min(i + 1, filtered.length - 1)
+            );
           } else if (e.key === "ArrowUp") {
             e.preventDefault();
-            setActiveIndex((i) => Math.max(i - 1, 0));
+            setActiveIndex((i) =>
+              Math.max(i - 1, 0)
+            );
           } else if (e.key === "Enter") {
             e.preventDefault();
             const it = filtered[activeIndex];
@@ -168,7 +177,6 @@ export default function ItemPicker({
         }}
         style={{
           width: "100%",
-          boxSizing: "border-box",
           padding: "10px 12px",
           borderRadius: 12,
           border,
@@ -176,21 +184,18 @@ export default function ItemPicker({
           color: fg,
           outline: "none",
           fontSize: 14,
+          boxSizing: "border-box",
           ...inputStyle,
         }}
       />
 
-      <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-        Type to search, then click an item (or Enter) to select.
-      </div>
-
-      {open ? (
+      {open && (
         <div
           style={{
             position: "absolute",
+            top: "calc(100% + 8px)",
             left: 0,
             right: 0,
-            top: "calc(100% + 8px)",
             zIndex: 99999,
             border,
             borderRadius: 12,
@@ -199,20 +204,14 @@ export default function ItemPicker({
             overflow: "hidden",
           }}
         >
-          <div style={{ maxHeight: 320, overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
+          <div style={{ maxHeight: 320, overflowY: "auto" }}>
             {filtered.length === 0 ? (
-              <div style={{ padding: 12, fontSize: 13, opacity: 0.8 }}>No matches.</div>
+              <div style={{ padding: 12, opacity: 0.7 }}>
+                No matches.
+              </div>
             ) : (
               filtered.map((it, idx) => {
                 const active = idx === activeIndex;
-                const sub = [
-                  it.category ? `CAT: ${it.category}` : null,
-                  it.manufacturer ? `MFG: ${it.manufacturer}` : null,
-                  it.orderFrom ? `FROM: ${it.orderFrom}` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" • ");
-
                 return (
                   <button
                     key={it.id}
@@ -224,28 +223,36 @@ export default function ItemPicker({
                       textAlign: "left",
                       border: "none",
                       padding: "10px 12px",
-                      background: active ? "rgba(255,255,255,0.06)" : "transparent",
+                      background: active
+                        ? "rgba(255,255,255,0.06)"
+                        : "transparent",
                       color: fg,
                       cursor: "pointer",
-                      display: "block",
                     }}
                   >
-                    <div style={{ fontWeight: 900, lineHeight: 1.25 }}>
+                    <div style={{ fontWeight: 900 }}>
                       {it.sku}
-                      {it.partNumber ? ` • ${it.partNumber}` : ""} • {it.name}
+                      {it.partNumber ? ` • ${it.partNumber}` : ""} •{" "}
+                      {it.name}
                     </div>
-                    {sub ? <div style={{ fontSize: 12, opacity: 0.75, marginTop: 2 }}>{sub}</div> : null}
+                    <div
+                      style={{
+                        fontSize: 12,
+                        opacity: 0.7,
+                        marginTop: 2,
+                      }}
+                    >
+                      {[it.category, it.manufacturer, it.orderFrom]
+                        .filter(Boolean)
+                        .join(" • ")}
+                    </div>
                   </button>
                 );
               })
             )}
           </div>
-
-          <div style={{ padding: "8px 12px", borderTop: border, fontSize: 12, opacity: 0.75 }}>
-            Showing {Math.min(filtered.length, 120)} result{filtered.length === 1 ? "" : "s"}
-          </div>
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
