@@ -88,7 +88,6 @@ type SearchParams = {
   page?: string; // 1-based
   perPage?: string; // 10/25/50/100
 
-  // ✅ for user-friendly error handling
   ok?: string; // "1"
   error?: string;
 };
@@ -436,9 +435,9 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
 
   const pageCount = Math.max(1, Math.ceil(total / perPage));
 
-  async function syncItemCostAndOrderFromFromLatestOrder(tx: Prisma.TransactionClient, itemId: string) {
+  async function syncItemCostAndOrderFromFromLatestOrder(tx: Prisma.TransactionClient, itemIdX: string) {
     const latest = await tx.inventoryOrder.findFirst({
-      where: { itemId },
+      where: { itemId: itemIdX },
       orderBy: { orderedAt: "desc" },
       select: { id: true, unitPrice: true, supplierName: true, orderedAt: true, note: true },
     });
@@ -446,7 +445,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     if (!latest) return;
 
     const item = await tx.item.findUnique({
-      where: { id: itemId },
+      where: { id: itemIdX },
       select: { id: true, sku: true, cost: true, orderFrom: true },
     });
     if (!item) return;
@@ -468,16 +467,14 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     });
 
     await tx.item.update({
-      where: { id: itemId },
+      where: { id: itemIdX },
       data: {
         cost: latest.unitPrice,
         orderFrom: newOrderFrom,
         inventoryOrders: {
           update: {
             where: { id: latest.id },
-            data: {
-              note: latest.note ? `${latest.note}\n${auditLine}` : auditLine,
-            },
+            data: { note: latest.note ? `${latest.note}\n${auditLine}` : auditLine },
           },
         },
       },
@@ -534,7 +531,6 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
 
         if (isNewItem) {
           const vendor = newVendorRaw === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS";
-
           const createdOrExisting = await tx.item.upsert({
             where: { sku: newSku },
             update: {
@@ -560,7 +556,6 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
             },
             select: { id: true, sku: true },
           });
-
           finalItemId = createdOrExisting.id;
         }
 
@@ -630,12 +625,13 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
       revalidatePath("/admin/inventory-orders");
       revalidatePath("/admin/items");
 
-      const h = headers(); // ✅ sync
+      // ✅ FIX: your Next version requires await
+      const h = await headers();
       const back = safeReturnToPathFromReferer(h.get("referer"));
       redirect(withQuery(back, { ok: "1" }));
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to create order.";
-      const h = headers(); // ✅ sync
+      const h = await headers();
       const back = safeReturnToPathFromReferer(h.get("referer"));
       redirect(withQuery(back, { error: msg }));
     }
@@ -745,7 +741,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     revalidatePath("/admin/inventory-orders");
     revalidatePath("/admin/items");
 
-    const h = headers(); // ✅ sync
+    const h = await headers();
     redirect(safeReturnToPathFromReferer(h.get("referer")));
   }
 
@@ -781,7 +777,8 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     });
 
     revalidatePath("/admin/inventory-orders");
-    const h = headers();
+
+    const h = await headers();
     redirect(safeReturnToPathFromReferer(h.get("referer")));
   }
 
@@ -857,7 +854,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     revalidatePath("/admin/inventory-orders");
     revalidatePath("/admin/items");
 
-    const h = headers();
+    const h = await headers();
     redirect(safeReturnToPathFromReferer(h.get("referer")));
   }
 
@@ -904,7 +901,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     revalidatePath("/admin/inventory-orders");
     revalidatePath("/admin/items");
 
-    const h = headers();
+    const h = await headers();
     redirect(safeReturnToPathFromReferer(h.get("referer")));
   }
 
@@ -1021,7 +1018,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           </div>
         ) : null}
 
-        {/* CREATE ORDER (collapsed by default) */}
+        {/* CREATE ORDER */}
         <details style={{ marginTop: 12 }}>
           <summary
             style={{
@@ -1083,7 +1080,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                 </label>
               </div>
 
-              {/* NEW ITEM (optional) */}
+              {/* NEW ITEM */}
               <details style={{ marginTop: 6, border, borderRadius: 12, padding: 10, background: soft }}>
                 <summary style={{ cursor: "pointer", fontWeight: 900 }}>New item (creates Item automatically if SKU doesn’t exist)</summary>
 
@@ -1141,8 +1138,8 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                   </div>
 
                   <div style={{ fontSize: 12, opacity: 0.8, lineHeight: 1.5 }}>
-                    When checked, the system does an <b>upsert</b> by <b>SKU</b>: creates the item if missing, otherwise reuses the existing
-                    item with that SKU.
+                    When checked, the system does an <b>upsert</b> by <b>SKU</b>: creates the item if missing, otherwise reuses the existing item
+                    with that SKU.
                   </div>
                 </div>
               </details>
@@ -1225,9 +1222,9 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                 Phase
                 <select name="phase" defaultValue={phase || ""} style={controlBase}>
                   <option value="">All</option>
-                  {PHASES.map((s) => (
-                    <option key={s} value={s}>
-                      {phaseLabel(s)}
+                  {PHASES.map((s2) => (
+                    <option key={s2} value={s2}>
+                      {phaseLabel(s2)}
                     </option>
                   ))}
                 </select>
@@ -1309,27 +1306,28 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           </form>
         </div>
 
-        {/* ✅ responsive + sticky right columns */}
+        {/* ✅ Responsive + Sticky right columns so Edit never disappears */}
         <style>{`
-          @media (max-width: 900px) {
-            .hide-md { display: none !important; }
-          }
-          @media (max-width: 650px) {
-            .hide-sm { display: none !important; }
-          }
+          @media (max-width: 900px) { .hide-md { display: none !important; } }
+          @media (max-width: 650px) { .hide-sm { display: none !important; } }
 
-          .sticky-r-0 { position: sticky; right: 0; z-index: 3; }
-          .sticky-r-110 { position: sticky; right: 110px; z-index: 3; }
-          .sticky-r-200 { position: sticky; right: 200px; z-index: 3; }
+          /* Keep Actions/Edit/Delete visible (sticky right) */
+          th.stickyR, td.stickyR { position: sticky; z-index: 3; }
+          th.stickyR { z-index: 4; }
+          .stickyActions { right: 300px; }
+          .stickyEdit { right: 150px; }
+          .stickyDelete { right: 0px; }
 
-          .sticky-cell {
-            background: var(--background);
-            box-shadow: -8px 0 12px rgba(0,0,0,0.35);
-          }
+          /* Make sticky cells blend with row bg */
+          td.stickyR, th.stickyR { background: var(--background); }
+          tr[data-rowbg="1"] td.stickyR { background: inherit; }
+
+          /* Allow table to scroll IF it must, but usually it won't */
+          .tableWrap { overflow-x: auto; }
         `}</style>
 
         {/* TABLE */}
-        <div style={{ marginTop: 14, border, borderRadius: 14, background: surface, overflowX: "auto" }}>
+        <div className="tableWrap" style={{ marginTop: 14, border, borderRadius: 14, background: surface }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
@@ -1339,35 +1337,21 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                 <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
                   Phase
                 </th>
-                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Item
-                </th>
+                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85 }}>Item</th>
                 <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
                   Qty
                 </th>
 
-                <th
-                  className="hide-sm"
-                  style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}
-                >
+                <th className="hide-sm" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
                   Supplier
                 </th>
-                <th
-                  className="hide-sm"
-                  style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}
-                >
+                <th className="hide-sm" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
                   Unit
                 </th>
-                <th
-                  className="hide-md"
-                  style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}
-                >
+                <th className="hide-md" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
                   Ship
                 </th>
-                <th
-                  className="hide-md"
-                  style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}
-                >
+                <th className="hide-md" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
                   Tax
                 </th>
 
@@ -1375,49 +1359,27 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                   Total
                 </th>
 
-                <th
-                  className="hide-md"
-                  style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}
-                >
+                <th className="hide-md" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
                   For Tech
                 </th>
-                <th
-                  className="hide-md"
-                  style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}
-                >
+                <th className="hide-md" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
                   For Store
                 </th>
-
-                <th
-                  className="hide-md"
-                  style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}
-                >
+                <th className="hide-md" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
                   Arrived
                 </th>
-                <th
-                  className="hide-md"
-                  style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}
-                >
+                <th className="hide-md" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
                   Added
                 </th>
 
-                {/* ✅ sticky right */}
-                <th
-                  className="sticky-r-200 sticky-cell"
-                  style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}
-                >
+                {/* Sticky right columns */}
+                <th className="stickyR stickyActions" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
                   Actions
                 </th>
-                <th
-                  className="sticky-r-110 sticky-cell"
-                  style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}
-                >
+                <th className="stickyR stickyEdit" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
                   Edit
                 </th>
-                <th
-                  className="sticky-r-0 sticky-cell"
-                  style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}
-                >
+                <th className="stickyR stickyDelete" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
                   Delete
                 </th>
               </tr>
@@ -1438,12 +1400,12 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                 const canAdd = o.status !== "ADDED_TO_INVENTORY";
 
                 return (
-                  <tr key={o.id} style={{ borderBottom: border, ...rowPhaseStyle(o.status as InventoryOrderPhase) }}>
+                  <tr key={o.id} data-rowbg="1" style={{ borderBottom: border, ...rowPhaseStyle(o.status as InventoryOrderPhase) }}>
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocal(o.orderedAt)}</td>
 
                     <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{phaseLabel(o.status as InventoryOrderPhase)}</td>
 
-                    <td style={{ padding: 10, minWidth: 220, maxWidth: 320 }}>
+                    <td style={{ padding: 10, minWidth: 220, maxWidth: 260 }}>
                       <div style={{ fontWeight: 900, whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.2 }}>{itemLabel}</div>
                       <div style={{ fontSize: 12, opacity: 0.75, whiteSpace: "normal", overflowWrap: "anywhere" }}>id: {o.id}</div>
                     </td>
@@ -1469,22 +1431,13 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
 
                     <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{money(totalCost)}</td>
 
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>
-                      {o.forUser?.name ?? "—"}
-                    </td>
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>
-                      {o.forStore?.name ?? "—"}
-                    </td>
+                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>{o.forUser?.name ?? "—"}</td>
+                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>{o.forStore?.name ?? "—"}</td>
+                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocal(o.arrivedAt)}</td>
+                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocal(o.addedToInventoryAt)}</td>
 
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>
-                      {fmtLocal(o.arrivedAt)}
-                    </td>
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>
-                      {fmtLocal(o.addedToInventoryAt)}
-                    </td>
-
-                    {/* ACTIONS (sticky) */}
-                    <td className="sticky-r-200 sticky-cell" style={{ padding: 10, verticalAlign: "top" }}>
+                    {/* Sticky right: Actions */}
+                    <td className="stickyR stickyActions" style={{ padding: 10, verticalAlign: "top" }}>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <form action={markArrivedAction}>
                           <input type="hidden" name="id" value={o.id} />
@@ -1508,8 +1461,8 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                       ) : null}
                     </td>
 
-                    {/* EDIT (sticky) */}
-                    <td className="sticky-r-110 sticky-cell" style={{ padding: 10, verticalAlign: "top" }}>
+                    {/* Sticky right: EDIT (this is what was “missing”) */}
+                    <td className="stickyR stickyEdit" style={{ padding: 10, verticalAlign: "top" }}>
                       <details>
                         <summary style={{ cursor: "pointer", fontWeight: 900 }}>Edit</summary>
                         <form
@@ -1565,11 +1518,22 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                             <label style={controlLabel}>
                               Unit price
-                              <input name="unitPrice" defaultValue={o.unitPrice ? String(o.unitPrice) : ""} placeholder="0.00" required style={controlBase} />
+                              <input
+                                name="unitPrice"
+                                defaultValue={o.unitPrice ? String(o.unitPrice) : ""}
+                                placeholder="0.00"
+                                required
+                                style={controlBase}
+                              />
                             </label>
                             <label style={controlLabel}>
                               Shipping
-                              <input name="shippingCost" defaultValue={o.shippingCost ? String(o.shippingCost) : ""} placeholder="0.00" style={controlBase} />
+                              <input
+                                name="shippingCost"
+                                defaultValue={o.shippingCost ? String(o.shippingCost) : ""}
+                                placeholder="0.00"
+                                style={controlBase}
+                              />
                             </label>
                             <label style={controlLabel}>
                               Tax
@@ -1613,8 +1577,8 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                       </details>
                     </td>
 
-                    {/* DELETE (sticky) */}
-                    <td className="sticky-r-0 sticky-cell" style={{ padding: 10, verticalAlign: "top" }}>
+                    {/* Sticky right: DELETE */}
+                    <td className="stickyR stickyDelete" style={{ padding: 10, verticalAlign: "top" }}>
                       <details>
                         <summary style={{ cursor: "pointer", fontWeight: 900 }}>Delete</summary>
                         <form
