@@ -3,19 +3,16 @@ import type { CSSProperties } from "react";
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
+
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { Permission, Role, InventoryOrderStatus, Prisma } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import ItemPicker from "./ItemPicker";
+import { Decimal } from "@prisma/client/runtime/library";
 
-import {
-  createOrderAction,
-  saveOrderDetailsAction,
-  markArrivedAction,
-  addToInventoryAction,
-  deleteOrderAction,
-} from "./actions";
+import ItemPicker from "./ItemPicker";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -43,6 +40,39 @@ async function requireOrderHistoryView() {
   return { session, perms };
 }
 
+async function requireOrderHistoryEdit() {
+  const session = (await getServerSession(authOptions)) as AdminSession;
+  if (!session) throw new Error("Unauthorized");
+
+  const perms = await loadUserPermissions(session);
+  if (perms.allowAll) return { session, perms };
+
+  const ok = hasAnyPermission(perms, [Permission.ADMIN_EDIT_ITEMS]);
+  if (!ok) throw new Error("Forbidden");
+
+  return { session, perms };
+}
+
+/**
+ * ✅ IMPORTANT:
+ * NextAuth often does NOT put user.id on the session by default.
+ * We resolve it from the email when missing so "Create Order" doesn't crash.
+ */
+async function resolveSessionUserId(session: AdminSession): Promise<string> {
+  const id = session?.user?.id ?? null;
+  if (id) return id;
+
+  const email = session?.user?.email ?? null;
+  if (!email) return "";
+
+  const u = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true },
+  });
+
+  return u?.id ?? "";
+}
+
 type InventoryOrderPhase = InventoryOrderStatus;
 const PHASES: InventoryOrderPhase[] = ["ORDERED", "ARRIVED", "ADDED_TO_INVENTORY"];
 
@@ -58,6 +88,7 @@ type SearchParams = {
   page?: string; // 1-based
   perPage?: string; // 10/25/50/100
 
+  // ✅ for user-friendly error handling
   ok?: string; // "1"
   error?: string;
 };
@@ -66,11 +97,49 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
+function parseOptionalInt(v: FormDataEntryValue | null): number | null {
+  if (v === null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  const n = Number(s);
+  if (!Number.isFinite(n)) return null;
+  return Math.trunc(n);
+}
+
+function parseRequiredInt(v: FormDataEntryValue | null): number {
+  const n = parseOptionalInt(v);
+  if (n === null) return NaN;
+  return n;
+}
+
+function parseOptionalMoneyString(v: FormDataEntryValue | null): string | null {
+  if (v === null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  const n = Number(s);
+  if (!Number.isFinite(n)) return null;
+  return n.toFixed(2);
+}
+
+function parseRequiredMoneyString(v: FormDataEntryValue | null): string {
+  const s = parseOptionalMoneyString(v);
+  if (s === null) return "";
+  return s;
+}
+
 function parseOptionalDateOnlyToDate(v: string, endOfDay = false): Date | null {
   const s = String(v ?? "").trim();
   if (!s) return null;
   const iso = endOfDay ? `${s}T23:59:59.999` : `${s}T00:00:00`;
   const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function parseOptionalDateTimeLocal(v: FormDataEntryValue | null): Date | null {
+  if (v === null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  const d = new Date(s);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
@@ -87,6 +156,27 @@ function fmtForDatetimeLocal(d: Date | null): string {
 function money(n: number): string {
   if (!Number.isFinite(n)) return "—";
   return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
+}
+
+function safeReturnToPathFromReferer(referer: string | null): string {
+  if (!referer) return "/admin/inventory-orders";
+  try {
+    const u = new URL(referer);
+    const path = `${u.pathname}${u.search}`;
+    return path.startsWith("/") ? path : "/admin/inventory-orders";
+  } catch {
+    return "/admin/inventory-orders";
+  }
+}
+
+function withQuery(basePath: string, next: Record<string, string | undefined>) {
+  const u = new URL(basePath, "http://local");
+  for (const [k, v] of Object.entries(next)) {
+    if (!v) continue;
+    u.searchParams.set(k, v);
+  }
+  const qs = u.searchParams.toString();
+  return qs ? `${u.pathname}?${qs}` : u.pathname;
 }
 
 function phaseLabel(s: InventoryOrderPhase): string {
@@ -109,6 +199,40 @@ function rowPhaseStyle(phase: InventoryOrderPhase): CSSProperties {
   return { background: addedBg, borderLeft: `6px solid ${addedBar}` };
 }
 
+function buildSystemAuditLine(args: {
+  action:
+    | "CREATE_ORDER"
+    | "EDIT_ORDER"
+    | "MARK_ARRIVED"
+    | "ADD_TO_INVENTORY"
+    | "DELETE_ORDER"
+    | "SYNC_ITEM_FROM_LATEST_ORDER"
+    | "CREATE_ITEM_FROM_ORDER";
+  itemSku?: string | null;
+  prevCost?: string | null;
+  newCost?: string | null;
+  prevOrderFrom?: string | null;
+  newOrderFrom?: string | null;
+  prevOrderedQty?: number | null;
+  newOrderedQty?: number | null;
+  prevOnHandQty?: number | null;
+  newOnHandQty?: number | null;
+  note?: string;
+}) {
+  const now = new Date().toISOString();
+  const parts: string[] = [`AUDIT ${now} ${args.action}`];
+  if (args.itemSku) parts.push(`sku=${args.itemSku}`);
+  if (args.prevCost !== undefined || args.newCost !== undefined) parts.push(`cost:${args.prevCost ?? "—"}→${args.newCost ?? "—"}`);
+  if (args.prevOrderFrom !== undefined || args.newOrderFrom !== undefined)
+    parts.push(`orderFrom:${args.prevOrderFrom ?? "—"}→${args.newOrderFrom ?? "—"}`);
+  if (args.prevOrderedQty !== undefined || args.newOrderedQty !== undefined)
+    parts.push(`orderedQty:${args.prevOrderedQty ?? "—"}→${args.newOrderedQty ?? "—"}`);
+  if (args.prevOnHandQty !== undefined || args.newOnHandQty !== undefined)
+    parts.push(`onHandQty:${args.prevOnHandQty ?? "—"}→${args.newOnHandQty ?? "—"}`);
+  if (args.note) parts.push(`(${args.note})`);
+  return parts.join(" ");
+}
+
 const ORDER_INCLUDE = {
   item: { select: { id: true, sku: true, partNumber: true, name: true } },
   forStore: { select: { id: true, name: true } },
@@ -117,6 +241,16 @@ const ORDER_INCLUDE = {
 } satisfies Prisma.InventoryOrderInclude;
 
 type OrderRow = Prisma.InventoryOrderGetPayload<{ include: typeof ORDER_INCLUDE }>;
+
+function parseBool(v: FormDataEntryValue | null): boolean {
+  if (!v) return false;
+  const s = String(v).trim().toLowerCase();
+  return s === "1" || s === "true" || s === "on" || s === "yes";
+}
+
+function nonEmptyString(v: FormDataEntryValue | null): string {
+  return String(v ?? "").trim();
+}
 
 export default async function AdminInventoryOrdersPage({ searchParams }: { searchParams: SearchParams }) {
   await requireOrderHistoryView();
@@ -156,7 +290,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           >
             <div style={{ fontWeight: 900, marginBottom: 6 }}>Not ready yet</div>
             <div style={{ opacity: 0.85, lineHeight: 1.5 }}>
-              Prisma Client does not include <code>inventoryOrder</code>.
+              Your app is running with a Prisma Client that does not include <code>inventoryOrder</code> yet, so this page would crash.
               <br />
               Fix: run migration + regenerate Prisma Client (or restart dev server after <code>prisma generate</code>).
             </div>
@@ -302,6 +436,478 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
 
   const pageCount = Math.max(1, Math.ceil(total / perPage));
 
+  async function syncItemCostAndOrderFromFromLatestOrder(tx: Prisma.TransactionClient, itemId: string) {
+    const latest = await tx.inventoryOrder.findFirst({
+      where: { itemId },
+      orderBy: { orderedAt: "desc" },
+      select: { id: true, unitPrice: true, supplierName: true, orderedAt: true, note: true },
+    });
+
+    if (!latest) return;
+
+    const item = await tx.item.findUnique({
+      where: { id: itemId },
+      select: { id: true, sku: true, cost: true, orderFrom: true },
+    });
+    if (!item) return;
+
+    const newCostStr = latest.unitPrice ? new Decimal(latest.unitPrice).toFixed(2) : null;
+    const prevCostStr = item.cost ? new Decimal(item.cost).toFixed(2) : null;
+    const newOrderFrom = latest.supplierName ?? null;
+
+    if (!latest.unitPrice) return;
+
+    const auditLine = buildSystemAuditLine({
+      action: "SYNC_ITEM_FROM_LATEST_ORDER",
+      itemSku: item.sku,
+      prevCost: prevCostStr,
+      newCost: newCostStr,
+      prevOrderFrom: item.orderFrom ?? null,
+      newOrderFrom,
+      note: `latestOrder=${latest.id}`,
+    });
+
+    await tx.item.update({
+      where: { id: itemId },
+      data: {
+        cost: latest.unitPrice,
+        orderFrom: newOrderFrom,
+        inventoryOrders: {
+          update: {
+            where: { id: latest.id },
+            data: {
+              note: latest.note ? `${latest.note}\n${auditLine}` : auditLine,
+            },
+          },
+        },
+      },
+    });
+  }
+
+  async function createOrderAction(formData: FormData) {
+    "use server";
+
+    try {
+      const { session: s } = await requireOrderHistoryEdit();
+
+      const isNewItem = parseBool(formData.get("isNewItem"));
+      let pickedItemId = nonEmptyString(formData.get("itemId"));
+
+      const newSku = nonEmptyString(formData.get("newSku"));
+      const newName = nonEmptyString(formData.get("newName"));
+      const newPartNumber = nonEmptyString(formData.get("newPartNumber"));
+      const newVendorRaw = nonEmptyString(formData.get("newVendor"));
+      const newCategory = nonEmptyString(formData.get("newCategory"));
+      const newManufacturer = nonEmptyString(formData.get("newManufacturer"));
+      const newOrderFrom = nonEmptyString(formData.get("newOrderFrom"));
+      const newWebUrl = nonEmptyString(formData.get("newWebUrl"));
+
+      const qty = parseRequiredInt(formData.get("qty"));
+      const supplierName = String(formData.get("supplierName") ?? "").trim();
+      const supplierPartNumber = String(formData.get("supplierPartNumber") ?? "").trim();
+
+      const unitPriceStr = parseRequiredMoneyString(formData.get("unitPrice"));
+      const shippingCostStr = parseOptionalMoneyString(formData.get("shippingCost"));
+      const taxCostStr = parseOptionalMoneyString(formData.get("taxCost"));
+
+      const forStoreId2 = String(formData.get("forStoreId") ?? "").trim();
+      const forUserId2 = String(formData.get("forUserId") ?? "").trim();
+
+      const orderedAt = parseOptionalDateTimeLocal(formData.get("orderedAt")) ?? new Date();
+      const note = String(formData.get("note") ?? "").trim();
+
+      if (isNewItem) {
+        if (!newSku) throw new Error("New item SKU is required");
+        if (!newName) throw new Error("New item name is required");
+      } else {
+        if (!pickedItemId) throw new Error("Missing item. Pick an item from the dropdown (or check New item).");
+      }
+
+      if (!Number.isFinite(qty) || qty <= 0) throw new Error("Invalid quantity");
+      if (!unitPriceStr) throw new Error("Unit price is required");
+
+      const createdByUserId = await resolveSessionUserId(s);
+      if (!createdByUserId) throw new Error("Could not resolve your user id. (Session missing id + email lookup failed)");
+
+      await prisma.$transaction(async (tx) => {
+        let finalItemId = pickedItemId;
+
+        if (isNewItem) {
+          const vendor = newVendorRaw === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS";
+
+          const createdOrExisting = await tx.item.upsert({
+            where: { sku: newSku },
+            update: {
+              name: newName,
+              partNumber: newPartNumber || null,
+              vendor,
+              category: newCategory || null,
+              manufacturer: newManufacturer || null,
+              orderFrom: newOrderFrom || null,
+              webUrl: newWebUrl || null,
+              active: true,
+            },
+            create: {
+              sku: newSku,
+              name: newName,
+              partNumber: newPartNumber || null,
+              vendor,
+              category: newCategory || null,
+              manufacturer: newManufacturer || null,
+              orderFrom: newOrderFrom || null,
+              webUrl: newWebUrl || null,
+              active: true,
+            },
+            select: { id: true, sku: true },
+          });
+
+          finalItemId = createdOrExisting.id;
+        }
+
+        const item = await tx.item.findUnique({
+          where: { id: finalItemId },
+          select: { id: true, sku: true, cost: true, orderFrom: true, orderedQty: true },
+        });
+        if (!item) throw new Error("Item not found");
+
+        const prevCostStr = item.cost ? new Decimal(item.cost).toFixed(2) : null;
+        const newCostStr = new Decimal(unitPriceStr).toFixed(2);
+
+        const prevOrderFrom = item.orderFrom ?? null;
+        const newOrderFromFinal = supplierName ? supplierName : prevOrderFrom;
+
+        const prevOrderedQty = item.orderedQty ?? 0;
+        const newOrderedQty = prevOrderedQty + qty;
+
+        const auditLine = buildSystemAuditLine({
+          action: isNewItem ? "CREATE_ITEM_FROM_ORDER" : "CREATE_ORDER",
+          itemSku: item.sku,
+          prevCost: prevCostStr,
+          newCost: newCostStr,
+          prevOrderFrom,
+          newOrderFrom: newOrderFromFinal,
+          prevOrderedQty,
+          newOrderedQty,
+          note: isNewItem
+            ? "item created (or reused by sku) + item.cost updated"
+            : supplierName
+              ? "item.cost + item.orderFrom updated"
+              : "item.cost updated",
+        });
+
+        const created = await tx.inventoryOrder.create({
+          data: {
+            status: "ORDERED",
+            itemId: finalItemId,
+            quantity: qty,
+            unitPrice: new Decimal(unitPriceStr),
+            shippingCost: shippingCostStr ? new Decimal(shippingCostStr) : null,
+            taxCost: taxCostStr ? new Decimal(taxCostStr) : null,
+            orderedAt,
+            supplierName: supplierName || null,
+            supplierPartNumber: supplierPartNumber || null,
+            forStoreId: forStoreId2 || null,
+            forUserId: forUserId2 || null,
+            createdByUserId,
+            note: note ? `${note}\n${auditLine}` : auditLine,
+          },
+        });
+
+        await tx.item.update({
+          where: { id: finalItemId },
+          data: {
+            orderedQty: { increment: qty },
+            cost: new Decimal(unitPriceStr),
+            orderFrom: supplierName ? supplierName : undefined,
+          },
+        });
+
+        if (created.orderedAt.getTime() !== orderedAt.getTime()) {
+          await syncItemCostAndOrderFromFromLatestOrder(tx, finalItemId);
+        }
+      });
+
+      revalidatePath("/admin/inventory-orders");
+      revalidatePath("/admin/items");
+
+      const h = headers(); // ✅ sync (Next 16)
+      const back = safeReturnToPathFromReferer(h.get("referer"));
+      redirect(withQuery(back, { ok: "1" }));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to create order.";
+      const h = headers(); // ✅ sync (Next 16)
+      const back = safeReturnToPathFromReferer(h.get("referer"));
+      redirect(withQuery(back, { error: msg }));
+    }
+  }
+
+  async function saveOrderDetailsAction(formData: FormData) {
+    "use server";
+
+    await requireOrderHistoryEdit();
+
+    const id = String(formData.get("id") ?? "").trim();
+    if (!id) throw new Error("Missing order id");
+
+    const qty = parseRequiredInt(formData.get("qty"));
+    if (!Number.isFinite(qty) || qty <= 0) throw new Error("Invalid quantity");
+
+    const supplierName = String(formData.get("supplierName") ?? "").trim();
+    const supplierPartNumber = String(formData.get("supplierPartNumber") ?? "").trim();
+
+    const unitPriceStr = parseRequiredMoneyString(formData.get("unitPrice"));
+    const shippingCostStr = parseOptionalMoneyString(formData.get("shippingCost"));
+    const taxCostStr = parseOptionalMoneyString(formData.get("taxCost"));
+
+    const forStoreId2 = String(formData.get("forStoreId") ?? "").trim();
+    const forUserId2 = String(formData.get("forUserId") ?? "").trim();
+
+    const orderedAt = parseOptionalDateTimeLocal(formData.get("orderedAt"));
+    const userNote = String(formData.get("note") ?? "").trim();
+
+    if (!unitPriceStr) throw new Error("Unit price is required");
+
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.inventoryOrder.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          status: true,
+          itemId: true,
+          quantity: true,
+          unitPrice: true,
+          supplierName: true,
+          note: true,
+          orderedAt: true,
+        },
+      });
+      if (!existing) throw new Error("Order not found");
+
+      const item = await tx.item.findUnique({
+        where: { id: existing.itemId },
+        select: { id: true, sku: true, cost: true, orderFrom: true, orderedQty: true, onHandQty: true },
+      });
+      if (!item) throw new Error("Item not found");
+
+      const delta = qty - existing.quantity;
+
+      if (delta !== 0) {
+        if (existing.status === "ADDED_TO_INVENTORY") {
+          if (delta < 0 && (item.onHandQty ?? 0) + delta < 0) {
+            throw new Error(`Cannot change qty: Item.onHandQty (${item.onHandQty}) would go negative by applying delta (${delta}).`);
+          }
+          await tx.item.update({ where: { id: existing.itemId }, data: { onHandQty: { increment: delta } } });
+        } else {
+          if (delta < 0 && (item.orderedQty ?? 0) + delta < 0) {
+            throw new Error(`Cannot change qty: Item.orderedQty (${item.orderedQty}) would go negative by applying delta (${delta}).`);
+          }
+          await tx.item.update({ where: { id: existing.itemId }, data: { orderedQty: { increment: delta } } });
+        }
+      }
+
+      const prevCostStr = item.cost ? new Decimal(item.cost).toFixed(2) : null;
+      const newCostStr = new Decimal(unitPriceStr).toFixed(2);
+
+      const prevOrderFrom = item.orderFrom ?? null;
+      const newOrderFrom = supplierName ? supplierName : prevOrderFrom;
+
+      const auditLine = buildSystemAuditLine({
+        action: "EDIT_ORDER",
+        itemSku: item.sku,
+        prevCost: prevCostStr,
+        newCost: newCostStr,
+        prevOrderFrom,
+        newOrderFrom,
+        note: `order=${id}`,
+      });
+
+      const mergedNote = userNote ? `${userNote}\n${auditLine}` : existing.note ? `${existing.note}\n${auditLine}` : auditLine;
+
+      await tx.inventoryOrder.update({
+        where: { id },
+        data: {
+          quantity: qty,
+          unitPrice: new Decimal(unitPriceStr),
+          shippingCost: shippingCostStr ? new Decimal(shippingCostStr) : null,
+          taxCost: taxCostStr ? new Decimal(taxCostStr) : null,
+          supplierName: supplierName || null,
+          supplierPartNumber: supplierPartNumber || null,
+          orderedAt: orderedAt ?? undefined,
+          forStoreId: forStoreId2 || null,
+          forUserId: forUserId2 || null,
+          note: mergedNote,
+        },
+      });
+
+      await syncItemCostAndOrderFromFromLatestOrder(tx, existing.itemId);
+    });
+
+    revalidatePath("/admin/inventory-orders");
+    revalidatePath("/admin/items");
+
+    const h = headers(); // ✅ sync
+    redirect(safeReturnToPathFromReferer(h.get("referer")));
+  }
+
+  async function markArrivedAction(formData: FormData) {
+    "use server";
+
+    await requireOrderHistoryEdit();
+
+    const id = String(formData.get("id") ?? "").trim();
+    if (!id) throw new Error("Missing order id");
+
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.inventoryOrder.findUnique({
+        where: { id },
+        select: { id: true, status: true, itemId: true, note: true, item: { select: { sku: true } } },
+      });
+      if (!existing) throw new Error("Order not found");
+
+      const auditLine = buildSystemAuditLine({
+        action: "MARK_ARRIVED",
+        itemSku: existing.item?.sku ?? null,
+        note: `order=${id}`,
+      });
+
+      await tx.inventoryOrder.update({
+        where: { id },
+        data: {
+          status: "ARRIVED",
+          arrivedAt: new Date(),
+          note: existing.note ? `${existing.note}\n${auditLine}` : auditLine,
+        },
+      });
+    });
+
+    revalidatePath("/admin/inventory-orders");
+    const h = headers();
+    redirect(safeReturnToPathFromReferer(h.get("referer")));
+  }
+
+  async function addToInventoryAction(formData: FormData) {
+    "use server";
+
+    await requireOrderHistoryEdit();
+
+    const id = String(formData.get("id") ?? "").trim();
+    if (!id) throw new Error("Missing order id");
+
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.inventoryOrder.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          status: true,
+          itemId: true,
+          quantity: true,
+          addedToInventoryAt: true,
+          note: true,
+          item: { select: { sku: true } },
+        },
+      });
+      if (!existing) throw new Error("Order not found");
+
+      if (existing.status === "ADDED_TO_INVENTORY") return;
+
+      const item = await tx.item.findUnique({
+        where: { id: existing.itemId },
+        select: { id: true, orderedQty: true, onHandQty: true },
+      });
+      if (!item) throw new Error("Item not found");
+
+      if ((item.orderedQty ?? 0) < existing.quantity) {
+        throw new Error(`Cannot add to inventory: Item.orderedQty (${item.orderedQty}) is less than order qty (${existing.quantity}).`);
+      }
+
+      const prevOrderedQty = item.orderedQty ?? 0;
+      const newOrderedQty = prevOrderedQty - existing.quantity;
+      const prevOnHand = item.onHandQty ?? 0;
+      const newOnHand = prevOnHand + existing.quantity;
+
+      const auditLine = buildSystemAuditLine({
+        action: "ADD_TO_INVENTORY",
+        prevOrderedQty,
+        newOrderedQty,
+        prevOnHandQty: prevOnHand,
+        newOnHandQty: newOnHand,
+        itemSku: existing.item?.sku ?? null,
+        note: `order=${id}`,
+      });
+
+      await tx.item.update({
+        where: { id: existing.itemId },
+        data: {
+          orderedQty: { decrement: existing.quantity },
+          onHandQty: { increment: existing.quantity },
+        },
+      });
+
+      await tx.inventoryOrder.update({
+        where: { id },
+        data: {
+          status: "ADDED_TO_INVENTORY",
+          arrivedAt: existing.status === "ORDERED" ? new Date() : undefined,
+          addedToInventoryAt: existing.addedToInventoryAt ?? new Date(),
+          note: existing.note ? `${existing.note}\n${auditLine}` : auditLine,
+        },
+      });
+    });
+
+    revalidatePath("/admin/inventory-orders");
+    revalidatePath("/admin/items");
+
+    const h = headers();
+    redirect(safeReturnToPathFromReferer(h.get("referer")));
+  }
+
+  async function deleteOrderAction(formData: FormData) {
+    "use server";
+
+    await requireOrderHistoryEdit();
+
+    const id = String(formData.get("id") ?? "").trim();
+    if (!id) throw new Error("Missing order id");
+
+    const confirmText = String(formData.get("confirm") ?? "").trim().toUpperCase();
+    if (confirmText !== "DELETE") throw new Error('Type "DELETE" to confirm deletion.');
+
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.inventoryOrder.findUnique({
+        where: { id },
+        select: { id: true, status: true, itemId: true, quantity: true, item: { select: { sku: true } } },
+      });
+      if (!existing) return;
+
+      const item = await tx.item.findUnique({
+        where: { id: existing.itemId },
+        select: { id: true, orderedQty: true, onHandQty: true },
+      });
+      if (!item) throw new Error("Item not found");
+
+      if (existing.status === "ADDED_TO_INVENTORY") {
+        if ((item.onHandQty ?? 0) < existing.quantity) {
+          throw new Error(`Cannot delete: Item.onHandQty (${item.onHandQty}) is less than order qty (${existing.quantity}).`);
+        }
+        await tx.item.update({ where: { id: existing.itemId }, data: { onHandQty: { decrement: existing.quantity } } });
+      } else {
+        if ((item.orderedQty ?? 0) < existing.quantity) {
+          throw new Error(`Cannot delete: Item.orderedQty (${item.orderedQty}) is less than order qty (${existing.quantity}).`);
+        }
+        await tx.item.update({ where: { id: existing.itemId }, data: { orderedQty: { decrement: existing.quantity } } });
+      }
+
+      await tx.inventoryOrder.delete({ where: { id } });
+      await syncItemCostAndOrderFromFromLatestOrder(tx, existing.itemId);
+    });
+
+    revalidatePath("/admin/inventory-orders");
+    revalidatePath("/admin/items");
+
+    const h = headers();
+    redirect(safeReturnToPathFromReferer(h.get("referer")));
+  }
+
   function buildHref(next: Partial<SearchParams>) {
     const sp = new URLSearchParams();
     const merged: SearchParams = {
@@ -382,7 +988,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           </Link>
         </div>
 
-        {/* Success / Error banner */}
+        {/* ✅ Success / Error banner */}
         {errMsg ? (
           <div
             style={{
@@ -411,11 +1017,11 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
               lineHeight: 1.4,
             }}
           >
-            Order updated.
+            Order created.
           </div>
         ) : null}
 
-        {/* CREATE ORDER */}
+        {/* CREATE ORDER (collapsed by default) */}
         <details style={{ marginTop: 12 }}>
           <summary
             style={{
@@ -444,7 +1050,6 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                 <label style={{ ...controlLabel, ...flexItem(420, 3) }}>
                   Item (select existing)
                   <div style={{ marginTop: 2 }}>
-                    {/* ✅ IMPORTANT: ONLY PASS DATA, NO FUNCTIONS */}
                     <ItemPicker name="itemId" items={items} placeholder="Search SKU, part #, name, category, manufacturer…" />
                   </div>
                   <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>
@@ -477,6 +1082,70 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                   <input name="orderedAt" type="datetime-local" defaultValue={fmtForDatetimeLocal(new Date())} style={controlBase} />
                 </label>
               </div>
+
+              {/* NEW ITEM (optional) */}
+              <details style={{ marginTop: 6, border, borderRadius: 12, padding: 10, background: soft }}>
+                <summary style={{ cursor: "pointer", fontWeight: 900 }}>New item (creates Item automatically if SKU doesn’t exist)</summary>
+
+                <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                  <label style={{ display: "flex", gap: 10, alignItems: "center", fontWeight: 900 }}>
+                    <input type="checkbox" name="isNewItem" />
+                    Create / use item by SKU (instead of selecting)
+                  </label>
+
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                    <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
+                      SKU (required for new)
+                      <input name="newSku" placeholder="SKU…" style={controlBase} />
+                    </label>
+
+                    <label style={{ ...controlLabel, ...flexItem(360, 2) }}>
+                      Name (required for new)
+                      <input name="newName" placeholder="Item name…" style={controlBase} />
+                    </label>
+
+                    <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
+                      Part #
+                      <input name="newPartNumber" placeholder="Part number…" style={controlBase} />
+                    </label>
+
+                    <label style={{ ...controlLabel, ...flexItem(220, 0) }}>
+                      Vendor
+                      <select name="newVendor" defaultValue="SUCCESS_PLUS" style={controlBase}>
+                        <option value="SUCCESS_PLUS">SUCCESS_PLUS</option>
+                        <option value="AMERICAN_PLUS">AMERICAN_PLUS</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                    <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
+                      Category
+                      <input name="newCategory" placeholder="Category…" style={controlBase} />
+                    </label>
+
+                    <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
+                      Manufacturer
+                      <input name="newManufacturer" placeholder="Manufacturer…" style={controlBase} />
+                    </label>
+
+                    <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
+                      Order From
+                      <input name="newOrderFrom" placeholder="Order from…" style={controlBase} />
+                    </label>
+
+                    <label style={{ ...controlLabel, ...flexItem(360, 2) }}>
+                      Web URL
+                      <input name="newWebUrl" placeholder="https://…" style={controlBase} />
+                    </label>
+                  </div>
+
+                  <div style={{ fontSize: 12, opacity: 0.8, lineHeight: 1.5 }}>
+                    When checked, the system does an <b>upsert</b> by <b>SKU</b>: creates the item if missing, otherwise reuses the
+                    existing item with that SKU.
+                  </div>
+                </div>
+              </details>
 
               <div style={wrapRow}>
                 <label style={{ ...controlLabel, ...flexItem(170, 0) }}>
@@ -524,6 +1193,19 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                   </button>
                 </div>
               </div>
+
+              <div style={{ fontSize: 12, opacity: 0.8, lineHeight: 1.5 }}>
+                Creating an order immediately increments <b>Item.orderedQty</b> and also updates:
+                <ul style={{ margin: "6px 0 0 18px" }}>
+                  <li>
+                    <b>Item.cost</b> → set to the order <b>unit price</b>
+                  </li>
+                  <li>
+                    <b>Item.orderFrom</b> → set to <b>Supplier</b> (if provided)
+                  </li>
+                </ul>
+                Each order row includes an <b>AUDIT</b> line in <b>Note</b> so you can see what changed.
+              </div>
             </form>
           </div>
         </details>
@@ -554,13 +1236,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
               <label style={{ ...controlLabel, ...flexItem(320, 2) }}>
                 Item
                 <div style={{ marginTop: 2 }}>
-                  {/* ✅ IMPORTANT: ONLY PASS DATA, NO FUNCTIONS */}
-                  <ItemPicker
-                    name="itemId"
-                    items={items}
-                    defaultId={itemId}
-                    placeholder="Search item (sku, part #, name, category, manufacturer…)"
-                  />
+                  <ItemPicker name="itemId" items={items} defaultId={itemId} placeholder="Search item (sku, part #, name…)" />
                 </div>
               </label>
 
@@ -633,43 +1309,98 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           </form>
         </div>
 
+        {/* ✅ responsive helpers */}
+        <style>{`
+          @media (max-width: 900px) {
+            .hide-md { display: none !important; }
+          }
+          @media (max-width: 650px) {
+            .hide-sm { display: none !important; }
+          }
+        `}</style>
+
         {/* TABLE */}
-        <div style={{ marginTop: 14, overflowX: "auto", border, borderRadius: 14, background: surface }}>
+        <div style={{ marginTop: 14, border, borderRadius: 14, background: surface }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                {[
-                  "Ordered",
-                  "Phase",
-                  "Item",
-                  "Qty",
-                  "Supplier",
-                  "Unit",
-                  "Ship",
-                  "Tax",
-                  "Total",
-                  "For Tech",
-                  "For Store",
-                  "Arrived",
-                  "Added",
-                  "Actions",
-                  "Edit",
-                  "Delete",
-                ].map((h) => (
-                  <th
-                    key={h}
-                    style={{
-                      textAlign: "left",
-                      padding: 10,
-                      borderBottom: border,
-                      fontSize: 12,
-                      opacity: 0.85,
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {h}
-                  </th>
-                ))}
+                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
+                  Ordered
+                </th>
+                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
+                  Phase
+                </th>
+                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85 }}>
+                  Item
+                </th>
+                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
+                  Qty
+                </th>
+
+                <th
+                  className="hide-sm"
+                  style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}
+                >
+                  Supplier
+                </th>
+                <th
+                  className="hide-sm"
+                  style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}
+                >
+                  Unit
+                </th>
+                <th
+                  className="hide-md"
+                  style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}
+                >
+                  Ship
+                </th>
+                <th
+                  className="hide-md"
+                  style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}
+                >
+                  Tax
+                </th>
+
+                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
+                  Total
+                </th>
+
+                <th
+                  className="hide-md"
+                  style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}
+                >
+                  For Tech
+                </th>
+                <th
+                  className="hide-md"
+                  style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}
+                >
+                  For Store
+                </th>
+
+                <th
+                  className="hide-md"
+                  style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}
+                >
+                  Arrived
+                </th>
+                <th
+                  className="hide-md"
+                  style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}
+                >
+                  Added
+                </th>
+
+                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
+                  Actions
+                </th>
+                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
+                  Edit
+                </th>
+                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
+                  Delete
+                </th>
               </tr>
             </thead>
 
@@ -690,24 +1421,50 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                 return (
                   <tr key={o.id} style={{ borderBottom: border, ...rowPhaseStyle(o.status as InventoryOrderPhase) }}>
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocal(o.orderedAt)}</td>
-                    <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{phaseLabel(o.status as InventoryOrderPhase)}</td>
-                    <td style={{ padding: 10, minWidth: 320 }}>
-                      <div style={{ fontWeight: 900 }}>{itemLabel}</div>
-                      <div style={{ fontSize: 12, opacity: 0.75 }}>id: {o.id}</div>
+
+                    <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>
+                      {phaseLabel(o.status as InventoryOrderPhase)}
                     </td>
+
+                    <td style={{ padding: 10, minWidth: 220, maxWidth: 260 }}>
+                      <div style={{ fontWeight: 900, whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.2 }}>{itemLabel}</div>
+                      <div style={{ fontSize: 12, opacity: 0.75, whiteSpace: "normal", overflowWrap: "anywhere" }}>id: {o.id}</div>
+                    </td>
+
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.quantity}</td>
-                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+
+                    <td className="hide-sm" style={{ padding: 10, whiteSpace: "nowrap" }}>
                       {o.supplierName ?? "—"}
                       {o.supplierPartNumber ? <div style={{ fontSize: 12, opacity: 0.75 }}>Part #: {o.supplierPartNumber}</div> : null}
                     </td>
-                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.unitPrice ? money(Number(o.unitPrice)) : "—"}</td>
-                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.shippingCost ? money(Number(o.shippingCost)) : "—"}</td>
-                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.taxCost ? money(Number(o.taxCost)) : "—"}</td>
+
+                    <td className="hide-sm" style={{ padding: 10, whiteSpace: "nowrap" }}>
+                      {o.unitPrice ? money(Number(o.unitPrice)) : "—"}
+                    </td>
+
+                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>
+                      {o.shippingCost ? money(Number(o.shippingCost)) : "—"}
+                    </td>
+
+                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>
+                      {o.taxCost ? money(Number(o.taxCost)) : "—"}
+                    </td>
+
                     <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{money(totalCost)}</td>
-                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.forUser?.name ?? "—"}</td>
-                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.forStore?.name ?? "—"}</td>
-                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocal(o.arrivedAt)}</td>
-                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocal(o.addedToInventoryAt)}</td>
+
+                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>
+                      {o.forUser?.name ?? "—"}
+                    </td>
+                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>
+                      {o.forStore?.name ?? "—"}
+                    </td>
+
+                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>
+                      {fmtLocal(o.arrivedAt)}
+                    </td>
+                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>
+                      {fmtLocal(o.addedToInventoryAt)}
+                    </td>
 
                     <td style={{ padding: 10, verticalAlign: "top" }}>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -753,6 +1510,12 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                           }}
                         >
                           <input type="hidden" name="id" value={o.id} />
+                          <div style={{ fontSize: 12, opacity: 0.85, lineHeight: 1.5 }}>
+                            Item is not changeable (keeps inventory adjustments safe). Quantity edits are applied to{" "}
+                            <b>{o.status === "ADDED_TO_INVENTORY" ? "on-hand" : "ordered"}</b>.
+                            <br />
+                            After saving, the system will sync <b>Item.cost</b> + <b>Item.orderFrom</b> from the latest order for that item.
+                          </div>
 
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                             <label style={controlLabel}>
@@ -851,7 +1614,8 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                         >
                           <input type="hidden" name="id" value={o.id} />
                           <div style={{ fontSize: 12, opacity: 0.9 }}>
-                            Type <code>DELETE</code> to confirm deletion.
+                            Type <code>DELETE</code> to confirm deletion. This reverses inventory effects for the current phase, then syncs{" "}
+                            <b>Item.cost</b>/<b>Item.orderFrom</b> from the latest remaining order.
                           </div>
                           <input name="confirm" placeholder="DELETE" style={controlBase} />
                           <button type="submit" style={btn}>
@@ -921,7 +1685,8 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
         </div>
 
         <div style={{ marginTop: 10, fontSize: 12, opacity: 0.8 }}>
-          Phases: <b>ORDERED</b> → <b>ARRIVED</b> → <b>ADDED TO INVENTORY</b>.
+          Phases: <b>ORDERED</b> → <b>ARRIVED</b> → <b>ADDED TO INVENTORY</b>. Row color indicates phase. Creating an order increments{" "}
+          <b>Item.orderedQty</b>. “Add to Inventory” moves qty from <b>orderedQty</b> to <b>onHandQty</b>.
         </div>
       </div>
     </main>
