@@ -10,6 +10,7 @@ import { Permission } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 type SearchParams = {
   ok?: string;
@@ -41,7 +42,9 @@ async function requireCheckoutView() {
   if (perms.allowAll) return { session, perms };
 
   const ok = hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
-  if (!ok) redirect("/");
+
+  // ✅ IMPORTANT: do NOT redirect("/") here (can cause redirect loops)
+  if (!ok) redirect("/maintenance");
 
   return { session, perms };
 }
@@ -204,7 +207,6 @@ export default async function MaintenanceCheckoutPage({
         const nextVersion = (last?.version ?? 0) + 1;
 
         // Snapshot before mutation (includes qty fields)
-        // NOTE: Item model no longer has `unit`, so we do not snapshot it here.
         await tx.itemVersion.create({
           data: {
             itemId,
@@ -266,7 +268,6 @@ export default async function MaintenanceCheckoutPage({
           select: { id: true },
         });
 
-        // Create alerts (audit + admin workflow)
         // NEGATIVE_ON_HAND
         if (onHandAfter < 0) {
           await tx.inventoryAlert.create({
@@ -289,7 +290,7 @@ export default async function MaintenanceCheckoutPage({
           });
         }
 
-        // BELOW_MIN: (onHandAfter + orderedAfter) < minQty
+        // BELOW_MIN
         if (availableAfter < minQtyAtTime) {
           await tx.inventoryAlert.create({
             data: {
@@ -330,13 +331,11 @@ export default async function MaintenanceCheckoutPage({
         }
       });
 
-      // keep pages fresh
       revalidatePath("/admin/inventory-alerts");
       revalidatePath("/admin/maintenance-tickets");
       revalidatePath("/maintenance");
       revalidatePath("/maintenance/checkout");
 
-      // one-time submit UX: return to same page (no API response screen)
       redirect(`/maintenance/checkout?ok=1`);
     } catch (e: unknown) {
       if (isRedirectError(e)) {
@@ -352,7 +351,6 @@ export default async function MaintenanceCheckoutPage({
     }
   }
 
-  // Theme-variable styling (no hardcoded colors)
   const fieldStyle: CSSProperties = {
     width: "100%",
     minWidth: 0,
@@ -491,12 +489,9 @@ export default async function MaintenanceCheckoutPage({
             fontWeight: 800,
             width: 220,
             borderRadius: 10,
-
-            // Make Submit stand out (still theme-variable friendly)
             background: "var(--checkout-submit-bg, rgba(33, 150, 243, 0.18))",
             border: "1px solid var(--checkout-submit-border, rgba(33, 150, 243, 0.55))",
             color: "var(--foreground)",
-
             cursor: "pointer",
           }}
           disabled={!perms.allowAll && locations.length === 0}

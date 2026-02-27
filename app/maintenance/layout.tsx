@@ -13,12 +13,12 @@ export const runtime = "nodejs";
 
 type SessionUser = {
   email?: string | null;
-  role?: Role;
+  role?: Role | null;
   name?: string | null;
 };
 
-function isAllowed(role: Role | undefined) {
-  // Allow anyone who can be in maintenance at all (you can tighten later).
+function isAllowed(role: Role | null | undefined) {
+  // ✅ MAINTENANCE is allowed into /maintenance
   return role === Role.EMPLOYEE || role === Role.MAINTENANCE || role === Role.MANAGER || role === Role.ADMIN;
 }
 
@@ -29,19 +29,18 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
   const user = session.user as SessionUser;
 
   const email = (user.email ?? "").trim().toLowerCase();
-  if (!email) redirect("/");
+  if (!email) redirect("/login");
 
-  if (!isAllowed(user.role)) redirect("/");
+  if (!isAllowed(user.role)) redirect("/login");
 
   const perms = await loadUserPermissions(session);
-  const allowAll = !!perms.allowAll;
 
-  // ✅ Checkout: permission-based (do NOT block EMPLOYEE)
-  const canCheckout = allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
+  // ✅ Checkout is permission-based ONLY (no role special-casing)
+  const canCheckout = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
 
-  // ✅ Work Orders: permission-based ONLY (no EMPLOYEE bypass)
+  // ✅ Work Orders are permission-based ONLY
   const canWorkOrders =
-    allowAll ||
+    perms.allowAll ||
     hasAnyPermission(perms, [
       Permission.VIEW_WORK_ORDERS,
       Permission.CREATE_WORK_ORDERS,
@@ -49,7 +48,7 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
       Permission.SUBMIT_OWN_WORK_ORDERS,
     ]);
 
-  // ✅ Travel Log: for now, tie to Work Orders access (since schema has no VIEW_TRAVEL_LOG)
+  // ✅ Travel Log is treated as part of Work Orders permissions (no VIEW_TRAVEL_LOG exists)
   const canTravelLog = canWorkOrders;
 
   const shell: CSSProperties = {
@@ -96,6 +95,7 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
               Maintenance
             </Link>
 
+            {/* ✅ Only show Work Orders + Travel Log if permitted */}
             {canWorkOrders ? (
               <>
                 <Link href="/maintenance/work-orders" style={pill()}>
@@ -110,12 +110,15 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
               </>
             ) : null}
 
+            {/* ✅ Only show Checkout if permitted */}
             {canCheckout ? (
               <Link href="/maintenance/checkout" style={pill()}>
                 Checkout
               </Link>
             ) : null}
           </div>
+
+          {/* right-side items (logout button etc.) can stay where you already render them elsewhere */}
         </div>
       </nav>
 

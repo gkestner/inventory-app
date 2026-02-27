@@ -8,6 +8,7 @@ import { Permission } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 type SessionShape = {
   user?: {
@@ -129,7 +130,7 @@ function hoursBetweenNumber(start: Date | null, end: Date | null): number | null
 
 function fmtFixed2(n: number): string {
   if (!Number.isFinite(n)) return "0.00";
-  return (Math.round(n * 100) / (100)).toFixed(2);
+  return (Math.round(n * 100) / 100).toFixed(2);
 }
 
 export default async function MaintenanceTravelLogPage({
@@ -140,10 +141,10 @@ export default async function MaintenanceTravelLogPage({
   const session = (await getServerSession(authOptions)) as SessionShape;
   requireSession(session);
 
-  // ✅ Permission gate (no EMPLOYEE bypass): require VIEW_WORK_ORDERS or allowAll
+  // ✅ Permission gate (no EMPLOYEE bypass)
   const perms = await loadUserPermissions(session);
   if (!perms.allowAll && !hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS])) {
-    redirect("/");
+    redirect("/maintenance");
   }
 
   const email = (session?.user?.email ?? "").toLowerCase().trim();

@@ -1,177 +1,128 @@
-// app/maintenance/page.tsx
+// app/maintenance/layout.tsx
+import type { ReactNode, CSSProperties } from "react";
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { prisma } from "@/app/lib/prisma";
-import { authOptions } from "@/app/lib/auth";
 import { Permission, Role } from "@prisma/client";
+
+import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 type SessionUser = {
   email?: string | null;
-  role?: Role;
+  role?: Role | null;
   name?: string | null;
 };
 
-function isAllowed(role: Role | undefined) {
+function isAllowed(role: Role | null | undefined) {
+  // ✅ MAINTENANCE is allowed into /maintenance
   return role === Role.EMPLOYEE || role === Role.MAINTENANCE || role === Role.MANAGER || role === Role.ADMIN;
 }
 
-export default async function MaintenanceHomePage() {
+export default async function MaintenanceLayout({ children }: { children: ReactNode }) {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
 
   const user = session.user as SessionUser;
 
   const email = (user.email ?? "").trim().toLowerCase();
-  if (!email) redirect("/");
+  if (!email) redirect("/login");
 
-  if (!isAllowed(user.role)) redirect("/");
+  if (!isAllowed(user.role)) redirect("/login");
 
   const perms = await loadUserPermissions(session);
-  const allowAll = !!perms.allowAll;
 
-  // ✅ Permission-based only (no role overrides)
-  const canCheckout = allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
-  const canWorkOrders = allowAll || hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
+  // ✅ Checkout is permission-based ONLY (no role special-casing)
+  const canCheckout = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
 
-  // ✅ Resolve user id from DB by email.
-  const dbUser = await prisma.user.findUnique({
-    where: { email },
-    select: { id: true, name: true },
+  // ✅ Work Orders are permission-based ONLY
+  const canWorkOrders =
+    perms.allowAll ||
+    hasAnyPermission(perms, [
+      Permission.VIEW_WORK_ORDERS,
+      Permission.CREATE_WORK_ORDERS,
+      Permission.UPDATE_OWN_WORK_ORDERS,
+      Permission.SUBMIT_OWN_WORK_ORDERS,
+    ]);
+
+  // ✅ Travel Log is treated as part of Work Orders permissions (no VIEW_TRAVEL_LOG exists)
+  const canTravelLog = canWorkOrders;
+
+  const shell: CSSProperties = {
+    borderBottom: "1px solid rgba(128,128,128,0.25)",
+    background: "var(--background)",
+    color: "var(--foreground)",
+  };
+
+  const inner: CSSProperties = {
+    maxWidth: 1100,
+    margin: "0 auto",
+    padding: "10px 16px",
+    display: "flex",
+    gap: 10,
+    alignItems: "center",
+    justifyContent: "space-between",
+  };
+
+  const left: CSSProperties = {
+    display: "flex",
+    gap: 10,
+    alignItems: "center",
+    flexWrap: "wrap",
+  };
+
+  const pill = (): CSSProperties => ({
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "6px 12px",
+    borderRadius: 10,
+    border: "1px solid rgba(128,128,128,0.25)",
+    textDecoration: "none",
+    color: "var(--foreground)",
+    fontWeight: 800,
+    opacity: 0.9,
   });
-
-  if (!dbUser) redirect("/");
-
-  const tickets = await prisma.partsCheckoutTicket.findMany({
-    where: { createdByUserId: dbUser.id },
-    orderBy: { createdAt: "desc" },
-    take: 10,
-    select: {
-      id: true,
-      status: true,
-      storeName: true,
-      quantity: true,
-      nameSnapshot: true,
-      createdAt: true,
-    },
-  });
-
-  const border = "1px solid rgba(128,128,128,0.25)";
-  const surface = "var(--background)";
-  const fg = "var(--foreground)";
 
   return (
-    <main style={{ padding: 24, maxWidth: 1000, margin: "0 auto", color: fg }}>
-      <h1 style={{ fontSize: 24, fontWeight: 900 }}>Maintenance</h1>
-
-      <div
-        style={{
-          marginTop: 16,
-          padding: 16,
-          border,
-          borderRadius: 12,
-          background: surface,
-        }}
-      >
-        <h2 style={{ fontSize: 16, fontWeight: 800 }}>Quick Actions</h2>
-
-        <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {canCheckout ? (
-            <Link
-              href="/maintenance/checkout"
-              style={{
-                display: "inline-block",
-                padding: "8px 14px",
-                borderRadius: 10,
-                border,
-                background: surface,
-                color: fg,
-                fontWeight: 800,
-                textDecoration: "none",
-              }}
-            >
-              Checkout Parts
+    <div>
+      <nav style={shell}>
+        <div style={inner}>
+          <div style={left}>
+            <Link href="/maintenance" style={pill()}>
+              Maintenance
             </Link>
-          ) : null}
 
-          {canWorkOrders ? (
-            <Link
-              href="/maintenance/work-orders"
-              style={{
-                display: "inline-block",
-                padding: "8px 14px",
-                borderRadius: 10,
-                border,
-                background: surface,
-                color: fg,
-                fontWeight: 800,
-                textDecoration: "none",
-              }}
-            >
-              Work Orders
-            </Link>
-          ) : null}
+            {/* ✅ Only show Work Orders + Travel Log if permitted */}
+            {canWorkOrders ? (
+              <>
+                <Link href="/maintenance/work-orders" style={pill()}>
+                  Work Orders
+                </Link>
 
-          {!canCheckout && !canWorkOrders ? (
-            <p style={{ margin: 0, opacity: 0.75, fontSize: 14 }}>
-              You currently do not have permission to open Checkout or Work Orders.
-            </p>
-          ) : null}
-        </div>
-      </div>
+                {canTravelLog ? (
+                  <Link href="/maintenance/travel-log" style={pill()}>
+                    Travel Log
+                  </Link>
+                ) : null}
+              </>
+            ) : null}
 
-      <div
-        style={{
-          marginTop: 20,
-          padding: 16,
-          border,
-          borderRadius: 12,
-          background: surface,
-        }}
-      >
-        <h2 style={{ fontSize: 16, fontWeight: 800 }}>My Recent Tickets</h2>
-
-        {tickets.length === 0 ? (
-          <p style={{ marginTop: 10, opacity: 0.8 }}>No recent tickets.</p>
-        ) : (
-          <div style={{ marginTop: 10, overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr>
-                  {["Part", "Store", "Qty", "Status", "Created"].map((h) => (
-                    <th
-                      key={h}
-                      style={{
-                        textAlign: "left",
-                        padding: 8,
-                        borderBottom: border,
-                        fontSize: 13,
-                        opacity: 0.85,
-                      }}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {tickets.map((t) => (
-                  <tr key={t.id}>
-                    <td style={{ padding: 8, borderBottom: border }}>{t.nameSnapshot}</td>
-                    <td style={{ padding: 8, borderBottom: border }}>{t.storeName}</td>
-                    <td style={{ padding: 8, borderBottom: border }}>{t.quantity}</td>
-                    <td style={{ padding: 8, borderBottom: border }}>{t.status}</td>
-                    <td style={{ padding: 8, borderBottom: border }}>{new Date(t.createdAt).toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {/* ✅ Only show Checkout if permitted */}
+            {canCheckout ? (
+              <Link href="/maintenance/checkout" style={pill()}>
+                Checkout
+              </Link>
+            ) : null}
           </div>
-        )}
-      </div>
-    </main>
+
+          {/* right-side items (logout button etc.) can stay where you already render them elsewhere */}
+        </div>
+      </nav>
+
+      {children}
+    </div>
   );
 }
