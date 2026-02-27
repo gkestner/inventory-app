@@ -11,6 +11,7 @@ import { authOptions } from "@/app/lib/auth";
 import { Permission, Role, InventoryOrderStatus, Prisma } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { Decimal } from "@prisma/client/runtime/library";
+import ItemPicker from "./ItemPicker";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -362,10 +363,19 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
   }
 
   const [items, locations, users, total, orders] = await Promise.all([
+    // ✅ IMPORTANT: include extra fields so ItemPicker can match category/manufacturer/orderFrom
     prisma.item.findMany({
       where: { active: true },
       orderBy: { sku: "asc" },
-      select: { id: true, sku: true, partNumber: true, name: true },
+      select: {
+        id: true,
+        sku: true,
+        partNumber: true,
+        name: true,
+        category: true,
+        manufacturer: true,
+        orderFrom: true,
+      },
     }),
     prisma.location.findMany({
       where: { active: true },
@@ -1004,15 +1014,10 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
               <div style={wrapRow}>
                 <label style={{ ...controlLabel, ...flexItem(420, 3) }}>
                   Item (select existing)
-                  <select name="itemId" defaultValue="" style={controlBase}>
-                    <option value="">Select item…</option>
-                    {items.map((it) => (
-                      <option key={it.id} value={it.id}>
-                        {it.sku}
-                        {it.partNumber ? ` • ${it.partNumber}` : ""} • {it.name}
-                      </option>
-                    ))}
-                  </select>
+                  {/* ✅ Searchable picker replaces <select> */}
+                  <div style={{ marginTop: 2 }}>
+                    <ItemPicker name="itemId" items={items} placeholder="Search SKU, part #, name, category, manufacturer…" />
+                  </div>
                   <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>
                     If you’re creating a brand-new item, use the “New item” section below instead.
                   </div>
@@ -1040,7 +1045,12 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
 
                 <label style={{ ...controlLabel, ...flexItem(220, 0) }}>
                   Ordered at
-                  <input name="orderedAt" type="datetime-local" defaultValue={fmtForDatetimeLocal(new Date())} style={controlBase} />
+                  <input
+                    name="orderedAt"
+                    type="datetime-local"
+                    defaultValue={fmtForDatetimeLocal(new Date())}
+                    style={controlBase}
+                  />
                 </label>
               </div>
 
@@ -1196,17 +1206,17 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                 </select>
               </label>
 
-              <label style={{ ...controlLabel, ...flexItem(240, 1) }}>
+              <label style={{ ...controlLabel, ...flexItem(320, 2) }}>
                 Item
-                <select name="itemId" defaultValue={itemId} style={controlBase}>
-                  <option value="">All</option>
-                  {items.map((it) => (
-                    <option key={it.id} value={it.id}>
-                      {it.sku}
-                      {it.partNumber ? ` • ${it.partNumber}` : ""} • {it.name}
-                    </option>
-                  ))}
-                </select>
+                {/* ✅ Searchable picker replaces <select> */}
+                <div style={{ marginTop: 2 }}>
+                  <ItemPicker
+                    name="itemId"
+                    items={items}
+                    defaultId={itemId}
+                    placeholder="Search item (sku, part #, name, category, manufacturer…)"
+                  />
+                </div>
               </label>
 
               <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
@@ -1266,7 +1276,10 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                 <button type="submit" style={btn}>
                   Apply
                 </button>
-                <Link href="/admin/inventory-orders" style={{ ...btn, textDecoration: "none", display: "inline-block", opacity: 0.92 }}>
+                <Link
+                  href="/admin/inventory-orders"
+                  style={{ ...btn, textDecoration: "none", display: "inline-block", opacity: 0.92 }}
+                >
                   Clear
                 </Link>
               </div>
@@ -1335,7 +1348,9 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                 return (
                   <tr key={o.id} style={{ borderBottom: border, ...rowPhaseStyle(o.status as InventoryOrderPhase) }}>
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocal(o.orderedAt)}</td>
-                    <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{phaseLabel(o.status as InventoryOrderPhase)}</td>
+                    <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>
+                      {phaseLabel(o.status as InventoryOrderPhase)}
+                    </td>
                     <td style={{ padding: 10, minWidth: 320 }}>
                       <div style={{ fontWeight: 900 }}>{itemLabel}</div>
                       <div style={{ fontSize: 12, opacity: 0.75 }}>id: {o.id}</div>
@@ -1343,10 +1358,14 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.quantity}</td>
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>
                       {o.supplierName ?? "—"}
-                      {o.supplierPartNumber ? <div style={{ fontSize: 12, opacity: 0.75 }}>Part #: {o.supplierPartNumber}</div> : null}
+                      {o.supplierPartNumber ? (
+                        <div style={{ fontSize: 12, opacity: 0.75 }}>Part #: {o.supplierPartNumber}</div>
+                      ) : null}
                     </td>
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.unitPrice ? money(Number(o.unitPrice)) : "—"}</td>
-                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.shippingCost ? money(Number(o.shippingCost)) : "—"}</td>
+                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                      {o.shippingCost ? money(Number(o.shippingCost)) : "—"}
+                    </td>
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.taxCost ? money(Number(o.taxCost)) : "—"}</td>
                     <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{money(totalCost)}</td>
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.forUser?.name ?? "—"}</td>
@@ -1405,13 +1424,19 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                             Item is not changeable (keeps inventory adjustments safe). Quantity edits are applied to{" "}
                             <b>{o.status === "ADDED_TO_INVENTORY" ? "on-hand" : "ordered"}</b>.
                             <br />
-                            After saving, the system will sync <b>Item.cost</b> + <b>Item.orderFrom</b> from the latest order for that item.
+                            After saving, the system will sync <b>Item.cost</b> + <b>Item.orderFrom</b> from the latest order for that
+                            item.
                           </div>
 
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                             <label style={controlLabel}>
                               Ordered at
-                              <input name="orderedAt" type="datetime-local" defaultValue={fmtForDatetimeLocal(o.orderedAt)} style={controlBase} />
+                              <input
+                                name="orderedAt"
+                                type="datetime-local"
+                                defaultValue={fmtForDatetimeLocal(o.orderedAt)}
+                                style={controlBase}
+                              />
                             </label>
 
                             <label style={controlLabel}>
@@ -1438,11 +1463,22 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                             <label style={controlLabel}>
                               Unit price
-                              <input name="unitPrice" defaultValue={o.unitPrice ? String(o.unitPrice) : ""} placeholder="0.00" required style={controlBase} />
+                              <input
+                                name="unitPrice"
+                                defaultValue={o.unitPrice ? String(o.unitPrice) : ""}
+                                placeholder="0.00"
+                                required
+                                style={controlBase}
+                              />
                             </label>
                             <label style={controlLabel}>
                               Shipping
-                              <input name="shippingCost" defaultValue={o.shippingCost ? String(o.shippingCost) : ""} placeholder="0.00" style={controlBase} />
+                              <input
+                                name="shippingCost"
+                                defaultValue={o.shippingCost ? String(o.shippingCost) : ""}
+                                placeholder="0.00"
+                                style={controlBase}
+                              />
                             </label>
                             <label style={controlLabel}>
                               Tax

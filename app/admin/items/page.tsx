@@ -41,34 +41,53 @@ async function requireAdmin() {
 }
 
 /**
- * Split input into tokens:
- * - trims
- * - collapses whitespace
- * - splits on spaces
- * - ignores very short tokens (1 char)
+ * Normalize text for tokenization:
+ * - normalize unicode to reduce “weird dash” mismatches
+ * - convert many dash types to "-"
+ * - collapse whitespace
+ */
+function normalizeQuery(q: string): string {
+  const s = (q ?? "")
+    .normalize("NFKC")
+    .replace(/[\u2010\u2011\u2012\u2013\u2014\u2212]/g, "-") // hyphen variants → "-"
+    .replace(/\s+/g, " ")
+    .trim();
+  return s;
+}
+
+/**
+ * Tokenize:
+ * - split on spaces AND hyphens so "SATCO-ESCENT" matches "satco" or "escent"
+ * - keep tokens length >= 2
  */
 function tokenize(q: string): string[] {
-  const s = (q || "").trim().replace(/\s+/g, " ");
+  const s = normalizeQuery(q);
   if (!s) return [];
   return s
-    .split(" ")
+    .split(/[ \-]+/g)
     .map((x) => x.trim())
     .filter((x) => x.length >= 2);
 }
 
 /**
- * Simple singular/plural helper:
- * - bulb -> bulbs
- * - bulbs -> bulb
+ * Generate useful variants:
+ * - lowercase
+ * - strip punctuation around token
+ * - singular/plural (basic)
  */
-function variants(t: string): string[] {
-  const lower = t.toLowerCase();
-  const out = new Set<string>([t, lower]);
+function variants(token: string): string[] {
+  const cleaned = token
+    .toLowerCase()
+    .replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, ""); // trim non-alnum edges
 
-  if (lower.endsWith("s") && lower.length > 3) {
-    out.add(lower.slice(0, -1));
-  } else {
-    out.add(`${lower}s`);
+  const out = new Set<string>();
+  if (cleaned) out.add(cleaned);
+
+  // Basic singular/plural
+  if (cleaned.endsWith("s") && cleaned.length > 3) {
+    out.add(cleaned.slice(0, -1));
+  } else if (cleaned.length > 2) {
+    out.add(`${cleaned}s`);
   }
 
   return Array.from(out);
@@ -76,7 +95,7 @@ function variants(t: string): string[] {
 
 /**
  * Build WHERE:
- * - AND across tokens
+ * - AND across tokens (so "hot bar bulb" must match both somewhere)
  * - OR across fields for each token
  * - contains + insensitive for partial matches
  */
@@ -95,7 +114,7 @@ function buildWhere(qRaw: string): Prisma.ItemWhereInput {
       { description: { contains: v, mode: "insensitive" } },
       { manufacturer: { contains: v, mode: "insensitive" } },
       { orderFrom: { contains: v, mode: "insensitive" } },
-      { webUrl: { contains: v, mode: "insensitive" } }, // ✅ include webUrl too since it’s shown
+      { webUrl: { contains: v, mode: "insensitive" } },
     ]);
 
     return { OR: ors };
@@ -113,7 +132,6 @@ export default async function AdminItemsPage({ searchParams }: { searchParams: S
   const createdSku = (first(searchParams.createdSku) ?? "").trim() || null;
 
   const where = buildWhere(qRaw);
-
   const skip = (page - 1) * perPage;
 
   // ✅ Safe fallback: vendor formulas blank unless you’ve wired them.
@@ -126,6 +144,8 @@ export default async function AdminItemsPage({ searchParams }: { searchParams: S
     prisma.item.count({ where }),
     prisma.item.findMany({
       where,
+      // NOTE: updatedAt desc is fine, but if you want “search results feel better”
+      // you can switch to name asc when qRaw exists. Keeping your current behavior:
       orderBy: { updatedAt: "desc" },
       skip,
       take: perPage,
