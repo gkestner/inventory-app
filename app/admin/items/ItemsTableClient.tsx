@@ -441,27 +441,65 @@ function readQFromLocation(): string {
 }
 
 /**
- * ✅ Client-side row matcher so typing filters instantly.
- * Matches across common fields.
+ * ✅ Client-side search behavior:
+ * - split query into tokens (words)
+ * - match ANY field on screen (sku, part#, name, category, vendor label, mfg, orderFrom, url, cost/price, flags, qty)
+ * - partial matches allowed
+ * - AND semantics: all tokens must be found somewhere in the row
  */
-function rowMatchesQuery(row: ItemRow, q: string): boolean {
-  const needle = q.trim().toLowerCase();
-  if (!needle) return true;
+function tokenizeQuery(q: string): string[] {
+  return (q || "")
+    .toLowerCase()
+    .trim()
+    .split(/\s+/g)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
 
-  const hay = [
+function rowSearchText(row: ItemRow): string {
+  const vendorLabel =
+    (row.vendor ?? "") === "AMERICAN_PLUS"
+      ? "american plus"
+      : (row.vendor ?? "") === "SUCCESS_PLUS"
+        ? "success plus"
+        : "";
+
+  const onHandStr = typeof row.onHandQty === "number" ? String(row.onHandQty) : "";
+  const usedStr = typeof row.usedQty === "number" ? String(row.usedQty) : "";
+  const minStr = typeof row.minQty === "number" ? String(row.minQty) : "";
+  const orderedStr = typeof row.orderedQty === "number" ? String(row.orderedQty) : "";
+
+  const taxableStr = row.taxable ? "taxable yes" : "taxable no";
+  const activeStr = row.active ? "active yes" : "active no";
+
+  return [
     row.sku,
     row.partNumber ?? "",
+    vendorLabel,
     row.name ?? "",
     row.category ?? "",
     row.description ?? "",
     row.manufacturer ?? "",
     row.orderFrom ?? "",
     row.webUrl ?? "",
+    row.cost ?? "",
+    row.price ?? "",
+    taxableStr,
+    activeStr,
+    onHandStr,
+    usedStr,
+    minStr,
+    orderedStr,
   ]
     .join(" ")
     .toLowerCase();
+}
 
-  return hay.includes(needle);
+function rowMatchesQuery(row: ItemRow, q: string): boolean {
+  const tokens = tokenizeQuery(q);
+  if (tokens.length === 0) return true;
+  const hay = rowSearchText(row);
+  return tokens.every((tok) => hay.includes(tok));
 }
 
 export default function ItemsTableClient({
@@ -483,18 +521,11 @@ export default function ItemsTableClient({
 }) {
   const [rows, setRows] = useState<ItemRow[]>(initialItems ?? []);
 
-  // Search UI for q param
+  // Search UI value
   const [qInput, setQInput] = useState<string>(() => {
     if (typeof window === "undefined") return "";
     return readQFromLocation();
   });
-
-  // ✅ Instant filtering view (does NOT change server pagination; it filters the current page snapshot)
-  const filteredRows = useMemo(() => {
-    const q = (qInput || "").trim();
-    if (!q) return rows;
-    return rows.filter((r) => rowMatchesQuery(r, q));
-  }, [rows, qInput]);
 
   // Edit
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -563,10 +594,17 @@ export default function ItemsTableClient({
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  // ✅ Page-scoped selection set should match what’s visible (filtered)
-  const pageIdSet = useMemo(() => new Set(filteredRows.map((r) => r.id)), [filteredRows]);
+  // ✅ LIVE client-side filtered view (as you type)
+  const viewRows = useMemo(() => {
+    const q = (qInput || "").trim();
+    if (!q) return rows;
+    return rows.filter((r) => rowMatchesQuery(r, q));
+  }, [rows, qInput]);
 
-  // Prune any selected ids not on this (filtered) page (also covers local deletes)
+  // Selection should be scoped to what's visible on this page (after filter)
+  const pageIdSet = useMemo(() => new Set(viewRows.map((r) => r.id)), [viewRows]);
+
+  // Prune any selected ids not visible (covers filter + local deletes)
   useEffect(() => {
     setSelectedIds((prev) => {
       let changed = false;
@@ -590,11 +628,8 @@ export default function ItemsTableClient({
     window.location.assign(`${window.location.pathname}?${p.toString()}`);
   }
 
-  /**
-   * Keep your existing server search behavior on submit:
-   * - this navigates with ?q=... and reloads results from the server
-   */
   function applySearch(nextQ: string) {
+    // Optional server-side search (keeps URL in sync) — you can still press Enter / click Search
     const p = new URLSearchParams(window.location.search);
     const v = nextQ.trim();
 
@@ -607,25 +642,22 @@ export default function ItemsTableClient({
 
   const createdIndex = useMemo(() => {
     if (!createdSku) return -1;
-    return filteredRows.findIndex((r) => r.sku === createdSku);
-  }, [filteredRows, createdSku]);
+    return viewRows.findIndex((r) => r.sku === createdSku);
+  }, [viewRows, createdSku]);
 
-  const selectedOnPage = useMemo(
-    () => filteredRows.filter((r) => !!selectedIds[r.id]).map((r) => r.id),
-    [filteredRows, selectedIds]
-  );
+  const selectedOnPage = useMemo(() => viewRows.filter((r) => !!selectedIds[r.id]).map((r) => r.id), [viewRows, selectedIds]);
 
   const allOnPageSelected = useMemo(() => {
-    if (filteredRows.length === 0) return false;
-    return filteredRows.every((r) => !!selectedIds[r.id]);
-  }, [filteredRows, selectedIds]);
+    if (viewRows.length === 0) return false;
+    return viewRows.every((r) => !!selectedIds[r.id]);
+  }, [viewRows, selectedIds]);
 
-  const anyOnPageSelected = useMemo(() => filteredRows.some((r) => !!selectedIds[r.id]), [filteredRows, selectedIds]);
+  const anyOnPageSelected = useMemo(() => viewRows.some((r) => !!selectedIds[r.id]), [viewRows, selectedIds]);
 
   function toggleAllOnPage(next: boolean) {
     setSelectedIds((prev) => {
       const copy: Record<string, boolean> = { ...prev };
-      for (const r of filteredRows) copy[r.id] = next;
+      for (const r of viewRows) copy[r.id] = next;
       return copy;
     });
   }
@@ -872,7 +904,6 @@ export default function ItemsTableClient({
         orderFrom: updated.orderFrom ?? null,
         webUrl: updated.webUrl ?? null,
 
-        // Keep qty fields if the API returns them; otherwise keep existing values
         onHandQty:
           typeof updated.onHandQty === "number"
             ? updated.onHandQty
@@ -1105,6 +1136,12 @@ export default function ItemsTableClient({
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <div style={{ fontSize: 12, opacity: 0.85 }}>
             {(total ?? 0).toLocaleString()} results • page {page ?? 1} / {Math.max(1, Math.ceil((total || 0) / (perPage || 25)))}
+            {qInput.trim() ? (
+              <>
+                {" "}
+                • showing <b>{viewRows.length}</b> on this page
+              </>
+            ) : null}
           </div>
 
           <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
@@ -1132,8 +1169,7 @@ export default function ItemsTableClient({
                 border: "1px solid var(--border)",
                 background: surface,
                 color: "var(--text)",
-                cursor:
-                  page >= Math.max(1, Math.ceil((total || 0) / (perPage || 25))) ? "not-allowed" : "pointer",
+                cursor: page >= Math.max(1, Math.ceil((total || 0) / (perPage || 25))) ? "not-allowed" : "pointer",
                 opacity: page >= Math.max(1, Math.ceil((total || 0) / (perPage || 25))) ? 0.6 : 1,
               }}
             >
@@ -1142,6 +1178,7 @@ export default function ItemsTableClient({
           </div>
         </div>
 
+        {/* ✅ Live filter as you type. Submit still does optional server-side search (URL sync). */}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -1152,7 +1189,7 @@ export default function ItemsTableClient({
           <input
             value={qInput}
             onChange={(e) => setQInput(e.target.value)}
-            placeholder="Search SKU, part #, name, category…"
+            placeholder="Search SKU, part #, name, category, vendor, mfg, order from…"
             style={{
               width: "min(520px, 100%)",
               padding: "8px 10px",
@@ -1173,6 +1210,7 @@ export default function ItemsTableClient({
               cursor: "pointer",
               fontWeight: 900,
             }}
+            title="Optional: reload page with server-side q param"
           >
             Search
           </button>
@@ -1180,6 +1218,7 @@ export default function ItemsTableClient({
             type="button"
             onClick={() => {
               setQInput("");
+              // also clear URL q if present
               applySearch("");
             }}
             style={{
@@ -1194,15 +1233,12 @@ export default function ItemsTableClient({
           >
             Clear
           </button>
-
-          {/* ✅ Optional: show “filtered X of Y on this page” */}
-          <div style={{ fontSize: 12, opacity: 0.8 }}>
-            Showing <b>{filteredRows.length}</b> of <b>{rows.length}</b> on this page
-          </div>
         </form>
       </div>
 
-      {saveError ? <div style={{ padding: 12, borderBottom: "1px solid var(--border)", color: danger }}>{saveError}</div> : null}
+      {saveError ? (
+        <div style={{ padding: 12, borderBottom: "1px solid var(--border)", color: danger }}>{saveError}</div>
+      ) : null}
 
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -1264,7 +1300,7 @@ export default function ItemsTableClient({
           </thead>
 
           <tbody>
-            {filteredRows.map((row, idx) => {
+            {viewRows.map((row, idx) => {
               const isEditing = editingId === row.id;
               const isCreated = createdIndex === idx;
               const isSelected = !!selectedIds[row.id];
@@ -1358,9 +1394,7 @@ export default function ItemsTableClient({
                           value={draft?.vendor ?? "SUCCESS_PLUS"}
                           onChange={(e) =>
                             setDraft((d) =>
-                              d
-                                ? { ...d, vendor: e.target.value === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS" }
-                                : d
+                              d ? { ...d, vendor: e.target.value === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS" } : d
                             )
                           }
                           style={{
@@ -1473,9 +1507,7 @@ export default function ItemsTableClient({
                               Auto{formulaPreview ? ` • preview: $${formulaPreview}` : ""}
                             </span>
                           ) : null}
-                          {!editingUsesCostPlus && errors.price ? (
-                            <span style={{ fontSize: 12, color: danger }}>{errors.price}</span>
-                          ) : null}
+                          {!editingUsesCostPlus && errors.price ? <span style={{ fontSize: 12, color: danger }}>{errors.price}</span> : null}
                         </div>
                       ) : (
                         row.price ?? ""
@@ -1797,12 +1829,7 @@ export default function ItemsTableClient({
                           <span>
                             <strong>Web:</strong>{" "}
                             {web ? (
-                              <a
-                                href={web}
-                                target="_blank"
-                                rel="noreferrer"
-                                style={{ textDecoration: "underline", color: "inherit" }}
-                              >
+                              <a href={web} target="_blank" rel="noreferrer" style={{ textDecoration: "underline", color: "inherit" }}>
                                 {detailText.webLabel}
                               </a>
                             ) : (
@@ -1817,7 +1844,7 @@ export default function ItemsTableClient({
               );
             })}
 
-            {filteredRows.length === 0 ? (
+            {viewRows.length === 0 ? (
               <tr>
                 <td colSpan={COLS} style={{ padding: 16, opacity: 0.8 }}>
                   No results.
