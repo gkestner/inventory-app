@@ -96,35 +96,9 @@ export default async function PrintInvoiceBatchPage({
         });
 
   if (invoices.length === 0) {
-    const shell: CSSProperties = { padding: 16 };
-    const card: CSSProperties = {
-      padding: 16,
-      maxWidth: 900,
-      margin: "0 auto",
-      borderRadius: 14,
-      border: "1px solid rgba(128,128,128,0.25)",
-      background: "var(--background)",
-      color: "var(--foreground)",
-    };
-
     return (
-      <main style={shell}>
-        <div style={card}>
-          <div style={{ fontSize: 22, fontWeight: 900 }}>Invoice Batch Print</div>
-          <div style={{ marginTop: 10, opacity: 0.85, lineHeight: 1.6 }}>
-            {ids.length > 0 ? (
-              <>
-                No invoices found for the provided <b>ids</b>.
-              </>
-            ) : (
-              <>
-                No invoices are currently in <b>DRAFT</b>.
-                <br />
-                Generate invoices first, then print.
-              </>
-            )}
-          </div>
-        </div>
+      <main style={{ padding: 24 }}>
+        <div>No invoices available to print.</div>
       </main>
     );
   }
@@ -144,41 +118,36 @@ export default async function PrintInvoiceBatchPage({
   return (
     <main>
       <Script id="auto-print-batch" strategy="afterInteractive">{`
-(function () {
-  if (window.__invoiceBatchPrintTried) return;
-  window.__invoiceBatchPrintTried = true;
-  setTimeout(function () {
-    try { window.focus(); window.print(); } catch (e) {}
-  }, 50);
-})();
+        setTimeout(function () {
+          try { window.print(); } catch (e) {}
+        }, 75);
       `}</Script>
 
       <style>{`
-        @page { margin: 0.5in; }
+        /* ✅ FORCE LANDSCAPE */
+        @page {
+          size: landscape;
+          margin: 0.5in;
+        }
 
-        /* Screen defaults (still force black-on-white for clarity) */
-        html, body {
+        body {
+          font-family: Arial, sans-serif;
+          margin: 0;
+          padding: 0;
           background: #fff !important;
           color: #000 !important;
         }
 
-        /*
-          ✅ PRINT FIX:
-          Do NOT use "body > :not(main)" — layout wrappers can make that hide everything.
-          Instead: hide everything via visibility, then show only the print area.
-        */
+        /* Reliable print isolation */
         @media print {
-          /* Hide everything */
           body * {
             visibility: hidden !important;
           }
 
-          /* Show ONLY the printable area */
           .printArea, .printArea * {
             visibility: visible !important;
           }
 
-          /* Place printable area at top-left */
           .printArea {
             position: absolute !important;
             left: 0 !important;
@@ -188,110 +157,80 @@ export default async function PrintInvoiceBatchPage({
             color: #000 !important;
           }
 
-          /* Prevent accidental dark theme printing */
-          html, body {
-            background: #fff !important;
-            color: #000 !important;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
+          .page {
+            page-break-after: always;
           }
 
-          .no-print { display: none !important; }
-
-          .page { page-break-after: always; }
-          .page:last-child { page-break-after: auto; }
-        }
-
-        body {
-          font-family: Arial, sans-serif;
-          margin: 0;
-          padding: 0;
-        }
-
-        .no-print {
-          padding: 10px 12px;
-          border-bottom: 1px solid rgba(128,128,128,0.25);
-          max-width: 1100px;
-          margin: 0 auto;
-          font-size: 12px;
-          opacity: 0.8;
-          color: #000;
-          background: #fff;
+          .page:last-child {
+            page-break-after: auto;
+          }
         }
 
         .sheet {
           padding: 24px 32px;
-          max-width: 1100px;
+          max-width: 1400px;
           margin: 0 auto;
-          min-height: calc(100vh - 1in);
+          min-height: 100vh;
           display: flex;
           flex-direction: column;
-          font-size: 22px;
-          color: #000;
+          font-size: 18px;
           background: #fff;
+          color: #000;
         }
 
         h2 {
           margin: 0;
-          font-size: 36px;
+          font-size: 32px;
         }
 
         .meta {
-          font-size: 24px;
+          font-size: 18px;
           line-height: 1.4;
         }
 
         .store-line {
-          font-size: 48px;
+          font-size: 36px;
           font-weight: 900;
-          margin-top: 14px;
-          margin-bottom: 10px;
+          margin-top: 12px;
+          margin-bottom: 12px;
         }
 
         table {
           width: 100%;
           border-collapse: collapse;
-          margin-top: 14px;
+          margin-top: 12px;
         }
 
         th, td {
           border: 1px solid #000;
           padding: 6px;
-          font-size: 22px;
+          font-size: 16px;
           vertical-align: top;
-          color: #000;
         }
 
         th {
           background: #eee;
           text-align: left;
-          white-space: nowrap;
         }
 
         .totals {
           margin-top: auto;
           margin-left: auto;
           text-align: right;
-          font-size: 24px;
+          font-size: 18px;
           line-height: 1.5;
           padding-top: 16px;
-          color: #000;
+          font-weight: 700;
         }
       `}</style>
 
-      <div className="no-print">
-        Printing <b>{invoices.length}</b> invoice(s). These invoices were archived (marked <b>ISSUED</b>).
-        If the dialog didn’t open automatically, press <b>Ctrl+P</b>.
-      </div>
-
-      {/* ✅ This wrapper is what we force-visible in @media print */}
       <div className="printArea">
         {invoices.map((inv, idx) => {
           const isLast = idx === invoices.length - 1;
 
           return (
             <div key={inv.id} className={isLast ? "sheet" : "sheet page"}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "baseline" }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <h2>{vendorName(inv.vendor)} Invoice</h2>
                 <div className="meta">
                   Invoice <b>{inv.vendorNumber}</b>
@@ -299,18 +238,10 @@ export default async function PrintInvoiceBatchPage({
               </div>
 
               <div className="meta" style={{ marginTop: 8 }}>
-                <div>
-                  <b>Vendor #:</b> {inv.vendorNumber}
-                </div>
-                <div>
-                  <b>Billed to:</b> {inv.billedTo}
-                </div>
-                <div>
-                  <b>Date Invoiced:</b> {fmtDate(inv.invoiceDate)}
-                </div>
-                <div>
-                  <b>Period:</b> {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}
-                </div>
+                <div><b>Vendor #:</b> {inv.vendorNumber}</div>
+                <div><b>Billed to:</b> {inv.billedTo}</div>
+                <div><b>Date Invoiced:</b> {fmtDate(inv.invoiceDate)}</div>
+                <div><b>Period:</b> {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}</div>
               </div>
 
               <div className="store-line">
@@ -320,7 +251,7 @@ export default async function PrintInvoiceBatchPage({
               <table>
                 <thead>
                   <tr>
-                    <th>Date Submitted</th>
+                    <th>Date</th>
                     <th>SKU</th>
                     <th>Part #</th>
                     <th>Name</th>
@@ -334,15 +265,15 @@ export default async function PrintInvoiceBatchPage({
                 <tbody>
                   {inv.lines.map((line) => (
                     <tr key={line.id}>
-                      <td style={{ whiteSpace: "nowrap" }}>{fmtDate(line.submittedAt)}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>{line.sku}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>{line.partNumber ?? "—"}</td>
+                      <td>{fmtDate(line.submittedAt)}</td>
+                      <td>{line.sku}</td>
+                      <td>{line.partNumber ?? "—"}</td>
                       <td>{line.name}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>{line.quantity}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>{money(line.unitPrice)}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>{money(line.lineSubtotal)}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>{money(line.lineTax)}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>{money(line.lineTotal)}</td>
+                      <td>{line.quantity}</td>
+                      <td>{money(line.unitPrice)}</td>
+                      <td>{money(line.lineSubtotal)}</td>
+                      <td>{money(line.lineTax)}</td>
+                      <td>{money(line.lineTotal)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -351,7 +282,7 @@ export default async function PrintInvoiceBatchPage({
               <div className="totals">
                 <div>Subtotal: {money(inv.subtotal)}</div>
                 <div>Tax: {money(inv.taxTotal)}</div>
-                <div style={{ fontWeight: 900 }}>Total: {money(inv.total)}</div>
+                <div>Total: {money(inv.total)}</div>
               </div>
             </div>
           );
