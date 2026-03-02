@@ -77,12 +77,12 @@ type SearchParams = {
   supplier?: string;
   forStoreId?: string;
   forUserId?: string;
-  from?: string; // yyyy-mm-dd
-  to?: string; // yyyy-mm-dd
-  page?: string; // 1-based
-  perPage?: string; // 10/25/50/100
+  from?: string;
+  to?: string;
+  page?: string;
+  perPage?: string;
 
-  ok?: string; // "1"
+  ok?: string;
   error?: string;
 };
 
@@ -434,7 +434,6 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
       orderBy: { orderedAt: "desc" },
       select: { id: true, unitPrice: true, supplierName: true, orderedAt: true, note: true },
     });
-
     if (!latest) return;
 
     const item = await tx.item.findUnique({
@@ -1035,7 +1034,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
 
             <form action={createOrderAction} style={{ display: "grid", gap: 10 }}>
               <div style={wrapRow}>
-                <label style={{ ...controlLabel, ...flexItem(420, 3) }}>
+                <label style={{ display: "grid", gap: 6, fontSize: 12, opacity: 0.9, fontWeight: 900, ...flexItem(420, 3) }}>
                   Item (select existing)
                   <div style={{ marginTop: 2 }}>
                     <ItemPicker name="itemId" items={items} placeholder="Search SKU, part #, name, category, manufacturer…" />
@@ -1073,7 +1072,6 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
 
               <details style={{ marginTop: 6, border, borderRadius: 12, padding: 10, background: soft }}>
                 <summary style={{ cursor: "pointer", fontWeight: 900 }}>New item (creates Item automatically if SKU doesn’t exist)</summary>
-
                 <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
                   <label style={{ display: "flex", gap: 10, alignItems: "center", fontWeight: 900 }}>
                     <input type="checkbox" name="isNewItem" />
@@ -1125,11 +1123,6 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                       Web URL
                       <input name="newWebUrl" placeholder="https://…" style={controlBase} />
                     </label>
-                  </div>
-
-                  <div style={{ fontSize: 12, opacity: 0.8, lineHeight: 1.5 }}>
-                    When checked, the system does an <b>upsert</b> by <b>SKU</b>: creates the item if missing, otherwise reuses the existing item
-                    with that SKU.
                   </div>
                 </div>
               </details>
@@ -1283,7 +1276,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           </form>
         </div>
 
-        {/* ✅ FIX: force fixed column widths + fix sticky painting */}
+        {/* ✅ Sticky overlay fix: make sticky columns OPAQUE + clipped */}
         <style>{`
           @media (max-width: 900px) { .hide-md { display: none !important; } }
           @media (max-width: 650px) { .hide-sm { display: none !important; } }
@@ -1291,17 +1284,26 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           :root{
             --stickyDeleteW: 220px;
             --stickyEditW: 220px;
-            --stickyActionsW: 420px;
+            --stickyActionsW: 440px;
             --stickyDivider: rgba(255,255,255,0.10);
+
+            /* IMPORTANT: must be opaque (your var(--background) is slightly transparent) */
+            --stickyBg: rgba(0,0,0,0.92);
           }
 
           .tableWrap { overflow-x: auto; }
 
-          /* Fixed layout prevents "squeeze overlap" */
           table.ordersTable { table-layout: fixed; }
 
-          /* Sticky columns (make them opaque + above everything) */
-          th.stickyR, td.stickyR { position: sticky; z-index: 20; background: var(--background); }
+          table.ordersTable td, table.ordersTable th { overflow: hidden; }
+
+          th.stickyR, td.stickyR {
+            position: sticky;
+            z-index: 20;
+            background: var(--stickyBg);
+            backdrop-filter: blur(6px);
+            overflow: hidden;
+          }
           thead th.stickyR { z-index: 30; }
 
           .stickyDelete { right: 0px; width: var(--stickyDeleteW); min-width: var(--stickyDeleteW); max-width: var(--stickyDeleteW); }
@@ -1313,34 +1315,28 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
             max-width: var(--stickyActionsW);
           }
 
-          /* Visual separation */
           th.stickyR, td.stickyR { box-shadow: -1px 0 0 var(--stickyDivider); }
-
-          /* Prevent random text from bleeding across cells */
-          td, th { overflow: hidden; }
         `}</style>
 
         {/* TABLE */}
         <div className="tableWrap" style={{ marginTop: 14, border, borderRadius: 14, background: surface }}>
-          {/* NOTE: minWidth MUST exceed sum of columns so it scrolls instead of crushing */}
           <table className="ordersTable" style={{ width: "100%", borderCollapse: "collapse", minWidth: 2300 }}>
-            {/* ✅ Colgroup gives the browser real widths so nothing overlaps */}
             <colgroup>
-              <col style={{ width: 220 }} /> {/* Ordered/Phase */}
-              <col style={{ width: 560 }} /> {/* Item */}
-              <col style={{ width: 70 }} /> {/* Qty */}
-              <col style={{ width: 170 }} /> {/* Supplier */}
-              <col style={{ width: 110 }} /> {/* Unit */}
-              <col style={{ width: 110 }} /> {/* Ship */}
-              <col style={{ width: 110 }} /> {/* Tax */}
-              <col style={{ width: 130 }} /> {/* Total */}
-              <col style={{ width: 160 }} /> {/* For Tech */}
-              <col style={{ width: 140 }} /> {/* For Store */}
-              <col style={{ width: 160 }} /> {/* Arrived */}
-              <col style={{ width: 160 }} /> {/* Added */}
-              <col style={{ width: 420 }} /> {/* Actions (sticky) */}
-              <col style={{ width: 220 }} /> {/* Edit (sticky) */}
-              <col style={{ width: 220 }} /> {/* Delete (sticky) */}
+              <col style={{ width: 220 }} />
+              <col style={{ width: 560 }} />
+              <col style={{ width: 70 }} />
+              <col style={{ width: 170 }} />
+              <col style={{ width: 110 }} />
+              <col style={{ width: 110 }} />
+              <col style={{ width: 110 }} />
+              <col style={{ width: 130 }} />
+              <col style={{ width: 160 }} />
+              <col style={{ width: 140 }} />
+              <col style={{ width: 160 }} />
+              <col style={{ width: 160 }} />
+              <col style={{ width: 440 }} />
+              <col style={{ width: 220 }} />
+              <col style={{ width: 220 }} />
             </colgroup>
 
             <thead>
@@ -1426,7 +1422,9 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
 
                     <td className="hide-sm" style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>
                       {o.supplierName ?? "—"}
-                      {o.supplierPartNumber ? <div style={{ fontSize: 12, opacity: 0.75, whiteSpace: "normal" }}>Part #: {o.supplierPartNumber}</div> : null}
+                      {o.supplierPartNumber ? (
+                        <div style={{ fontSize: 12, opacity: 0.75, whiteSpace: "normal", overflowWrap: "anywhere" }}>Part #: {o.supplierPartNumber}</div>
+                      ) : null}
                     </td>
 
                     <td className="hide-sm" style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>
@@ -1448,8 +1446,8 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                     <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>{fmtLocal(o.arrivedAt)}</td>
                     <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>{fmtLocal(o.addedToInventoryAt)}</td>
 
-                    <td className="stickyR stickyActions" style={{ padding: 10, verticalAlign: "top" }}>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <td className="stickyR stickyActions" style={{ padding: 10, verticalAlign: "top", overflow: "hidden" }}>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", maxWidth: "100%" }}>
                         <form action={markArrivedAction}>
                           <input type="hidden" name="id" value={o.id} />
                           <button type="submit" style={{ ...btn, opacity: canArrive ? 1 : 0.5 }} disabled={!canArrive}>
@@ -1466,7 +1464,17 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                       </div>
 
                       {o.note ? (
-                        <div style={{ marginTop: 8, fontSize: 12, opacity: 0.85, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                        <div
+                          style={{
+                            marginTop: 8,
+                            fontSize: 12,
+                            opacity: 0.85,
+                            whiteSpace: "pre-wrap",
+                            overflowWrap: "anywhere",
+                            wordBreak: "break-word",
+                            maxWidth: "100%",
+                          }}
+                        >
                           <b>Note:</b> {o.note}
                         </div>
                       ) : null}
@@ -1516,12 +1524,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
 
                             <label style={controlLabel}>
                               Supplier Part #
-                              <input
-                                name="supplierPartNumber"
-                                defaultValue={o.supplierPartNumber ?? ""}
-                                placeholder="Supplier part #…"
-                                style={controlBase}
-                              />
+                              <input name="supplierPartNumber" defaultValue={o.supplierPartNumber ?? ""} placeholder="Supplier part #…" style={controlBase} />
                             </label>
                           </div>
 
