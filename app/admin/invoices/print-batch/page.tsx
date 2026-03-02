@@ -3,7 +3,6 @@ import type { CSSProperties } from "react";
 import Script from "next/script";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { notFound } from "next/navigation";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
@@ -84,14 +83,16 @@ export default async function PrintInvoiceBatchPage({
   // If not → print all DRAFT invoices (so nav link works and never lands on a dead screen)
   const invoices =
     ids.length > 0
-      ? await prisma.invoice.findMany({
-          where: { id: { in: ids } },
-          include: { lines: { orderBy: { submittedAt: "asc" } } },
-        }).then((rows) => {
-          // Preserve requested order
-          const map = new Map(rows.map((r) => [r.id, r]));
-          return ids.map((id) => map.get(id)).filter(Boolean) as typeof rows;
-        })
+      ? await prisma.invoice
+          .findMany({
+            where: { id: { in: ids } },
+            include: { lines: { orderBy: { submittedAt: "asc" } } },
+          })
+          .then((rows) => {
+            // Preserve requested order
+            const map = new Map(rows.map((r) => [r.id, r]));
+            return ids.map((id) => map.get(id)).filter(Boolean) as typeof rows;
+          })
       : await prisma.invoice.findMany({
           where: { status: InvoiceStatus.DRAFT },
           orderBy: { createdAt: "asc" },
@@ -164,10 +165,24 @@ export default async function PrintInvoiceBatchPage({
       <style>{`
         @page { margin: 0.5in; }
 
+        /* ✅ CRITICAL: force print to black-on-white so it doesn't "print invisible" in dark theme */
+        html, body {
+          background: #fff !important;
+          color: #000 !important;
+        }
+
         @media print {
           header, nav, footer, aside { display: none !important; }
           body > :not(main) { display: none !important; }
           .no-print { display: none !important; }
+
+          /* ✅ keep black text in print */
+          html, body {
+            background: #fff !important;
+            color: #000 !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
 
           .page { page-break-after: always; }
           .page:last-child { page-break-after: auto; }
@@ -176,6 +191,7 @@ export default async function PrintInvoiceBatchPage({
             max-width: none !important;
             margin: 0 !important;
             padding: 0 !important;
+            color: #000 !important;
           }
         }
 
@@ -192,6 +208,8 @@ export default async function PrintInvoiceBatchPage({
           margin: 0 auto;
           font-size: 12px;
           opacity: 0.8;
+          color: #000;
+          background: #fff;
         }
 
         .sheet {
@@ -202,6 +220,8 @@ export default async function PrintInvoiceBatchPage({
           display: flex;
           flex-direction: column;
           font-size: 22px;
+          color: #000;
+          background: #fff;
         }
 
         h2 {
@@ -232,6 +252,7 @@ export default async function PrintInvoiceBatchPage({
           padding: 6px;
           font-size: 22px;
           vertical-align: top;
+          color: #000;
         }
 
         th {
@@ -247,6 +268,7 @@ export default async function PrintInvoiceBatchPage({
           font-size: 24px;
           line-height: 1.5;
           padding-top: 16px;
+          color: #000;
         }
       `}</style>
 
