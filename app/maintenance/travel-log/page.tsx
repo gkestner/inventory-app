@@ -1,407 +1,387 @@
-// app/maintenance/travel-log/page.tsx
-import type { CSSProperties } from "react";
+// app/admin/invoices/print-batch/page.tsx
+import Script from "next/script";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
+
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
-import { Permission } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { InvoiceStatus, Permission, Role } from "@prisma/client";
+import { Decimal } from "@prisma/client/runtime/library";
 
 export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
 
-type SessionShape = {
-  user?: {
-    email?: string | null;
-  } | null;
+type AdminSession = {
+  user?: { id?: string | null; email?: string | null; role?: Role | null } | null;
 } | null;
 
-function requireSession(session: SessionShape) {
+async function requireInvoicesView() {
+  const session = (await getServerSession(authOptions)) as AdminSession;
   if (!session) redirect("/login");
-  const email = session.user?.email ?? null;
-  if (!email) redirect("/login");
+
+  const perms = await loadUserPermissions(session);
+  if (perms.allowAll) return;
+
+  const ok = hasAnyPermission(perms, [Permission.ADMIN_EDIT_ITEMS]);
+  if (!ok) redirect("/");
 }
 
-function fmtLocalTime(d: Date | null): string {
+function money(n: Decimal | null) {
+  if (!n) return "$0.00";
+  const x = Number(n);
+  if (!Number.isFinite(x)) return "$0.00";
+  return x.toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
+
+function fmtDate(d: Date | null) {
   if (!d) return "—";
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  }).format(d);
+  return new Date(d).toLocaleDateString("en-US");
 }
 
-function fmtLocalDateOnly(d: Date | null): string {
-  if (!d) return "—";
-  return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York" }).format(d);
+function vendorName(vendor: string) {
+  return vendor === "SUCCESS_PLUS" ? "Success Plus" : "American Plus";
 }
 
-function isYYYYMMDD(s: string) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(s);
+function computeVendorNumber(vendor: string, storeNumber: string) {
+  const sn = String(storeNumber ?? "").trim();
+  if (!sn) return "—";
+  return vendor === "SUCCESS_PLUS" ? `${sn}SP` : `${sn}APLS`;
 }
 
-function parseYMD(s: string | null): { y: number; m: number; d: number; raw: string } | null {
-  if (!s) return null;
-  const t = s.trim();
-  if (!isYYYYMMDD(t)) return null;
-  const [yy, mm, dd] = t.split("-").map((x) => Number(x));
-  if (!Number.isFinite(yy) || !Number.isFinite(mm) || !Number.isFinite(dd)) return null;
-  if (mm < 1 || mm > 12) return null;
-  if (dd < 1 || dd > 31) return null;
-  return { y: yy, m: mm, d: dd, raw: t };
+function safeDecodeOnce(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
 }
 
-function getNYOffsetMinutes(atUtc: Date): number {
-  const fmt = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    timeZoneName: "shortOffset",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-
-  const parts = fmt.formatToParts(atUtc);
-  const tz = parts.find((p) => p.type === "timeZoneName")?.value ?? "GMT";
-  const m = tz.match(/GMT([+-])(\d{1,2})(?::?(\d{2}))?/i);
-  if (!m) return 0;
-
-  const sign = m[1] === "-" ? -1 : 1;
-  const hh = Number(m[2] ?? 0);
-  const mm = Number(m[3] ?? 0);
-  return sign * (hh * 60 + mm);
+function parseIds(raw: string | undefined): string[] {
+  const s0 = String(raw ?? "").trim();
+  if (!s0) return [];
+  const decoded = safeDecodeOnce(s0);
+  return decoded
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .slice(0, 200);
 }
 
-function nyMidnightUtc(ymd: { y: number; m: number; d: number }): Date {
-  const sampleNoonUtc = new Date(Date.UTC(ymd.y, ymd.m - 1, ymd.d, 12, 0, 0));
-  const offsetMin = getNYOffsetMinutes(sampleNoonUtc);
-  const utcMillis = Date.UTC(ymd.y, ymd.m - 1, ymd.d, 0, 0, 0) - offsetMin * 60_000;
-  return new Date(utcMillis);
-}
-
-function addDaysUtc(d: Date, days: number): Date {
-  return new Date(d.getTime() + days * 24 * 60 * 60 * 1000);
-}
-
-function getNYTodayYMD(): { y: number; m: number; d: number } {
-  const now = new Date();
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(now);
-
-  const y = Number(parts.find((p) => p.type === "year")?.value ?? NaN);
-  const m = Number(parts.find((p) => p.type === "month")?.value ?? NaN);
-  const d = Number(parts.find((p) => p.type === "day")?.value ?? NaN);
-
-  return { y, m, d };
-}
-
-function getNYDayOfWeekMon0(dUtc: Date): number {
-  const dow = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    weekday: "short",
-  }).format(dUtc);
-
-  const map: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
-  return map[dow] ?? 0;
-}
-
-function fmtISODateNY(dUtc: Date): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(dUtc);
-}
-
-function hoursBetween(start: Date | null, end: Date | null): string {
-  if (!start || !end) return "—";
-  const ms = end.getTime() - start.getTime();
-  if (!Number.isFinite(ms) || ms <= 0) return "—";
-  const hrs = ms / (1000 * 60 * 60);
-  return (Math.round(hrs * 100) / 100).toFixed(2);
-}
-
-function hoursBetweenNumber(start: Date | null, end: Date | null): number | null {
-  if (!start || !end) return null;
-  const ms = end.getTime() - start.getTime();
-  if (!Number.isFinite(ms) || ms <= 0) return null;
-  return ms / (1000 * 60 * 60);
-}
-
-function fmtFixed2(n: number): string {
-  if (!Number.isFinite(n)) return "0.00";
-  return (Math.round(n * 100) / 100).toFixed(2);
-}
-
-export default async function MaintenanceTravelLogPage({
+export default async function PrintInvoiceBatchPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string; locationId?: string }>;
+  searchParams: { ids?: string };
 }) {
-  const session = (await getServerSession(authOptions)) as SessionShape;
-  requireSession(session);
+  await requireInvoicesView();
 
-  // ✅ Permission gate (no EMPLOYEE bypass)
-  const perms = await loadUserPermissions(session);
-  if (!perms.allowAll && !hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS])) {
-    redirect("/maintenance");
+  const ids = parseIds(searchParams.ids);
+
+  const invoices =
+    ids.length > 0
+      ? await prisma.invoice
+          .findMany({
+            where: { id: { in: ids } },
+            include: { lines: { orderBy: { submittedAt: "asc" } } },
+          })
+          .then((rows) => {
+            const map = new Map(rows.map((r) => [r.id, r]));
+            return ids.map((id) => map.get(id)).filter(Boolean) as typeof rows;
+          })
+      : await prisma.invoice.findMany({
+          where: { status: InvoiceStatus.DRAFT },
+          orderBy: { createdAt: "asc" },
+          take: 200,
+          include: { lines: { orderBy: { submittedAt: "asc" } } },
+        });
+
+  if (invoices.length === 0) {
+    return (
+      <main style={{ padding: 24 }}>
+        <div>No invoices available to print.</div>
+      </main>
+    );
   }
 
-  const email = (session?.user?.email ?? "").toLowerCase().trim();
-
-  const me = await prisma.user.findUnique({
-    where: { email },
-    select: {
-      id: true,
-      name: true,
-      active: true,
-      locationId: true,
-      location: { select: { id: true, name: true } },
-      allowedLocations: {
-        orderBy: { sortOrder: "asc" },
-        select: { locationId: true, sortOrder: true, location: { select: { id: true, name: true } } },
-      },
-    },
+  const now = new Date();
+  await prisma.invoice.updateMany({
+    where: { id: { in: invoices.map((i) => i.id) }, status: InvoiceStatus.DRAFT },
+    data: { status: InvoiceStatus.ISSUED, issuedAt: now },
   });
-
-  if (!me || !me.active) redirect("/login");
-
-  const sp = await searchParams;
-
-  const allowedLocations: Array<{ id: string; name: string; source: "PRIMARY" | "OPTIONAL" }> = [];
-  const seen = new Set<string>();
-
-  if (me.location) {
-    seen.add(me.location.id);
-    allowedLocations.push({ id: me.location.id, name: me.location.name, source: "PRIMARY" });
-  }
-  for (const ul of me.allowedLocations) {
-    if (!ul.location) continue;
-    if (seen.has(ul.location.id)) continue;
-    seen.add(ul.location.id);
-    allowedLocations.push({ id: ul.location.id, name: ul.location.name, source: "OPTIONAL" });
-  }
-
-  const rawLocationId = typeof sp.locationId === "string" && sp.locationId.trim() ? sp.locationId.trim() : "ALL";
-  const locationId = rawLocationId === "ALL" || seen.has(rawLocationId) ? rawLocationId : "ALL";
-
-  const todayYMD = getNYTodayYMD();
-  const todayMidnightUtc = nyMidnightUtc(todayYMD);
-  const dowMon0 = getNYDayOfWeekMon0(todayMidnightUtc);
-
-  const thisWeekFromUtc = addDaysUtc(todayMidnightUtc, -dowMon0);
-  const thisWeekToUtc = addDaysUtc(thisWeekFromUtc, 6);
-  const lastWeekFromUtc = addDaysUtc(thisWeekFromUtc, -7);
-  const lastWeekToUtc = addDaysUtc(thisWeekToUtc, -7);
-
-  const fromParam = parseYMD(typeof sp.from === "string" ? sp.from : null);
-  const toParam = parseYMD(typeof sp.to === "string" ? sp.to : null);
-
-  const fromUtc = fromParam ? nyMidnightUtc(fromParam) : thisWeekFromUtc;
-  const toUtc = toParam ? nyMidnightUtc(toParam) : thisWeekToUtc;
-  const toExclusiveUtc = addDaysUtc(toUtc, 1);
-
-  const fromStr = fromParam?.raw ?? fmtISODateNY(fromUtc);
-  const toStr = toParam?.raw ?? fmtISODateNY(toUtc);
-  const rangeLabel = `${fromStr} to ${toStr}`;
-
-  const where: {
-    createdByUserId: string;
-    status: "SUBMITTED";
-    startTime: { gte: Date; lt: Date };
-    locationId?: string;
-  } = {
-    createdByUserId: me.id,
-    status: "SUBMITTED",
-    startTime: { gte: fromUtc, lt: toExclusiveUtc },
-  };
-
-  if (locationId !== "ALL") where.locationId = locationId;
-
-  const rows = await prisma.workOrder.findMany({
-    where,
-    orderBy: { startTime: "desc" },
-    take: 250,
-    select: {
-      id: true,
-      createdAt: true,
-      locationId: true,
-      location: { select: { name: true } },
-      startTime: true,
-      endTime: true,
-      startingMileage: true,
-      endingMileage: true,
-      notes: true,
-    },
-  });
-
-  let totalHours = 0;
-  let totalMiles = 0;
-  let milesCounted = 0;
-
-  for (const r of rows) {
-    const h = hoursBetweenNumber(r.startTime, r.endTime);
-    if (h !== null) totalHours += h;
-
-    if (typeof r.startingMileage === "number" && typeof r.endingMileage === "number") {
-      const delta = r.endingMileage - r.startingMileage;
-      if (Number.isFinite(delta) && delta >= 0) {
-        totalMiles += delta;
-        milesCounted += 1;
-      }
-    }
-  }
-
-  const printUrl = `/maintenance/travel-log/print?from=${encodeURIComponent(fromStr)}&to=${encodeURIComponent(
-    toStr
-  )}&locationId=${encodeURIComponent(locationId)}`;
-
-  const thisWeekUrl = `/maintenance/travel-log?from=${encodeURIComponent(fmtISODateNY(thisWeekFromUtc))}&to=${encodeURIComponent(
-    fmtISODateNY(thisWeekToUtc)
-  )}&locationId=${encodeURIComponent(locationId)}`;
-
-  const lastWeekUrl = `/maintenance/travel-log?from=${encodeURIComponent(fmtISODateNY(lastWeekFromUtc))}&to=${encodeURIComponent(
-    fmtISODateNY(lastWeekToUtc)
-  )}&locationId=${encodeURIComponent(locationId)}`;
-
-  const card: CSSProperties = {
-    border: "1px solid rgba(128,128,128,0.25)",
-    borderRadius: 12,
-    padding: 16,
-    background: "var(--background)",
-    color: "var(--foreground)",
-  };
-
-  const buttonLike: CSSProperties = {
-    display: "inline-block",
-    textDecoration: "none",
-    padding: "8px 12px",
-    borderRadius: 10,
-    border: "1px solid rgba(128,128,128,0.25)",
-    color: "var(--foreground)",
-    fontWeight: 800,
-  };
-
-  const thtd: CSSProperties = {
-    textAlign: "left",
-    padding: 8,
-    borderBottom: "1px solid rgba(128,128,128,0.2)",
-    whiteSpace: "nowrap",
-  };
 
   return (
-    <main style={{ padding: 24, maxWidth: 1200, margin: "0 auto" }}>
-      <h1 style={{ fontSize: 24, fontWeight: 900, marginBottom: 10 }}>Travel Log</h1>
+    <main>
+      <Script id="fit-and-print" strategy="afterInteractive">{`
+        function fitAll() {
+          const pages = document.querySelectorAll('.sheet');
+          pages.forEach((page) => {
+            const inner = page.querySelector('.inner');
+            if (!inner) return;
 
-      <div style={{ ...card, marginBottom: 12 }}>
-        <form method="get" style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-          <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ fontWeight: 800 }}>From</span>
-            <input type="date" name="from" defaultValue={fromStr} />
-          </label>
+            // Reset any previous scaling first
+            inner.style.transform = 'scale(1)';
+            inner.style.transformOrigin = 'top left';
 
-          <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ fontWeight: 800 }}>To</span>
-            <input type="date" name="to" defaultValue={toStr} />
-          </label>
+            // Measure available box (print page content box)
+            const availW = page.clientWidth;
+            const availH = page.clientHeight;
 
-          <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ fontWeight: 800 }}>Location</span>
-            <select name="locationId" defaultValue={locationId}>
-              <option value="ALL">All allowed locations</option>
-              {allowedLocations.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                  {l.source === "PRIMARY" ? " (Primary)" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
+            // Measure natural content size
+            // scrollWidth/scrollHeight reflect unscaled size (good).
+            const contentW = inner.scrollWidth;
+            const contentH = inner.scrollHeight;
 
-          <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
-            <button type="submit" style={{ ...buttonLike, background: "var(--background)", cursor: "pointer" }}>
-              Apply
-            </button>
-            <a href={thisWeekUrl} style={buttonLike}>
-              This Week
-            </a>
-            <a href={lastWeekUrl} style={buttonLike}>
-              Last Week
-            </a>
-            <a href={printUrl} target="_blank" rel="noreferrer" style={buttonLike}>
-              Print
-            </a>
-          </div>
-        </form>
+            if (!contentW || !contentH) return;
 
-        <div style={{ marginTop: 10, opacity: 0.8 }}>
-          Range: <b>{rangeLabel}</b>
-        </div>
-      </div>
+            const scaleW = availW / contentW;
+            const scaleH = availH / contentH;
 
-      <div style={{ ...card, marginBottom: 12 }}>
-        <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
-          <div>
-            <div style={{ opacity: 0.7, fontSize: 12 }}>Entries</div>
-            <div style={{ fontWeight: 900, fontSize: 20 }}>{rows.length}</div>
-          </div>
-          <div>
-            <div style={{ opacity: 0.7, fontSize: 12 }}>Total Hours</div>
-            <div style={{ fontWeight: 900, fontSize: 20 }}>{fmtFixed2(totalHours)}</div>
-          </div>
-          <div>
-            <div style={{ opacity: 0.7, fontSize: 12 }}>Total Miles</div>
-            <div style={{ fontWeight: 900, fontSize: 20 }}>{fmtFixed2(totalMiles)}</div>
-          </div>
-          <div>
-            <div style={{ opacity: 0.7, fontSize: 12 }}>Mileage Entries Counted</div>
-            <div style={{ fontWeight: 900, fontSize: 20 }}>{milesCounted}</div>
-          </div>
-        </div>
-      </div>
+            // "As big as possible" while fitting both dimensions.
+            // Subtract a tiny epsilon to avoid rounding pushing to page 2.
+            let scale = Math.min(1, scaleW, scaleH);
+            scale = Math.max(0.5, scale - 0.01);
 
-      <div style={{ ...card, overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr>
-              {["Date", "Location", "Departure", "Return", "Hours", "Start Mi", "End Mi", "Miles", "Notes"].map((h) => (
-                <th key={h} style={thtd}>
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => {
-              const miles =
-                typeof r.startingMileage === "number" && typeof r.endingMileage === "number"
-                  ? Math.max(0, r.endingMileage - r.startingMileage)
-                  : null;
+            inner.style.transform = 'scale(' + scale.toFixed(4) + ')';
+          });
+        }
 
-              return (
-                <tr key={r.id}>
-                  <td style={thtd}>{fmtLocalDateOnly(r.startTime)}</td>
-                  <td style={thtd}>{r.location?.name ?? "—"}</td>
-                  <td style={thtd}>{fmtLocalTime(r.startTime)}</td>
-                  <td style={thtd}>{fmtLocalTime(r.endTime)}</td>
-                  <td style={thtd}>{hoursBetween(r.startTime, r.endTime)}</td>
-                  <td style={thtd}>{r.startingMileage ?? "—"}</td>
-                  <td style={thtd}>{r.endingMileage ?? "—"}</td>
-                  <td style={thtd}>{miles ?? "—"}</td>
-                  <td style={{ ...thtd, whiteSpace: "normal", minWidth: 260 }}>{r.notes?.trim() || "—"}</td>
-                </tr>
-              );
-            })}
+        window.addEventListener('load', () => {
+          fitAll();
+          // Refit once more after fonts/layout settle
+          setTimeout(() => {
+            fitAll();
+            setTimeout(() => { try { window.print(); } catch(e) {} }, 75);
+          }, 75);
+        });
+      `}</Script>
 
-            {rows.length === 0 ? (
-              <tr>
-                <td colSpan={9} style={{ ...thtd, opacity: 0.8 }}>
-                  No submitted work orders found for this range/location.
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
+      <style>{`
+        /* ✅ Force Letter Landscape + NARROW margins */
+        @page {
+          size: letter landscape;
+          margin: 0.25in; /* narrow */
+        }
+
+        body {
+          margin: 0;
+          font-family: Arial, sans-serif;
+          background: #fff !important;
+          color: #000 !important;
+        }
+
+        /* Print isolation */
+        @media print {
+          body * { visibility: hidden !important; }
+          .printArea, .printArea * { visibility: visible !important; }
+
+          .printArea {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            background: #fff !important;
+            color: #000 !important;
+          }
+        }
+
+        /*
+          ✅ Critical: Fix each invoice to the EXACT printable area:
+          Letter landscape is 11in x 8.5in
+          margins 0.25in each side => printable box is:
+          width: 11 - 0.5 = 10.5in
+          height: 8.5 - 0.5 = 8.0in
+        */
+        .sheet {
+          width: 10.5in;
+          height: 8in;
+          box-sizing: border-box;
+          overflow: hidden;
+          page-break-after: always;
+          break-after: page;
+          background: #fff;
+          color: #000;
+        }
+        .sheet:last-child {
+          page-break-after: auto;
+          break-after: auto;
+        }
+
+        /* Inner padding does NOT change .sheet's fixed size (box sizing keeps it contained) */
+        .inner {
+          box-sizing: border-box;
+          padding: 0.22in 0.25in;
+          transform-origin: top left;
+        }
+
+        .topRow {
+          display: flex;
+          justify-content: space-between;
+          align-items: baseline;
+          gap: 16px;
+        }
+
+        h2 {
+          margin: 0;
+          font-size: 44px;
+          font-weight: 900;
+          line-height: 1.05;
+        }
+
+        .topRight {
+          font-size: 18px;
+          font-weight: 900;
+          white-space: nowrap;
+        }
+
+        .meta {
+          font-size: 18px;
+          line-height: 1.35;
+          margin-top: 10px;
+          font-weight: 700;
+        }
+
+        .storeLine {
+          font-size: 54px;
+          font-weight: 900;
+          margin: 12px 0 10px;
+          line-height: 1.05;
+        }
+
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-top: 6px;
+          table-layout: fixed;
+        }
+
+        th, td {
+          border: 2px solid #000;
+          padding: 10px 10px;
+          font-size: 18px;
+          vertical-align: top;
+        }
+
+        th {
+          background: #eee;
+          font-weight: 900;
+          text-align: left;
+          white-space: nowrap;
+        }
+
+        /* Keep column widths stable so spacing stays consistent */
+        .colDate { width: 12%; }
+        .colSku  { width: 8%; }
+        .colPart { width: 10%; }
+        .colName { width: 28%; }
+        .colQty  { width: 6%; }
+        .colUnit { width: 12%; }
+        .colSub  { width: 12%; }
+        .colTax  { width: 6%; }
+        .colTot  { width: 6%; }
+
+        td.nameCell {
+          white-space: normal;
+          overflow-wrap: anywhere;
+          word-break: break-word;
+        }
+
+        .totals {
+          margin-top: 10px;
+          text-align: right;
+          font-size: 20px;
+          font-weight: 900;
+          line-height: 1.3;
+        }
+      `}</style>
+
+      <div className="printArea">
+        {invoices.map((inv) => {
+          const vendorNumber = computeVendorNumber(inv.vendor, String(inv.storeNumber ?? ""));
+          // Your stored number becomes the Voucher #
+          const voucherNumber = String(inv.vendorNumber ?? "").trim() || "—";
+
+          return (
+            <div key={inv.id} className="sheet">
+              <div className="inner">
+                <div className="topRow">
+                  <h2>{vendorName(inv.vendor)} Invoice</h2>
+
+                  {/* ✅ Vendor # top-right */}
+                  <div className="topRight">
+                    Vendor # <b>{vendorNumber}</b>
+                  </div>
+                </div>
+
+                {/* ✅ Voucher # in meta block */}
+                <div className="meta">
+                  <div>
+                    <b>Voucher #:</b> {voucherNumber}
+                  </div>
+                  <div>
+                    <b>Billed to:</b> {inv.billedTo}
+                  </div>
+                  <div>
+                    <b>Date Invoiced:</b> {fmtDate(inv.invoiceDate)}
+                  </div>
+                  <div>
+                    <b>Period:</b> {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}
+                  </div>
+                </div>
+
+                <div className="storeLine">
+                  Store: {inv.storeNumber} {inv.storeName}
+                </div>
+
+                <table>
+                  <colgroup>
+                    <col className="colDate" />
+                    <col className="colSku" />
+                    <col className="colPart" />
+                    <col className="colName" />
+                    <col className="colQty" />
+                    <col className="colUnit" />
+                    <col className="colSub" />
+                    <col className="colTax" />
+                    <col className="colTot" />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>SKU</th>
+                      <th>Part #</th>
+                      <th>Name</th>
+                      <th>Qty</th>
+                      <th>Unit</th>
+                      <th>Subtotal</th>
+                      <th>Tax</th>
+                      <th>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {inv.lines.map((line) => (
+                      <tr key={line.id}>
+                        <td>{fmtDate(line.submittedAt)}</td>
+                        <td>{line.sku}</td>
+                        <td>{line.partNumber ?? "—"}</td>
+                        <td className="nameCell">{line.name}</td>
+                        <td>{line.quantity}</td>
+                        <td>{money(line.unitPrice)}</td>
+                        <td>{money(line.lineSubtotal)}</td>
+                        <td>{money(line.lineTax)}</td>
+                        <td>{money(line.lineTotal)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                <div className="totals">
+                  <div>Subtotal: {money(inv.subtotal)}</div>
+                  <div>Tax: {money(inv.taxTotal)}</div>
+                  <div>Total: {money(inv.total)}</div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </main>
   );
