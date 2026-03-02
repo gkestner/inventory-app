@@ -27,7 +27,6 @@ async function requireInvoicesView() {
   const perms = await loadUserPermissions(session);
   if (perms.allowAll) return;
 
-  // Matches existing invoices gating in your app
   const ok = hasAnyPermission(perms, [Permission.ADMIN_EDIT_ITEMS]);
   if (!ok) redirect("/");
 }
@@ -60,7 +59,6 @@ function parseIds(raw: string | undefined): string[] {
   const s0 = String(raw ?? "").trim();
   if (!s0) return [];
 
-  // Support both "id1,id2" and "id1%2Cid2" (because encodeURIComponent was used previously)
   const decoded = safeDecodeOnce(s0);
 
   return decoded
@@ -79,8 +77,6 @@ export default async function PrintInvoiceBatchPage({
 
   const ids = parseIds(searchParams.ids);
 
-  // If ids provided → print those invoices
-  // If not → print all DRAFT invoices (so nav link works and never lands on a dead screen)
   const invoices =
     ids.length > 0
       ? await prisma.invoice
@@ -89,7 +85,6 @@ export default async function PrintInvoiceBatchPage({
             include: { lines: { orderBy: { submittedAt: "asc" } } },
           })
           .then((rows) => {
-            // Preserve requested order
             const map = new Map(rows.map((r) => [r.id, r]));
             return ids.map((id) => map.get(id)).filter(Boolean) as typeof rows;
           })
@@ -134,9 +129,6 @@ export default async function PrintInvoiceBatchPage({
     );
   }
 
-  // ✅ Archive (mark ISSUED) immediately when this print page is opened.
-  // - If ids were provided: archive only those invoices (DRAFT -> ISSUED)
-  // - If ids missing: archive the printed DRAFT invoices
   const now = new Date();
   await prisma.invoice.updateMany({
     where: {
@@ -151,7 +143,6 @@ export default async function PrintInvoiceBatchPage({
 
   return (
     <main>
-      {/* Best-effort auto print after navigation; Ctrl+P always works if blocked */}
       <Script id="auto-print-batch" strategy="afterInteractive">{`
 (function () {
   if (window.__invoiceBatchPrintTried) return;
@@ -165,18 +156,39 @@ export default async function PrintInvoiceBatchPage({
       <style>{`
         @page { margin: 0.5in; }
 
-        /* ✅ CRITICAL: force print to black-on-white so it doesn't "print invisible" in dark theme */
+        /* Screen defaults (still force black-on-white for clarity) */
         html, body {
           background: #fff !important;
           color: #000 !important;
         }
 
+        /*
+          ✅ PRINT FIX:
+          Do NOT use "body > :not(main)" — layout wrappers can make that hide everything.
+          Instead: hide everything via visibility, then show only the print area.
+        */
         @media print {
-          header, nav, footer, aside { display: none !important; }
-          body > :not(main) { display: none !important; }
-          .no-print { display: none !important; }
+          /* Hide everything */
+          body * {
+            visibility: hidden !important;
+          }
 
-          /* ✅ keep black text in print */
+          /* Show ONLY the printable area */
+          .printArea, .printArea * {
+            visibility: visible !important;
+          }
+
+          /* Place printable area at top-left */
+          .printArea {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            background: #fff !important;
+            color: #000 !important;
+          }
+
+          /* Prevent accidental dark theme printing */
           html, body {
             background: #fff !important;
             color: #000 !important;
@@ -184,15 +196,10 @@ export default async function PrintInvoiceBatchPage({
             print-color-adjust: exact;
           }
 
+          .no-print { display: none !important; }
+
           .page { page-break-after: always; }
           .page:last-child { page-break-after: auto; }
-
-          .sheet {
-            max-width: none !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            color: #000 !important;
-          }
         }
 
         body {
@@ -277,76 +284,79 @@ export default async function PrintInvoiceBatchPage({
         If the dialog didn’t open automatically, press <b>Ctrl+P</b>.
       </div>
 
-      {invoices.map((inv, idx) => {
-        const isLast = idx === invoices.length - 1;
+      {/* ✅ This wrapper is what we force-visible in @media print */}
+      <div className="printArea">
+        {invoices.map((inv, idx) => {
+          const isLast = idx === invoices.length - 1;
 
-        return (
-          <div key={inv.id} className={isLast ? "sheet" : "sheet page"}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "baseline" }}>
-              <h2>{vendorName(inv.vendor)} Invoice</h2>
-              <div className="meta">
-                Invoice <b>{inv.vendorNumber}</b>
+          return (
+            <div key={inv.id} className={isLast ? "sheet" : "sheet page"}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "baseline" }}>
+                <h2>{vendorName(inv.vendor)} Invoice</h2>
+                <div className="meta">
+                  Invoice <b>{inv.vendorNumber}</b>
+                </div>
               </div>
-            </div>
 
-            <div className="meta" style={{ marginTop: 8 }}>
-              <div>
-                <b>Vendor #:</b> {inv.vendorNumber}
+              <div className="meta" style={{ marginTop: 8 }}>
+                <div>
+                  <b>Vendor #:</b> {inv.vendorNumber}
+                </div>
+                <div>
+                  <b>Billed to:</b> {inv.billedTo}
+                </div>
+                <div>
+                  <b>Date Invoiced:</b> {fmtDate(inv.invoiceDate)}
+                </div>
+                <div>
+                  <b>Period:</b> {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}
+                </div>
               </div>
-              <div>
-                <b>Billed to:</b> {inv.billedTo}
-              </div>
-              <div>
-                <b>Date Invoiced:</b> {fmtDate(inv.invoiceDate)}
-              </div>
-              <div>
-                <b>Period:</b> {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}
-              </div>
-            </div>
 
-            <div className="store-line">
-              Store: {inv.storeNumber} {inv.storeName}
-            </div>
+              <div className="store-line">
+                Store: {inv.storeNumber} {inv.storeName}
+              </div>
 
-            <table>
-              <thead>
-                <tr>
-                  <th>Date Submitted</th>
-                  <th>SKU</th>
-                  <th>Part #</th>
-                  <th>Name</th>
-                  <th>Qty</th>
-                  <th>Unit</th>
-                  <th>Subtotal</th>
-                  <th>Tax</th>
-                  <th>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {inv.lines.map((line) => (
-                  <tr key={line.id}>
-                    <td style={{ whiteSpace: "nowrap" }}>{fmtDate(line.submittedAt)}</td>
-                    <td style={{ whiteSpace: "nowrap" }}>{line.sku}</td>
-                    <td style={{ whiteSpace: "nowrap" }}>{line.partNumber ?? "—"}</td>
-                    <td>{line.name}</td>
-                    <td style={{ whiteSpace: "nowrap" }}>{line.quantity}</td>
-                    <td style={{ whiteSpace: "nowrap" }}>{money(line.unitPrice)}</td>
-                    <td style={{ whiteSpace: "nowrap" }}>{money(line.lineSubtotal)}</td>
-                    <td style={{ whiteSpace: "nowrap" }}>{money(line.lineTax)}</td>
-                    <td style={{ whiteSpace: "nowrap" }}>{money(line.lineTotal)}</td>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date Submitted</th>
+                    <th>SKU</th>
+                    <th>Part #</th>
+                    <th>Name</th>
+                    <th>Qty</th>
+                    <th>Unit</th>
+                    <th>Subtotal</th>
+                    <th>Tax</th>
+                    <th>Total</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {inv.lines.map((line) => (
+                    <tr key={line.id}>
+                      <td style={{ whiteSpace: "nowrap" }}>{fmtDate(line.submittedAt)}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>{line.sku}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>{line.partNumber ?? "—"}</td>
+                      <td>{line.name}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>{line.quantity}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>{money(line.unitPrice)}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>{money(line.lineSubtotal)}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>{money(line.lineTax)}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>{money(line.lineTotal)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
 
-            <div className="totals">
-              <div>Subtotal: {money(inv.subtotal)}</div>
-              <div>Tax: {money(inv.taxTotal)}</div>
-              <div style={{ fontWeight: 900 }}>Total: {money(inv.total)}</div>
+              <div className="totals">
+                <div>Subtotal: {money(inv.subtotal)}</div>
+                <div>Tax: {money(inv.taxTotal)}</div>
+                <div style={{ fontWeight: 900 }}>Total: {money(inv.total)}</div>
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </main>
   );
 }
