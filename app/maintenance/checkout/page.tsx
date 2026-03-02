@@ -9,6 +9,9 @@ import type { CSSProperties } from "react";
 import { Permission } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
+// ✅ Reuse the same searchable picker used on inventory-orders
+import ItemPicker from "@/app/admin/inventory-orders/ItemPicker";
+
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
@@ -120,6 +123,11 @@ export default async function MaintenanceCheckoutPage({
         onHandQty: true,
         orderedQty: true,
         minQty: true,
+
+        // ✅ helps the same search behavior as the inventory-orders picker
+        category: true,
+        manufacturer: true,
+        orderFrom: true,
       },
     }),
     prisma.location.findMany({
@@ -424,17 +432,14 @@ export default async function MaintenanceCheckoutPage({
       >
         <label style={labelStyle}>
           <span style={{ fontWeight: 700 }}>Part (Item)</span>
-          <select name="itemId" required style={fieldStyle}>
-            <option value="">Select a part…</option>
-            {items.map((it) => (
-              <option key={it.id} value={it.id}>
-                {it.sku}
-                {it.partNumber ? ` • ${it.partNumber}` : ""} • {it.name} (id: {it.id})
-              </option>
-            ))}
-          </select>
+
+          {/* ✅ Searchable picker (SKU, part#, name, etc.) */}
+          <div style={{ marginTop: 2 }}>
+            <ItemPicker name="itemId" items={items} placeholder="Search SKU, part #, name, category, manufacturer…" />
+          </div>
+
           <div style={{ fontSize: 12, opacity: 0.75 }}>
-            Tip: the item id is shown in the dropdown (this is the “Part ID#”).
+            Tip: search by <b>SKU</b>, <b>Part #</b>, <b>Name</b>, <b>Category</b>, or <b>Manufacturer</b>.
           </div>
         </label>
 
