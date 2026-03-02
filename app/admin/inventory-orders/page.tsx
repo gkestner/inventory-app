@@ -922,6 +922,18 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     return qs ? `/admin/inventory-orders?${qs}` : "/admin/inventory-orders";
   }
 
+  const labelStyle: CSSProperties = { fontSize: 11, opacity: 0.72, fontWeight: 900, letterSpacing: "0.02em" };
+  const valueStyle: CSSProperties = { fontSize: 13, fontWeight: 800, overflowWrap: "anywhere" };
+
+  function Field({ label, children }: { label: string; children: React.ReactNode }) {
+    return (
+      <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
+        <div style={labelStyle}>{label}</div>
+        <div style={valueStyle}>{children}</div>
+      </div>
+    );
+  }
+
   return (
     <main style={{ padding: 16 }}>
       <div style={{ padding: 16, maxWidth: 1400, margin: "0 auto", color: fg }}>
@@ -1276,371 +1288,277 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           </form>
         </div>
 
-        {/* ✅ No-overlap fix:
-            Sticky columns inherently overlap non-sticky columns.
-            We disable stickiness on narrower viewports so nothing overlays anything. */}
+        {/* Responsive “no overlap, no horizontal scroll” layout */}
         <style>{`
-          @media (max-width: 900px) { .hide-md { display: none !important; } }
-          @media (max-width: 650px) { .hide-sm { display: none !important; } }
-
-          :root{
-            --stickyDeleteW: 220px;
-            --stickyEditW: 220px;
-            --stickyActionsW: 440px;
-            --stickyDivider: rgba(255,255,255,0.10);
-
-            /* IMPORTANT: must be opaque (your var(--background) is slightly transparent) */
-            --stickyBg: rgba(0,0,0,0.92);
+          .ordersList {
+            margin-top: 14px;
+            display: grid;
+            gap: 12px;
           }
-
-          .tableWrap { overflow-x: auto; }
-
-          table.ordersTable { table-layout: fixed; }
-
-          table.ordersTable td, table.ordersTable th { overflow: hidden; }
-
-          th.stickyR, td.stickyR {
-            position: sticky;
-            z-index: 20;
-            background: var(--stickyBg);
-            backdrop-filter: blur(6px);
+          .orderCard {
+            border: 1px solid rgba(128,128,128,0.25);
+            border-radius: 14px;
+            background: var(--background);
+            padding: 12px;
             overflow: hidden;
           }
-          thead th.stickyR { z-index: 30; }
-
-          .stickyDelete { right: 0px; width: var(--stickyDeleteW); min-width: var(--stickyDeleteW); max-width: var(--stickyDeleteW); }
-          .stickyEdit   { right: var(--stickyDeleteW); width: var(--stickyEditW); min-width: var(--stickyEditW); max-width: var(--stickyEditW); }
-          .stickyActions{
-            right: calc(var(--stickyDeleteW) + var(--stickyEditW));
-            width: var(--stickyActionsW);
-            min-width: var(--stickyActionsW);
-            max-width: var(--stickyActionsW);
+          .orderTop {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
           }
-
-          th.stickyR, td.stickyR { box-shadow: -1px 0 0 var(--stickyDivider); }
-
-          /* 🔒 Hard guarantee: below 1200px, disable sticky so NOTHING overlaps */
-          @media (max-width: 1200px) {
-            th.stickyR, td.stickyR {
-              position: static !important;
-              z-index: auto !important;
-              backdrop-filter: none !important;
-              box-shadow: none !important;
-              background: transparent !important;
+          @media (min-width: 900px) {
+            .orderTop {
+              grid-template-columns: 320px 1fr;
+              align-items: start;
             }
-            .stickyDelete, .stickyEdit, .stickyActions {
-              right: auto !important;
-            }
+          }
+          .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 900;
+            font-size: 12px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(128,128,128,0.25);
+            background: rgba(255,255,255,0.03);
+            white-space: nowrap;
+          }
+          .metaGrid {
+            display: grid;
+            gap: 10px;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            align-items: start;
+          }
+          .actionsRow {
+            margin-top: 10px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: flex-start;
+          }
+          .noteBox {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 12px;
+            border: 1px solid rgba(128,128,128,0.25);
+            background: rgba(255,255,255,0.03);
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            font-size: 12px;
+            opacity: 0.9;
+            line-height: 1.4;
+          }
+          details.orderDetails > summary {
+            cursor: pointer;
+            font-weight: 900;
           }
         `}</style>
 
-        {/* TABLE */}
-        <div className="tableWrap" style={{ marginTop: 14, border, borderRadius: 14, background: surface }}>
-          <table className="ordersTable" style={{ width: "100%", borderCollapse: "collapse", minWidth: 2300 }}>
-            <colgroup>
-              <col style={{ width: 220 }} />
-              <col style={{ width: 560 }} />
-              <col style={{ width: 70 }} />
-              <col style={{ width: 170 }} />
-              <col style={{ width: 110 }} />
-              <col style={{ width: 110 }} />
-              <col style={{ width: 110 }} />
-              <col style={{ width: 130 }} />
-              <col style={{ width: 160 }} />
-              <col style={{ width: 140 }} />
-              <col style={{ width: 160 }} />
-              <col style={{ width: 160 }} />
-              <col style={{ width: 440 }} />
-              <col style={{ width: 220 }} />
-              <col style={{ width: 220 }} />
-            </colgroup>
+        {/* ORDERS */}
+        <div className="ordersList">
+          {orders.map((o: OrderRow) => {
+            const unit = o.unitPrice ? Number(o.unitPrice) : 0;
+            const ship = o.shippingCost ? Number(o.shippingCost) : 0;
+            const tax = o.taxCost ? Number(o.taxCost) : 0;
+            const totalCost = unit * (o.quantity ?? 0) + ship + tax;
 
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Ordered / Phase
-                </th>
-                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85 }}>Item</th>
-                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Qty
-                </th>
+            const itemLabel = o.item
+              ? `${o.item.sku}${o.item.partNumber ? ` • ${o.item.partNumber}` : ""} • ${o.item.name}`
+              : o.itemId;
 
-                <th className="hide-sm" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Supplier
-                </th>
-                <th className="hide-sm" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Unit
-                </th>
-                <th className="hide-md" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Ship
-                </th>
-                <th className="hide-md" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Tax
-                </th>
+            const canArrive = o.status === "ORDERED";
+            const canAdd = o.status !== "ADDED_TO_INVENTORY";
+            const phaseText = phaseLabel(o.status as InventoryOrderPhase);
 
-                <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Total
-                </th>
+            return (
+              <div key={o.id} className="orderCard" style={{ ...rowPhaseStyle(o.status as InventoryOrderPhase) }}>
+                <div className="orderTop">
+                  <div style={{ display: "grid", gap: 10 }}>
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                      <span className="pill">{phaseText}</span>
+                      <span className="pill">Ordered: {fmtLocal(o.orderedAt)}</span>
+                    </div>
 
-                <th className="hide-md" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  For Tech
-                </th>
-                <th className="hide-md" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  For Store
-                </th>
-                <th className="hide-md" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Arrived
-                </th>
-                <th className="hide-md" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Added
-                </th>
+                    <div style={{ display: "grid", gap: 6 }}>
+                      <div style={{ fontSize: 16, fontWeight: 950, lineHeight: 1.2, overflowWrap: "anywhere" }}>{itemLabel}</div>
+                      <div style={{ fontSize: 12, opacity: 0.75, overflowWrap: "anywhere" }}>id: {o.id}</div>
+                    </div>
+                  </div>
 
-                <th className="stickyR stickyActions" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Actions
-                </th>
-                <th className="stickyR stickyEdit" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Edit
-                </th>
-                <th className="stickyR stickyDelete" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
-                  Delete
-                </th>
-              </tr>
-            </thead>
+                  <div className="metaGrid">
+                    <Field label="Qty">{o.quantity ?? "—"}</Field>
+                    <Field label="Supplier">{o.supplierName ?? "—"}</Field>
+                    <Field label="Supplier Part #">{o.supplierPartNumber ?? "—"}</Field>
+                    <Field label="Unit">{o.unitPrice ? money(Number(o.unitPrice)) : "—"}</Field>
+                    <Field label="Ship">{o.shippingCost ? money(Number(o.shippingCost)) : "—"}</Field>
+                    <Field label="Tax">{o.taxCost ? money(Number(o.taxCost)) : "—"}</Field>
+                    <Field label="Total">{money(totalCost)}</Field>
+                    <Field label="For Tech">{o.forUser?.name ?? "—"}</Field>
+                    <Field label="For Store">{o.forStore?.name ?? "—"}</Field>
+                    <Field label="Arrived">{fmtLocal(o.arrivedAt)}</Field>
+                    <Field label="Added">{fmtLocal(o.addedToInventoryAt)}</Field>
+                  </div>
+                </div>
 
-            <tbody>
-              {orders.map((o: OrderRow) => {
-                const unit = o.unitPrice ? Number(o.unitPrice) : 0;
-                const ship = o.shippingCost ? Number(o.shippingCost) : 0;
-                const tax = o.taxCost ? Number(o.taxCost) : 0;
-                const totalCost = unit * (o.quantity ?? 0) + ship + tax;
+                <div className="actionsRow">
+                  <form action={markArrivedAction}>
+                    <input type="hidden" name="id" value={o.id} />
+                    <button type="submit" style={{ ...btn, opacity: canArrive ? 1 : 0.5 }} disabled={!canArrive}>
+                      Mark Arrived
+                    </button>
+                  </form>
 
-                const itemLabel = o.item
-                  ? `${o.item.sku}${o.item.partNumber ? ` • ${o.item.partNumber}` : ""} • ${o.item.name}`
-                  : o.itemId;
+                  <form action={addToInventoryAction}>
+                    <input type="hidden" name="id" value={o.id} />
+                    <button type="submit" style={{ ...btnPrimary, opacity: canAdd ? 1 : 0.5 }} disabled={!canAdd}>
+                      Add to Inventory
+                    </button>
+                  </form>
 
-                const canArrive = o.status === "ORDERED";
-                const canAdd = o.status !== "ADDED_TO_INVENTORY";
-                const phaseText = phaseLabel(o.status as InventoryOrderPhase);
+                  <details className="orderDetails" style={{ border: border, borderRadius: 12, padding: 10, background: soft }}>
+                    <summary>Edit</summary>
+                    <form
+                      action={saveOrderDetailsAction}
+                      style={{
+                        marginTop: 10,
+                        padding: 10,
+                        border,
+                        borderRadius: 12,
+                        background: surface,
+                        display: "grid",
+                        gap: 10,
+                      }}
+                    >
+                      <input type="hidden" name="id" value={o.id} />
 
-                return (
-                  <tr key={o.id} data-rowbg="1" style={{ borderBottom: border, ...rowPhaseStyle(o.status as InventoryOrderPhase) }}>
-                    <td style={{ padding: 10, verticalAlign: "top" }}>
-                      <div style={{ fontWeight: 900, whiteSpace: "nowrap" }}>{phaseText}</div>
-                      <div style={{ fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>{fmtLocal(o.orderedAt)}</div>
-                    </td>
-
-                    <td style={{ padding: 10, verticalAlign: "top" }}>
-                      <div style={{ fontWeight: 900, whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.2 }}>{itemLabel}</div>
-                      <div style={{ fontSize: 12, opacity: 0.75, whiteSpace: "normal", overflowWrap: "anywhere" }}>id: {o.id}</div>
-                    </td>
-
-                    <td style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>{o.quantity}</td>
-
-                    <td className="hide-sm" style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>
-                      {o.supplierName ?? "—"}
-                      {o.supplierPartNumber ? (
-                        <div style={{ fontSize: 12, opacity: 0.75, whiteSpace: "normal", overflowWrap: "anywhere" }}>Part #: {o.supplierPartNumber}</div>
-                      ) : null}
-                    </td>
-
-                    <td className="hide-sm" style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>
-                      {o.unitPrice ? money(Number(o.unitPrice)) : "—"}
-                    </td>
-
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>
-                      {o.shippingCost ? money(Number(o.shippingCost)) : "—"}
-                    </td>
-
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>
-                      {o.taxCost ? money(Number(o.taxCost)) : "—"}
-                    </td>
-
-                    <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900, verticalAlign: "top" }}>{money(totalCost)}</td>
-
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>{o.forUser?.name ?? "—"}</td>
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>{o.forStore?.name ?? "—"}</td>
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>{fmtLocal(o.arrivedAt)}</td>
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>{fmtLocal(o.addedToInventoryAt)}</td>
-
-                    <td className="stickyR stickyActions" style={{ padding: 10, verticalAlign: "top", overflow: "hidden" }}>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", maxWidth: "100%" }}>
-                        <form action={markArrivedAction}>
-                          <input type="hidden" name="id" value={o.id} />
-                          <button type="submit" style={{ ...btn, opacity: canArrive ? 1 : 0.5 }} disabled={!canArrive}>
-                            Mark Arrived
-                          </button>
-                        </form>
-
-                        <form action={addToInventoryAction}>
-                          <input type="hidden" name="id" value={o.id} />
-                          <button type="submit" style={{ ...btnPrimary, opacity: canAdd ? 1 : 0.5 }} disabled={!canAdd}>
-                            Add to Inventory
-                          </button>
-                        </form>
+                      <div style={{ fontSize: 12, opacity: 0.85, lineHeight: 1.5 }}>
+                        Item is not changeable (keeps inventory adjustments safe). Quantity edits are applied to{" "}
+                        <b>{o.status === "ADDED_TO_INVENTORY" ? "on-hand" : "ordered"}</b>.
+                        <br />
+                        After saving, the system will sync <b>Item.cost</b> + <b>Item.orderFrom</b> from the latest order for that item.
                       </div>
 
-                      {o.note ? (
-                        <div
-                          style={{
-                            marginTop: 8,
-                            fontSize: 12,
-                            opacity: 0.85,
-                            whiteSpace: "pre-wrap",
-                            overflowWrap: "anywhere",
-                            wordBreak: "break-word",
-                            maxWidth: "100%",
-                          }}
-                        >
-                          <b>Note:</b> {o.note}
-                        </div>
-                      ) : null}
-                    </td>
+                      <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+                        <label style={controlLabel}>
+                          Ordered at
+                          <input name="orderedAt" type="datetime-local" defaultValue={fmtForDatetimeLocal(o.orderedAt)} style={controlBase} />
+                        </label>
 
-                    <td className="stickyR stickyEdit" style={{ padding: 10, verticalAlign: "top" }}>
-                      <details>
-                        <summary style={{ cursor: "pointer", fontWeight: 900 }}>Edit</summary>
-                        <form
-                          action={saveOrderDetailsAction}
-                          style={{
-                            marginTop: 10,
-                            padding: 10,
-                            border,
-                            borderRadius: 12,
-                            background: soft,
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 10,
-                            width: "100%",
-                            minWidth: 640,
-                          }}
-                        >
-                          <input type="hidden" name="id" value={o.id} />
-                          <div style={{ fontSize: 12, opacity: 0.85, lineHeight: 1.5 }}>
-                            Item is not changeable (keeps inventory adjustments safe). Quantity edits are applied to{" "}
-                            <b>{o.status === "ADDED_TO_INVENTORY" ? "on-hand" : "ordered"}</b>.
-                            <br />
-                            After saving, the system will sync <b>Item.cost</b> + <b>Item.orderFrom</b> from the latest order for that item.
-                          </div>
+                        <label style={controlLabel}>
+                          Qty
+                          <input name="qty" type="number" min={1} step={1} defaultValue={o.quantity ?? 1} required style={controlBase} />
+                        </label>
 
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                            <label style={controlLabel}>
-                              Ordered at
-                              <input name="orderedAt" type="datetime-local" defaultValue={fmtForDatetimeLocal(o.orderedAt)} style={controlBase} />
-                            </label>
+                        <label style={controlLabel}>
+                          Supplier
+                          <input name="supplierName" defaultValue={o.supplierName ?? ""} placeholder="Supplier…" style={controlBase} />
+                        </label>
 
-                            <label style={controlLabel}>
-                              Qty
-                              <input name="qty" type="number" min={1} step={1} defaultValue={o.quantity} required style={controlBase} />
-                            </label>
+                        <label style={controlLabel}>
+                          Supplier Part #
+                          <input
+                            name="supplierPartNumber"
+                            defaultValue={o.supplierPartNumber ?? ""}
+                            placeholder="Supplier part #…"
+                            style={controlBase}
+                          />
+                        </label>
 
-                            <label style={controlLabel}>
-                              Supplier
-                              <input name="supplierName" defaultValue={o.supplierName ?? ""} placeholder="Supplier…" style={controlBase} />
-                            </label>
+                        <label style={controlLabel}>
+                          Unit price
+                          <input name="unitPrice" defaultValue={o.unitPrice ? String(o.unitPrice) : ""} placeholder="0.00" required style={controlBase} />
+                        </label>
 
-                            <label style={controlLabel}>
-                              Supplier Part #
-                              <input
-                                name="supplierPartNumber"
-                                defaultValue={o.supplierPartNumber ?? ""}
-                                placeholder="Supplier part #…"
-                                style={controlBase}
-                              />
-                            </label>
-                          </div>
+                        <label style={controlLabel}>
+                          Shipping
+                          <input name="shippingCost" defaultValue={o.shippingCost ? String(o.shippingCost) : ""} placeholder="0.00" style={controlBase} />
+                        </label>
 
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                            <label style={controlLabel}>
-                              Unit price
-                              <input name="unitPrice" defaultValue={o.unitPrice ? String(o.unitPrice) : ""} placeholder="0.00" required style={controlBase} />
-                            </label>
-                            <label style={controlLabel}>
-                              Shipping
-                              <input name="shippingCost" defaultValue={o.shippingCost ? String(o.shippingCost) : ""} placeholder="0.00" style={controlBase} />
-                            </label>
-                            <label style={controlLabel}>
-                              Tax
-                              <input name="taxCost" defaultValue={o.taxCost ? String(o.taxCost) : ""} placeholder="0.00" style={controlBase} />
-                            </label>
+                        <label style={controlLabel}>
+                          Tax
+                          <input name="taxCost" defaultValue={o.taxCost ? String(o.taxCost) : ""} placeholder="0.00" style={controlBase} />
+                        </label>
 
-                            <label style={controlLabel}>
-                              For tech
-                              <select name="forUserId" defaultValue={o.forUserId ?? ""} style={controlBase}>
-                                <option value="">—</option>
-                                {users.map((u) => (
-                                  <option key={u.id} value={u.id}>
-                                    {u.name} ({u.role})
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
+                        <label style={controlLabel}>
+                          For tech
+                          <select name="forUserId" defaultValue={o.forUserId ?? ""} style={controlBase}>
+                            <option value="">—</option>
+                            {users.map((u) => (
+                              <option key={u.id} value={u.id}>
+                                {u.name} ({u.role})
+                              </option>
+                            ))}
+                          </select>
+                        </label>
 
-                            <label style={controlLabel}>
-                              For store
-                              <select name="forStoreId" defaultValue={o.forStoreId ?? ""} style={controlBase}>
-                                <option value="">—</option>
-                                {locations.map((l) => (
-                                  <option key={l.id} value={l.id}>
-                                    {l.name}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                          </div>
+                        <label style={controlLabel}>
+                          For store
+                          <select name="forStoreId" defaultValue={o.forStoreId ?? ""} style={controlBase}>
+                            <option value="">—</option>
+                            {locations.map((l) => (
+                              <option key={l.id} value={l.id}>
+                                {l.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
 
-                          <label style={controlLabel}>
-                            Note
-                            <input name="note" defaultValue={o.note ?? ""} placeholder="Optional note…" style={controlBase} />
-                          </label>
+                      <label style={controlLabel}>
+                        Note
+                        <input name="note" defaultValue={o.note ?? ""} placeholder="Optional note…" style={controlBase} />
+                      </label>
 
-                          <button type="submit" style={btn}>
-                            Save
-                          </button>
-                        </form>
-                      </details>
-                    </td>
+                      <button type="submit" style={btn}>
+                        Save
+                      </button>
+                    </form>
+                  </details>
 
-                    <td className="stickyR stickyDelete" style={{ padding: 10, verticalAlign: "top" }}>
-                      <details>
-                        <summary style={{ cursor: "pointer", fontWeight: 900 }}>Delete</summary>
-                        <form
-                          action={deleteOrderAction}
-                          style={{
-                            marginTop: 10,
-                            padding: 10,
-                            border,
-                            borderRadius: 12,
-                            background: soft,
-                            display: "grid",
-                            gap: 8,
-                            minWidth: 260,
-                          }}
-                        >
-                          <input type="hidden" name="id" value={o.id} />
-                          <div style={{ fontSize: 12, opacity: 0.9 }}>
-                            Type <code>DELETE</code> to confirm deletion. This reverses inventory effects for the current phase, then syncs{" "}
-                            <b>Item.cost</b>/<b>Item.orderFrom</b> from the latest remaining order.
-                          </div>
-                          <input name="confirm" placeholder="DELETE" style={controlBase} />
-                          <button type="submit" style={btn}>
-                            Permanently Delete
-                          </button>
-                        </form>
-                      </details>
-                    </td>
-                  </tr>
-                );
-              })}
+                  <details className="orderDetails" style={{ border: border, borderRadius: 12, padding: 10, background: soft }}>
+                    <summary>Delete</summary>
+                    <form
+                      action={deleteOrderAction}
+                      style={{
+                        marginTop: 10,
+                        padding: 10,
+                        border,
+                        borderRadius: 12,
+                        background: surface,
+                        display: "grid",
+                        gap: 10,
+                      }}
+                    >
+                      <input type="hidden" name="id" value={o.id} />
+                      <div style={{ fontSize: 12, opacity: 0.9, lineHeight: 1.45 }}>
+                        Type <code>DELETE</code> to confirm deletion. This reverses inventory effects for the current phase, then syncs{" "}
+                        <b>Item.cost</b>/<b>Item.orderFrom</b> from the latest remaining order.
+                      </div>
+                      <input name="confirm" placeholder="DELETE" style={controlBase} />
+                      <button type="submit" style={btn}>
+                        Permanently Delete
+                      </button>
+                    </form>
+                  </details>
+                </div>
 
-              {orders.length === 0 ? (
-                <tr>
-                  <td colSpan={15} style={{ padding: 14, opacity: 0.8 }}>
-                    No orders found.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
+                {o.note ? (
+                  <div className="noteBox">
+                    <b>Note:</b> {o.note}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+
+          {orders.length === 0 ? (
+            <div style={{ padding: 14, opacity: 0.8, border, borderRadius: 14, background: surface }}>
+              No orders found.
+            </div>
+          ) : null}
         </div>
 
         {/* PAGINATION */}
