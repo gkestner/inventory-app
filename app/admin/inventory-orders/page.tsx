@@ -1276,7 +1276,9 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           </form>
         </div>
 
-        {/* ✅ Sticky overlay fix: make sticky columns OPAQUE + clipped */}
+        {/* ✅ No-overlap fix:
+            Sticky columns inherently overlap non-sticky columns.
+            We disable stickiness on narrower viewports so nothing overlays anything. */}
         <style>{`
           @media (max-width: 900px) { .hide-md { display: none !important; } }
           @media (max-width: 650px) { .hide-sm { display: none !important; } }
@@ -1316,6 +1318,20 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           }
 
           th.stickyR, td.stickyR { box-shadow: -1px 0 0 var(--stickyDivider); }
+
+          /* 🔒 Hard guarantee: below 1200px, disable sticky so NOTHING overlaps */
+          @media (max-width: 1200px) {
+            th.stickyR, td.stickyR {
+              position: static !important;
+              z-index: auto !important;
+              backdrop-filter: none !important;
+              box-shadow: none !important;
+              background: transparent !important;
+            }
+            .stickyDelete, .stickyEdit, .stickyActions {
+              right: auto !important;
+            }
+          }
         `}</style>
 
         {/* TABLE */}
@@ -1524,7 +1540,12 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
 
                             <label style={controlLabel}>
                               Supplier Part #
-                              <input name="supplierPartNumber" defaultValue={o.supplierPartNumber ?? ""} placeholder="Supplier part #…" style={controlBase} />
+                              <input
+                                name="supplierPartNumber"
+                                defaultValue={o.supplierPartNumber ?? ""}
+                                placeholder="Supplier part #…"
+                                style={controlBase}
+                              />
                             </label>
                           </div>
 
