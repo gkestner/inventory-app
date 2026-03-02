@@ -33,7 +33,6 @@ async function requireOrderHistoryView() {
   const perms = await loadUserPermissions(session);
   if (perms.allowAll) return { session, perms };
 
-  // Reuse Items Admin view permission for Order History module
   const ok = hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
   if (!ok) redirect("/");
 
@@ -53,11 +52,6 @@ async function requireOrderHistoryEdit() {
   return { session, perms };
 }
 
-/**
- * ✅ IMPORTANT:
- * NextAuth often does NOT put user.id on the session by default.
- * We resolve it from the email when missing so "Create Order" doesn't crash.
- */
 async function resolveSessionUserId(session: AdminSession): Promise<string> {
   const id = session?.user?.id ?? null;
   if (id) return id;
@@ -254,7 +248,6 @@ function nonEmptyString(v: FormDataEntryValue | null): string {
 export default async function AdminInventoryOrdersPage({ searchParams }: { searchParams: SearchParams }) {
   await requireOrderHistoryView();
 
-  // If Prisma Client isn't regenerated yet, avoid crashing.
   const anyPrisma = prisma as unknown as { inventoryOrder?: unknown };
   if (!("inventoryOrder" in anyPrisma) || !anyPrisma.inventoryOrder) {
     return (
@@ -625,7 +618,6 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
       revalidatePath("/admin/inventory-orders");
       revalidatePath("/admin/items");
 
-      // ✅ FIX: your Next version requires await
       const h = await headers();
       const back = safeReturnToPathFromReferer(h.get("referer"));
       redirect(withQuery(back, { ok: "1" }));
@@ -985,7 +977,6 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           </Link>
         </div>
 
-        {/* ✅ Success / Error banner */}
         {errMsg ? (
           <div
             style={{
@@ -1080,7 +1071,6 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                 </label>
               </div>
 
-              {/* NEW ITEM */}
               <details style={{ marginTop: 6, border, borderRadius: 12, padding: 10, background: soft }}>
                 <summary style={{ cursor: "pointer", fontWeight: 900 }}>New item (creates Item automatically if SKU doesn’t exist)</summary>
 
@@ -1190,19 +1180,6 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                   </button>
                 </div>
               </div>
-
-              <div style={{ fontSize: 12, opacity: 0.8, lineHeight: 1.5 }}>
-                Creating an order immediately increments <b>Item.orderedQty</b> and also updates:
-                <ul style={{ margin: "6px 0 0 18px" }}>
-                  <li>
-                    <b>Item.cost</b> → set to the order <b>unit price</b>
-                  </li>
-                  <li>
-                    <b>Item.orderFrom</b> → set to <b>Supplier</b> (if provided)
-                  </li>
-                </ul>
-                Each order row includes an <b>AUDIT</b> line in <b>Note</b> so you can see what changed.
-              </div>
             </form>
           </div>
         </details>
@@ -1306,47 +1283,72 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           </form>
         </div>
 
-        {/* ✅ Responsive + Sticky right columns so Edit never disappears */}
+        {/* ✅ FIX: force fixed column widths + fix sticky painting */}
         <style>{`
           @media (max-width: 900px) { .hide-md { display: none !important; } }
           @media (max-width: 650px) { .hide-sm { display: none !important; } }
 
           :root{
-            --stickyDeleteW: 180px;
-            --stickyEditW: 180px;
-            --stickyActionsW: 360px;
+            --stickyDeleteW: 220px;
+            --stickyEditW: 220px;
+            --stickyActionsW: 420px;
             --stickyDivider: rgba(255,255,255,0.10);
           }
 
-          /* Keep Actions/Edit/Delete visible (sticky right) */
-          th.stickyR, td.stickyR { position: sticky; z-index: 3; }
-          th.stickyR { z-index: 4; }
-          .stickyDelete { right: 0px; width: var(--stickyDeleteW); min-width: var(--stickyDeleteW); }
-          .stickyEdit   { right: var(--stickyDeleteW); width: var(--stickyEditW); min-width: var(--stickyEditW); }
-          .stickyActions{ right: calc(var(--stickyDeleteW) + var(--stickyEditW)); width: var(--stickyActionsW); min-width: var(--stickyActionsW); }
+          .tableWrap { overflow-x: auto; }
 
-          /* Make sticky cells blend with row bg and add a subtle divider so it feels "separate" */
-          td.stickyR, th.stickyR {
-            background: inherit;
-            box-shadow: -1px 0 0 var(--stickyDivider);
+          /* Fixed layout prevents "squeeze overlap" */
+          table.ordersTable { table-layout: fixed; }
+
+          /* Sticky columns (make them opaque + above everything) */
+          th.stickyR, td.stickyR { position: sticky; z-index: 20; background: var(--background); }
+          thead th.stickyR { z-index: 30; }
+
+          .stickyDelete { right: 0px; width: var(--stickyDeleteW); min-width: var(--stickyDeleteW); max-width: var(--stickyDeleteW); }
+          .stickyEdit   { right: var(--stickyDeleteW); width: var(--stickyEditW); min-width: var(--stickyEditW); max-width: var(--stickyEditW); }
+          .stickyActions{
+            right: calc(var(--stickyDeleteW) + var(--stickyEditW));
+            width: var(--stickyActionsW);
+            min-width: var(--stickyActionsW);
+            max-width: var(--stickyActionsW);
           }
 
-          /* Allow table to scroll (and prevent squeeze-overlap) */
-          .tableWrap { overflow-x: auto; }
+          /* Visual separation */
+          th.stickyR, td.stickyR { box-shadow: -1px 0 0 var(--stickyDivider); }
+
+          /* Prevent random text from bleeding across cells */
+          td, th { overflow: hidden; }
         `}</style>
 
         {/* TABLE */}
         <div className="tableWrap" style={{ marginTop: 14, border, borderRadius: 14, background: surface }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1700 }}>
+          {/* NOTE: minWidth MUST exceed sum of columns so it scrolls instead of crushing */}
+          <table className="ordersTable" style={{ width: "100%", borderCollapse: "collapse", minWidth: 2300 }}>
+            {/* ✅ Colgroup gives the browser real widths so nothing overlaps */}
+            <colgroup>
+              <col style={{ width: 220 }} /> {/* Ordered/Phase */}
+              <col style={{ width: 560 }} /> {/* Item */}
+              <col style={{ width: 70 }} /> {/* Qty */}
+              <col style={{ width: 170 }} /> {/* Supplier */}
+              <col style={{ width: 110 }} /> {/* Unit */}
+              <col style={{ width: 110 }} /> {/* Ship */}
+              <col style={{ width: 110 }} /> {/* Tax */}
+              <col style={{ width: 130 }} /> {/* Total */}
+              <col style={{ width: 160 }} /> {/* For Tech */}
+              <col style={{ width: 140 }} /> {/* For Store */}
+              <col style={{ width: 160 }} /> {/* Arrived */}
+              <col style={{ width: 160 }} /> {/* Added */}
+              <col style={{ width: 420 }} /> {/* Actions (sticky) */}
+              <col style={{ width: 220 }} /> {/* Edit (sticky) */}
+              <col style={{ width: 220 }} /> {/* Delete (sticky) */}
+            </colgroup>
+
             <thead>
               <tr>
-                {/* ✅ Combined: Ordered + Phase in top-left */}
                 <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
                   Ordered / Phase
                 </th>
-
                 <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85 }}>Item</th>
-
                 <th style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
                   Qty
                 </th>
@@ -1381,7 +1383,6 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                   Added
                 </th>
 
-                {/* Sticky right columns */}
                 <th className="stickyR stickyActions" style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
                   Actions
                 </th>
@@ -1407,43 +1408,46 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
 
                 const canArrive = o.status === "ORDERED";
                 const canAdd = o.status !== "ADDED_TO_INVENTORY";
-
                 const phaseText = phaseLabel(o.status as InventoryOrderPhase);
 
                 return (
                   <tr key={o.id} data-rowbg="1" style={{ borderBottom: border, ...rowPhaseStyle(o.status as InventoryOrderPhase) }}>
-                    {/* ✅ Ordered + Phase stacked in top-left */}
-                    <td style={{ padding: 10, verticalAlign: "top", width: 200, minWidth: 200 }}>
+                    <td style={{ padding: 10, verticalAlign: "top" }}>
                       <div style={{ fontWeight: 900, whiteSpace: "nowrap" }}>{phaseText}</div>
                       <div style={{ fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>{fmtLocal(o.orderedAt)}</div>
                     </td>
 
-                    <td style={{ padding: 10, minWidth: 260, maxWidth: 520 }}>
+                    <td style={{ padding: 10, verticalAlign: "top" }}>
                       <div style={{ fontWeight: 900, whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.2 }}>{itemLabel}</div>
                       <div style={{ fontSize: 12, opacity: 0.75, whiteSpace: "normal", overflowWrap: "anywhere" }}>id: {o.id}</div>
                     </td>
 
-                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>{o.quantity}</td>
+                    <td style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>{o.quantity}</td>
 
-                    <td className="hide-sm" style={{ padding: 10, whiteSpace: "nowrap" }}>
+                    <td className="hide-sm" style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>
                       {o.supplierName ?? "—"}
-                      {o.supplierPartNumber ? <div style={{ fontSize: 12, opacity: 0.75 }}>Part #: {o.supplierPartNumber}</div> : null}
+                      {o.supplierPartNumber ? <div style={{ fontSize: 12, opacity: 0.75, whiteSpace: "normal" }}>Part #: {o.supplierPartNumber}</div> : null}
                     </td>
 
-                    <td className="hide-sm" style={{ padding: 10, whiteSpace: "nowrap" }}>{o.unitPrice ? money(Number(o.unitPrice)) : "—"}</td>
+                    <td className="hide-sm" style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>
+                      {o.unitPrice ? money(Number(o.unitPrice)) : "—"}
+                    </td>
 
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>{o.shippingCost ? money(Number(o.shippingCost)) : "—"}</td>
+                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>
+                      {o.shippingCost ? money(Number(o.shippingCost)) : "—"}
+                    </td>
 
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>{o.taxCost ? money(Number(o.taxCost)) : "—"}</td>
+                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>
+                      {o.taxCost ? money(Number(o.taxCost)) : "—"}
+                    </td>
 
-                    <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{money(totalCost)}</td>
+                    <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900, verticalAlign: "top" }}>{money(totalCost)}</td>
 
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>{o.forUser?.name ?? "—"}</td>
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>{o.forStore?.name ?? "—"}</td>
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocal(o.arrivedAt)}</td>
-                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocal(o.addedToInventoryAt)}</td>
+                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>{o.forUser?.name ?? "—"}</td>
+                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>{o.forStore?.name ?? "—"}</td>
+                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>{fmtLocal(o.arrivedAt)}</td>
+                    <td className="hide-md" style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>{fmtLocal(o.addedToInventoryAt)}</td>
 
-                    {/* Sticky right: Actions */}
                     <td className="stickyR stickyActions" style={{ padding: 10, verticalAlign: "top" }}>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <form action={markArrivedAction}>
@@ -1462,13 +1466,12 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                       </div>
 
                       {o.note ? (
-                        <div style={{ marginTop: 8, fontSize: 12, opacity: 0.85, maxWidth: 340, whiteSpace: "pre-wrap" }}>
+                        <div style={{ marginTop: 8, fontSize: 12, opacity: 0.85, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
                           <b>Note:</b> {o.note}
                         </div>
                       ) : null}
                     </td>
 
-                    {/* Sticky right: EDIT */}
                     <td className="stickyR stickyEdit" style={{ padding: 10, verticalAlign: "top" }}>
                       <details>
                         <summary style={{ cursor: "pointer", fontWeight: 900 }}>Edit</summary>
@@ -1525,22 +1528,11 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                             <label style={controlLabel}>
                               Unit price
-                              <input
-                                name="unitPrice"
-                                defaultValue={o.unitPrice ? String(o.unitPrice) : ""}
-                                placeholder="0.00"
-                                required
-                                style={controlBase}
-                              />
+                              <input name="unitPrice" defaultValue={o.unitPrice ? String(o.unitPrice) : ""} placeholder="0.00" required style={controlBase} />
                             </label>
                             <label style={controlLabel}>
                               Shipping
-                              <input
-                                name="shippingCost"
-                                defaultValue={o.shippingCost ? String(o.shippingCost) : ""}
-                                placeholder="0.00"
-                                style={controlBase}
-                              />
+                              <input name="shippingCost" defaultValue={o.shippingCost ? String(o.shippingCost) : ""} placeholder="0.00" style={controlBase} />
                             </label>
                             <label style={controlLabel}>
                               Tax
@@ -1584,7 +1576,6 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                       </details>
                     </td>
 
-                    {/* Sticky right: DELETE */}
                     <td className="stickyR stickyDelete" style={{ padding: 10, verticalAlign: "top" }}>
                       <details>
                         <summary style={{ cursor: "pointer", fontWeight: 900 }}>Delete</summary>
