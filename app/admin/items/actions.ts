@@ -2,7 +2,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
-import { Prisma, Role } from "@prisma/client";
+import { Prisma, Role, InvoiceVendor } from "@prisma/client";
 import type { Session } from "next-auth";
 import { revalidatePath } from "next/cache";
 
@@ -42,14 +42,23 @@ function normMoney(v: unknown): Prisma.Decimal | null | undefined {
   if (!s) return null;
   const n = Number(s);
   if (!Number.isFinite(n)) return undefined;
-  // Store as Decimal via Prisma.Decimal
   return new Prisma.Decimal(s);
+}
+
+function normVendor(v: unknown): InvoiceVendor | undefined {
+  if (v === undefined) return undefined;
+  if (v === null) return undefined;
+  const s = String(v).trim().toUpperCase();
+  if (s === "SUCCESS_PLUS") return InvoiceVendor.SUCCESS_PLUS;
+  if (s === "AMERICAN_PLUS") return InvoiceVendor.AMERICAN_PLUS;
+  return undefined;
 }
 
 export type UpdateItemInput = {
   id: string;
   sku?: unknown;
   partNumber?: unknown;
+  vendor?: unknown; // ✅ ADD
   name?: unknown;
   description?: unknown;
   category?: unknown;
@@ -82,6 +91,14 @@ export async function updateItemAction(input: UpdateItemInput) {
     if (v === undefined) throw new Error("Invalid partNumber");
     data.partNumber = v ?? null;
   }
+
+  // ✅ Vendor (American Plus / Success Plus)
+  if ("vendor" in input) {
+    const v = normVendor(input.vendor);
+    if (v === undefined) throw new Error("Invalid vendor");
+    data.vendor = v;
+  }
+
   if ("name" in input) {
     const v = normNullableText(input.name);
     if (v === undefined) throw new Error("Invalid name");
@@ -140,7 +157,6 @@ export async function updateItemAction(input: UpdateItemInput) {
     data.webUrl = v ?? null;
   }
 
-  // NOTE: if your schema also has orderedAfter/availableAfter/etc, keep them out here—one file per step.
   if (Object.keys(data).length === 0) return { ok: true };
 
   await prisma.item.update({
@@ -151,9 +167,3 @@ export async function updateItemAction(input: UpdateItemInput) {
   revalidatePath("/admin/items");
   return { ok: true };
 }
-
-/**
- * If you have other exported actions in this file (bulk archive, create, etc.)
- * keep them as-is; only ensure they call requireAdminOrThrow(session) AFTER
- * the new `if (!session.user) ...` check above.
- */

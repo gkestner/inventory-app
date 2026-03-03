@@ -57,7 +57,6 @@ function toInt(v: unknown): number | null {
 }
 
 function isAllowedMaintenanceCheckoutRole(role: Role): boolean {
-  // This is a maintenance checkout endpoint; MAINTENANCE should be allowed.
   switch (role) {
     case Role.EMPLOYEE:
     case Role.MAINTENANCE:
@@ -69,15 +68,63 @@ function isAllowedMaintenanceCheckoutRole(role: Role): boolean {
   }
 }
 
+function normalizeVendor(v: unknown): InvoiceVendor | null {
+  const s = String(v ?? "").trim().toUpperCase();
+  if (s === "AMERICAN_PLUS") return InvoiceVendor.AMERICAN_PLUS;
+  if (s === "SUCCESS_PLUS") return InvoiceVendor.SUCCESS_PLUS;
+  return null;
+}
+
+/**
+ * Infer vendor from "label-ish" item fields (since your app uses an "american plus" label).
+ * This is intentionally defensive: it won't throw if fields don't exist.
+ */
+function inferVendorFromItemLabelishFields(item: unknown): InvoiceVendor | null {
+  if (!isRecord(item)) return null;
+
+  const candidates: unknown[] = [
+    item.vendor, // if present in schema already
+    (item as Record<string, unknown>).vendorLabel,
+    (item as Record<string, unknown>).label,
+    (item as Record<string, unknown>).labels,
+    (item as Record<string, unknown>).pricingTier,
+    (item as Record<string, unknown>).pricingLabel,
+    (item as Record<string, unknown>).invoiceVendor,
+    (item as Record<string, unknown>).invoiceVendorLabel,
+    (item as Record<string, unknown>).tier,
+  ];
+
+  // First: if any candidate is already a vendor enum-ish string
+  for (const c of candidates) {
+    const v = normalizeVendor(c);
+    if (v) return v;
+  }
+
+  // Next: if any candidate contains a phrase like "american plus"
+  for (const c of candidates) {
+    if (typeof c === "string") {
+      const s = c.toLowerCase();
+      if (s.includes("american plus") || s.includes("american_plus")) return InvoiceVendor.AMERICAN_PLUS;
+      if (s.includes("success plus") || s.includes("success_plus")) return InvoiceVendor.SUCCESS_PLUS;
+    }
+
+    if (Array.isArray(c)) {
+      const joined = c.map((x) => String(x ?? "")).join(" ").toLowerCase();
+      if (joined.includes("american plus") || joined.includes("american_plus")) return InvoiceVendor.AMERICAN_PLUS;
+      if (joined.includes("success plus") || joined.includes("success_plus")) return InvoiceVendor.SUCCESS_PLUS;
+    }
+  }
+
+  return null;
+}
+
 export async function POST(req: NextRequest) {
-  // Auth: maintenance men must be logged in. We allow EMPLOYEE+.
   const session = await getServerSession(authOptions);
   if (!session) return new Response("Unauthorized", { status: 401 });
 
   const role = getSessionUserRole(session);
   if (!role) return new Response("Forbidden", { status: 403 });
 
-  // ✅ Fix: avoid includes() union mismatch, and allow MAINTENANCE.
   if (!isAllowedMaintenanceCheckoutRole(role)) {
     return new Response("Forbidden", { status: 403 });
   }
@@ -103,8 +150,6 @@ export async function POST(req: NextRequest) {
   const sessionUserId = getSessionUserId(session);
   const sessionUserEmail = getSessionUserEmail(session);
 
-  // We require a stable user id for auditing. If your NextAuth session doesn’t include user.id,
-  // we’ll fall back to looking up by email. If neither exists, we must fail (otherwise tickets can’t be attributed).
   if (!sessionUserId && !sessionUserEmail) {
     return new Response("Session missing user id/email", { status: 500 });
   }
@@ -117,16 +162,10 @@ export async function POST(req: NextRequest) {
         tx.location.findUnique({ where: { id: storeId } }),
       ]);
 
-      if (!item) {
-        throw new Error("Item not found");
-      }
-      if (!store) {
-        throw new Error("Store not found");
-      }
+      if (!item) throw new Error("Item not found");
+      if (!store) throw new Error("Store not found");
 
-      // 2) Resolve createdBy (dropdown selection) without ever blocking checkout:
-      // - If body.createdByUserId is provided and valid/active -> use it
-      // - Else use session user (by id if present; else email)
+      // 2) Resolve createdBy user
       let createdByUser = null as null | { id: string; name: string; active: boolean };
       if (isNonEmptyString(body.createdByUserId)) {
         createdByUser = await tx.user.findUnique({
@@ -153,7 +192,7 @@ export async function POST(req: NextRequest) {
         throw new Error("Created-by user not found/active");
       }
 
-      // 3) Snapshot current item state into ItemVersion (including inventory quantities)
+      // 3) Snapshot into ItemVersion
       const latest = await tx.itemVersion.findFirst({
         where: { itemId: item.id },
         orderBy: [{ version: "desc" }],
@@ -181,7 +220,7 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      // 4) Apply inventory update (allowed to go negative; never blocks)
+      // 4) Inventory update
       const onHandAfter = item.onHandQty - qty;
       const usedAfter = item.usedQty + qty;
       const orderedAfter = item.orderedQty;
@@ -209,7 +248,12 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      // 5) Create checkout ticket with snapshots (for invoicing stability)
+      // ✅ 5) Vendor snapshot: prefer item.vendor if it is a valid enum; otherwise infer from label-ish fields
+      const inferredVendor =
+        normalizeVendor((item as unknown as { vendor?: unknown }).vendor) ??
+        inferVendorFromItemLabelishFields(item) ??
+        InvoiceVendor.SUCCESS_PLUS;
+
       const ticket = await tx.partsCheckoutTicket.create({
         data: {
           status: "OPEN",
@@ -224,16 +268,14 @@ export async function POST(req: NextRequest) {
           skuSnapshot: item.sku,
           partNumberSnapshot: item.partNumber,
           nameSnapshot: item.name,
-          // Vendor snapshot is REQUIRED for vendor-based invoicing.
-          // Default to SUCCESS_PLUS for any legacy/null items.
-          vendorSnapshot: item.vendor ?? InvoiceVendor.SUCCESS_PLUS,
+          vendorSnapshot: inferredVendor,
           costSnapshot: item.cost,
           priceSnapshot: item.price,
           taxableSnapshot: item.taxable,
         },
       });
 
-      // 6) Create InventoryAlert rows (Option B)
+      // 6) Alerts
       const alertsToCreate: Prisma.InventoryAlertCreateManyInput[] = [];
 
       if (onHandAfter < 0) {
