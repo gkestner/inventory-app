@@ -35,16 +35,20 @@ function vendorSuffix(v: InvoiceVendor) {
 }
 
 /**
- * storeNumber appears to be string-like in your app (ex "03", "55", or "55 CLINTWOOD").
- * Extract digits and pad to 2.
+ * storeNumber appears to be a string in your schema (ex: "03", "55", maybe "55 CLINTWOOD").
+ * This returns a 2-digit store code (ex: "03", "55") reliably.
  */
 function storeCode(storeNumber: string | number | null | undefined) {
   if (storeNumber === null || storeNumber === undefined) return "00";
   const raw = String(storeNumber).trim();
+
+  // extract digits; works for "03", "55", "55 CLINTWOOD", etc.
   const digitsOnly = raw.replace(/[^\d]/g, "");
   if (!digitsOnly) return "00";
+
   const n = Number(digitsOnly);
   if (!Number.isFinite(n)) return "00";
+
   return String(Math.trunc(n)).padStart(2, "0");
 }
 
@@ -72,10 +76,12 @@ export default async function PrintInvoiceBatchPage({
 
   if (idsClean.length === 0) {
     return (
-      <main style={{ padding: 16, fontFamily: "Arial, sans-serif" }}>
-        Missing invoice ids.
-        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
-          Expected URL like: <code>/admin/invoices/print-batch?ids=ID1,ID2</code>
+      <main style={{ padding: 16 }}>
+        <div style={{ fontFamily: "Arial, sans-serif" }}>
+          Missing invoice ids.
+          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
+            Expected URL like: <code>/admin/invoices/print-batch?ids=ID1,ID2</code>
+          </div>
         </div>
       </main>
     );
@@ -91,8 +97,8 @@ export default async function PrintInvoiceBatchPage({
 
   if (invoices.length === 0) {
     return (
-      <main style={{ padding: 16, fontFamily: "Arial, sans-serif" }}>
-        No invoices found.
+      <main style={{ padding: 16 }}>
+        <div style={{ fontFamily: "Arial, sans-serif" }}>No invoices found.</div>
       </main>
     );
   }
@@ -111,8 +117,8 @@ export default async function PrintInvoiceBatchPage({
   });
 
   return (
-    <div className="printRoot">
-      {/* Auto-print after navigation (if browser allows) */}
+    <main>
+      {/* Best-effort auto print after navigation; Ctrl+P always works if blocked */}
       <Script id="auto-print-batch" strategy="afterInteractive">{`
 (function () {
   if (window.__invoiceBatchPrintTried) return;
@@ -126,25 +132,38 @@ export default async function PrintInvoiceBatchPage({
       <style>{`
         @page {
           size: letter;
-          margin: 0.25in; /* narrow-ish margins */
+          margin: 0.25in;
         }
 
-        /* ---- IMPORTANT: print visibility technique (works with Next layout wrappers) ---- */
         @media print {
-          body * { visibility: hidden !important; }
-          .printRoot, .printRoot * { visibility: visible !important; }
+          header, nav, footer, aside { display: none !important; }
+          body > :not(main) { display: none !important; }
+          .no-print { display: none !important; }
 
-          .printRoot {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            height: auto !important;
+            overflow: visible !important;
+          }
+
+          main {
+            margin: 0 !important;
+            padding: 0 !important;
           }
 
           /* 1 invoice per page */
           .sheet {
             break-after: page;
             page-break-after: always;
+
+            min-height: auto !important;
+            height: auto !important;
+
+            margin: 0 !important;
+            padding: 0 !important;
+
+            max-width: none !important;
           }
           .sheet:last-child {
             break-after: auto;
@@ -156,24 +175,30 @@ export default async function PrintInvoiceBatchPage({
           font-family: Arial, sans-serif;
           margin: 0;
           padding: 0;
-          background: #fff;
-          color: #000;
         }
 
-        .noPrintHint {
+        .no-print {
           padding: 10px 12px;
-          border-bottom: 1px solid rgba(0,0,0,0.15);
+          border-bottom: 1px solid rgba(128,128,128,0.25);
           max-width: 1100px;
           margin: 0 auto;
           font-size: 12px;
           opacity: 0.8;
         }
-        @media print { .noPrintHint { display: none !important; } }
 
         .sheet {
           padding: 24px 32px;
           max-width: 1100px;
           margin: 0 auto;
+          min-height: calc(100vh - 1in);
+          display: flex;
+          flex-direction: column;
+          font-size: 22px;
+        }
+
+        h2 {
+          margin: 0;
+          font-size: 36px;
         }
 
         .topRow {
@@ -183,28 +208,20 @@ export default async function PrintInvoiceBatchPage({
           align-items: start;
         }
 
-        h2 {
-          margin: 0;
-          font-size: 28px; /* title not huge */
-          font-weight: 800;
+        .rightMeta {
+          text-align: right;
+          font-size: 24px;
+          line-height: 1.4;
+          white-space: nowrap; /* Vendor # stays 1 line */
         }
 
         .leftMeta {
-          margin-top: 8px;
-          font-size: 16px;
-          line-height: 1.35;
+          font-size: 24px;
+          line-height: 1.4;
         }
 
-        .rightMeta {
-          margin-top: 6px;
-          text-align: right;
-          font-size: 16px;
-          line-height: 1.35;
-          white-space: nowrap; /* Vendor # always one line */
-        }
-
-        .storeLine {
-          font-size: 40px;
+        .store-line {
+          font-size: 48px;
           font-weight: 900;
           margin-top: 14px;
           margin-bottom: 10px;
@@ -213,13 +230,13 @@ export default async function PrintInvoiceBatchPage({
         table {
           width: 100%;
           border-collapse: collapse;
-          margin-top: 10px;
+          margin-top: 14px;
         }
 
         th, td {
           border: 1px solid #000;
-          padding: 6px 6px;
-          font-size: 14px;
+          padding: 6px;
+          font-size: 22px;
           vertical-align: top;
         }
 
@@ -230,19 +247,19 @@ export default async function PrintInvoiceBatchPage({
         }
 
         .totals {
-          margin-top: 14px;
+          margin-top: auto;
           margin-left: auto;
-          width: fit-content;
           text-align: right;
-          font-size: 18px;
-          line-height: 1.35;
-          font-weight: 700;
+          font-size: 24px;
+          line-height: 1.5;
+          padding-top: 16px;
           white-space: nowrap;
         }
       `}</style>
 
-      <div className="noPrintHint">
-        Printing <b>{invoices.length}</b> invoice(s). If the dialog doesn’t open automatically, press <b>Ctrl+P</b>.
+      <div className="no-print">
+        Printing <b>{invoices.length}</b> invoice(s). These invoices were archived (marked <b>ISSUED</b>). If the dialog didn’t open automatically, press{" "}
+        <b>Ctrl+P</b>.
       </div>
 
       {invoices.map((inv) => {
@@ -256,7 +273,7 @@ export default async function PrintInvoiceBatchPage({
               <div>
                 <h2>{vendorName(inv.vendor)} Invoice</h2>
 
-                <div className="leftMeta">
+                <div className="leftMeta" style={{ marginTop: 8 }}>
                   <div>
                     <b>Voucher #:</b> {voucherNum}
                   </div>
@@ -266,7 +283,7 @@ export default async function PrintInvoiceBatchPage({
                 </div>
               </div>
 
-              <div className="rightMeta">
+              <div className="rightMeta" style={{ marginTop: 6 }}>
                 <div>
                   <b>Vendor #</b> {vendorNum}
                 </div>
@@ -279,7 +296,7 @@ export default async function PrintInvoiceBatchPage({
               </div>
             </div>
 
-            <div className="storeLine">
+            <div className="store-line">
               Store: {sc} {inv.storeName}
             </div>
 
@@ -322,6 +339,6 @@ export default async function PrintInvoiceBatchPage({
           </div>
         );
       })}
-    </div>
+    </main>
   );
 }
