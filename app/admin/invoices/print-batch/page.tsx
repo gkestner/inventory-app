@@ -33,7 +33,7 @@ function vendorSuffix(v: InvoiceVendor) {
 }
 
 /**
- * storeNumber may be "03", 3, or "03 ABINGDON".
+ * storeNumber appears to be string-like (ex "03", "55", or "55 CLINTWOOD").
  * Extract digits and pad to 2.
  */
 function storeCode(storeNumber: string | number | null | undefined) {
@@ -95,7 +95,7 @@ export default async function PrintInvoiceBatchPage({
     );
   }
 
-  // Mark DRAFT -> ISSUED when printing (if that's your workflow)
+  // Mark as issued on print (existing behavior)
   const now = new Date();
   await prisma.invoice.updateMany({
     where: {
@@ -128,18 +128,19 @@ export default async function PrintInvoiceBatchPage({
           margin: 0.25in;
         }
 
-        /* IMPORTANT:
-           Use display:none (not visibility:hidden) to prevent extra blank pages.
-           visibility:hidden keeps layout space and frequently causes page 2 to appear.
-        */
+        /* ---- Print visibility technique (works with Next layout wrappers) ---- */
         @media print {
           html, body { height: auto !important; }
-          body { margin: 0 !important; }
+          body * { visibility: hidden !important; }
+          .printRoot, .printRoot * { visibility: visible !important; }
 
-          /* Hide everything in body except this printRoot */
-          body > :not(.printRoot) { display: none !important; }
+          .printRoot {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+          }
 
-          .printRoot { display: block !important; }
           .noPrintHint { display: none !important; }
         }
 
@@ -160,14 +161,12 @@ export default async function PrintInvoiceBatchPage({
           opacity: 0.8;
         }
 
-        /* One invoice "sheet" */
+        /* One invoice “sheet” */
         .sheet {
           padding: 18px 22px;
           max-width: 1100px;
           margin: 0 auto;
           box-sizing: border-box;
-          break-inside: avoid;
-          page-break-inside: avoid;
         }
 
         .topRow {
@@ -194,15 +193,7 @@ export default async function PrintInvoiceBatchPage({
           text-align: right;
           font-size: 16px;
           line-height: 1.35;
-          white-space: nowrap; /* keep Vendor # line from wrapping */
-        }
-
-        /* ✅ Vendor # line: bold + 2x size */
-        .vendorLine {
-          font-weight: 900;
-          font-size: 32px; /* 2x-ish from 16 */
-          line-height: 1.05;
-          white-space: nowrap;
+          white-space: nowrap; /* Vendor # always one line */
         }
 
         .storeLine {
@@ -216,7 +207,6 @@ export default async function PrintInvoiceBatchPage({
           width: 100%;
           border-collapse: collapse;
           margin-top: 10px;
-          table-layout: fixed;
         }
 
         th, td {
@@ -251,11 +241,12 @@ export default async function PrintInvoiceBatchPage({
       {invoices.map((inv, idx) => {
         const sc = storeCode(inv.storeNumber as unknown as string | number | null);
         const vendorNum = `${sc}${vendorSuffix(inv.vendor)}`;
-        const voucherNum = inv.id;
+        const voucherNum = inv.id; // never blank
 
         const isLast = idx === invoices.length - 1;
 
-        // Break AFTER every invoice except the last
+        // ✅ This is the important part: do NOT rely on :last-child.
+        // Apply break AFTER every invoice except the last -> prevents blank trailing page.
         const sheetStyle: React.CSSProperties = {
           breakAfter: isLast ? "auto" : "page",
           pageBreakAfter: isLast ? "auto" : "always",
@@ -278,7 +269,9 @@ export default async function PrintInvoiceBatchPage({
               </div>
 
               <div className="rightMeta">
-                <div className="vendorLine">Vendor # {vendorNum}</div>
+                <div>
+                  <b>Vendor #</b> {vendorNum}
+                </div>
                 <div>
                   <b>Billed to:</b> {inv.billedTo}
                 </div>
@@ -295,15 +288,15 @@ export default async function PrintInvoiceBatchPage({
             <table>
               <thead>
                 <tr>
-                  <th style={{ width: "14%" }}>Date Submitted</th>
-                  <th style={{ width: "10%" }}>SKU</th>
-                  <th style={{ width: "10%" }}>Part #</th>
-                  <th style={{ width: "26%" }}>Name</th>
-                  <th style={{ width: "6%" }}>Qty</th>
-                  <th style={{ width: "10%" }}>Unit</th>
-                  <th style={{ width: "10%" }}>Subtotal</th>
-                  <th style={{ width: "6%" }}>Tax</th>
-                  <th style={{ width: "8%" }}>Total</th>
+                  <th>Date Submitted</th>
+                  <th>SKU</th>
+                  <th>Part #</th>
+                  <th>Name</th>
+                  <th>Qty</th>
+                  <th>Unit</th>
+                  <th>Subtotal</th>
+                  <th>Tax</th>
+                  <th>Total</th>
                 </tr>
               </thead>
               <tbody>
