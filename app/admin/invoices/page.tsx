@@ -687,7 +687,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
     const taxRateRaw = String(formData.get("taxRatePct") ?? "").trim();
     const taxRate = Number(taxRateRaw);
-    if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) {
+    if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 999.99) {
       redirect("/admin/invoices?cfg=tax_rate_invalid");
     }
 
@@ -792,7 +792,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
       : cfg === "formula_required"
         ? "Tax formula is required."
         : cfg === "tax_rate_invalid"
-          ? "Tax rate must be a valid number between 0 and 100."
+          ? "Tax rate must be a valid number between 0 and 999.99."
           : cfg === "parts_upcharge_invalid"
             ? "Parts upcharge must be a valid non-negative number."
             : cfg === "config_not_ready"
