@@ -11,7 +11,6 @@ import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { InvoiceVendor, Permission, PartsCheckoutStatus, Role, Prisma } from "@prisma/client";
 
 import { createInvoicesForWindow } from "./actions";
-import GenerateInvoicesSubmitButton from "./GenerateInvoicesSubmitButton";
 
 export const dynamic = "force-dynamic";
 
@@ -86,7 +85,6 @@ type SearchParams = {
   gen?: string;
   genDetails?: string;
 };
-
 
 type CreateInvoicesResult = Awaited<ReturnType<typeof createInvoicesForWindow>>;
 
@@ -412,7 +410,8 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   const invoiceModelReady = typeof d.invoice?.findMany === "function" && typeof d.invoice?.count === "function";
   const invoiceLineReady = typeof d.invoiceLine?.deleteMany === "function";
   const ticketModelReady = typeof d.partsCheckoutTicket?.groupBy === "function";
-  const vendorConfigReady = typeof d.invoiceVendorConfig?.findMany === "function" && typeof d.invoiceVendorConfig?.upsert === "function";
+  const vendorConfigReady =
+    typeof d.invoiceVendorConfig?.findMany === "function" && typeof d.invoiceVendorConfig?.upsert === "function";
 
   if (!invoiceModelReady || !invoiceLineReady) {
     return (
@@ -557,7 +556,6 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   let invoices: InvoiceRow[] = [];
 
   try {
-    // We can safely call prisma.invoice here because this file exists in the deployment that has invoice models.
     const [count, rows] = await Promise.all([
       prisma.invoice.count(),
       prisma.invoice.findMany({
@@ -624,7 +622,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     "use server";
     await requireInvoicesView();
 
-        const buildReturnToFromSubmission = (patch: Partial<SearchParams>) => {
+    const buildReturnToFromSubmission = (patch: Partial<SearchParams>) => {
       const get = (k: keyof SearchParams) => String(formData.get(k) ?? "").trim();
       const qp = new URLSearchParams();
       const merged: SearchParams = {
@@ -691,14 +689,14 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
       redirect(`/admin/invoices/print-batch?ids=${encodeURIComponent(ids.join(","))}`);
     }
 
-      const reasonRows = ((res as unknown as { results?: unknown[] } | null)?.results ?? []) as Array<Record<string, unknown>>;
+    const reasonRows = ((res as unknown as { results?: unknown[] } | null)?.results ?? []) as Array<Record<string, unknown>>;
     const reasonList = reasonRows
       .map((r) => (typeof r.reason === "string" ? r.reason.trim() : ""))
       .filter((r) => r.length > 0);
 
-      const detail = reasonList.length > 0 ? reasonList.slice(0, 2).join(" • ") : "No eligible tickets were found.";
-      redirect(buildReturnToFromSubmission({ gen: "none", genDetails: detail }));
-    }
+    const detail = reasonList.length > 0 ? reasonList.slice(0, 2).join(" • ") : "No eligible tickets were found.";
+    redirect(buildReturnToFromSubmission({ gen: "none", genDetails: detail }));
+  }
 
   async function updateVendorPricingAndTaxAction(formData: FormData) {
     "use server";
@@ -830,7 +828,8 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
               ? "Vendor settings are not available yet on this deployment (missing invoiceVendorConfig)."
               : null;
 
-    const genBanner = gen === "none" ? `No invoices were generated for that request. ${genDetails || "Check vendor/date range and store setup."}` : null;
+  const genBanner =
+    gen === "none" ? `No invoices were generated for that request. ${genDetails || "Check vendor/date range and store setup."}` : null;
 
   const detailsSummaryStyle: CSSProperties = {
     cursor: "pointer",
@@ -911,7 +910,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
             {cfgBanner}
           </div>
         ) : null}
-        
+
         {genBanner ? (
           <div
             style={{
@@ -1019,21 +1018,6 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
           <div style={{ fontSize: 12, opacity: 0.8 }}>
             Ready tickets in window: <b>{readyTotal}</b> • Vendor format: <b>{vendorLabel(vendor)}</b>
           </div>
-          {gen === "none" ? (
-            <div
-              style={{
-                marginTop: 8,
-                padding: "8px 10px",
-                borderRadius: 10,
-                border: "1px solid rgba(255,152,0,0.55)",
-                background: "rgba(255,152,0,0.12)",
-                fontSize: 12,
-                fontWeight: 800,
-              }}
-            >
-              No invoices were generated. {genDetails || "Check vendor/date range and that stores have setup data (like store number)."}
-            </div>
-          ) : null}
 
           <div style={{ marginTop: 10, border, borderRadius: 14, padding: 12, background: surface }}>
             <div style={{ fontWeight: 900, marginBottom: 6 }}>Pending invoice generation (by store)</div>
@@ -1114,7 +1098,10 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                 </label>
 
                 <div style={{ flex: "1 1 220px", display: "flex", justifyContent: "flex-end" }}>
-                <GenerateInvoicesSubmitButton style={btnPrimary} />
+                  {/* FIX: ensure we actually submit the form */}
+                  <button type="submit" style={btnPrimary}>
+                    Generate invoices
+                  </button>
                 </div>
               </div>
 
@@ -1237,9 +1224,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                 Hard delete selected
               </button>
 
-              <div style={{ fontSize: 12, opacity: 0.75, maxWidth: 700 }}>
-                Hard delete permanently removes invoices and their line items.
-              </div>
+              <div style={{ fontSize: 12, opacity: 0.75, maxWidth: 700 }}>Hard delete permanently removes invoices and their line items.</div>
             </div>
           </form>
 
