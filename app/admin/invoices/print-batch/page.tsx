@@ -11,7 +11,11 @@ export const runtime = "nodejs";
 
 function fmtDate(d: Date | null) {
   if (!d) return "N/A";
-  return new Date(d).toLocaleDateString();
+  try {
+    return new Date(d).toLocaleDateString();
+  } catch {
+    return "N/A";
+  }
 }
 
 function money(n: unknown) {
@@ -20,19 +24,26 @@ function money(n: unknown) {
   return v.toLocaleString(undefined, { style: "currency", currency: "USD" });
 }
 
-function vendorSuffix(v: InvoiceVendor) {
-  return v === "AMERICAN_PLUS" ? "APLS" : "SP";
-}
-
 function vendorName(v: InvoiceVendor) {
   return v === "AMERICAN_PLUS" ? "American Plus" : "Success Plus";
 }
 
+function vendorSuffix(v: InvoiceVendor) {
+  return v === "AMERICAN_PLUS" ? "APLS" : "SP";
+}
+
+/**
+ * storeNumber may be "03", 3, or "03 ABINGDON".
+ * Extract digits and pad to 2.
+ */
 function storeCode(storeNumber: string | number | null | undefined) {
-  if (!storeNumber) return "00";
-  const digits = String(storeNumber).replace(/[^\d]/g, "");
-  if (!digits) return "00";
-  return String(Number(digits)).padStart(2, "0");
+  if (storeNumber === null || storeNumber === undefined) return "00";
+  const raw = String(storeNumber).trim();
+  const digitsOnly = raw.replace(/[^\d]/g, "");
+  if (!digitsOnly) return "00";
+  const n = Number(digitsOnly);
+  if (!Number.isFinite(n)) return "00";
+  return String(Math.trunc(n)).padStart(2, "0");
 }
 
 type SearchParams = {
@@ -50,138 +61,230 @@ export default async function PrintInvoiceBatchPage({
   const sp = await searchParams;
 
   const idsRaw =
-    Array.isArray(sp.ids) ? sp.ids.join(",") :
-    typeof sp.ids === "string" ? sp.ids : "";
+    Array.isArray(sp.ids) ? sp.ids.join(",") : typeof sp.ids === "string" ? sp.ids : "";
 
-  const ids = idsRaw.split(",").map(s => s.trim()).filter(Boolean);
+  const idsClean = idsRaw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
-  if (!ids.length) {
-    return <div style={{ padding: 20 }}>Missing invoice ids.</div>;
+  if (idsClean.length === 0) {
+    return (
+      <main style={{ padding: 16, fontFamily: "Arial, sans-serif" }}>
+        Missing invoice ids.
+        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
+          Expected URL like: <code>/admin/invoices/print-batch?ids=ID1,ID2</code>
+        </div>
+      </main>
+    );
   }
 
   const invoices = await prisma.invoice.findMany({
-    where: { id: { in: ids } },
+    where: { id: { in: idsClean } },
     orderBy: { invoiceDate: "asc" },
-    include: { lines: { orderBy: { submittedAt: "asc" } } },
+    include: {
+      lines: { orderBy: { submittedAt: "asc" } },
+    },
   });
 
-  if (!invoices.length) {
-    return <div style={{ padding: 20 }}>No invoices found.</div>;
+  if (invoices.length === 0) {
+    return (
+      <main style={{ padding: 16, fontFamily: "Arial, sans-serif" }}>
+        No invoices found.
+      </main>
+    );
   }
 
+  // Mark DRAFT -> ISSUED when printing (if that's your workflow)
+  const now = new Date();
   await prisma.invoice.updateMany({
     where: {
-      id: { in: invoices.map(i => i.id) },
+      id: { in: invoices.map((i) => i.id) },
       status: InvoiceStatus.DRAFT,
     },
     data: {
       status: InvoiceStatus.ISSUED,
-      issuedAt: new Date(),
+      issuedAt: now,
     },
   });
 
   return (
-    <>
-      <Script id="auto-print" strategy="afterInteractive">
-        {`setTimeout(() => window.print(), 100);`}
-      </Script>
+    <div className="printRoot">
+      {/* Auto-print */}
+      <Script id="auto-print-batch" strategy="afterInteractive">{`
+(function () {
+  if (window.__invoiceBatchPrintTried) return;
+  window.__invoiceBatchPrintTried = true;
+  setTimeout(function () {
+    try { window.focus(); window.print(); } catch (e) {}
+  }, 80);
+})();
+      `}</Script>
 
       <style>{`
+        /* Force landscape + narrow margins */
         @page {
           size: letter landscape;
           margin: 0.25in;
         }
 
-        html, body {
+        /* IMPORTANT:
+           Use display:none (not visibility:hidden) to prevent extra blank pages.
+           visibility:hidden keeps layout space and frequently causes page 2 to appear.
+        */
+        @media print {
+          html, body { height: auto !important; }
+          body { margin: 0 !important; }
+
+          /* Hide everything in body except this printRoot */
+          body > :not(.printRoot) { display: none !important; }
+
+          .printRoot { display: block !important; }
+          .noPrintHint { display: none !important; }
+        }
+
+        body {
+          font-family: Arial, sans-serif;
           margin: 0;
           padding: 0;
-          font-family: Arial, sans-serif;
+          background: #fff;
+          color: #000;
         }
 
+        .noPrintHint {
+          padding: 10px 12px;
+          border-bottom: 1px solid rgba(0,0,0,0.15);
+          max-width: 1100px;
+          margin: 0 auto;
+          font-size: 12px;
+          opacity: 0.8;
+        }
+
+        /* One invoice "sheet" */
         .sheet {
-          width: 100%;
-          height: 100%;
+          padding: 18px 22px;
+          max-width: 1100px;
+          margin: 0 auto;
           box-sizing: border-box;
-          page-break-after: always;
-        }
-
-        .sheet:last-child {
-          page-break-after: auto;
+          break-inside: avoid;
+          page-break-inside: avoid;
         }
 
         .topRow {
-          display: flex;
-          justify-content: space-between;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 16px;
+          align-items: start;
         }
 
         h2 {
           margin: 0;
           font-size: 28px;
+          font-weight: 800;
         }
 
         .leftMeta {
-          margin-top: 6px;
+          margin-top: 8px;
           font-size: 16px;
+          line-height: 1.35;
         }
 
         .rightMeta {
+          margin-top: 6px;
           text-align: right;
+          font-size: 16px;
+          line-height: 1.35;
+          white-space: nowrap; /* keep Vendor # line from wrapping */
         }
 
+        /* ✅ Vendor # line: bold + 2x size */
         .vendorLine {
-          font-size: 32px;
           font-weight: 900;
+          font-size: 32px; /* 2x-ish from 16 */
+          line-height: 1.05;
           white-space: nowrap;
         }
 
         .storeLine {
           font-size: 40px;
           font-weight: 900;
-          margin: 14px 0 10px;
+          margin-top: 14px;
+          margin-bottom: 10px;
         }
 
         table {
           width: 100%;
           border-collapse: collapse;
+          margin-top: 10px;
+          table-layout: fixed;
         }
 
         th, td {
           border: 1px solid #000;
-          padding: 6px;
+          padding: 6px 6px;
           font-size: 14px;
+          vertical-align: top;
         }
 
         th {
           background: #eee;
+          text-align: left;
+          white-space: nowrap;
         }
 
         .totals {
           margin-top: 12px;
+          margin-left: auto;
+          width: fit-content;
           text-align: right;
           font-size: 18px;
+          line-height: 1.35;
           font-weight: 700;
+          white-space: nowrap;
         }
       `}</style>
 
-      {invoices.map((inv) => {
-        const sc = storeCode(inv.storeNumber);
+      <div className="noPrintHint">
+        Printing <b>{invoices.length}</b> invoice(s). If the dialog doesn’t open automatically, press <b>Ctrl+P</b>.
+      </div>
+
+      {invoices.map((inv, idx) => {
+        const sc = storeCode(inv.storeNumber as unknown as string | number | null);
         const vendorNum = `${sc}${vendorSuffix(inv.vendor)}`;
+        const voucherNum = inv.id;
+
+        const isLast = idx === invoices.length - 1;
+
+        // Break AFTER every invoice except the last
+        const sheetStyle: React.CSSProperties = {
+          breakAfter: isLast ? "auto" : "page",
+          pageBreakAfter: isLast ? "auto" : "always",
+        };
 
         return (
-          <div key={inv.id} className="sheet">
+          <div key={inv.id} className="sheet" style={sheetStyle}>
             <div className="topRow">
               <div>
                 <h2>{vendorName(inv.vendor)} Invoice</h2>
+
                 <div className="leftMeta">
-                  <div><b>Voucher #:</b> {inv.id}</div>
-                  <div><b>Period:</b> {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}</div>
+                  <div>
+                    <b>Voucher #:</b> {voucherNum}
+                  </div>
+                  <div>
+                    <b>Period:</b> {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}
+                  </div>
                 </div>
               </div>
 
               <div className="rightMeta">
                 <div className="vendorLine">Vendor # {vendorNum}</div>
-                <div><b>Billed to:</b> {inv.billedTo}</div>
-                <div><b>Date Invoiced:</b> {fmtDate(inv.invoiceDate)}</div>
+                <div>
+                  <b>Billed to:</b> {inv.billedTo}
+                </div>
+                <div>
+                  <b>Date Invoiced:</b> {fmtDate(inv.invoiceDate)}
+                </div>
               </div>
             </div>
 
@@ -192,29 +295,29 @@ export default async function PrintInvoiceBatchPage({
             <table>
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>SKU</th>
-                  <th>Part #</th>
-                  <th>Name</th>
-                  <th>Qty</th>
-                  <th>Unit</th>
-                  <th>Subtotal</th>
-                  <th>Tax</th>
-                  <th>Total</th>
+                  <th style={{ width: "14%" }}>Date Submitted</th>
+                  <th style={{ width: "10%" }}>SKU</th>
+                  <th style={{ width: "10%" }}>Part #</th>
+                  <th style={{ width: "26%" }}>Name</th>
+                  <th style={{ width: "6%" }}>Qty</th>
+                  <th style={{ width: "10%" }}>Unit</th>
+                  <th style={{ width: "10%" }}>Subtotal</th>
+                  <th style={{ width: "6%" }}>Tax</th>
+                  <th style={{ width: "8%" }}>Total</th>
                 </tr>
               </thead>
               <tbody>
-                {inv.lines.map(line => (
+                {inv.lines.map((line) => (
                   <tr key={line.id}>
-                    <td>{fmtDate(line.submittedAt)}</td>
-                    <td>{line.sku}</td>
-                    <td>{line.partNumber ?? "—"}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>{fmtDate(line.submittedAt)}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>{line.sku}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>{line.partNumber ?? "—"}</td>
                     <td>{line.name}</td>
-                    <td>{line.quantity}</td>
-                    <td>{money(line.unitPrice)}</td>
-                    <td>{money(line.lineSubtotal)}</td>
-                    <td>{money(line.lineTax)}</td>
-                    <td>{money(line.lineTotal)}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>{line.quantity}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>{money(line.unitPrice)}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>{money(line.lineSubtotal)}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>{money(line.lineTax)}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>{money(line.lineTotal)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -223,11 +326,11 @@ export default async function PrintInvoiceBatchPage({
             <div className="totals">
               <div>Subtotal: {money(inv.subtotal)}</div>
               <div>Tax: {money(inv.taxTotal)}</div>
-              <div>Total: {money(inv.total)}</div>
+              <div style={{ fontWeight: 900 }}>Total: {money(inv.total)}</div>
             </div>
           </div>
         );
       })}
-    </>
+    </div>
   );
 }
