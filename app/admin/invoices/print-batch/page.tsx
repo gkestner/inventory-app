@@ -133,7 +133,7 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
     data: { status: InvoiceStatus.ISSUED, issuedAt: now },
   });
 
-  const templateStamp = "print-batch v2026-03-02e";
+  const templateStamp = "print-batch v2026-03-02f";
 
   const sheet: CSSProperties = {
     boxSizing: "border-box",
@@ -221,7 +221,7 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
       />
 
       <style>{`
-        /* Force landscape + narrow margins */
+        /* Letter landscape with narrow margins */
         @page { size: letter landscape; margin: 0.25in; }
 
         @media print {
@@ -237,20 +237,35 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
 
           .no-print { display: none !important; }
 
-          /* 1 invoice per physical page */
-          .sheet { break-after: page; page-break-after: always; }
-          .sheet:last-child { break-after: auto; page-break-after: auto; }
+          /* ✅ HARD GUARANTEE: 1 invoice == 1 page */
+          .sheet {
+            break-after: page;
+            page-break-after: always;
 
-          /*
-            ✅ FIT-TO-ONE-PAGE:
-            If content is slightly too tall, the browser spills.
-            Scale the invoice content down a bit ONLY in print.
-          */
+            /* Printable height of Letter Landscape:
+               page height = 8.5in, margins top+bottom = 0.5in => 8.0in */
+            height: 8in !important;
+            max-height: 8in !important;
+            overflow: hidden !important;
+
+            /* tighten padding in print so we have more usable space */
+            padding: 0.12in !important;
+            box-sizing: border-box !important;
+          }
+          .sheet:last-child {
+            break-after: auto;
+            page-break-after: auto;
+          }
+
+          /* ✅ Fit the whole invoice into the 8in height */
           .sheetInner {
             transform-origin: top left;
-            transform: scale(0.86);
-            width: calc(100% / 0.86);
+            transform: scale(0.78);
+            width: calc(100% / 0.78);
           }
+
+          /* Prevent table/totals from causing extra page logic */
+          table, tr, td, th { page-break-inside: avoid !important; }
         }
       `}</style>
 
@@ -268,7 +283,6 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
               <div className="sheetInner">
                 <div style={topRow}>
                   <h2 style={title}>{vendorName(inv.vendor)} Invoice</h2>
-
                   <div style={{ fontSize: 28, fontWeight: 800, whiteSpace: "nowrap" }}>
                     Vendor # <b>{vendorNo}</b>
                   </div>
