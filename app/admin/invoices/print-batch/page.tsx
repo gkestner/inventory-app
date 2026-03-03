@@ -48,6 +48,8 @@ function vendorName(vendor: InvoiceVendor) {
 }
 
 function vendorNumberFor(storeNumber: string, vendor: InvoiceVendor) {
+  // Success Plus = (location number + SP)
+  // American Plus = (location number + APLS)
   const sn = String(storeNumber ?? "").trim();
   if (!sn) return "—";
   return `${sn}${vendor === "SUCCESS_PLUS" ? "SP" : "APLS"}`;
@@ -85,6 +87,7 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
             include: { lines: { orderBy: { submittedAt: "asc" } } },
           })
           .then((rows) => {
+            // Preserve requested order
             const map = new Map(rows.map((r) => [r.id, r]));
             return ids.map((id) => map.get(id)).filter(Boolean) as typeof rows;
           })
@@ -133,7 +136,7 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
     data: { status: InvoiceStatus.ISSUED, issuedAt: now },
   });
 
-  const templateStamp = "print-batch v2026-03-02f";
+  const templateStamp = "print-batch v2026-03-02g";
 
   const sheet: CSSProperties = {
     boxSizing: "border-box",
@@ -151,12 +154,14 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
     flexWrap: "nowrap",
   };
 
+  // Title = half of the previous 68
   const title: CSSProperties = {
     fontSize: 34,
     fontWeight: 800,
     margin: 0,
   };
 
+  // (still 2x larger meta from your previous ask)
   const meta: CSSProperties = {
     fontSize: 32,
     lineHeight: 1.4,
@@ -221,10 +226,11 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
       />
 
       <style>{`
-        /* Letter landscape with narrow margins */
-        @page { size: letter landscape; margin: 0.25in; }
+        /* Print rules for Chrome + Letter + Default margins */
+        @page { size: letter landscape; }
 
         @media print {
+          /* Print-isolation that works with Next.js wrappers */
           body * { visibility: hidden !important; }
           #print-root, #print-root * { visibility: visible !important; }
 
@@ -237,35 +243,30 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
 
           .no-print { display: none !important; }
 
-          /* ✅ HARD GUARANTEE: 1 invoice == 1 page */
+          /* 1 invoice per page */
           .sheet {
             break-after: page;
             page-break-after: always;
+            break-inside: avoid;
+            page-break-inside: avoid;
 
-            /* Printable height of Letter Landscape:
-               page height = 8.5in, margins top+bottom = 0.5in => 8.0in */
-            height: 8in !important;
-            max-height: 8in !important;
-            overflow: hidden !important;
-
-            /* tighten padding in print so we have more usable space */
-            padding: 0.12in !important;
-            box-sizing: border-box !important;
+            /* Reduce padding in print so we fit inside Chrome "Default" margins */
+            padding: 8px 10px !important;
+            margin: 0 !important;
           }
-          .sheet:last-child {
-            break-after: auto;
-            page-break-after: auto;
-          }
+          .sheet:last-child { break-after: auto; page-break-after: auto; }
 
-          /* ✅ Fit the whole invoice into the 8in height */
+          /*
+            ✅ IMPORTANT:
+            Chrome ignores transform scaling for pagination, but DOES honor zoom.
+            This makes the browser compute the layout at the smaller size, so it fits on one page.
+          */
           .sheetInner {
-            transform-origin: top left;
-            transform: scale(0.78);
-            width: calc(100% / 0.78);
+            zoom: 0.74; /* tuned for Chrome default margins to fit 1 page */
           }
 
-          /* Prevent table/totals from causing extra page logic */
-          table, tr, td, th { page-break-inside: avoid !important; }
+          /* Avoid row splitting heuristics */
+          table, tr, td, th { break-inside: avoid !important; page-break-inside: avoid !important; }
         }
       `}</style>
 
@@ -283,6 +284,8 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
               <div className="sheetInner">
                 <div style={topRow}>
                   <h2 style={title}>{vendorName(inv.vendor)} Invoice</h2>
+
+                  {/* always one line */}
                   <div style={{ fontSize: 28, fontWeight: 800, whiteSpace: "nowrap" }}>
                     Vendor # <b>{vendorNo}</b>
                   </div>
