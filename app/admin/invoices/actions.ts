@@ -538,6 +538,10 @@ function normalizeVendor(v: unknown): InvoiceVendor {
   return String(v ?? "").toUpperCase() === "AMERICAN_PLUS" ? InvoiceVendor.AMERICAN_PLUS : InvoiceVendor.SUCCESS_PLUS;
 }
 
+function effectiveTicketVendor(ticket: { vendorSnapshot?: unknown; item?: { vendor?: unknown } | null }): InvoiceVendor {
+  return normalizeVendor(ticket.item?.vendor ?? ticket.vendorSnapshot);
+}
+
 export async function createInvoicesForWindow(args: {
   vendor: InvoiceVendor;
   periodStart: Date;
@@ -562,20 +566,13 @@ export async function createInvoicesForWindow(args: {
   }
 
   // Pull OPEN tickets in window, not already invoiced/voided.
-  // If requestedVendor === AMERICAN_PLUS: filter to American.
-  // Else: include both vendors and split into separate invoices by vendorSnapshot.
-  const vendorWhere =
-    requestedVendor === InvoiceVendor.AMERICAN_PLUS
-      ? { vendorSnapshot: InvoiceVendor.AMERICAN_PLUS }
-      : { vendorSnapshot: { in: [InvoiceVendor.SUCCESS_PLUS, InvoiceVendor.AMERICAN_PLUS] } };
-
-  const tickets = await prisma.partsCheckoutTicket.findMany({
+  // Vendor routing prefers item.vendor (current source of truth) and falls back to vendorSnapshot.
+  const ticketsAll = await prisma.partsCheckoutTicket.findMany({
     where: {
       status: PartsCheckoutStatus.OPEN,
       invoicedAt: null,
       voidedAt: null,
       createdAt: { gte: periodStart, lte: periodEnd },
-      ...vendorWhere,
     },
     select: {
       id: true,
@@ -589,16 +586,22 @@ export async function createInvoicesForWindow(args: {
       nameSnapshot: true,
       vendorSnapshot: true,
       createdAt: true,
+      item: {select: {vendor: true}},
     },
     orderBy: [{ storeName: "asc" }, { createdAt: "asc" }],
     take: 20000,
   });
+  
+  const tickets =
+    requestedVendor === InvoiceVendor.AMERICAN_PLUS
+      ? ticketsAll.filter((t) => effectiveTicketVendor(t) === InvoiceVendor.AMERICAN_PLUS)
+      : ticketsAll;
 
   if (tickets.length === 0) {
     return { results: [] };
   }
 
-  // Group by (storeId, vendorSnapshot)
+  // Group by (storeId, effectiveVendor)
   type Ticket = (typeof tickets)[number];
   const byStoreVendor = new Map<string, Ticket[]>();
 
@@ -658,13 +661,12 @@ export async function createInvoicesForWindow(args: {
         // Re-read the same tickets inside the transaction to avoid racing with another generation run.
         const ids = storeVendorTickets.map((t) => t.id);
 
-        const fresh = await tx.partsCheckoutTicket.findMany({
+        const freshAll = await tx.partsCheckoutTicket.findMany({
           where: {
             id: { in: ids },
             status: PartsCheckoutStatus.OPEN,
             invoicedAt: null,
             voidedAt: null,
-            vendorSnapshot: vendor,
           },
           select: {
             id: true,
@@ -678,9 +680,12 @@ export async function createInvoicesForWindow(args: {
             nameSnapshot: true,
             vendorSnapshot: true,
             createdAt: true,
+            item: { select: { vendor: true } },
           },
           orderBy: [{ createdAt: "asc" }],
         });
+
+                const fresh = freshAll.filter((t) => effectiveTicketVendor(t) === vendor);
 
         if (fresh.length === 0) {
           return { invoiceId: undefined as string | undefined, created: false, reason: "No eligible tickets" };
