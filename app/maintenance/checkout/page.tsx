@@ -241,7 +241,7 @@ export default async function MaintenanceCheckoutPage({
         const orderedAfter = item.orderedQty;
         const availableAfter = onHandAfter + orderedAfter;
         const minQtyAtTime = item.minQty;
-
+        vendor: item.vendor,
         await tx.item.update({
           where: { id: itemId },
           data: {
@@ -270,6 +270,7 @@ export default async function MaintenanceCheckoutPage({
             partNumberSnapshot: item.partNumber,
             nameSnapshot: item.name,
             costSnapshot: item.cost,
+            vendorSnapshot: item.vendor,
             priceSnapshot: item.price,
             taxableSnapshot: item.taxable,
           },
