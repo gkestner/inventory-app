@@ -136,7 +136,7 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
     data: { status: InvoiceStatus.ISSUED, issuedAt: now },
   });
 
-  const templateStamp = "print-batch v2026-03-02b";
+  const templateStamp = "print-batch v2026-03-02c";
 
   const sheet: CSSProperties = {
     boxSizing: "border-box",
@@ -153,15 +153,17 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
     gap: 16,
   };
 
+  // ✅ 2x bigger
   const title: CSSProperties = {
-    fontSize: 34,
+    fontSize: 68,
     fontWeight: 800,
     margin: 0,
   };
 
+  // ✅ 2x bigger
   const meta: CSSProperties = {
-    fontSize: 16,
-    lineHeight: 1.35,
+    fontSize: 32,
+    lineHeight: 1.4,
     marginTop: 8,
   };
 
@@ -196,18 +198,19 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
 
   const num: CSSProperties = { textAlign: "right", whiteSpace: "nowrap" };
 
+  // ✅ 2x bigger
   const totals: CSSProperties = {
-    marginTop: 12,
+    marginTop: 16,
     marginLeft: "auto",
     textAlign: "right",
-    fontSize: 16,
-    lineHeight: 1.5,
+    fontSize: 32,
+    lineHeight: 1.4,
     fontWeight: 800,
   };
 
   return (
     <main>
-      {/* Reliable auto-print (works better than next/script in some cases) */}
+      {/* Reliable auto-print */}
       <script
         suppressHydrationWarning
         dangerouslySetInnerHTML={{
@@ -227,7 +230,7 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
         @page { size: letter landscape; margin: 0.25in; }
 
         @media print {
-          /* The reliable pattern: hide everything, then show the print root */
+          /* Hide everything, then show print root (works with Next.js wrappers) */
           body * { visibility: hidden !important; }
           #print-root, #print-root * { visibility: visible !important; }
 
@@ -259,7 +262,9 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
             <div key={inv.id} className="sheet" style={sheet}>
               <div style={topRow}>
                 <h2 style={title}>{vendorName(inv.vendor)} Invoice</h2>
-                <div style={{ fontSize: 14, fontWeight: 800 }}>
+
+                {/* ✅ 2x bigger */}
+                <div style={{ fontSize: 28, fontWeight: 800 }}>
                   Vendor # <b>{vendorNo}</b>
                 </div>
               </div>
