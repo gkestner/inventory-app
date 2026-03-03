@@ -245,7 +245,7 @@ function nonEmptyString(v: FormDataEntryValue | null): string {
   return String(v ?? "").trim();
 }
 
-// IMPORTANT: make client-safe "plain JSON" item shape for ItemPicker
+// Client-safe item shape for ItemPicker (PLAIN JSON ONLY)
 type ItemLite = {
   id: string;
   sku: string;
@@ -403,7 +403,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     ];
   }
 
-  const [items, locations, users, total, orders] = await Promise.all([
+  const [itemsRaw, locations, users, total, orders] = await Promise.all([
     prisma.item.findMany({
       where: { active: true },
       orderBy: { sku: "asc" },
@@ -437,16 +437,20 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     }),
   ]);
 
-  // ✅ Sanitize Prisma items into plain JSON for the client ItemPicker
-  const pickerItems: ItemLite[] = items.map((it) => ({
-    id: String(it.id),
-    sku: String(it.sku),
-    partNumber: it.partNumber ?? null,
-    name: String(it.name),
-    category: it.category ?? null,
-    manufacturer: it.manufacturer ?? null,
-    orderFrom: it.orderFrom ?? null,
-  }));
+  // 🔥 IMPORTANT: make items 100% client-serializable (no Prisma prototypes)
+  const pickerItems = JSON.parse(
+    JSON.stringify(
+      itemsRaw.map((it) => ({
+        id: it.id,
+        sku: it.sku,
+        partNumber: it.partNumber ?? null,
+        name: it.name,
+        category: it.category ?? null,
+        manufacturer: it.manufacturer ?? null,
+        orderFrom: it.orderFrom ?? null,
+      }))
+    )
+  ) as ItemLite[];
 
   const pageCount = Math.max(1, Math.ceil(total / perPage));
 
@@ -464,11 +468,11 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     });
     if (!item) return;
 
-    const newCostStr = latest.unitPrice ? new Decimal(latest.unitPrice).toFixed(2) : null;
+    if (!latest.unitPrice) return;
+
+    const newCostStr = new Decimal(latest.unitPrice).toFixed(2);
     const prevCostStr = item.cost ? new Decimal(item.cost).toFixed(2) : null;
     const newOrderFrom = latest.supplierName ?? null;
-
-    if (!latest.unitPrice) return;
 
     const auditLine = buildSystemAuditLine({
       action: "SYNC_ITEM_FROM_LATEST_ORDER",
