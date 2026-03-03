@@ -82,14 +82,12 @@ export default async function PrintInvoiceBatchPage({
     return <main style={{ padding: 24 }}>No invoices available.</main>;
   }
 
-  // Mark as issued (atomic)
   const now = new Date();
   await prisma.invoice.updateMany({
     where: { id: { in: invoices.map((i) => i.id) }, status: InvoiceStatus.DRAFT },
     data: { status: InvoiceStatus.ISSUED, issuedAt: now },
   });
 
-  // --- Inline styles (guaranteed to apply) ---
   const sheet: CSSProperties = {
     padding: "24px 32px",
     maxWidth: 1400,
@@ -103,27 +101,34 @@ export default async function PrintInvoiceBatchPage({
     display: "flex",
     justifyContent: "space-between",
     alignItems: "baseline",
-    gap: 12,
   };
 
-  const h2Style: CSSProperties = { fontSize: 36, margin: 0, fontWeight: 800 };
-  const topRight: CSSProperties = { fontSize: 16, fontWeight: 800, whiteSpace: "nowrap" };
+  const h2Style: CSSProperties = {
+    fontSize: 36,
+    margin: 0,
+    fontWeight: 800,
+  };
 
-  const meta: CSSProperties = { fontSize: 18, marginTop: 8, lineHeight: 1.4 };
+  const topRight: CSSProperties = {
+    fontSize: 16,
+    fontWeight: 800,
+  };
+
+  const meta: CSSProperties = {
+    fontSize: 18,
+    marginTop: 8,
+    lineHeight: 1.4,
+  };
 
   const storeLine: CSSProperties = {
     fontSize: 48,
     fontWeight: 900,
     margin: "18px 0 12px",
-    lineHeight: 1.05,
   };
 
-  // ✅ Table at 75% size relative to the rest
   const tableStyle: CSSProperties = {
     width: "100%",
     borderCollapse: "collapse",
-    marginTop: 10,
-    fontSize: "75%", // <- this is the 0.75 sizing
   };
 
   const thBase: CSSProperties = {
@@ -138,7 +143,6 @@ export default async function PrintInvoiceBatchPage({
   const tdBase: CSSProperties = {
     border: "1px solid #000",
     padding: "6px 8px",
-    verticalAlign: "top",
   };
 
   const numCell: CSSProperties = {
@@ -146,7 +150,12 @@ export default async function PrintInvoiceBatchPage({
     whiteSpace: "nowrap",
   };
 
-  const totals: CSSProperties = { marginTop: 16, textAlign: "right", fontSize: 20, fontWeight: 900 };
+  const totals: CSSProperties = {
+    marginTop: 16,
+    textAlign: "right",
+    fontSize: 20,
+    fontWeight: 900,
+  };
 
   return (
     <main>
@@ -155,14 +164,15 @@ export default async function PrintInvoiceBatchPage({
       `}</Script>
 
       <style>{`
-        @page { size: landscape; margin: 0.5in; }
+        @page {
+          size: landscape;
+          margin: 0.5in;
+        }
 
         body {
           margin: 0;
           background: #fff !important;
           color: #000 !important;
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
         }
 
         @media print {
@@ -178,12 +188,10 @@ export default async function PrintInvoiceBatchPage({
 
           .sheet {
             page-break-after: always;
-            break-after: page;
           }
 
           .sheet:last-child {
             page-break-after: auto;
-            break-after: auto;
           }
         }
       `}</style>
@@ -191,7 +199,7 @@ export default async function PrintInvoiceBatchPage({
       <div className="printArea">
         {invoices.map((inv) => {
           const vendorNumber = computeVendorNumber(inv.vendor, String(inv.storeNumber));
-          const voucherNumber = String(inv.vendorNumber ?? "").trim() || "—";
+          const voucherNumber = inv.vendorNumber || "—";
 
           return (
             <div key={inv.id} className="sheet" style={sheet}>
@@ -203,55 +211,57 @@ export default async function PrintInvoiceBatchPage({
               </div>
 
               <div style={meta}>
-                <div>
-                  <b>Voucher #:</b> {voucherNumber}
-                </div>
-                <div>
-                  <b>Billed to:</b> {inv.billedTo}
-                </div>
-                <div>
-                  <b>Date Invoiced:</b> {fmtDate(inv.invoiceDate)}
-                </div>
-                <div>
-                  <b>Period:</b> {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}
-                </div>
+                <div><b>Voucher #:</b> {voucherNumber}</div>
+                <div><b>Billed to:</b> {inv.billedTo}</div>
+                <div><b>Date Invoiced:</b> {fmtDate(inv.invoiceDate)}</div>
+                <div><b>Period:</b> {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}</div>
               </div>
 
-              <div style={storeLine}>
-                Store: {inv.storeNumber} {inv.storeName}
-              </div>
+              {/* ===== 50% SCALED SECTION ===== */}
+              <div
+                style={{
+                  transform: "scale(0.5)",
+                  transformOrigin: "top left",
+                  width: "200%",
+                }}
+              >
+                <div style={storeLine}>
+                  Store: {inv.storeNumber} {inv.storeName}
+                </div>
 
-              <table style={tableStyle}>
-                <thead>
-                  <tr>
-                    <th style={thBase}>Date</th>
-                    <th style={thBase}>SKU</th>
-                    <th style={thBase}>Part #</th>
-                    <th style={thBase}>Name</th>
-                    <th style={{ ...thBase, ...numCell }}>Qty</th>
-                    <th style={{ ...thBase, ...numCell }}>Unit</th>
-                    <th style={{ ...thBase, ...numCell }}>Subtotal</th>
-                    <th style={{ ...thBase, ...numCell }}>Tax</th>
-                    <th style={{ ...thBase, ...numCell }}>Total</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {inv.lines.map((line) => (
-                    <tr key={line.id}>
-                      <td style={tdBase}>{fmtDate(line.submittedAt)}</td>
-                      <td style={tdBase}>{line.sku}</td>
-                      <td style={tdBase}>{line.partNumber ?? "—"}</td>
-                      <td style={tdBase}>{line.name}</td>
-                      <td style={{ ...tdBase, ...numCell }}>{line.quantity}</td>
-                      <td style={{ ...tdBase, ...numCell }}>{money(line.unitPrice)}</td>
-                      <td style={{ ...tdBase, ...numCell }}>{money(line.lineSubtotal)}</td>
-                      <td style={{ ...tdBase, ...numCell }}>{money(line.lineTax)}</td>
-                      <td style={{ ...tdBase, ...numCell }}>{money(line.lineTotal)}</td>
+                <table style={tableStyle}>
+                  <thead>
+                    <tr>
+                      <th style={thBase}>Date</th>
+                      <th style={thBase}>SKU</th>
+                      <th style={thBase}>Part #</th>
+                      <th style={thBase}>Name</th>
+                      <th style={{ ...thBase, ...numCell }}>Qty</th>
+                      <th style={{ ...thBase, ...numCell }}>Unit</th>
+                      <th style={{ ...thBase, ...numCell }}>Subtotal</th>
+                      <th style={{ ...thBase, ...numCell }}>Tax</th>
+                      <th style={{ ...thBase, ...numCell }}>Total</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+
+                  <tbody>
+                    {inv.lines.map((line) => (
+                      <tr key={line.id}>
+                        <td style={tdBase}>{fmtDate(line.submittedAt)}</td>
+                        <td style={tdBase}>{line.sku}</td>
+                        <td style={tdBase}>{line.partNumber ?? "—"}</td>
+                        <td style={tdBase}>{line.name}</td>
+                        <td style={{ ...tdBase, ...numCell }}>{line.quantity}</td>
+                        <td style={{ ...tdBase, ...numCell }}>{money(line.unitPrice)}</td>
+                        <td style={{ ...tdBase, ...numCell }}>{money(line.lineSubtotal)}</td>
+                        <td style={{ ...tdBase, ...numCell }}>{money(line.lineTax)}</td>
+                        <td style={{ ...tdBase, ...numCell }}>{money(line.lineTotal)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {/* ===== END SCALED SECTION ===== */}
 
               <div style={totals}>
                 <div>Subtotal: {money(inv.subtotal)}</div>
