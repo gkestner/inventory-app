@@ -35,16 +35,14 @@ function vendorSuffix(v: InvoiceVendor) {
 }
 
 /**
- * Your schema has storeNumber as string (ex: "03", "55", maybe "55 CLINTWOOD", etc.)
+ * storeNumber appears to be a string in your schema (ex: "03", "55", maybe "55 CLINTWOOD").
  * This returns a 2-digit store code (ex: "03", "55") reliably.
  */
 function storeCode(storeNumber: string | number | null | undefined) {
   if (storeNumber === null || storeNumber === undefined) return "00";
-
-  // Convert to string, then extract the first number we can find
   const raw = String(storeNumber).trim();
 
-  // If it's already digits like "03" or "55"
+  // extract digits; works for "03", "55", "55 CLINTWOOD", etc.
   const digitsOnly = raw.replace(/[^\d]/g, "");
   if (!digitsOnly) return "00";
 
@@ -54,30 +52,43 @@ function storeCode(storeNumber: string | number | null | undefined) {
   return String(Math.trunc(n)).padStart(2, "0");
 }
 
+type SearchParams = {
+  ids?: string | string[];
+};
+
 export default async function PrintInvoiceBatchPage({
   searchParams,
 }: {
-  searchParams: { ids?: string };
+  searchParams: Promise<SearchParams>;
 }) {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
 
-  const idsRaw = String(searchParams.ids ?? "").trim();
-  if (!idsRaw) {
-    return (
-      <main style={{ padding: 16 }}>
-        <div style={{ fontFamily: "Arial, sans-serif" }}>Missing invoice ids.</div>
-      </main>
-    );
-  }
+  const sp = await searchParams;
 
-  const ids = idsRaw
+  const idsRaw =
+    Array.isArray(sp.ids) ? sp.ids.join(",") : typeof sp.ids === "string" ? sp.ids : "";
+
+  const idsClean = idsRaw
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
 
+  if (idsClean.length === 0) {
+    return (
+      <main style={{ padding: 16 }}>
+        <div style={{ fontFamily: "Arial, sans-serif" }}>
+          Missing invoice ids.
+          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
+            Expected URL like: <code>/admin/invoices/print-batch?ids=ID1,ID2</code>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   const invoices = await prisma.invoice.findMany({
-    where: { id: { in: ids } },
+    where: { id: { in: idsClean } },
     orderBy: { invoiceDate: "asc" },
     include: {
       lines: { orderBy: { submittedAt: "asc" } },
@@ -121,7 +132,7 @@ export default async function PrintInvoiceBatchPage({
       <style>{`
         @page {
           size: letter;
-          margin: 0.25in; /* narrow-ish margins */
+          margin: 0.25in;
         }
 
         @media print {
@@ -146,7 +157,6 @@ export default async function PrintInvoiceBatchPage({
             break-after: page;
             page-break-after: always;
 
-            /* prevent the old 100vh min-height from forcing an extra page */
             min-height: auto !important;
             height: auto !important;
 
@@ -180,7 +190,6 @@ export default async function PrintInvoiceBatchPage({
           padding: 24px 32px;
           max-width: 1100px;
           margin: 0 auto;
-          /* OK for screen; print overrides */
           min-height: calc(100vh - 1in);
           display: flex;
           flex-direction: column;
@@ -203,7 +212,7 @@ export default async function PrintInvoiceBatchPage({
           text-align: right;
           font-size: 24px;
           line-height: 1.4;
-          white-space: nowrap; /* Vendor # ... stays one line */
+          white-space: nowrap; /* Vendor # stays 1 line */
         }
 
         .leftMeta {
@@ -256,9 +265,7 @@ export default async function PrintInvoiceBatchPage({
       {invoices.map((inv) => {
         const sc = storeCode(inv.storeNumber as unknown as string | number | null);
         const vendorNum = `${sc}${vendorSuffix(inv.vendor)}`;
-
-        // Voucher #: use invoice id so it's never blank (unless you later add a voucher field)
-        const voucherNum = inv.id;
+        const voucherNum = inv.id; // always non-blank
 
         return (
           <div key={inv.id} className="sheet">
