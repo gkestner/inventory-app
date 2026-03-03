@@ -12,6 +12,7 @@ import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { InvoiceVendor, Permission, PartsCheckoutStatus, Role, Prisma } from "@prisma/client";
 
 import { createInvoicesForWindow } from "./actions";
+import GenerateInvoicesSubmitButton from "./GenerateInvoicesSubmitButton";
 
 export const dynamic = "force-dynamic";
 
@@ -1074,9 +1075,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                 </label>
 
                 <div style={{ flex: "1 1 220px", display: "flex", justifyContent: "flex-end" }}>
-                  <button type="submit" style={btnPrimary}>
-                    Generate invoices for window
-                  </button>
+                <GenerateInvoicesSubmitButton style={btnPrimary} />
                 </div>
               </div>
 
