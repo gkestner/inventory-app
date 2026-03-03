@@ -87,6 +87,7 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
             include: { lines: { orderBy: { submittedAt: "asc" } } },
           })
           .then((rows) => {
+            // Preserve requested order
             const map = new Map(rows.map((r) => [r.id, r]));
             return ids.map((id) => map.get(id)).filter(Boolean) as typeof rows;
           })
@@ -135,9 +136,9 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
     data: { status: InvoiceStatus.ISSUED, issuedAt: now },
   });
 
-  const templateStamp = "print-batch v2026-03-02h";
+  const templateStamp = "print-batch v2026-03-02i";
 
-  // Keep normal screen styling here; print rules override via CSS below
+  // Screen styling (print overrides via CSS)
   const sheet: CSSProperties = {
     boxSizing: "border-box",
     background: "#fff",
@@ -155,15 +156,32 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
   };
 
   const title: CSSProperties = {
-    fontSize: 34, // (your current request: smaller title)
+    fontSize: 34,
     fontWeight: 800,
     margin: 0,
   };
 
-  const meta: CSSProperties = {
+  // Meta container now supports left/right columns
+  const metaRow: CSSProperties = {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 24,
+    marginTop: 8,
+    alignItems: "flex-start",
+  };
+
+  const metaColLeft: CSSProperties = {
     fontSize: 32,
     lineHeight: 1.4,
-    marginTop: 8,
+    minWidth: 0,
+  };
+
+  const metaColRight: CSSProperties = {
+    fontSize: 32,
+    lineHeight: 1.4,
+    minWidth: 0,
+    textAlign: "right",
+    whiteSpace: "nowrap",
   };
 
   const storeLine: CSSProperties = {
@@ -208,6 +226,7 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
 
   return (
     <main>
+      {/* Reliable auto-print */}
       <script
         suppressHydrationWarning
         dangerouslySetInnerHTML={{
@@ -223,11 +242,6 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
       />
 
       <style>{`
-        /*
-          ✅ Chrome “Default margins” is not reliably controllable via CSS.
-          So we set page margin to 0 and implement our own narrow padding inside the page.
-          This makes print output deterministic.
-        */
         @page { size: letter landscape; margin: 0; }
 
         @media print {
@@ -244,8 +258,10 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
           .no-print { display: none !important; }
 
           /*
-            ✅ HARD RULE: one invoice = one physical page.
-            Letter landscape page height is 8.5in. We set the sheet to exactly that.
+            ✅ IMPORTANT CHANGE:
+            Instead of break-after (often causes a trailing blank page in Chrome),
+            we break BEFORE each invoice after the first.
+            This yields exactly 1 invoice per page without creating an extra page.
           */
           .sheet {
             height: 8.5in !important;
@@ -254,27 +270,22 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
             max-width: 11in !important;
 
             box-sizing: border-box !important;
-
-            /* Our own "narrow margins" inside the page */
-            padding: 0.25in !important;
-
-            /* Prevent spill creating another page */
-            overflow: hidden !important;
-
-            break-after: page;
-            page-break-after: always;
+            padding: 0.25in !important; /* narrow margins we control */
+            overflow: hidden !important; /* prevents any spill creating extra pages */
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
           }
-          .sheet:last-child { break-after: auto; page-break-after: auto; }
 
-          /*
-            ✅ CRITICAL: use zoom (Chrome paginates with zoom, not transform)
-            Tuned to fit your large meta/totals reliably on one page.
-          */
+          .sheet + .sheet {
+            break-before: page;
+            page-break-before: always;
+          }
+
+          /* Chrome paginates with zoom, not transform */
           .sheetInner {
             zoom: 0.66;
           }
 
-          /* Help Chrome avoid weird mid-row pagination logic */
           table, tr, td, th { page-break-inside: avoid !important; break-inside: avoid !important; }
         }
       `}</style>
@@ -299,18 +310,24 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
                   </div>
                 </div>
 
-                <div style={meta}>
-                  <div>
-                    <b>Voucher #:</b> {voucherNo}
+                {/* ✅ Meta split: left + right */}
+                <div style={metaRow}>
+                  <div style={metaColLeft}>
+                    <div>
+                      <b>Voucher #:</b> {voucherNo}
+                    </div>
+                    <div>
+                      <b>Period:</b> {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}
+                    </div>
                   </div>
-                  <div>
-                    <b>Billed to:</b> {inv.billedTo}
-                  </div>
-                  <div>
-                    <b>Date Invoiced:</b> {fmtDate(inv.invoiceDate)}
-                  </div>
-                  <div>
-                    <b>Period:</b> {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}
+
+                  <div style={metaColRight}>
+                    <div>
+                      <b>Billed to:</b> {inv.billedTo}
+                    </div>
+                    <div>
+                      <b>Date Invoiced:</b> {fmtDate(inv.invoiceDate)}
+                    </div>
                   </div>
                 </div>
 
