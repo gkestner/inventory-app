@@ -420,7 +420,8 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   const invoiceModelReady = typeof d.invoice?.findMany === "function" && typeof d.invoice?.count === "function";
   const invoiceLineReady = typeof d.invoiceLine?.deleteMany === "function";
   const ticketModelReady = typeof d.partsCheckoutTicket?.groupBy === "function";
-  const vendorConfigReady = typeof d.invoiceVendorConfig?.findMany === "function" && typeof d.invoiceVendorConfig?.upsert === "function";
+  const vendorConfigReady =
+    typeof d.invoiceVendorConfig?.findMany === "function" && typeof d.invoiceVendorConfig?.upsert === "function";
 
   if (!invoiceModelReady || !invoiceLineReady) {
     return (
@@ -563,7 +564,6 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   let invoices: InvoiceRow[] = [];
 
   try {
-    // We can safely call prisma.invoice here because this file exists in the deployment that has invoice models.
     const [count, rows] = await Promise.all([
       prisma.invoice.count(),
       prisma.invoice.findMany({
@@ -1074,7 +1074,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
             </div>
           </div>
 
-          <form action={hardDeleteSelectedInvoicesAction}>
+          <form id="hard_delete_invoices_form" action={hardDeleteSelectedInvoicesAction}>
             <input type="hidden" name="vendor" value={vendor} />
             <input type="hidden" name="from" value={fromStr} />
             <input type="hidden" name="to" value={toStr} />
@@ -1082,6 +1082,22 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
             <input type="hidden" name="page" value={String(page)} />
             <input type="hidden" name="perPage" value={String(perPage)} />
             <input type="hidden" name="err" value="" />
+
+            {/* Select-all toggle */}
+            <div
+              style={{
+                marginTop: 10,
+                display: "flex",
+                gap: 10,
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <button type="button" id="invoice_select_toggle" style={{ ...btn, padding: "9px 12px" }}>
+                Select all
+              </button>
+              <div style={{ fontSize: 12, opacity: 0.75 }}>Toggles selection for invoices on this page.</div>
+            </div>
 
             <div style={{ marginTop: 10, overflowX: "auto", border, borderRadius: 14, background: surface }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -1152,6 +1168,55 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
               </table>
             </div>
 
+            {/* lightweight client-side wiring (keeps page server-first) */}
+            <script
+              dangerouslySetInnerHTML={{
+                __html: `(() => {
+  function init() {
+    const form = document.getElementById("hard_delete_invoices_form");
+    if (!form) return;
+
+    // Avoid double-binding if Next re-renders parts of the page.
+    if (form.dataset.selectAllInit === "1") return;
+    form.dataset.selectAllInit = "1";
+
+    const btn = form.querySelector("#invoice_select_toggle");
+    if (!btn) return;
+
+    const getBoxes = () => Array.from(form.querySelectorAll('input[type="checkbox"][name="ids"]'));
+
+    const syncLabel = () => {
+      const boxes = getBoxes();
+      const all = boxes.length > 0 && boxes.every((b) => b.checked);
+      btn.textContent = all ? "Clear selection" : "Select all";
+      btn.setAttribute("aria-pressed", all ? "true" : "false");
+    };
+
+    btn.addEventListener("click", () => {
+      const boxes = getBoxes();
+      if (boxes.length === 0) return;
+      const all = boxes.every((b) => b.checked);
+      for (const b of boxes) b.checked = !all;
+      syncLabel();
+    });
+
+    form.addEventListener("change", (e) => {
+      const t = e.target;
+      if (t && t.matches && t.matches('input[type="checkbox"][name="ids"]')) syncLabel();
+    });
+
+    syncLabel();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();`,
+              }}
+            />
+
             <div
               style={{
                 marginTop: 12,
@@ -1176,9 +1241,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                 Hard delete selected
               </button>
 
-              <div style={{ fontSize: 12, opacity: 0.75, maxWidth: 700 }}>
-                Hard delete permanently removes invoices and their line items.
-              </div>
+              <div style={{ fontSize: 12, opacity: 0.75, maxWidth: 700 }}>Hard delete permanently removes invoices and their line items.</div>
             </div>
           </form>
 

@@ -245,6 +245,17 @@ function nonEmptyString(v: FormDataEntryValue | null): string {
   return String(v ?? "").trim();
 }
 
+// IMPORTANT: make client-safe "plain JSON" item shape for ItemPicker
+type ItemLite = {
+  id: string;
+  sku: string;
+  partNumber: string | null;
+  name: string;
+  category?: string | null;
+  manufacturer?: string | null;
+  orderFrom?: string | null;
+};
+
 export default async function AdminInventoryOrdersPage({ searchParams }: { searchParams: SearchParams }) {
   await requireOrderHistoryView();
 
@@ -425,6 +436,17 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
       include: ORDER_INCLUDE,
     }),
   ]);
+
+  // ✅ Sanitize Prisma items into plain JSON for the client ItemPicker
+  const pickerItems: ItemLite[] = items.map((it) => ({
+    id: String(it.id),
+    sku: String(it.sku),
+    partNumber: it.partNumber ?? null,
+    name: String(it.name),
+    category: it.category ?? null,
+    manufacturer: it.manufacturer ?? null,
+    orderFrom: it.orderFrom ?? null,
+  }));
 
   const pageCount = Math.max(1, Math.ceil(total / perPage));
 
@@ -1049,7 +1071,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                 <label style={{ display: "grid", gap: 6, fontSize: 12, opacity: 0.9, fontWeight: 900, ...flexItem(420, 3) }}>
                   Item (select existing)
                   <div style={{ marginTop: 2 }}>
-                    <ItemPicker name="itemId" items={items} placeholder="Search SKU, part #, name, category, manufacturer…" />
+                    <ItemPicker name="itemId" items={pickerItems} placeholder="Search SKU, part #, name, category, manufacturer…" />
                   </div>
                   <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>
                     If you’re creating a brand-new item, use the “New item” section below instead.
@@ -1215,7 +1237,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
               <label style={{ ...controlLabel, ...flexItem(320, 2) }}>
                 Item
                 <div style={{ marginTop: 2 }}>
-                  <ItemPicker name="itemId" items={items} defaultId={itemId} placeholder="Search item (sku, part #, name…)" />
+                  <ItemPicker name="itemId" items={pickerItems} defaultId={itemId} placeholder="Search item (sku, part #, name…)" />
                 </div>
               </label>
 
@@ -1287,6 +1309,10 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
             </div>
           </form>
         </div>
+      </div>
+    </main>
+  );
+}
 
         {/* Responsive “no overlap, no horizontal scroll” layout */}
         <style>{`
