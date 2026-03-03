@@ -29,13 +29,11 @@ function vendorName(v: InvoiceVendor) {
 }
 
 function vendorSuffix(v: InvoiceVendor) {
-  // Success Plus => (locationNumber + SP)
-  // American Plus => (locationNumber + APLS)
   return v === "AMERICAN_PLUS" ? "APLS" : "SP";
 }
 
 /**
- * storeNumber appears to be string-like in your app (ex "03", "55", or "55 CLINTWOOD").
+ * storeNumber appears to be string-like (ex "03", "55", or "55 CLINTWOOD").
  * Extract digits and pad to 2.
  */
 function storeCode(storeNumber: string | number | null | undefined) {
@@ -112,25 +110,27 @@ export default async function PrintInvoiceBatchPage({
 
   return (
     <div className="printRoot">
-      {/* Auto-print after navigation (if browser allows) */}
+      {/* Auto-print */}
       <Script id="auto-print-batch" strategy="afterInteractive">{`
 (function () {
   if (window.__invoiceBatchPrintTried) return;
   window.__invoiceBatchPrintTried = true;
   setTimeout(function () {
     try { window.focus(); window.print(); } catch (e) {}
-  }, 50);
+  }, 80);
 })();
       `}</Script>
 
       <style>{`
+        /* Force landscape + narrow margins */
         @page {
-          size: letter;
-          margin: 0.25in; /* narrow-ish margins */
+          size: letter landscape;
+          margin: 0.25in;
         }
 
-        /* ---- IMPORTANT: print visibility technique (works with Next layout wrappers) ---- */
+        /* ---- Print visibility technique (works with Next layout wrappers) ---- */
         @media print {
+          html, body { height: auto !important; }
           body * { visibility: hidden !important; }
           .printRoot, .printRoot * { visibility: visible !important; }
 
@@ -141,15 +141,7 @@ export default async function PrintInvoiceBatchPage({
             width: 100%;
           }
 
-          /* 1 invoice per page */
-          .sheet {
-            break-after: page;
-            page-break-after: always;
-          }
-          .sheet:last-child {
-            break-after: auto;
-            page-break-after: auto;
-          }
+          .noPrintHint { display: none !important; }
         }
 
         body {
@@ -168,12 +160,13 @@ export default async function PrintInvoiceBatchPage({
           font-size: 12px;
           opacity: 0.8;
         }
-        @media print { .noPrintHint { display: none !important; } }
 
+        /* One invoice “sheet” */
         .sheet {
-          padding: 24px 32px;
+          padding: 18px 22px;
           max-width: 1100px;
           margin: 0 auto;
+          box-sizing: border-box;
         }
 
         .topRow {
@@ -185,7 +178,7 @@ export default async function PrintInvoiceBatchPage({
 
         h2 {
           margin: 0;
-          font-size: 28px; /* title not huge */
+          font-size: 28px;
           font-weight: 800;
         }
 
@@ -230,7 +223,7 @@ export default async function PrintInvoiceBatchPage({
         }
 
         .totals {
-          margin-top: 14px;
+          margin-top: 12px;
           margin-left: auto;
           width: fit-content;
           text-align: right;
@@ -245,13 +238,22 @@ export default async function PrintInvoiceBatchPage({
         Printing <b>{invoices.length}</b> invoice(s). If the dialog doesn’t open automatically, press <b>Ctrl+P</b>.
       </div>
 
-      {invoices.map((inv) => {
+      {invoices.map((inv, idx) => {
         const sc = storeCode(inv.storeNumber as unknown as string | number | null);
         const vendorNum = `${sc}${vendorSuffix(inv.vendor)}`;
-        const voucherNum = inv.id; // always non-blank
+        const voucherNum = inv.id; // never blank
+
+        const isLast = idx === invoices.length - 1;
+
+        // ✅ This is the important part: do NOT rely on :last-child.
+        // Apply break AFTER every invoice except the last -> prevents blank trailing page.
+        const sheetStyle: React.CSSProperties = {
+          breakAfter: isLast ? "auto" : "page",
+          pageBreakAfter: isLast ? "auto" : "always",
+        };
 
         return (
-          <div key={inv.id} className="sheet">
+          <div key={inv.id} className="sheet" style={sheetStyle}>
             <div className="topRow">
               <div>
                 <h2>{vendorName(inv.vendor)} Invoice</h2>
