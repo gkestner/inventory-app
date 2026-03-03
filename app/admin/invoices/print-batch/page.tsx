@@ -29,15 +29,28 @@ function vendorName(v: InvoiceVendor) {
 }
 
 function vendorSuffix(v: InvoiceVendor) {
-  // Per your rules:
   // Success Plus => (locationNumber + SP)
   // American Plus => (locationNumber + APLS)
   return v === "AMERICAN_PLUS" ? "APLS" : "SP";
 }
 
-function storeCode(storeNumber: number | null) {
-  const n = typeof storeNumber === "number" ? storeNumber : Number(storeNumber);
+/**
+ * Your schema has storeNumber as string (ex: "03", "55", maybe "55 CLINTWOOD", etc.)
+ * This returns a 2-digit store code (ex: "03", "55") reliably.
+ */
+function storeCode(storeNumber: string | number | null | undefined) {
+  if (storeNumber === null || storeNumber === undefined) return "00";
+
+  // Convert to string, then extract the first number we can find
+  const raw = String(storeNumber).trim();
+
+  // If it's already digits like "03" or "55"
+  const digitsOnly = raw.replace(/[^\d]/g, "");
+  if (!digitsOnly) return "00";
+
+  const n = Number(digitsOnly);
   if (!Number.isFinite(n)) return "00";
+
   return String(Math.trunc(n)).padStart(2, "0");
 }
 
@@ -106,14 +119,12 @@ export default async function PrintInvoiceBatchPage({
       `}</Script>
 
       <style>{`
-        /* Make Chrome use a consistent printable box and stop “mystery” extra pages */
         @page {
           size: letter;
-          margin: 0.25in;
+          margin: 0.25in; /* narrow-ish margins */
         }
 
         @media print {
-          /* Hide app chrome */
           header, nav, footer, aside { display: none !important; }
           body > :not(main) { display: none !important; }
           .no-print { display: none !important; }
@@ -135,11 +146,10 @@ export default async function PrintInvoiceBatchPage({
             break-after: page;
             page-break-after: always;
 
-            /* CRITICAL: prevent the old 100vh min-height from forcing an extra page */
+            /* prevent the old 100vh min-height from forcing an extra page */
             min-height: auto !important;
             height: auto !important;
 
-            /* Let @page margin be the margin */
             margin: 0 !important;
             padding: 0 !important;
 
@@ -170,7 +180,7 @@ export default async function PrintInvoiceBatchPage({
           padding: 24px 32px;
           max-width: 1100px;
           margin: 0 auto;
-          /* NOTE: keep screen view comfortable, but printing overrides this */
+          /* OK for screen; print overrides */
           min-height: calc(100vh - 1in);
           display: flex;
           flex-direction: column;
@@ -193,7 +203,7 @@ export default async function PrintInvoiceBatchPage({
           text-align: right;
           font-size: 24px;
           line-height: 1.4;
-          white-space: nowrap; /* keep Vendor # ... on one line */
+          white-space: nowrap; /* Vendor # ... stays one line */
         }
 
         .leftMeta {
@@ -244,8 +254,11 @@ export default async function PrintInvoiceBatchPage({
       </div>
 
       {invoices.map((inv) => {
-        const vendorNum = `${storeCode(inv.storeNumber)}${vendorSuffix(inv.vendor)}`;
-        const voucherNum = inv.id; // no explicit voucher field exists in schema; use invoice id so it's never blank
+        const sc = storeCode(inv.storeNumber as unknown as string | number | null);
+        const vendorNum = `${sc}${vendorSuffix(inv.vendor)}`;
+
+        // Voucher #: use invoice id so it's never blank (unless you later add a voucher field)
+        const voucherNum = inv.id;
 
         return (
           <div key={inv.id} className="sheet">
@@ -277,7 +290,7 @@ export default async function PrintInvoiceBatchPage({
             </div>
 
             <div className="store-line">
-              Store: {storeCode(inv.storeNumber)} {inv.storeName}
+              Store: {sc} {inv.storeName}
             </div>
 
             <table>

@@ -1,396 +1,408 @@
-// app/admin/invoices/print-batch/page.tsx
+// app/maintenance/travel-log/page.tsx
 import type { CSSProperties } from "react";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
+import { Permission } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import { InvoiceStatus, Permission, Role, InvoiceVendor } from "@prisma/client";
-import { Decimal } from "@prisma/client/runtime/library";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-type AdminSession = {
+type SessionShape = {
   user?: {
-    id?: string | null;
     email?: string | null;
-    role?: Role | null;
   } | null;
 } | null;
 
-async function requireInvoicesView() {
-  const session = (await getServerSession(authOptions)) as AdminSession;
+function requireSession(session: SessionShape) {
   if (!session) redirect("/login");
-
-  const perms = await loadUserPermissions(session);
-  if (perms.allowAll) return;
-
-  // Matches existing invoices gating in your app
-  const ok = hasAnyPermission(perms, [Permission.ADMIN_EDIT_ITEMS]);
-  if (!ok) redirect("/");
+  const email = session.user?.email ?? null;
+  if (!email) redirect("/login");
 }
 
-function money(n: Decimal | null) {
-  if (!n) return "$0.00";
-  const x = Number(n);
-  if (!Number.isFinite(x)) return "$0.00";
-  return x.toLocaleString("en-US", { style: "currency", currency: "USD" });
-}
-
-function fmtDate(d: Date | null) {
+function fmtLocalTime(d: Date | null): string {
   if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-US");
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(d);
 }
 
-function vendorName(vendor: InvoiceVendor) {
-  return vendor === "SUCCESS_PLUS" ? "Success Plus" : "American Plus";
+function fmtLocalDateOnly(d: Date | null): string {
+  if (!d) return "—";
+  return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York" }).format(d);
 }
 
-function vendorNumberFor(storeNumber: string, vendor: InvoiceVendor) {
-  // Success Plus = (location number + SP)
-  // American Plus = (location number + APLS)
-  return `${storeNumber}${vendor === "SUCCESS_PLUS" ? "SP" : "APLS"}`;
+function isYYYYMMDD(s: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
-function safeDecodeOnce(s: string): string {
-  try {
-    return decodeURIComponent(s);
-  } catch {
-    return s;
-  }
+function parseYMD(s: string | null): { y: number; m: number; d: number; raw: string } | null {
+  if (!s) return null;
+  const t = s.trim();
+  if (!isYYYYMMDD(t)) return null;
+  const [yy, mm, dd] = t.split("-").map((x) => Number(x));
+  if (!Number.isFinite(yy) || !Number.isFinite(mm) || !Number.isFinite(dd)) return null;
+  if (mm < 1 || mm > 12) return null;
+  if (dd < 1 || dd > 31) return null;
+  return { y: yy, m: mm, d: dd, raw: t };
 }
 
-function parseIds(raw: string | undefined): string[] {
-  const s0 = String(raw ?? "").trim();
-  if (!s0) return [];
+function getNYOffsetMinutes(atUtc: Date): number {
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    timeZoneName: "shortOffset",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 
-  // Support both "id1,id2" and "id1%2Cid2"
-  const decoded = safeDecodeOnce(s0);
+  const parts = fmt.formatToParts(atUtc);
+  const tz = parts.find((p) => p.type === "timeZoneName")?.value ?? "GMT";
+  const m = tz.match(/GMT([+-])(\d{1,2})(?::?(\d{2}))?/i);
+  if (!m) return 0;
 
-  return decoded
-    .split(",")
-    .map((x) => x.trim())
-    .filter(Boolean)
-    .slice(0, 200);
+  const sign = m[1] === "-" ? -1 : 1;
+  const hh = Number(m[2] ?? 0);
+  const mm = Number(m[3] ?? 0);
+  return sign * (hh * 60 + mm);
 }
 
-export default async function PrintInvoiceBatchPage({ searchParams }: { searchParams: { ids?: string } }) {
-  await requireInvoicesView();
+function nyMidnightUtc(ymd: { y: number; m: number; d: number }): Date {
+  const sampleNoonUtc = new Date(Date.UTC(ymd.y, ymd.m - 1, ymd.d, 12, 0, 0));
+  const offsetMin = getNYOffsetMinutes(sampleNoonUtc);
+  const utcMillis = Date.UTC(ymd.y, ymd.m - 1, ymd.d, 0, 0, 0) - offsetMin * 60_000;
+  return new Date(utcMillis);
+}
 
-  const ids = parseIds(searchParams.ids);
+function addDaysUtc(d: Date, days: number): Date {
+  return new Date(d.getTime() + days * 24 * 60 * 60 * 1000);
+}
 
-  const invoices =
-    ids.length > 0
-      ? await prisma.invoice
-          .findMany({
-            where: { id: { in: ids } },
-            include: { lines: { orderBy: { submittedAt: "asc" } } },
-          })
-          .then((rows) => {
-            const map = new Map(rows.map((r) => [r.id, r]));
-            return ids.map((id) => map.get(id)).filter(Boolean) as typeof rows;
-          })
-      : await prisma.invoice.findMany({
-          where: { status: InvoiceStatus.DRAFT },
-          orderBy: { createdAt: "asc" },
-          take: 200,
-          include: { lines: { orderBy: { submittedAt: "asc" } } },
-        });
-
-  if (invoices.length === 0) {
-    const shell: CSSProperties = { padding: 16 };
-    const card: CSSProperties = {
-      padding: 16,
-      maxWidth: 900,
-      margin: "0 auto",
-      borderRadius: 14,
-      border: "1px solid rgba(128,128,128,0.25)",
-      background: "var(--background)",
-      color: "var(--foreground)",
-    };
-
-    return (
-      <main style={shell}>
-        <div style={card}>
-          <div style={{ fontSize: 22, fontWeight: 900 }}>Invoice Batch Print</div>
-          <div style={{ marginTop: 10, opacity: 0.85, lineHeight: 1.6 }}>
-            {ids.length > 0 ? (
-              <>
-                No invoices found for the provided <b>ids</b>.
-              </>
-            ) : (
-              <>
-                No invoices are currently in <b>DRAFT</b>.
-                <br />
-                Generate invoices first, then print.
-              </>
-            )}
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  // Archive (mark ISSUED) immediately when this print page is opened (DRAFT -> ISSUED)
+function getNYTodayYMD(): { y: number; m: number; d: number } {
   const now = new Date();
-  await prisma.invoice.updateMany({
-    where: {
-      id: { in: invoices.map((i) => i.id) },
-      status: InvoiceStatus.DRAFT,
-    },
-    data: {
-      status: InvoiceStatus.ISSUED,
-      issuedAt: now,
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+
+  const y = Number(parts.find((p) => p.type === "year")?.value ?? NaN);
+  const m = Number(parts.find((p) => p.type === "month")?.value ?? NaN);
+  const d = Number(parts.find((p) => p.type === "day")?.value ?? NaN);
+
+  return { y, m, d };
+}
+
+function getNYDayOfWeekMon0(dUtc: Date): number {
+  const dow = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+  }).format(dUtc);
+
+  const map: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+  return map[dow] ?? 0;
+}
+
+function fmtISODateNY(dUtc: Date): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(dUtc);
+}
+
+function hoursBetween(start: Date | null, end: Date | null): string {
+  if (!start || !end) return "—";
+  const ms = end.getTime() - start.getTime();
+  if (!Number.isFinite(ms) || ms <= 0) return "—";
+  const hrs = ms / (1000 * 60 * 60);
+  return (Math.round(hrs * 100) / 100).toFixed(2);
+}
+
+function hoursBetweenNumber(start: Date | null, end: Date | null): number | null {
+  if (!start || !end) return null;
+  const ms = end.getTime() - start.getTime();
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  return ms / (1000 * 60 * 60);
+}
+
+function fmtFixed2(n: number): string {
+  if (!Number.isFinite(n)) return "0.00";
+  return (Math.round(n * 100) / 100).toFixed(2);
+}
+
+export default async function MaintenanceTravelLogPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ from?: string; to?: string; locationId?: string }>;
+}) {
+  const session = (await getServerSession(authOptions)) as SessionShape;
+  requireSession(session);
+
+  // ✅ Permission gate (no EMPLOYEE bypass)
+  const perms = await loadUserPermissions(session);
+  if (!perms.allowAll && !hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS])) {
+    redirect("/maintenance");
+  }
+
+  const email = (session?.user?.email ?? "").toLowerCase().trim();
+
+  const me = await prisma.user.findUnique({
+    where: { email },
+    select: {
+      id: true,
+      name: true,
+      active: true,
+      locationId: true,
+      location: { select: { id: true, name: true } },
+      allowedLocations: {
+        orderBy: { sortOrder: "asc" },
+        select: { locationId: true, sortOrder: true, location: { select: { id: true, name: true } } },
+      },
     },
   });
 
-  // Helps you confirm the deployed print template is the one you expect.
-  const templateStamp = "print-batch v2026-03-02a";
+  if (!me || !me.active) redirect("/login");
+
+  const sp = await searchParams;
+
+  const allowedLocations: Array<{ id: string; name: string; source: "PRIMARY" | "OPTIONAL" }> = [];
+  const seen = new Set<string>();
+
+  if (me.location) {
+    seen.add(me.location.id);
+    allowedLocations.push({ id: me.location.id, name: me.location.name, source: "PRIMARY" });
+  }
+  for (const ul of me.allowedLocations) {
+    if (!ul.location) continue;
+    if (seen.has(ul.location.id)) continue;
+    seen.add(ul.location.id);
+    allowedLocations.push({ id: ul.location.id, name: ul.location.name, source: "OPTIONAL" });
+  }
+
+  const rawLocationId = typeof sp.locationId === "string" && sp.locationId.trim() ? sp.locationId.trim() : "ALL";
+  const locationId = rawLocationId === "ALL" || seen.has(rawLocationId) ? rawLocationId : "ALL";
+
+  const todayYMD = getNYTodayYMD();
+  const todayMidnightUtc = nyMidnightUtc(todayYMD);
+  const dowMon0 = getNYDayOfWeekMon0(todayMidnightUtc);
+
+  const thisWeekFromUtc = addDaysUtc(todayMidnightUtc, -dowMon0);
+  const thisWeekToUtc = addDaysUtc(thisWeekFromUtc, 6);
+  const lastWeekFromUtc = addDaysUtc(thisWeekFromUtc, -7);
+  const lastWeekToUtc = addDaysUtc(thisWeekToUtc, -7);
+
+  const fromParam = parseYMD(typeof sp.from === "string" ? sp.from : null);
+  const toParam = parseYMD(typeof sp.to === "string" ? sp.to : null);
+
+  const fromUtc = fromParam ? nyMidnightUtc(fromParam) : thisWeekFromUtc;
+  const toUtc = toParam ? nyMidnightUtc(toParam) : thisWeekToUtc;
+  const toExclusiveUtc = addDaysUtc(toUtc, 1);
+
+  const fromStr = fromParam?.raw ?? fmtISODateNY(fromUtc);
+  const toStr = toParam?.raw ?? fmtISODateNY(toUtc);
+  const rangeLabel = `${fromStr} to ${toStr}`;
+
+  const where: {
+    createdByUserId: string;
+    status: "SUBMITTED";
+    startTime: { gte: Date; lt: Date };
+    locationId?: string;
+  } = {
+    createdByUserId: me.id,
+    status: "SUBMITTED",
+    startTime: { gte: fromUtc, lt: toExclusiveUtc },
+  };
+
+  if (locationId !== "ALL") where.locationId = locationId;
+
+  const rows = await prisma.workOrder.findMany({
+    where,
+    orderBy: { startTime: "desc" },
+    take: 250,
+    select: {
+      id: true,
+      createdAt: true,
+      locationId: true,
+      location: { select: { name: true } },
+      startTime: true,
+      endTime: true,
+      startingMileage: true,
+      endingMileage: true,
+      notes: true,
+    },
+  });
+
+  let totalHours = 0;
+  let totalMiles = 0;
+  let milesCounted = 0;
+
+  for (const r of rows) {
+    const h = hoursBetweenNumber(r.startTime, r.endTime);
+    if (h !== null) totalHours += h;
+
+    if (typeof r.startingMileage === "number" && typeof r.endingMileage === "number") {
+      const delta = r.endingMileage - r.startingMileage;
+      if (Number.isFinite(delta) && delta >= 0) {
+        totalMiles += delta;
+        milesCounted += 1;
+      }
+    }
+  }
+
+  const printUrl = `/maintenance/travel-log/print?from=${encodeURIComponent(fromStr)}&to=${encodeURIComponent(
+    toStr
+  )}&locationId=${encodeURIComponent(locationId)}`;
+
+  const thisWeekUrl = `/maintenance/travel-log?from=${encodeURIComponent(fmtISODateNY(thisWeekFromUtc))}&to=${encodeURIComponent(
+    fmtISODateNY(thisWeekToUtc)
+  )}&locationId=${encodeURIComponent(locationId)}`;
+
+  const lastWeekUrl = `/maintenance/travel-log?from=${encodeURIComponent(fmtISODateNY(lastWeekFromUtc))}&to=${encodeURIComponent(
+    fmtISODateNY(lastWeekToUtc)
+  )}&locationId=${encodeURIComponent(locationId)}`;
+
+  const card: CSSProperties = {
+    border: "1px solid rgba(128,128,128,0.25)",
+    borderRadius: 12,
+    padding: 16,
+    background: "var(--background)",
+    color: "var(--foreground)",
+  };
+
+  const buttonLike: CSSProperties = {
+    display: "inline-block",
+    textDecoration: "none",
+    padding: "8px 12px",
+    borderRadius: 10,
+    border: "1px solid rgba(128,128,128,0.25)",
+    color: "var(--foreground)",
+    fontWeight: 800,
+  };
+
+  const thtd: CSSProperties = {
+    textAlign: "left",
+    padding: 8,
+    borderBottom: "1px solid rgba(128,128,128,0.2)",
+    whiteSpace: "nowrap",
+  };
 
   return (
-    <main>
-      {/* Auto-print (more reliable than next/script in some print-preview flows) */}
-      <script
-        suppressHydrationWarning
-        dangerouslySetInnerHTML={{
-          __html: `
-(function () {
-  if (window.__invoiceBatchPrintTried) return;
-  window.__invoiceBatchPrintTried = true;
-  setTimeout(function () {
-    try { window.focus(); window.print(); } catch (e) {}
-  }, 50);
-})();`,
-        }}
-      />
+    <main style={{ padding: 24, maxWidth: 1200, margin: "0 auto" }}>
+      <h1 style={{ fontSize: 24, fontWeight: 900, marginBottom: 10 }}>Travel Log</h1>
 
-      <style>{`
-        /* Force landscape + narrow-ish margins */
-        @page { size: letter landscape; margin: 0.25in; }
+      <div style={{ ...card, marginBottom: 12 }}>
+        <form method="get" style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span style={{ fontWeight: 800 }}>From</span>
+            <input type="date" name="from" defaultValue={fromStr} />
+          </label>
 
-        @media print {
-          header, nav, footer, aside { display: none !important; }
-          body > :not(main) { display: none !important; }
-          .no-print { display: none !important; }
+          <label style={{ display: "grid", gap: 6 }}>
+            <span style={{ fontWeight: 800 }}>To</span>
+            <input type="date" name="to" defaultValue={toStr} />
+          </label>
 
-          /* 1 page per invoice */
-          .sheet { break-after: page; page-break-after: always; }
-          .sheet:last-child { break-after: auto; page-break-after: auto; }
-        }
+          <label style={{ display: "grid", gap: 6 }}>
+            <span style={{ fontWeight: 800 }}>Location</span>
+            <select name="locationId" defaultValue={locationId}>
+              <option value="ALL">All allowed locations</option>
+              {allowedLocations.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                  {l.source === "PRIMARY" ? " (Primary)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        body {
-          font-family: Arial, sans-serif;
-          margin: 0;
-          padding: 0;
-          background: #fff;
-          color: #000;
-        }
+          <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
+            <button type="submit" style={{ ...buttonLike, background: "var(--background)", cursor: "pointer" }}>
+              Apply
+            </button>
+            <a href={thisWeekUrl} style={buttonLike}>
+              This Week
+            </a>
+            <a href={lastWeekUrl} style={buttonLike}>
+              Last Week
+            </a>
+            <a href={printUrl} target="_blank" rel="noreferrer" style={buttonLike}>
+              Print
+            </a>
+          </div>
+        </form>
 
-        .no-print {
-          padding: 10px 12px;
-          border-bottom: 1px solid rgba(128,128,128,0.25);
-          max-width: 1100px;
-          margin: 0 auto;
-          font-size: 12px;
-          opacity: 0.8;
-        }
-
-        /* Printable area in landscape letter with 0.25in margins:
-           height = 8.5 - 0.5 = 8.0in. Keep each invoice constrained to that.
-        */
-        .sheet {
-          box-sizing: border-box;
-          height: 8in;
-          max-height: 8in;
-          overflow: hidden;
-
-          max-width: 10.5in; /* 11 - 0.5 */
-          margin: 0 auto;
-
-          padding: 0;
-          display: flex;
-          flex-direction: column;
-        }
-
-        .top {
-          display: flex;
-          justify-content: space-between;
-          gap: 16px;
-          align-items: baseline;
-          padding-top: 0.05in;
-        }
-
-        h2 {
-          margin: 0;
-          font-size: 34px;
-          font-weight: 800;
-        }
-
-        .meta {
-          font-size: 18px;
-          line-height: 1.35;
-        }
-
-        .meta b { font-weight: 800; }
-
-        .meta-grid {
-          display: flex;
-          justify-content: space-between;
-          gap: 16px;
-          margin-top: 8px;
-        }
-
-        .meta-left { flex: 1; }
-        .meta-right { text-align: right; min-width: 220px; }
-
-        .store-line {
-          font-size: 44px;
-          font-weight: 900;
-          margin-top: 12px;
-          margin-bottom: 10px;
-        }
-
-        table {
-          width: 100%;
-          border-collapse: collapse;
-          margin-top: 10px;
-          table-layout: fixed; /* ensures columns stay aligned */
-        }
-
-        th, td {
-          border: 1px solid #000;
-          padding: 6px 8px;
-          font-size: 18px;
-          vertical-align: top;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-
-        th {
-          background: #eee;
-          text-align: left;
-          white-space: nowrap;
-        }
-
-        .num { text-align: right; white-space: nowrap; }
-        .nowrap { white-space: nowrap; }
-
-        /* Make the highlighted table section smaller (about half overall “presence” vs the huge store line) */
-        .tableWrap {
-          transform-origin: top left;
-          transform: scale(0.85);
-          width: calc(100% / 0.85);
-        }
-
-        .totals {
-          margin-top: auto;
-          margin-left: auto;
-          text-align: right;
-          font-size: 20px;
-          line-height: 1.5;
-          padding-top: 10px;
-        }
-        .totals .grand { font-weight: 900; }
-      `}</style>
-
-      <div className="no-print">
-        Printing <b>{invoices.length}</b> invoice(s). These invoices were archived (marked <b>ISSUED</b>). If the dialog didn’t open automatically, press{" "}
-        <b>Ctrl+P</b>. <span style={{ marginLeft: 8 }}>• {templateStamp}</span>
+        <div style={{ marginTop: 10, opacity: 0.8 }}>
+          Range: <b>{rangeLabel}</b>
+        </div>
       </div>
 
-      {invoices.map((inv) => {
-        const vendorNo = vendorNumberFor(inv.storeNumber, inv.vendor);
-        const voucherNo = inv.vendorNumber || "N/A"; // rename: vendorNumber is now treated as “Voucher #”
-
-        return (
-          <div key={inv.id} className="sheet">
-            <div className="top">
-              <h2>{vendorName(inv.vendor)} Invoice</h2>
-              {/* Swap places: Vendor # on the right */}
-              <div className="meta">
-                <b>Vendor #:</b> {vendorNo}
-              </div>
-            </div>
-
-            <div className="meta meta-grid">
-              <div className="meta-left">
-                {/* Swap places + rename */}
-                <div>
-                  <b>Voucher #:</b> {voucherNo}
-                </div>
-                <div>
-                  <b>Billed to:</b> {inv.billedTo}
-                </div>
-                <div>
-                  <b>Date Invoiced:</b> {fmtDate(inv.invoiceDate)}
-                </div>
-                <div>
-                  <b>Period:</b> {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}
-                </div>
-              </div>
-              <div className="meta-right" />
-            </div>
-
-            <div className="store-line">
-              Store: {inv.storeNumber} {inv.storeName}
-            </div>
-
-            <div className="tableWrap">
-              <table>
-                <colgroup>
-                  <col style={{ width: "12%" }} />
-                  <col style={{ width: "8%" }} />
-                  <col style={{ width: "10%" }} />
-                  <col style={{ width: "22%" }} />
-                  <col style={{ width: "6%" }} />
-                  <col style={{ width: "12%" }} />
-                  <col style={{ width: "12%" }} />
-                  <col style={{ width: "8%" }} />
-                  <col style={{ width: "10%" }} />
-                </colgroup>
-
-                <thead>
-                  <tr>
-                    <th className="nowrap">Date</th>
-                    <th className="nowrap">SKU</th>
-                    <th className="nowrap">Part #</th>
-                    <th>Name</th>
-                    <th className="num">Qty</th>
-                    <th className="num">Unit</th>
-                    <th className="num">Subtotal</th>
-                    <th className="num">Tax</th>
-                    <th className="num">Total</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {inv.lines.map((line) => (
-                    <tr key={line.id}>
-                      <td className="nowrap">{fmtDate(line.submittedAt)}</td>
-                      <td className="nowrap">{line.sku}</td>
-                      <td className="nowrap">{line.partNumber ?? "—"}</td>
-                      <td>{line.name}</td>
-                      <td className="num">{line.quantity}</td>
-                      <td className="num">{money(line.unitPrice)}</td>
-                      <td className="num">{money(line.lineSubtotal)}</td>
-                      <td className="num">{money(line.lineTax)}</td>
-                      <td className="num">{money(line.lineTotal)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="totals">
-              <div>Subtotal: {money(inv.subtotal)}</div>
-              <div>Tax: {money(inv.taxTotal)}</div>
-              <div className="grand">Total: {money(inv.total)}</div>
-            </div>
+      <div style={{ ...card, marginBottom: 12 }}>
+        <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ opacity: 0.7, fontSize: 12 }}>Entries</div>
+            <div style={{ fontWeight: 900, fontSize: 20 }}>{rows.length}</div>
           </div>
-        );
-      })}
+          <div>
+            <div style={{ opacity: 0.7, fontSize: 12 }}>Total Hours</div>
+            <div style={{ fontWeight: 900, fontSize: 20 }}>{fmtFixed2(totalHours)}</div>
+          </div>
+          <div>
+            <div style={{ opacity: 0.7, fontSize: 12 }}>Total Miles</div>
+            <div style={{ fontWeight: 900, fontSize: 20 }}>{fmtFixed2(totalMiles)}</div>
+          </div>
+          <div>
+            <div style={{ opacity: 0.7, fontSize: 12 }}>Mileage Entries Counted</div>
+            <div style={{ fontWeight: 900, fontSize: 20 }}>{milesCounted}</div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ ...card, overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              {["Date", "Location", "Departure", "Return", "Hours", "Start Mi", "End Mi", "Miles", "Notes"].map((h) => (
+                <th key={h} style={thtd}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const miles =
+                typeof r.startingMileage === "number" && typeof r.endingMileage === "number"
+                  ? Math.max(0, r.endingMileage - r.startingMileage)
+                  : null;
+
+              return (
+                <tr key={r.id}>
+                  <td style={thtd}>{fmtLocalDateOnly(r.startTime)}</td>
+                  <td style={thtd}>{r.location?.name ?? "—"}</td>
+                  <td style={thtd}>{fmtLocalTime(r.startTime)}</td>
+                  <td style={thtd}>{fmtLocalTime(r.endTime)}</td>
+                  <td style={thtd}>{hoursBetween(r.startTime, r.endTime)}</td>
+                  <td style={thtd}>{r.startingMileage ?? "—"}</td>
+                  <td style={thtd}>{r.endingMileage ?? "—"}</td>
+                  <td style={thtd}>{miles ?? "—"}</td>
+                  <td style={{ ...thtd, whiteSpace: "normal", minWidth: 260 }}>{r.notes?.trim() || "—"}</td>
+                </tr>
+              );
+            })}
+
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={9} style={{ ...thtd, opacity: 0.8 }}>
+                  No submitted work orders found for this range/location.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
     </main>
   );
 }
