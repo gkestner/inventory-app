@@ -69,7 +69,10 @@ function isAllowedMaintenanceCheckoutRole(role: Role): boolean {
 }
 
 function normalizeVendor(v: unknown): InvoiceVendor | null {
-  const s = String(v ?? "").trim().toUpperCase();
+  const s = String(v ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/[-\s]+/g, "_");
   if (s === "AMERICAN_PLUS") return InvoiceVendor.AMERICAN_PLUS;
   if (s === "SUCCESS_PLUS") return InvoiceVendor.SUCCESS_PLUS;
   return null;
@@ -84,6 +87,11 @@ function inferVendorFromItemLabelishFields(item: unknown): InvoiceVendor | null 
 
   const candidates: unknown[] = [
     item.vendor, // if present in schema already
+    item.name,
+    (item as Record<string, unknown>).description,
+    (item as Record<string, unknown>).category,
+    (item as Record<string, unknown>).manufacturer,
+    (item as Record<string, unknown>).orderFrom,
     (item as Record<string, unknown>).vendorLabel,
     (item as Record<string, unknown>).label,
     (item as Record<string, unknown>).labels,
