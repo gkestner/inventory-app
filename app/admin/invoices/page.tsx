@@ -83,6 +83,7 @@ type SearchParams = {
   perPage?: string;
   err?: string;
   cfg?: string;
+  gen?: string;
 };
 
 function safeReturnToPathFromReferer(referer: string | null): string {
@@ -499,6 +500,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
   const err = String(sp.err ?? "").trim();
   const cfg = String(sp.cfg ?? "").trim();
+  const gen = String(sp.gen ?? "").trim();
 
   let readyByStore: Array<{ storeId: string; storeName: string; _count: { _all: number } }> = [];
   let readyTotal = 0;
@@ -612,7 +614,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     const merged: SearchParams = { ...sp, ...patch };
 
     const qp = new URLSearchParams();
-    const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err", "cfg"];
+    const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err", "cfg", "gen"];
 
     for (const k of keys) {
       const v = merged[k];
@@ -668,7 +670,10 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     }
 
     const h = await headers();
-    redirect(safeReturnToPathFromReferer(h.get("referer")));
+    const returnTo = safeReturnToPathFromReferer(h.get("referer"));
+    const u = new URL(returnTo, "http://localhost");
+    u.searchParams.set("gen", "none");
+    redirect(`${u.pathname}${u.search}`);
   }
 
   async function updateVendorPricingAndTaxAction(formData: FormData) {
@@ -728,12 +733,13 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
         perPage: get("perPage"),
         err: get("err"),
         cfg: get("cfg"),
+        gen: get("gen"),
       };
 
       const merged: SearchParams = { ...base, ...patch };
 
       const qp = new URLSearchParams();
-      const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err", "cfg"];
+      const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err", "cfg", "gen"];
       for (const k of keys) {
         const v = merged[k];
         if (typeof v !== "string") continue;
@@ -798,6 +804,8 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
             : cfg === "config_not_ready"
               ? "Vendor settings are not available yet on this deployment (missing invoiceVendorConfig)."
               : null;
+
+  const genBanner = gen === "none" ? "No invoices were generated for that request." : null;
 
   const detailsSummaryStyle: CSSProperties = {
     cursor: "pointer",
@@ -876,6 +884,21 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
             }}
           >
             {cfgBanner}
+          </div>
+        ) : null}
+        
+        {genBanner ? (
+          <div
+            style={{
+              marginTop: 12,
+              padding: 12,
+              borderRadius: 14,
+              border: "1px solid rgba(255,152,0,0.55)",
+              background: "rgba(255,152,0,0.12)",
+              fontWeight: 900,
+            }}
+          >
+            {genBanner}
           </div>
         ) : null}
 
@@ -1051,7 +1074,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                 </label>
 
                 <div style={{ flex: "1 1 220px", display: "flex", justifyContent: "flex-end" }}>
-                  <button type="submit" style={btnPrimary} disabled={readyTotal === 0}>
+                  <button type="submit" style={btnPrimary}>
                     Generate invoices for window
                   </button>
                 </div>
