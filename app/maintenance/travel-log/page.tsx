@@ -83,13 +83,10 @@ export default async function PrintInvoiceBatchPage({
   return (
     <main>
       <Script id="auto-print" strategy="afterInteractive">{`
-        setTimeout(() => {
-          try { window.print(); } catch(e) {}
-        }, 100);
+        setTimeout(() => { try { window.print(); } catch(e) {} }, 100);
       `}</Script>
 
       <style>{`
-        /* Back to original stable print behavior */
         @page {
           size: landscape;
           margin: 0.5in;
@@ -100,8 +97,6 @@ export default async function PrintInvoiceBatchPage({
           font-family: Arial, sans-serif;
           background: #fff !important;
           color: #000 !important;
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
         }
 
         @media print {
@@ -120,7 +115,6 @@ export default async function PrintInvoiceBatchPage({
 
           .sheet {
             page-break-after: always;
-            break-after: page;
           }
 
           .sheet:last-child {
@@ -132,8 +126,6 @@ export default async function PrintInvoiceBatchPage({
           padding: 24px 32px;
           max-width: 1400px;
           margin: 0 auto;
-          background: #fff;
-          color: #000;
         }
 
         .topRow {
@@ -165,21 +157,39 @@ export default async function PrintInvoiceBatchPage({
           margin: 18px 0 12px;
         }
 
+        /* ===== TABLE FIXES START HERE ===== */
+
         table {
           width: 100%;
           border-collapse: collapse;
           margin-top: 10px;
+          font-size: 75%; /* 🔹 .75 size */
         }
 
         th, td {
           border: 1px solid #000;
-          padding: 8px;
-          font-size: 18px;
+          padding: 6px 8px;
         }
 
         th {
           background: #eee;
           font-weight: 800;
+          text-align: left;
+        }
+
+        /* Right align numeric columns */
+        td:nth-child(5),
+        td:nth-child(6),
+        td:nth-child(7),
+        td:nth-child(8),
+        td:nth-child(9),
+        th:nth-child(5),
+        th:nth-child(6),
+        th:nth-child(7),
+        th:nth-child(8),
+        th:nth-child(9) {
+          text-align: right;
+          white-space: nowrap;
         }
 
         .totals {
