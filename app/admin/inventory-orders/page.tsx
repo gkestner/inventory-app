@@ -1309,10 +1309,6 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
             </div>
           </form>
         </div>
-      </div>
-    </main>
-  );
-}
 
         {/* Responsive “no overlap, no horizontal scroll” layout */}
         <style>{`
