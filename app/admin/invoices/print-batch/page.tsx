@@ -87,7 +87,6 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
             include: { lines: { orderBy: { submittedAt: "asc" } } },
           })
           .then((rows) => {
-            // Preserve requested order
             const map = new Map(rows.map((r) => [r.id, r]));
             return ids.map((id) => map.get(id)).filter(Boolean) as typeof rows;
           })
@@ -136,8 +135,9 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
     data: { status: InvoiceStatus.ISSUED, issuedAt: now },
   });
 
-  const templateStamp = "print-batch v2026-03-02g";
+  const templateStamp = "print-batch v2026-03-02h";
 
+  // Keep normal screen styling here; print rules override via CSS below
   const sheet: CSSProperties = {
     boxSizing: "border-box",
     background: "#fff",
@@ -154,14 +154,12 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
     flexWrap: "nowrap",
   };
 
-  // Title = half of the previous 68
   const title: CSSProperties = {
-    fontSize: 34,
+    fontSize: 34, // (your current request: smaller title)
     fontWeight: 800,
     margin: 0,
   };
 
-  // (still 2x larger meta from your previous ask)
   const meta: CSSProperties = {
     fontSize: 32,
     lineHeight: 1.4,
@@ -210,7 +208,6 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
 
   return (
     <main>
-      {/* Reliable auto-print */}
       <script
         suppressHydrationWarning
         dangerouslySetInnerHTML={{
@@ -226,11 +223,14 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
       />
 
       <style>{`
-        /* Print rules for Chrome + Letter + Default margins */
-        @page { size: letter landscape; }
+        /*
+          ✅ Chrome “Default margins” is not reliably controllable via CSS.
+          So we set page margin to 0 and implement our own narrow padding inside the page.
+          This makes print output deterministic.
+        */
+        @page { size: letter landscape; margin: 0; }
 
         @media print {
-          /* Print-isolation that works with Next.js wrappers */
           body * { visibility: hidden !important; }
           #print-root, #print-root * { visibility: visible !important; }
 
@@ -243,30 +243,39 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
 
           .no-print { display: none !important; }
 
-          /* 1 invoice per page */
+          /*
+            ✅ HARD RULE: one invoice = one physical page.
+            Letter landscape page height is 8.5in. We set the sheet to exactly that.
+          */
           .sheet {
+            height: 8.5in !important;
+            max-height: 8.5in !important;
+            width: 11in !important;
+            max-width: 11in !important;
+
+            box-sizing: border-box !important;
+
+            /* Our own "narrow margins" inside the page */
+            padding: 0.25in !important;
+
+            /* Prevent spill creating another page */
+            overflow: hidden !important;
+
             break-after: page;
             page-break-after: always;
-            break-inside: avoid;
-            page-break-inside: avoid;
-
-            /* Reduce padding in print so we fit inside Chrome "Default" margins */
-            padding: 8px 10px !important;
-            margin: 0 !important;
           }
           .sheet:last-child { break-after: auto; page-break-after: auto; }
 
           /*
-            ✅ IMPORTANT:
-            Chrome ignores transform scaling for pagination, but DOES honor zoom.
-            This makes the browser compute the layout at the smaller size, so it fits on one page.
+            ✅ CRITICAL: use zoom (Chrome paginates with zoom, not transform)
+            Tuned to fit your large meta/totals reliably on one page.
           */
           .sheetInner {
-            zoom: 0.74; /* tuned for Chrome default margins to fit 1 page */
+            zoom: 0.66;
           }
 
-          /* Avoid row splitting heuristics */
-          table, tr, td, th { break-inside: avoid !important; page-break-inside: avoid !important; }
+          /* Help Chrome avoid weird mid-row pagination logic */
+          table, tr, td, th { page-break-inside: avoid !important; break-inside: avoid !important; }
         }
       `}</style>
 
@@ -285,7 +294,6 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
                 <div style={topRow}>
                   <h2 style={title}>{vendorName(inv.vendor)} Invoice</h2>
 
-                  {/* always one line */}
                   <div style={{ fontSize: 28, fontWeight: 800, whiteSpace: "nowrap" }}>
                     Vendor # <b>{vendorNo}</b>
                   </div>
