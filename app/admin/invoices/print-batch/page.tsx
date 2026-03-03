@@ -48,8 +48,6 @@ function vendorName(vendor: InvoiceVendor) {
 }
 
 function vendorNumberFor(storeNumber: string, vendor: InvoiceVendor) {
-  // Success Plus = (location number + SP)
-  // American Plus = (location number + APLS)
   const sn = String(storeNumber ?? "").trim();
   if (!sn) return "—";
   return `${sn}${vendor === "SUCCESS_PLUS" ? "SP" : "APLS"}`;
@@ -87,7 +85,6 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
             include: { lines: { orderBy: { submittedAt: "asc" } } },
           })
           .then((rows) => {
-            // Preserve requested order
             const map = new Map(rows.map((r) => [r.id, r]));
             return ids.map((id) => map.get(id)).filter(Boolean) as typeof rows;
           })
@@ -136,7 +133,7 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
     data: { status: InvoiceStatus.ISSUED, issuedAt: now },
   });
 
-  const templateStamp = "print-batch v2026-03-02d";
+  const templateStamp = "print-batch v2026-03-02e";
 
   const sheet: CSSProperties = {
     boxSizing: "border-box",
@@ -151,10 +148,9 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
     justifyContent: "space-between",
     alignItems: "baseline",
     gap: 16,
-    flexWrap: "nowrap", // ✅ ensure the header row never wraps
+    flexWrap: "nowrap",
   };
 
-  // ✅ reduced by half (was 68)
   const title: CSSProperties = {
     fontSize: 34,
     fontWeight: 800,
@@ -229,7 +225,6 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
         @page { size: letter landscape; margin: 0.25in; }
 
         @media print {
-          /* Hide everything, then show print root (works with Next.js wrappers) */
           body * { visibility: hidden !important; }
           #print-root, #print-root * { visibility: visible !important; }
 
@@ -242,9 +237,20 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
 
           .no-print { display: none !important; }
 
-          /* 1 page per invoice */
+          /* 1 invoice per physical page */
           .sheet { break-after: page; page-break-after: always; }
           .sheet:last-child { break-after: auto; page-break-after: auto; }
+
+          /*
+            ✅ FIT-TO-ONE-PAGE:
+            If content is slightly too tall, the browser spills.
+            Scale the invoice content down a bit ONLY in print.
+          */
+          .sheetInner {
+            transform-origin: top left;
+            transform: scale(0.86);
+            width: calc(100% / 0.86);
+          }
         }
       `}</style>
 
@@ -255,86 +261,87 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
       <div id="print-root">
         {invoices.map((inv) => {
           const vendorNo = vendorNumberFor(inv.storeNumber, inv.vendor);
-          const voucherNo = inv.vendorNumber || "N/A"; // “Voucher #” (renamed from “Invoice #”)
+          const voucherNo = inv.vendorNumber || "N/A";
 
           return (
             <div key={inv.id} className="sheet" style={sheet}>
-              <div style={topRow}>
-                <h2 style={title}>{vendorName(inv.vendor)} Invoice</h2>
+              <div className="sheetInner">
+                <div style={topRow}>
+                  <h2 style={title}>{vendorName(inv.vendor)} Invoice</h2>
 
-                {/* ✅ force single line no matter what */}
-                <div style={{ fontSize: 28, fontWeight: 800, whiteSpace: "nowrap" }}>
-                  Vendor # <b>{vendorNo}</b>
+                  <div style={{ fontSize: 28, fontWeight: 800, whiteSpace: "nowrap" }}>
+                    Vendor # <b>{vendorNo}</b>
+                  </div>
                 </div>
-              </div>
 
-              <div style={meta}>
-                <div>
-                  <b>Voucher #:</b> {voucherNo}
+                <div style={meta}>
+                  <div>
+                    <b>Voucher #:</b> {voucherNo}
+                  </div>
+                  <div>
+                    <b>Billed to:</b> {inv.billedTo}
+                  </div>
+                  <div>
+                    <b>Date Invoiced:</b> {fmtDate(inv.invoiceDate)}
+                  </div>
+                  <div>
+                    <b>Period:</b> {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}
+                  </div>
                 </div>
-                <div>
-                  <b>Billed to:</b> {inv.billedTo}
+
+                <div style={storeLine}>
+                  Store: {inv.storeNumber} {inv.storeName}
                 </div>
-                <div>
-                  <b>Date Invoiced:</b> {fmtDate(inv.invoiceDate)}
-                </div>
-                <div>
-                  <b>Period:</b> {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}
-                </div>
-              </div>
 
-              <div style={storeLine}>
-                Store: {inv.storeNumber} {inv.storeName}
-              </div>
+                <table style={tableStyle}>
+                  <colgroup>
+                    <col style={{ width: "12%" }} />
+                    <col style={{ width: "8%" }} />
+                    <col style={{ width: "10%" }} />
+                    <col style={{ width: "22%" }} />
+                    <col style={{ width: "6%" }} />
+                    <col style={{ width: "12%" }} />
+                    <col style={{ width: "12%" }} />
+                    <col style={{ width: "8%" }} />
+                    <col style={{ width: "10%" }} />
+                  </colgroup>
 
-              <table style={tableStyle}>
-                <colgroup>
-                  <col style={{ width: "12%" }} />
-                  <col style={{ width: "8%" }} />
-                  <col style={{ width: "10%" }} />
-                  <col style={{ width: "22%" }} />
-                  <col style={{ width: "6%" }} />
-                  <col style={{ width: "12%" }} />
-                  <col style={{ width: "12%" }} />
-                  <col style={{ width: "8%" }} />
-                  <col style={{ width: "10%" }} />
-                </colgroup>
-
-                <thead>
-                  <tr>
-                    <th style={thBase}>Date</th>
-                    <th style={thBase}>SKU</th>
-                    <th style={thBase}>Part #</th>
-                    <th style={thBase}>Name</th>
-                    <th style={{ ...thBase, ...num }}>Qty</th>
-                    <th style={{ ...thBase, ...num }}>Unit</th>
-                    <th style={{ ...thBase, ...num }}>Subtotal</th>
-                    <th style={{ ...thBase, ...num }}>Tax</th>
-                    <th style={{ ...thBase, ...num }}>Total</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {inv.lines.map((line) => (
-                    <tr key={line.id}>
-                      <td style={tdBase}>{fmtDate(line.submittedAt)}</td>
-                      <td style={tdBase}>{line.sku}</td>
-                      <td style={tdBase}>{line.partNumber ?? "—"}</td>
-                      <td style={tdBase}>{line.name}</td>
-                      <td style={{ ...tdBase, ...num }}>{line.quantity}</td>
-                      <td style={{ ...tdBase, ...num }}>{money(line.unitPrice)}</td>
-                      <td style={{ ...tdBase, ...num }}>{money(line.lineSubtotal)}</td>
-                      <td style={{ ...tdBase, ...num }}>{money(line.lineTax)}</td>
-                      <td style={{ ...tdBase, ...num }}>{money(line.lineTotal)}</td>
+                  <thead>
+                    <tr>
+                      <th style={thBase}>Date</th>
+                      <th style={thBase}>SKU</th>
+                      <th style={thBase}>Part #</th>
+                      <th style={thBase}>Name</th>
+                      <th style={{ ...thBase, ...num }}>Qty</th>
+                      <th style={{ ...thBase, ...num }}>Unit</th>
+                      <th style={{ ...thBase, ...num }}>Subtotal</th>
+                      <th style={{ ...thBase, ...num }}>Tax</th>
+                      <th style={{ ...thBase, ...num }}>Total</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
 
-              <div style={totals}>
-                <div>Subtotal: {money(inv.subtotal)}</div>
-                <div>Tax: {money(inv.taxTotal)}</div>
-                <div style={{ fontWeight: 900 }}>Total: {money(inv.total)}</div>
+                  <tbody>
+                    {inv.lines.map((line) => (
+                      <tr key={line.id}>
+                        <td style={tdBase}>{fmtDate(line.submittedAt)}</td>
+                        <td style={tdBase}>{line.sku}</td>
+                        <td style={tdBase}>{line.partNumber ?? "—"}</td>
+                        <td style={tdBase}>{line.name}</td>
+                        <td style={{ ...tdBase, ...num }}>{line.quantity}</td>
+                        <td style={{ ...tdBase, ...num }}>{money(line.unitPrice)}</td>
+                        <td style={{ ...tdBase, ...num }}>{money(line.lineSubtotal)}</td>
+                        <td style={{ ...tdBase, ...num }}>{money(line.lineTax)}</td>
+                        <td style={{ ...tdBase, ...num }}>{money(line.lineTotal)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                <div style={totals}>
+                  <div>Subtotal: {money(inv.subtotal)}</div>
+                  <div>Tax: {money(inv.taxTotal)}</div>
+                  <div style={{ fontWeight: 900 }}>Total: {money(inv.total)}</div>
+                </div>
               </div>
             </div>
           );
