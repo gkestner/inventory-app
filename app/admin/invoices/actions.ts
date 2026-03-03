@@ -534,13 +534,22 @@ function fromCents(c: number) {
   return (c || 0) / 100;
 }
 
+function normalizeVendor(v: unknown): InvoiceVendor {
+  return String(v ?? "").toUpperCase() === "AMERICAN_PLUS" ? InvoiceVendor.AMERICAN_PLUS : InvoiceVendor.SUCCESS_PLUS;
+}
+
 export async function createInvoicesForWindow(args: {
   vendor: InvoiceVendor;
   periodStart: Date;
   periodEnd: Date;
   invoiceDate: Date;
 }): Promise<{ results: Array<{ storeId: string; invoiceId?: string; created?: boolean; reason?: string }> }> {
-  const vendor = args.vendor === "AMERICAN_PLUS" ? InvoiceVendor.AMERICAN_PLUS : InvoiceVendor.SUCCESS_PLUS;
+  // IMPORTANT behavior:
+  // - If admin selects AMERICAN_PLUS: only invoice AMERICAN_PLUS tickets
+  // - If admin selects SUCCESS_PLUS: invoice BOTH vendors based on ticket.vendorSnapshot
+  //   (this is what allows "american plus" labeled items to generate American Plus invoices automatically)
+  const requestedVendor = normalizeVendor(args.vendor);
+
   const periodStart = new Date(args.periodStart);
   const periodEnd = new Date(args.periodEnd);
   const invoiceDate = new Date(args.invoiceDate);
@@ -552,16 +561,21 @@ export async function createInvoicesForWindow(args: {
     throw new Error("Invalid invoiceDate");
   }
 
-  const cfg = await loadVendorPricingAndTaxConfig(vendor);
+  // Pull OPEN tickets in window, not already invoiced/voided.
+  // If requestedVendor === AMERICAN_PLUS: filter to American.
+  // Else: include both vendors and split into separate invoices by vendorSnapshot.
+  const vendorWhere =
+    requestedVendor === InvoiceVendor.AMERICAN_PLUS
+      ? { vendorSnapshot: InvoiceVendor.AMERICAN_PLUS }
+      : { vendorSnapshot: { in: [InvoiceVendor.SUCCESS_PLUS, InvoiceVendor.AMERICAN_PLUS] } };
 
-  // Pull OPEN tickets in window, matching vendor snapshot, not already invoiced/voided
   const tickets = await prisma.partsCheckoutTicket.findMany({
     where: {
       status: PartsCheckoutStatus.OPEN,
       invoicedAt: null,
       voidedAt: null,
       createdAt: { gte: periodStart, lte: periodEnd },
-      vendorSnapshot: vendor,
+      ...vendorWhere,
     },
     select: {
       id: true,
@@ -573,6 +587,7 @@ export async function createInvoicesForWindow(args: {
       skuSnapshot: true,
       partNumberSnapshot: true,
       nameSnapshot: true,
+      vendorSnapshot: true,
       createdAt: true,
     },
     orderBy: [{ storeName: "asc" }, { createdAt: "asc" }],
@@ -583,15 +598,21 @@ export async function createInvoicesForWindow(args: {
     return { results: [] };
   }
 
-  // Group by storeId
-  const byStore = new Map<string, typeof tickets>();
+  // Group by (storeId, vendorSnapshot)
+  type Ticket = (typeof tickets)[number];
+  const byStoreVendor = new Map<string, Ticket[]>();
+
   for (const t of tickets) {
-    const arr = byStore.get(t.storeId) ?? [];
+    const v = normalizeVendor(t.vendorSnapshot);
+    const key = `${t.storeId}::${v}`;
+    const arr = byStoreVendor.get(key) ?? [];
     arr.push(t);
-    byStore.set(t.storeId, arr);
+    byStoreVendor.set(key, arr);
   }
 
-  const storeIds = Array.from(byStore.keys());
+  const storeIds = Array.from(
+    new Set(Array.from(byStoreVendor.keys()).map((k) => k.split("::")[0]).filter(Boolean))
+  );
 
   const locations = await prisma.location.findMany({
     where: { id: { in: storeIds } },
@@ -602,9 +623,11 @@ export async function createInvoicesForWindow(args: {
 
   const results: Array<{ storeId: string; invoiceId?: string; created?: boolean; reason?: string }> = [];
 
-  // Process each store in its own transaction (keeps failures isolated)
-  for (const storeId of storeIds) {
-    const storeTickets = byStore.get(storeId) ?? [];
+  // Process each (store, vendor) group in its own transaction
+  for (const [key, storeVendorTickets] of byStoreVendor.entries()) {
+    const [storeId, vendorRaw] = key.split("::");
+    const vendor = normalizeVendor(vendorRaw);
+
     const loc = locById.get(storeId);
 
     if (!loc) {
@@ -622,15 +645,18 @@ export async function createInvoicesForWindow(args: {
       continue;
     }
 
-    if (storeTickets.length === 0) {
+    if (storeVendorTickets.length === 0) {
       results.push({ storeId, created: false, reason: "No tickets" });
       continue;
     }
 
+    // Load correct vendor-specific formulas/settings
+    const cfg = await loadVendorPricingAndTaxConfig(vendor);
+
     try {
       const created = await prisma.$transaction(async (tx) => {
         // Re-read the same tickets inside the transaction to avoid racing with another generation run.
-        const ids = storeTickets.map((t) => t.id);
+        const ids = storeVendorTickets.map((t) => t.id);
 
         const fresh = await tx.partsCheckoutTicket.findMany({
           where: {
@@ -650,6 +676,7 @@ export async function createInvoicesForWindow(args: {
             skuSnapshot: true,
             partNumberSnapshot: true,
             nameSnapshot: true,
+            vendorSnapshot: true,
             createdAt: true,
           },
           orderBy: [{ createdAt: "asc" }],
@@ -659,12 +686,11 @@ export async function createInvoicesForWindow(args: {
           return { invoiceId: undefined as string | undefined, created: false, reason: "No eligible tickets" };
         }
 
-        // Build lines + totals
         const lineBuild = await Promise.all(
           fresh.map(async (t) => {
             const cost = Math.max(0, toNumberLoose(t.costSnapshot));
             const qtyRaw = toNumberLoose(t.quantity);
-            const qty = Math.max(0, qtyRaw); // keep fractional if your schema allows it
+            const qty = Math.max(0, qtyRaw);
 
             const unitPriceRaw = await evaluatePartsPriceFormula(cfg.partsPriceFormula, {
               cost,
@@ -704,7 +730,6 @@ export async function createInvoicesForWindow(args: {
           })
         );
 
-        // Totals in integer cents to avoid float drift
         const subtotalCents = lineBuild.reduce((acc, l) => acc + toCents(l.lineSubtotal), 0);
         const taxCents = lineBuild.reduce((acc, l) => acc + toCents(l.lineTax), 0);
         const totalCents = subtotalCents + taxCents;
@@ -713,7 +738,6 @@ export async function createInvoicesForWindow(args: {
         const taxTotal = fromCents(taxCents);
         const total = fromCents(totalCents);
 
-        // Create invoice
         const invoice = await tx.invoice.create({
           data: {
             vendor,
@@ -732,7 +756,6 @@ export async function createInvoicesForWindow(args: {
           select: { id: true },
         });
 
-        // Create invoice lines
         await tx.invoiceLine.createMany({
           data: lineBuild.map((l) => ({
             invoiceId: invoice.id,
@@ -748,11 +771,9 @@ export async function createInvoicesForWindow(args: {
             lineTax: l.lineTax,
             lineTotal: l.lineTotal,
           })),
-          // Helps reduce duplicate failures if you add a unique constraint later (recommended: InvoiceLine.checkoutId @unique)
           skipDuplicates: true,
         });
 
-        // Mark tickets invoiced + link invoice
         const now = new Date();
         await tx.partsCheckoutTicket.updateMany({
           where: { id: { in: lineBuild.map((l) => l.checkoutId) } },
