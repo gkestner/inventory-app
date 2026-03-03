@@ -102,6 +102,7 @@ export default async function PrintInvoiceBatchPage({
     );
   }
 
+  // Mark printed invoices as ISSUED (atomic batch update)
   const now = new Date();
   await prisma.invoice.updateMany({
     where: { id: { in: invoices.map((i) => i.id) }, status: InvoiceStatus.DRAFT },
@@ -110,65 +111,33 @@ export default async function PrintInvoiceBatchPage({
 
   return (
     <main>
-      <Script id="fit-and-print" strategy="afterInteractive">{`
-        function fitAll() {
-          const pages = document.querySelectorAll('.sheet');
-          pages.forEach((page) => {
-            const inner = page.querySelector('.inner');
-            if (!inner) return;
-
-            // Reset any previous scaling first
-            inner.style.transform = 'scale(1)';
-            inner.style.transformOrigin = 'top left';
-
-            // Measure available box (print page content box)
-            const availW = page.clientWidth;
-            const availH = page.clientHeight;
-
-            // Measure natural content size
-            // scrollWidth/scrollHeight reflect unscaled size (good).
-            const contentW = inner.scrollWidth;
-            const contentH = inner.scrollHeight;
-
-            if (!contentW || !contentH) return;
-
-            const scaleW = availW / contentW;
-            const scaleH = availH / contentH;
-
-            // "As big as possible" while fitting both dimensions.
-            // Subtract a tiny epsilon to avoid rounding pushing to page 2.
-            let scale = Math.min(1, scaleW, scaleH);
-            scale = Math.max(0.5, scale - 0.01);
-
-            inner.style.transform = 'scale(' + scale.toFixed(4) + ')';
-          });
-        }
-
+      {/* Auto-print after layout */}
+      <Script id="auto-print" strategy="afterInteractive">{`
         window.addEventListener('load', () => {
-          fitAll();
-          // Refit once more after fonts/layout settle
+          // slight delay lets Chrome layout settle before print
           setTimeout(() => {
-            fitAll();
-            setTimeout(() => { try { window.print(); } catch(e) {} }, 75);
-          }, 75);
+            try { window.print(); } catch(e) {}
+          }, 120);
         });
       `}</Script>
 
       <style>{`
-        /* ✅ Force Letter Landscape + NARROW margins */
+        /* ✅ True paper definition */
         @page {
           size: letter landscape;
-          margin: 0.25in; /* narrow */
+          margin: 0; /* IMPORTANT: avoid browser’s unpredictable printable-area box */
         }
 
-        body {
+        html, body {
           margin: 0;
-          font-family: Arial, sans-serif;
+          padding: 0;
           background: #fff !important;
           color: #000 !important;
+          font-family: Arial, sans-serif;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
         }
 
-        /* Print isolation */
         @media print {
           body * { visibility: hidden !important; }
           .printArea, .printArea * { visibility: visible !important; }
@@ -181,47 +150,49 @@ export default async function PrintInvoiceBatchPage({
             background: #fff !important;
             color: #000 !important;
           }
+
+          /* Force exactly 1 page per invoice */
+          .sheet {
+            break-after: page;
+            page-break-after: always;
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+          .sheet:last-of-type {
+            break-after: auto;
+            page-break-after: auto;
+          }
         }
 
         /*
-          ✅ Critical: Fix each invoice to the EXACT printable area:
-          Letter landscape is 11in x 8.5in
-          margins 0.25in each side => printable box is:
-          width: 11 - 0.5 = 10.5in
-          height: 8.5 - 0.5 = 8.0in
+          ✅ Fixed to the real paper size.
+          Letter landscape is 11in x 8.5in.
+          We simulate NARROW MARGINS using padding inside the sheet.
         */
         .sheet {
-          width: 10.5in;
-          height: 8in;
+          width: 11in;
+          height: 8.5in;
           box-sizing: border-box;
           overflow: hidden;
-          page-break-after: always;
-          break-after: page;
           background: #fff;
           color: #000;
-        }
-        .sheet:last-child {
-          page-break-after: auto;
-          break-after: auto;
-        }
-
-        /* Inner padding does NOT change .sheet's fixed size (box sizing keeps it contained) */
-        .inner {
-          box-sizing: border-box;
-          padding: 0.22in 0.25in;
-          transform-origin: top left;
+          /* narrow margins */
+          padding: 0.25in;
+          /* reserve a little extra top room so if Headers/Footers are ON,
+             Chrome’s page number won’t collide as badly */
+          padding-top: 0.32in;
         }
 
         .topRow {
           display: flex;
           justify-content: space-between;
-          align-items: baseline;
-          gap: 16px;
+          align-items: flex-start;
+          gap: 18px;
         }
 
         h2 {
           margin: 0;
-          font-size: 44px;
+          font-size: 46px;
           font-weight: 900;
           line-height: 1.05;
         }
@@ -240,7 +211,7 @@ export default async function PrintInvoiceBatchPage({
         }
 
         .storeLine {
-          font-size: 54px;
+          font-size: 56px;
           font-weight: 900;
           margin: 12px 0 10px;
           line-height: 1.05;
@@ -267,7 +238,7 @@ export default async function PrintInvoiceBatchPage({
           white-space: nowrap;
         }
 
-        /* Keep column widths stable so spacing stays consistent */
+        /* Stable column widths => stable spacing */
         .colDate { width: 12%; }
         .colSku  { width: 8%; }
         .colPart { width: 10%; }
@@ -296,88 +267,83 @@ export default async function PrintInvoiceBatchPage({
       <div className="printArea">
         {invoices.map((inv) => {
           const vendorNumber = computeVendorNumber(inv.vendor, String(inv.storeNumber ?? ""));
-          // Your stored number becomes the Voucher #
+          // Stored vendorNumber becomes Voucher #
           const voucherNumber = String(inv.vendorNumber ?? "").trim() || "—";
 
           return (
             <div key={inv.id} className="sheet">
-              <div className="inner">
-                <div className="topRow">
-                  <h2>{vendorName(inv.vendor)} Invoice</h2>
-
-                  {/* ✅ Vendor # top-right */}
-                  <div className="topRight">
-                    Vendor # <b>{vendorNumber}</b>
-                  </div>
+              <div className="topRow">
+                <h2>{vendorName(inv.vendor)} Invoice</h2>
+                <div className="topRight">
+                  Vendor # <b>{vendorNumber}</b>
                 </div>
+              </div>
 
-                {/* ✅ Voucher # in meta block */}
-                <div className="meta">
-                  <div>
-                    <b>Voucher #:</b> {voucherNumber}
-                  </div>
-                  <div>
-                    <b>Billed to:</b> {inv.billedTo}
-                  </div>
-                  <div>
-                    <b>Date Invoiced:</b> {fmtDate(inv.invoiceDate)}
-                  </div>
-                  <div>
-                    <b>Period:</b> {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}
-                  </div>
+              <div className="meta">
+                <div>
+                  <b>Voucher #:</b> {voucherNumber}
                 </div>
-
-                <div className="storeLine">
-                  Store: {inv.storeNumber} {inv.storeName}
+                <div>
+                  <b>Billed to:</b> {inv.billedTo}
                 </div>
+                <div>
+                  <b>Date Invoiced:</b> {fmtDate(inv.invoiceDate)}
+                </div>
+                <div>
+                  <b>Period:</b> {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}
+                </div>
+              </div>
 
-                <table>
-                  <colgroup>
-                    <col className="colDate" />
-                    <col className="colSku" />
-                    <col className="colPart" />
-                    <col className="colName" />
-                    <col className="colQty" />
-                    <col className="colUnit" />
-                    <col className="colSub" />
-                    <col className="colTax" />
-                    <col className="colTot" />
-                  </colgroup>
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>SKU</th>
-                      <th>Part #</th>
-                      <th>Name</th>
-                      <th>Qty</th>
-                      <th>Unit</th>
-                      <th>Subtotal</th>
-                      <th>Tax</th>
-                      <th>Total</th>
+              <div className="storeLine">
+                Store: {inv.storeNumber} {inv.storeName}
+              </div>
+
+              <table>
+                <colgroup>
+                  <col className="colDate" />
+                  <col className="colSku" />
+                  <col className="colPart" />
+                  <col className="colName" />
+                  <col className="colQty" />
+                  <col className="colUnit" />
+                  <col className="colSub" />
+                  <col className="colTax" />
+                  <col className="colTot" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>SKU</th>
+                    <th>Part #</th>
+                    <th>Name</th>
+                    <th>Qty</th>
+                    <th>Unit</th>
+                    <th>Subtotal</th>
+                    <th>Tax</th>
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {inv.lines.map((line) => (
+                    <tr key={line.id}>
+                      <td>{fmtDate(line.submittedAt)}</td>
+                      <td>{line.sku}</td>
+                      <td>{line.partNumber ?? "—"}</td>
+                      <td className="nameCell">{line.name}</td>
+                      <td>{line.quantity}</td>
+                      <td>{money(line.unitPrice)}</td>
+                      <td>{money(line.lineSubtotal)}</td>
+                      <td>{money(line.lineTax)}</td>
+                      <td>{money(line.lineTotal)}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {inv.lines.map((line) => (
-                      <tr key={line.id}>
-                        <td>{fmtDate(line.submittedAt)}</td>
-                        <td>{line.sku}</td>
-                        <td>{line.partNumber ?? "—"}</td>
-                        <td className="nameCell">{line.name}</td>
-                        <td>{line.quantity}</td>
-                        <td>{money(line.unitPrice)}</td>
-                        <td>{money(line.lineSubtotal)}</td>
-                        <td>{money(line.lineTax)}</td>
-                        <td>{money(line.lineTotal)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                  ))}
+                </tbody>
+              </table>
 
-                <div className="totals">
-                  <div>Subtotal: {money(inv.subtotal)}</div>
-                  <div>Tax: {money(inv.taxTotal)}</div>
-                  <div>Total: {money(inv.total)}</div>
-                </div>
+              <div className="totals">
+                <div>Subtotal: {money(inv.subtotal)}</div>
+                <div>Tax: {money(inv.taxTotal)}</div>
+                <div>Total: {money(inv.total)}</div>
               </div>
             </div>
           );
