@@ -8,6 +8,7 @@ import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { InvoiceStatus, Permission, Role } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
+import type { CSSProperties } from "react";
 
 export const dynamic = "force-dynamic";
 
@@ -50,10 +51,17 @@ function computeVendorNumber(vendor: string, storeNumber: string) {
 
 function parseIds(raw: string | undefined): string[] {
   if (!raw) return [];
-  return decodeURIComponent(raw)
-    .split(",")
-    .map((x) => x.trim())
-    .filter(Boolean);
+  try {
+    return decodeURIComponent(raw)
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
+  } catch {
+    return raw
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
+  }
 }
 
 export default async function PrintInvoiceBatchPage({
@@ -74,11 +82,71 @@ export default async function PrintInvoiceBatchPage({
     return <main style={{ padding: 24 }}>No invoices available.</main>;
   }
 
+  // Mark as issued (atomic)
   const now = new Date();
   await prisma.invoice.updateMany({
     where: { id: { in: invoices.map((i) => i.id) }, status: InvoiceStatus.DRAFT },
     data: { status: InvoiceStatus.ISSUED, issuedAt: now },
   });
+
+  // --- Inline styles (guaranteed to apply) ---
+  const sheet: CSSProperties = {
+    padding: "24px 32px",
+    maxWidth: 1400,
+    margin: "0 auto",
+    background: "#fff",
+    color: "#000",
+    fontFamily: "Arial, sans-serif",
+  };
+
+  const topRow: CSSProperties = {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    gap: 12,
+  };
+
+  const h2Style: CSSProperties = { fontSize: 36, margin: 0, fontWeight: 800 };
+  const topRight: CSSProperties = { fontSize: 16, fontWeight: 800, whiteSpace: "nowrap" };
+
+  const meta: CSSProperties = { fontSize: 18, marginTop: 8, lineHeight: 1.4 };
+
+  const storeLine: CSSProperties = {
+    fontSize: 48,
+    fontWeight: 900,
+    margin: "18px 0 12px",
+    lineHeight: 1.05,
+  };
+
+  // ✅ Table at 75% size relative to the rest
+  const tableStyle: CSSProperties = {
+    width: "100%",
+    borderCollapse: "collapse",
+    marginTop: 10,
+    fontSize: "75%", // <- this is the 0.75 sizing
+  };
+
+  const thBase: CSSProperties = {
+    border: "1px solid #000",
+    padding: "6px 8px",
+    background: "#eee",
+    fontWeight: 800,
+    textAlign: "left",
+    whiteSpace: "nowrap",
+  };
+
+  const tdBase: CSSProperties = {
+    border: "1px solid #000",
+    padding: "6px 8px",
+    verticalAlign: "top",
+  };
+
+  const numCell: CSSProperties = {
+    textAlign: "right",
+    whiteSpace: "nowrap",
+  };
+
+  const totals: CSSProperties = { marginTop: 16, textAlign: "right", fontSize: 20, fontWeight: 900 };
 
   return (
     <main>
@@ -87,24 +155,19 @@ export default async function PrintInvoiceBatchPage({
       `}</Script>
 
       <style>{`
-        @page {
-          size: landscape;
-          margin: 0.5in;
-        }
+        @page { size: landscape; margin: 0.5in; }
 
         body {
           margin: 0;
-          font-family: Arial, sans-serif;
           background: #fff !important;
           color: #000 !important;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
         }
 
         @media print {
           body * { visibility: hidden !important; }
-
-          .printArea, .printArea * {
-            visibility: visible !important;
-          }
+          .printArea, .printArea * { visibility: visible !important; }
 
           .printArea {
             position: absolute;
@@ -115,148 +178,82 @@ export default async function PrintInvoiceBatchPage({
 
           .sheet {
             page-break-after: always;
+            break-after: page;
           }
 
           .sheet:last-child {
             page-break-after: auto;
+            break-after: auto;
           }
-        }
-
-        .sheet {
-          padding: 24px 32px;
-          max-width: 1400px;
-          margin: 0 auto;
-        }
-
-        .topRow {
-          display: flex;
-          justify-content: space-between;
-          align-items: baseline;
-        }
-
-        h2 {
-          font-size: 36px;
-          margin: 0;
-          font-weight: 800;
-        }
-
-        .topRight {
-          font-size: 16px;
-          font-weight: 800;
-        }
-
-        .meta {
-          font-size: 18px;
-          margin-top: 8px;
-          line-height: 1.4;
-        }
-
-        .storeLine {
-          font-size: 48px;
-          font-weight: 900;
-          margin: 18px 0 12px;
-        }
-
-        /* ===== TABLE FIXES START HERE ===== */
-
-        table {
-          width: 100%;
-          border-collapse: collapse;
-          margin-top: 10px;
-          font-size: 75%; /* 🔹 .75 size */
-        }
-
-        th, td {
-          border: 1px solid #000;
-          padding: 6px 8px;
-        }
-
-        th {
-          background: #eee;
-          font-weight: 800;
-          text-align: left;
-        }
-
-        /* Right align numeric columns */
-        td:nth-child(5),
-        td:nth-child(6),
-        td:nth-child(7),
-        td:nth-child(8),
-        td:nth-child(9),
-        th:nth-child(5),
-        th:nth-child(6),
-        th:nth-child(7),
-        th:nth-child(8),
-        th:nth-child(9) {
-          text-align: right;
-          white-space: nowrap;
-        }
-
-        .totals {
-          margin-top: 16px;
-          text-align: right;
-          font-size: 20px;
-          font-weight: 900;
         }
       `}</style>
 
       <div className="printArea">
         {invoices.map((inv) => {
           const vendorNumber = computeVendorNumber(inv.vendor, String(inv.storeNumber));
-          const voucherNumber = inv.vendorNumber || "—";
+          const voucherNumber = String(inv.vendorNumber ?? "").trim() || "—";
 
           return (
-            <div key={inv.id} className="sheet">
-              <div className="topRow">
-                <h2>{vendorName(inv.vendor)} Invoice</h2>
-                <div className="topRight">
+            <div key={inv.id} className="sheet" style={sheet}>
+              <div style={topRow}>
+                <h2 style={h2Style}>{vendorName(inv.vendor)} Invoice</h2>
+                <div style={topRight}>
                   Vendor # <b>{vendorNumber}</b>
                 </div>
               </div>
 
-              <div className="meta">
-                <div><b>Voucher #:</b> {voucherNumber}</div>
-                <div><b>Billed to:</b> {inv.billedTo}</div>
-                <div><b>Date Invoiced:</b> {fmtDate(inv.invoiceDate)}</div>
-                <div><b>Period:</b> {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}</div>
+              <div style={meta}>
+                <div>
+                  <b>Voucher #:</b> {voucherNumber}
+                </div>
+                <div>
+                  <b>Billed to:</b> {inv.billedTo}
+                </div>
+                <div>
+                  <b>Date Invoiced:</b> {fmtDate(inv.invoiceDate)}
+                </div>
+                <div>
+                  <b>Period:</b> {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}
+                </div>
               </div>
 
-              <div className="storeLine">
+              <div style={storeLine}>
                 Store: {inv.storeNumber} {inv.storeName}
               </div>
 
-              <table>
+              <table style={tableStyle}>
                 <thead>
                   <tr>
-                    <th>Date</th>
-                    <th>SKU</th>
-                    <th>Part #</th>
-                    <th>Name</th>
-                    <th>Qty</th>
-                    <th>Unit</th>
-                    <th>Subtotal</th>
-                    <th>Tax</th>
-                    <th>Total</th>
+                    <th style={thBase}>Date</th>
+                    <th style={thBase}>SKU</th>
+                    <th style={thBase}>Part #</th>
+                    <th style={thBase}>Name</th>
+                    <th style={{ ...thBase, ...numCell }}>Qty</th>
+                    <th style={{ ...thBase, ...numCell }}>Unit</th>
+                    <th style={{ ...thBase, ...numCell }}>Subtotal</th>
+                    <th style={{ ...thBase, ...numCell }}>Tax</th>
+                    <th style={{ ...thBase, ...numCell }}>Total</th>
                   </tr>
                 </thead>
+
                 <tbody>
                   {inv.lines.map((line) => (
                     <tr key={line.id}>
-                      <td>{fmtDate(line.submittedAt)}</td>
-                      <td>{line.sku}</td>
-                      <td>{line.partNumber ?? "—"}</td>
-                      <td>{line.name}</td>
-                      <td>{line.quantity}</td>
-                      <td>{money(line.unitPrice)}</td>
-                      <td>{money(line.lineSubtotal)}</td>
-                      <td>{money(line.lineTax)}</td>
-                      <td>{money(line.lineTotal)}</td>
+                      <td style={tdBase}>{fmtDate(line.submittedAt)}</td>
+                      <td style={tdBase}>{line.sku}</td>
+                      <td style={tdBase}>{line.partNumber ?? "—"}</td>
+                      <td style={tdBase}>{line.name}</td>
+                      <td style={{ ...tdBase, ...numCell }}>{line.quantity}</td>
+                      <td style={{ ...tdBase, ...numCell }}>{money(line.unitPrice)}</td>
+                      <td style={{ ...tdBase, ...numCell }}>{money(line.lineSubtotal)}</td>
+                      <td style={{ ...tdBase, ...numCell }}>{money(line.lineTax)}</td>
+                      <td style={{ ...tdBase, ...numCell }}>{money(line.lineTotal)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
 
-              <div className="totals">
+              <div style={totals}>
                 <div>Subtotal: {money(inv.subtotal)}</div>
                 <div>Tax: {money(inv.taxTotal)}</div>
                 <div>Total: {money(inv.total)}</div>
