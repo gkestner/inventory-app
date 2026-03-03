@@ -48,23 +48,12 @@ function computeVendorNumber(vendor: string, storeNumber: string) {
   return vendor === "SUCCESS_PLUS" ? `${sn}SP` : `${sn}APLS`;
 }
 
-function safeDecodeOnce(s: string): string {
-  try {
-    return decodeURIComponent(s);
-  } catch {
-    return s;
-  }
-}
-
 function parseIds(raw: string | undefined): string[] {
-  const s0 = String(raw ?? "").trim();
-  if (!s0) return [];
-  const decoded = safeDecodeOnce(s0);
-  return decoded
+  if (!raw) return [];
+  return decodeURIComponent(raw)
     .split(",")
     .map((x) => x.trim())
-    .filter(Boolean)
-    .slice(0, 200);
+    .filter(Boolean);
 }
 
 export default async function PrintInvoiceBatchPage({
@@ -76,33 +65,15 @@ export default async function PrintInvoiceBatchPage({
 
   const ids = parseIds(searchParams.ids);
 
-  const invoices =
-    ids.length > 0
-      ? await prisma.invoice
-          .findMany({
-            where: { id: { in: ids } },
-            include: { lines: { orderBy: { submittedAt: "asc" } } },
-          })
-          .then((rows) => {
-            const map = new Map(rows.map((r) => [r.id, r]));
-            return ids.map((id) => map.get(id)).filter(Boolean) as typeof rows;
-          })
-      : await prisma.invoice.findMany({
-          where: { status: InvoiceStatus.DRAFT },
-          orderBy: { createdAt: "asc" },
-          take: 200,
-          include: { lines: { orderBy: { submittedAt: "asc" } } },
-        });
+  const invoices = await prisma.invoice.findMany({
+    where: ids.length ? { id: { in: ids } } : { status: InvoiceStatus.DRAFT },
+    include: { lines: { orderBy: { submittedAt: "asc" } } },
+  });
 
-  if (invoices.length === 0) {
-    return (
-      <main style={{ padding: 24 }}>
-        <div>No invoices available to print.</div>
-      </main>
-    );
+  if (!invoices.length) {
+    return <main style={{ padding: 24 }}>No invoices available.</main>;
   }
 
-  // Mark printed invoices as ISSUED (atomic batch update)
   const now = new Date();
   await prisma.invoice.updateMany({
     where: { id: { in: invoices.map((i) => i.id) }, status: InvoiceStatus.DRAFT },
@@ -111,164 +82,118 @@ export default async function PrintInvoiceBatchPage({
 
   return (
     <main>
-      {/* Auto-print after layout */}
       <Script id="auto-print" strategy="afterInteractive">{`
-        window.addEventListener('load', () => {
-          // slight delay lets Chrome layout settle before print
-          setTimeout(() => {
-            try { window.print(); } catch(e) {}
-          }, 120);
-        });
+        setTimeout(() => {
+          try { window.print(); } catch(e) {}
+        }, 100);
       `}</Script>
 
       <style>{`
-        /* ✅ True paper definition */
+        /* Back to original stable print behavior */
         @page {
-          size: letter landscape;
-          margin: 0; /* IMPORTANT: avoid browser’s unpredictable printable-area box */
+          size: landscape;
+          margin: 0.5in;
         }
 
-        html, body {
+        body {
           margin: 0;
-          padding: 0;
+          font-family: Arial, sans-serif;
           background: #fff !important;
           color: #000 !important;
-          font-family: Arial, sans-serif;
           -webkit-print-color-adjust: exact;
           print-color-adjust: exact;
         }
 
         @media print {
           body * { visibility: hidden !important; }
-          .printArea, .printArea * { visibility: visible !important; }
+
+          .printArea, .printArea * {
+            visibility: visible !important;
+          }
 
           .printArea {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
-            background: #fff !important;
-            color: #000 !important;
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
           }
 
-          /* Force exactly 1 page per invoice */
           .sheet {
-            break-after: page;
             page-break-after: always;
-            break-inside: avoid;
-            page-break-inside: avoid;
+            break-after: page;
           }
-          .sheet:last-of-type {
-            break-after: auto;
+
+          .sheet:last-child {
             page-break-after: auto;
           }
         }
 
-        /*
-          ✅ Fixed to the real paper size.
-          Letter landscape is 11in x 8.5in.
-          We simulate NARROW MARGINS using padding inside the sheet.
-        */
         .sheet {
-          width: 11in;
-          height: 8.5in;
-          box-sizing: border-box;
-          overflow: hidden;
+          padding: 24px 32px;
+          max-width: 1400px;
+          margin: 0 auto;
           background: #fff;
           color: #000;
-          /* narrow margins */
-          padding: 0.25in;
-          /* reserve a little extra top room so if Headers/Footers are ON,
-             Chrome’s page number won’t collide as badly */
-          padding-top: 0.32in;
         }
 
         .topRow {
           display: flex;
           justify-content: space-between;
-          align-items: flex-start;
-          gap: 18px;
+          align-items: baseline;
         }
 
         h2 {
+          font-size: 36px;
           margin: 0;
-          font-size: 46px;
-          font-weight: 900;
-          line-height: 1.05;
+          font-weight: 800;
         }
 
         .topRight {
-          font-size: 18px;
-          font-weight: 900;
-          white-space: nowrap;
+          font-size: 16px;
+          font-weight: 800;
         }
 
         .meta {
           font-size: 18px;
-          line-height: 1.35;
-          margin-top: 10px;
-          font-weight: 700;
+          margin-top: 8px;
+          line-height: 1.4;
         }
 
         .storeLine {
-          font-size: 56px;
+          font-size: 48px;
           font-weight: 900;
-          margin: 12px 0 10px;
-          line-height: 1.05;
+          margin: 18px 0 12px;
         }
 
         table {
           width: 100%;
           border-collapse: collapse;
-          margin-top: 6px;
-          table-layout: fixed;
+          margin-top: 10px;
         }
 
         th, td {
-          border: 2px solid #000;
-          padding: 10px 10px;
+          border: 1px solid #000;
+          padding: 8px;
           font-size: 18px;
-          vertical-align: top;
         }
 
         th {
           background: #eee;
-          font-weight: 900;
-          text-align: left;
-          white-space: nowrap;
-        }
-
-        /* Stable column widths => stable spacing */
-        .colDate { width: 12%; }
-        .colSku  { width: 8%; }
-        .colPart { width: 10%; }
-        .colName { width: 28%; }
-        .colQty  { width: 6%; }
-        .colUnit { width: 12%; }
-        .colSub  { width: 12%; }
-        .colTax  { width: 6%; }
-        .colTot  { width: 6%; }
-
-        td.nameCell {
-          white-space: normal;
-          overflow-wrap: anywhere;
-          word-break: break-word;
+          font-weight: 800;
         }
 
         .totals {
-          margin-top: 10px;
+          margin-top: 16px;
           text-align: right;
           font-size: 20px;
           font-weight: 900;
-          line-height: 1.3;
         }
       `}</style>
 
       <div className="printArea">
         {invoices.map((inv) => {
-          const vendorNumber = computeVendorNumber(inv.vendor, String(inv.storeNumber ?? ""));
-          // Stored vendorNumber becomes Voucher #
-          const voucherNumber = String(inv.vendorNumber ?? "").trim() || "—";
+          const vendorNumber = computeVendorNumber(inv.vendor, String(inv.storeNumber));
+          const voucherNumber = inv.vendorNumber || "—";
 
           return (
             <div key={inv.id} className="sheet">
@@ -280,18 +205,10 @@ export default async function PrintInvoiceBatchPage({
               </div>
 
               <div className="meta">
-                <div>
-                  <b>Voucher #:</b> {voucherNumber}
-                </div>
-                <div>
-                  <b>Billed to:</b> {inv.billedTo}
-                </div>
-                <div>
-                  <b>Date Invoiced:</b> {fmtDate(inv.invoiceDate)}
-                </div>
-                <div>
-                  <b>Period:</b> {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}
-                </div>
+                <div><b>Voucher #:</b> {voucherNumber}</div>
+                <div><b>Billed to:</b> {inv.billedTo}</div>
+                <div><b>Date Invoiced:</b> {fmtDate(inv.invoiceDate)}</div>
+                <div><b>Period:</b> {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}</div>
               </div>
 
               <div className="storeLine">
@@ -299,17 +216,6 @@ export default async function PrintInvoiceBatchPage({
               </div>
 
               <table>
-                <colgroup>
-                  <col className="colDate" />
-                  <col className="colSku" />
-                  <col className="colPart" />
-                  <col className="colName" />
-                  <col className="colQty" />
-                  <col className="colUnit" />
-                  <col className="colSub" />
-                  <col className="colTax" />
-                  <col className="colTot" />
-                </colgroup>
                 <thead>
                   <tr>
                     <th>Date</th>
@@ -329,7 +235,7 @@ export default async function PrintInvoiceBatchPage({
                       <td>{fmtDate(line.submittedAt)}</td>
                       <td>{line.sku}</td>
                       <td>{line.partNumber ?? "—"}</td>
-                      <td className="nameCell">{line.name}</td>
+                      <td>{line.name}</td>
                       <td>{line.quantity}</td>
                       <td>{money(line.unitPrice)}</td>
                       <td>{money(line.lineSubtotal)}</td>
