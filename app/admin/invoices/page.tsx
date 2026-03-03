@@ -4,6 +4,7 @@ import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
@@ -82,9 +83,18 @@ type SearchParams = {
   perPage?: string;
   err?: string;
   cfg?: string;
-  gen?: string;
-  genDetails?: string;
 };
+
+function safeReturnToPathFromReferer(referer: string | null): string {
+  if (!referer) return "/admin/invoices";
+  try {
+    const u = new URL(referer);
+    const path = `${u.pathname}${u.search}`;
+    return path.startsWith("/") ? path : "/admin/invoices";
+  } catch {
+    return "/admin/invoices";
+  }
+}
 
 type CreateInvoicesResult = Awaited<ReturnType<typeof createInvoicesForWindow>>;
 
@@ -410,8 +420,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   const invoiceModelReady = typeof d.invoice?.findMany === "function" && typeof d.invoice?.count === "function";
   const invoiceLineReady = typeof d.invoiceLine?.deleteMany === "function";
   const ticketModelReady = typeof d.partsCheckoutTicket?.groupBy === "function";
-  const vendorConfigReady =
-    typeof d.invoiceVendorConfig?.findMany === "function" && typeof d.invoiceVendorConfig?.upsert === "function";
+  const vendorConfigReady = typeof d.invoiceVendorConfig?.findMany === "function" && typeof d.invoiceVendorConfig?.upsert === "function";
 
   if (!invoiceModelReady || !invoiceLineReady) {
     return (
@@ -490,8 +499,6 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
   const err = String(sp.err ?? "").trim();
   const cfg = String(sp.cfg ?? "").trim();
-  const gen = String(sp.gen ?? "").trim();
-  const genDetails = String(sp.genDetails ?? "").trim();
 
   let readyByStore: Array<{ storeId: string; storeName: string; _count: { _all: number } }> = [];
   let readyTotal = 0;
@@ -556,6 +563,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   let invoices: InvoiceRow[] = [];
 
   try {
+    // We can safely call prisma.invoice here because this file exists in the deployment that has invoice models.
     const [count, rows] = await Promise.all([
       prisma.invoice.count(),
       prisma.invoice.findMany({
@@ -604,7 +612,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     const merged: SearchParams = { ...sp, ...patch };
 
     const qp = new URLSearchParams();
-    const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err", "cfg", "gen", "genDetails"];
+    const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err", "cfg"];
 
     for (const k of keys) {
       const v = merged[k];
@@ -621,36 +629,6 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   async function generateInvoicesAction(formData: FormData) {
     "use server";
     await requireInvoicesView();
-
-    const buildReturnToFromSubmission = (patch: Partial<SearchParams>) => {
-      const get = (k: keyof SearchParams) => String(formData.get(k) ?? "").trim();
-      const qp = new URLSearchParams();
-      const merged: SearchParams = {
-        vendor: get("vendor"),
-        from: get("from"),
-        to: get("to"),
-        invoiceDate: get("invoiceDate"),
-        page: "1",
-        perPage: String(sp.perPage ?? "25").trim() || "25",
-        err: "",
-        cfg: "",
-        gen: "",
-        genDetails: "",
-        ...patch,
-      };
-
-      const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err", "cfg", "gen", "genDetails"];
-      for (const k of keys) {
-        const v = merged[k];
-        if (typeof v !== "string") continue;
-        const trimmed = v.trim();
-        if (!trimmed) continue;
-        qp.set(k, trimmed);
-      }
-
-      const qs = qp.toString();
-      return qs ? `/admin/invoices?${qs}` : "/admin/invoices";
-    };
 
     const vendor =
       String(formData.get("vendor") ?? "SUCCESS_PLUS").trim().toUpperCase() === "AMERICAN_PLUS"
@@ -689,13 +667,8 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
       redirect(`/admin/invoices/print-batch?ids=${encodeURIComponent(ids.join(","))}`);
     }
 
-    const reasonRows = ((res as unknown as { results?: unknown[] } | null)?.results ?? []) as Array<Record<string, unknown>>;
-    const reasonList = reasonRows
-      .map((r) => (typeof r.reason === "string" ? r.reason.trim() : ""))
-      .filter((r) => r.length > 0);
-
-    const detail = reasonList.length > 0 ? reasonList.slice(0, 2).join(" • ") : "No eligible tickets were found.";
-    redirect(buildReturnToFromSubmission({ gen: "none", genDetails: detail }));
+    const h = await headers();
+    redirect(safeReturnToPathFromReferer(h.get("referer")));
   }
 
   async function updateVendorPricingAndTaxAction(formData: FormData) {
@@ -755,14 +728,12 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
         perPage: get("perPage"),
         err: get("err"),
         cfg: get("cfg"),
-        gen: get("gen"),
-        genDetails: get("genDetails"),
       };
 
       const merged: SearchParams = { ...base, ...patch };
 
       const qp = new URLSearchParams();
-      const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err", "cfg", "gen", "genDetails"];
+      const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err", "cfg"];
       for (const k of keys) {
         const v = merged[k];
         if (typeof v !== "string") continue;
@@ -827,9 +798,6 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
             : cfg === "config_not_ready"
               ? "Vendor settings are not available yet on this deployment (missing invoiceVendorConfig)."
               : null;
-
-  const genBanner =
-    gen === "none" ? `No invoices were generated for that request. ${genDetails || "Check vendor/date range and store setup."}` : null;
 
   const detailsSummaryStyle: CSSProperties = {
     cursor: "pointer",
@@ -908,21 +876,6 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
             }}
           >
             {cfgBanner}
-          </div>
-        ) : null}
-
-        {genBanner ? (
-          <div
-            style={{
-              marginTop: 12,
-              padding: 12,
-              borderRadius: 14,
-              border: "1px solid rgba(255,152,0,0.55)",
-              background: "rgba(255,152,0,0.12)",
-              fontWeight: 900,
-            }}
-          >
-            {genBanner}
           </div>
         ) : null}
 
@@ -1098,9 +1051,8 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                 </label>
 
                 <div style={{ flex: "1 1 220px", display: "flex", justifyContent: "flex-end" }}>
-                  {/* FIX: ensure we actually submit the form */}
-                  <button type="submit" style={btnPrimary}>
-                    Generate invoices
+                  <button type="submit" style={btnPrimary} disabled={readyTotal === 0}>
+                    Generate invoices for window
                   </button>
                 </div>
               </div>
@@ -1224,7 +1176,9 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                 Hard delete selected
               </button>
 
-              <div style={{ fontSize: 12, opacity: 0.75, maxWidth: 700 }}>Hard delete permanently removes invoices and their line items.</div>
+              <div style={{ fontSize: 12, opacity: 0.75, maxWidth: 700 }}>
+                Hard delete permanently removes invoices and their line items.
+              </div>
             </div>
           </form>
 
