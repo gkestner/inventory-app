@@ -26,7 +26,6 @@ async function requireInvoicesView() {
   const perms = await loadUserPermissions(session);
   if (perms.allowAll) return;
 
-  // matches your existing invoices gating
   const ok = hasAnyPermission(perms, [Permission.ADMIN_EDIT_ITEMS]);
   if (!ok) redirect("/");
 }
@@ -56,7 +55,6 @@ function storeCode(storeNumber: string | number | null | undefined) {
   if (!raw) return "00";
   const n = Number.parseInt(raw, 10);
   if (Number.isFinite(n)) return String(n).padStart(2, "0");
-  // if it's already something like "03", keep digits, pad if short
   const digits = raw.replace(/\D+/g, "");
   if (!digits) return "00";
   return digits.padStart(2, "0").slice(-2);
@@ -141,37 +139,27 @@ export default async function PrintInvoiceBatchPage({
     );
   }
 
-  // mark as ISSUED when opened (same behavior you had)
+  // Mark DRAFT -> ISSUED when opened
   const now = new Date();
   await prisma.invoice.updateMany({
-    where: {
-      id: { in: invoices.map((i) => i.id) },
-      status: InvoiceStatus.DRAFT,
-    },
-    data: {
-      status: InvoiceStatus.ISSUED,
-      issuedAt: now,
-    },
+    where: { id: { in: invoices.map((i) => i.id) }, status: InvoiceStatus.DRAFT },
+    data: { status: InvoiceStatus.ISSUED, issuedAt: now },
   });
 
   return (
     <>
-      {/* Full-screen overlay to hide your admin chrome/menus on screen */}
       <div id="print-root">
-        {/* Best-effort auto print after navigation */}
         <Script id="auto-print-batch" strategy="afterInteractive">{`
 (function () {
   if (window.__invoiceBatchPrintTried) return;
   window.__invoiceBatchPrintTried = true;
-  // Give layout/fonts a beat to render, then print
   setTimeout(function () {
     try { window.focus(); window.print(); } catch (e) {}
-  }, 150);
+  }, 200);
 })();
         `}</Script>
 
         <style>{`
-          /* Cover the entire app UI so menus never show */
           #print-root{
             position: fixed;
             inset: 0;
@@ -181,14 +169,13 @@ export default async function PrintInvoiceBatchPage({
             overflow: auto;
           }
 
-          /* ===== PRINT CONTROL: 1 invoice = 1 page, Letter Landscape ===== */
+          /* Letter landscape + narrow margins */
           @page {
             size: Letter landscape;
-            margin: 0.25in; /* "narrow-ish" margins */
+            margin: 0.25in;
           }
 
           @media print {
-            /* Make sure ONLY this overlay prints */
             body * { visibility: hidden !important; }
             #print-root, #print-root * { visibility: visible !important; }
 
@@ -200,7 +187,6 @@ export default async function PrintInvoiceBatchPage({
 
             .no-print { display: none !important; }
 
-            /* exact page breaks */
             .invoicePage { break-after: page; page-break-after: always; }
             .invoicePage:last-child { break-after: auto; page-break-after: auto; }
           }
@@ -212,34 +198,55 @@ export default async function PrintInvoiceBatchPage({
             opacity: 0.85;
           }
 
-          /* Physical page box (Letter landscape minus @page margins):
-             Letter landscape = 11in x 8.5in
-             margins 0.25in each side => content box = 10.5in x 8.0in */
+          /* IMPORTANT:
+             We center the invoice within the printable area using flex. */
           .invoicePage{
             width: 10.5in;
             height: 8in;
             box-sizing: border-box;
-            padding: 0; /* margins handled by @page */
             margin: 0 auto;
+
+            display: flex;
+            align-items: center;     /* vertical centering */
+            justify-content: center; /* horizontal centering */
+
+            overflow: hidden; /* prevents tiny overflow -> extra page */
+          }
+
+          /* The real invoice content box */
+          .invoiceInner{
+            width: 100%;
+            height: 100%;
+            box-sizing: border-box;
+
+            /* inner padding to look better while still fitting */
+            padding: 0.15in;
+
             display: flex;
             flex-direction: column;
-            overflow: hidden; /* prevents tiny overflow -> extra page */
           }
 
           .headerRow{
             display: grid;
             grid-template-columns: 1fr auto;
-            gap: 16px;
+            gap: 18px;
             align-items: start;
-            margin-top: 0.05in;
           }
 
           .title{
             margin: 0;
             font-family: Arial, sans-serif;
             font-weight: 800;
-            font-size: 20px; /* smaller title (half-ish vs big) */
+            font-size: 26px; /* bigger */
             line-height: 1.1;
+          }
+
+          .leftMeta{
+            margin-top: 8px;
+            font-size: 16px; /* bigger */
+            line-height: 1.4;
+            font-weight: 700;
+            font-family: Arial, sans-serif;
           }
 
           .rightMeta{
@@ -249,46 +256,38 @@ export default async function PrintInvoiceBatchPage({
 
           .vendorBig{
             font-weight: 900;
-            font-size: 40px; /* ~2x */
+            font-size: 52px; /* bigger */
             line-height: 1;
             white-space: nowrap; /* ALWAYS 1 line */
           }
 
           .rightMetaSmall{
-            margin-top: 6px;
-            font-size: 14px;
+            margin-top: 8px;
+            font-size: 16px; /* bigger */
             line-height: 1.35;
             font-weight: 700;
-          }
-
-          .leftMeta{
-            margin-top: 6px;
-            font-size: 14px;
-            line-height: 1.35;
-            font-weight: 700;
-            font-family: Arial, sans-serif;
           }
 
           .storeLine{
-            margin-top: 10px;
+            margin-top: 14px;
             font-family: Arial, sans-serif;
             font-weight: 900;
-            font-size: 36px;
+            font-size: 44px; /* bigger */
             line-height: 1.05;
           }
 
           table{
             width: 100%;
             border-collapse: collapse;
-            margin-top: 10px;
-            table-layout: fixed; /* stable column widths */
+            margin-top: 14px;
+            table-layout: fixed;
             font-family: Arial, sans-serif;
           }
 
           th, td{
             border: 1px solid #000;
-            padding: 6px 6px;
-            font-size: 12px;
+            padding: 8px 8px;   /* bigger */
+            font-size: 14px;    /* bigger */
             vertical-align: top;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -297,10 +296,10 @@ export default async function PrintInvoiceBatchPage({
 
           th{
             background: #f2f2f2;
-            font-weight: 800;
+            font-weight: 900;
           }
 
-          /* Column sizing so "Subtotal/Tax/Total" don't bunch */
+          /* Column sizing */
           .colDate{ width: 13%; }
           .colSku{ width: 10%; }
           .colPart{ width: 11%; }
@@ -316,10 +315,10 @@ export default async function PrintInvoiceBatchPage({
             margin-left: auto;
             text-align: right;
             font-family: Arial, sans-serif;
-            font-size: 14px;
-            line-height: 1.4;
-            font-weight: 800;
-            padding-top: 10px;
+            font-size: 18px;  /* bigger */
+            line-height: 1.45;
+            font-weight: 900;
+            padding-top: 14px;
           }
           .totals .grand{ font-weight: 900; }
         `}</style>
@@ -331,71 +330,73 @@ export default async function PrintInvoiceBatchPage({
 
         {invoices.map((inv) => {
           const vNum = `${storeCode(inv.storeNumber)}${vendorSuffix(inv.vendor)}`;
-          const voucherNum = inv.id; // always present
+          const voucherNum = inv.id;
 
           return (
             <div key={inv.id} className="invoicePage">
-              <div className="headerRow">
-                <div>
-                  <h1 className="title">{vendorTitle(inv.vendor)} Invoice</h1>
-                  <div className="leftMeta">
-                    <div>Voucher #: {voucherNum}</div>
-                    <div>
-                      Period: {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}
+              <div className="invoiceInner">
+                <div className="headerRow">
+                  <div>
+                    <h1 className="title">{vendorTitle(inv.vendor)} Invoice</h1>
+                    <div className="leftMeta">
+                      <div>Voucher #: {voucherNum}</div>
+                      <div>
+                        Period: {fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rightMeta">
+                    <div className="vendorBig">Vendor # {vNum}</div>
+                    <div className="rightMetaSmall">
+                      <div>Billed to: {inv.billedTo}</div>
+                      <div>Date Invoiced: {fmtDate(inv.invoiceDate)}</div>
                     </div>
                   </div>
                 </div>
 
-                <div className="rightMeta">
-                  <div className="vendorBig">Vendor # {vNum}</div>
-                  <div className="rightMetaSmall">
-                    <div>Billed to: {inv.billedTo}</div>
-                    <div>Date Invoiced: {fmtDate(inv.invoiceDate)}</div>
-                  </div>
+                <div className="storeLine">
+                  Store: {inv.storeNumber} {inv.storeName}
                 </div>
-              </div>
 
-              <div className="storeLine">
-                Store: {inv.storeNumber} {inv.storeName}
-              </div>
-
-              <table>
-                <thead>
-                  <tr>
-                    <th className="colDate">Date</th>
-                    <th className="colSku">SKU</th>
-                    <th className="colPart">Part #</th>
-                    <th className="colName">Name</th>
-                    <th className="colQty">Qty</th>
-                    <th className="colUnit">Unit</th>
-                    <th className="colSub">Subtotal</th>
-                    <th className="colTax">Tax</th>
-                    <th className="colTotal">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {inv.lines.map((line) => (
-                    <tr key={line.id}>
-                      <td className="colDate">{fmtDate(line.submittedAt)}</td>
-                      <td className="colSku">{line.sku}</td>
-                      <td className="colPart">{line.partNumber ?? "—"}</td>
-                      <td className="colName" style={{ whiteSpace: "normal" }}>
-                        {line.name}
-                      </td>
-                      <td className="colQty">{line.quantity}</td>
-                      <td className="colUnit">{money(line.unitPrice)}</td>
-                      <td className="colSub">{money(line.lineSubtotal)}</td>
-                      <td className="colTax">{money(line.lineTax)}</td>
-                      <td className="colTotal">{money(line.lineTotal)}</td>
+                <table>
+                  <thead>
+                    <tr>
+                      <th className="colDate">Date</th>
+                      <th className="colSku">SKU</th>
+                      <th className="colPart">Part #</th>
+                      <th className="colName">Name</th>
+                      <th className="colQty">Qty</th>
+                      <th className="colUnit">Unit</th>
+                      <th className="colSub">Subtotal</th>
+                      <th className="colTax">Tax</th>
+                      <th className="colTotal">Total</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {inv.lines.map((line) => (
+                      <tr key={line.id}>
+                        <td className="colDate">{fmtDate(line.submittedAt)}</td>
+                        <td className="colSku">{line.sku}</td>
+                        <td className="colPart">{line.partNumber ?? "—"}</td>
+                        <td className="colName" style={{ whiteSpace: "normal" }}>
+                          {line.name}
+                        </td>
+                        <td className="colQty">{line.quantity}</td>
+                        <td className="colUnit">{money(line.unitPrice)}</td>
+                        <td className="colSub">{money(line.lineSubtotal)}</td>
+                        <td className="colTax">{money(line.lineTax)}</td>
+                        <td className="colTotal">{money(line.lineTotal)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
 
-              <div className="totals">
-                <div>Subtotal: {money(inv.subtotal)}</div>
-                <div>Tax: {money(inv.taxTotal)}</div>
-                <div className="grand">Total: {money(inv.total)}</div>
+                <div className="totals">
+                  <div>Subtotal: {money(inv.subtotal)}</div>
+                  <div>Tax: {money(inv.taxTotal)}</div>
+                  <div className="grand">Total: {money(inv.total)}</div>
+                </div>
               </div>
             </div>
           );
