@@ -397,7 +397,7 @@ export async function evaluateTaxFormula(
     if (!Number.isFinite(v)) throw new Error(`${k} must be a valid number.`);
   }
   if (quantity < 0) throw new Error("quantity must be non-negative.");
-  if (taxRatePct < 0 || taxRatePct > 100) throw new Error("taxRatePct must be between 0 and 100.");
+  if (taxRatePct < 0 || taxRatePct > 100) throw new Error("taxRatePct must be between 0 and 999.99.");
 
   return evaluateExpression(
     formula,
@@ -606,7 +606,7 @@ export async function createInvoicesForWindow(args: {
   const byStoreVendor = new Map<string, Ticket[]>();
 
   for (const t of tickets) {
-    const v = normalizeVendor(t.vendorSnapshot);
+    const v = effectiveTicketVendor(t);
     const key = `${t.storeId}::${v}`;
     const arr = byStoreVendor.get(key) ?? [];
     arr.push(t);
