@@ -136,7 +136,7 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
     data: { status: InvoiceStatus.ISSUED, issuedAt: now },
   });
 
-  const templateStamp = "print-batch v2026-03-02c";
+  const templateStamp = "print-batch v2026-03-02d";
 
   const sheet: CSSProperties = {
     boxSizing: "border-box",
@@ -151,16 +151,16 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
     justifyContent: "space-between",
     alignItems: "baseline",
     gap: 16,
+    flexWrap: "nowrap", // ✅ ensure the header row never wraps
   };
 
-  // ✅ 2x bigger
+  // ✅ reduced by half (was 68)
   const title: CSSProperties = {
-    fontSize: 68,
+    fontSize: 34,
     fontWeight: 800,
     margin: 0,
   };
 
-  // ✅ 2x bigger
   const meta: CSSProperties = {
     fontSize: 32,
     lineHeight: 1.4,
@@ -198,7 +198,6 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
 
   const num: CSSProperties = { textAlign: "right", whiteSpace: "nowrap" };
 
-  // ✅ 2x bigger
   const totals: CSSProperties = {
     marginTop: 16,
     marginLeft: "auto",
@@ -263,8 +262,8 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
               <div style={topRow}>
                 <h2 style={title}>{vendorName(inv.vendor)} Invoice</h2>
 
-                {/* ✅ 2x bigger */}
-                <div style={{ fontSize: 28, fontWeight: 800 }}>
+                {/* ✅ force single line no matter what */}
+                <div style={{ fontSize: 28, fontWeight: 800, whiteSpace: "nowrap" }}>
                   Vendor # <b>{vendorNo}</b>
                 </div>
               </div>
