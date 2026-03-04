@@ -3,6 +3,8 @@ import type { CSSProperties } from "react";
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
+import { revalidatePath } from "next/cache";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
@@ -38,7 +40,23 @@ async function requireLiveOrdersAccess() {
 
   if (!canView) redirect("/");
 
-  return { session, perms };
+  const canEdit =
+    role === Role.ADMIN ||
+    perms.allowAll ||
+    hasAnyPermission(perms, [Permission.ADMIN_EDIT_ITEMS]);
+
+  return { session, perms, canEdit };
+}
+
+function safeReturnToPathFromReferer(referer: string | null): string {
+  if (!referer) return "/admin/live-orders";
+  try {
+    const u = new URL(referer);
+    const path = `${u.pathname}${u.search}`;
+    return path.startsWith("/") ? path : "/admin/live-orders";
+  } catch {
+    return "/admin/live-orders";
+  }
 }
 
 function fmtDateTime(d: Date | null | undefined) {
@@ -70,7 +88,30 @@ function fmtMoney(v: unknown) {
 }
 
 export default async function LiveOrdersPage() {
-  await requireLiveOrdersAccess();
+  const { canEdit } = await requireLiveOrdersAccess();
+
+  async function setHiddenFromUserBoardAction(formData: FormData) {
+    "use server";
+    const { canEdit: ok } = await requireLiveOrdersAccess();
+    if (!ok) throw new Error("Forbidden");
+
+    const id = String(formData.get("id") ?? "").trim();
+    const nextHidden = String(formData.get("hidden") ?? "").trim() === "1";
+
+    if (!id) throw new Error("Missing order id");
+
+    await prisma.inventoryOrder.update({
+      where: { id },
+      data: { hiddenFromUserLiveBoard: nextHidden },
+    });
+
+    // refresh both boards
+    revalidatePath("/admin/live-orders");
+    revalidatePath("/employee/live-orders");
+
+    const h = await headers();
+    redirect(safeReturnToPathFromReferer(h.get("referer")));
+  }
 
   const orders = await prisma.inventoryOrder.findMany({
     orderBy: { orderedAt: "desc" },
@@ -114,8 +155,6 @@ export default async function LiveOrdersPage() {
     },
   });
 
-  type OrderRow = (typeof orders)[number];
-
   // === Theme-safe tokens (match your admin dark look) ===
   const border = "1px solid rgba(128,128,128,0.25)";
   const fg = "var(--foreground)";
@@ -140,7 +179,6 @@ export default async function LiveOrdersPage() {
   };
 
   const h1: CSSProperties = { fontSize: 20, fontWeight: 900, margin: 0 };
-
   const muted: CSSProperties = { opacity: 0.75, fontSize: 12, lineHeight: 1.35 };
 
   const topLinks: CSSProperties = {
@@ -161,13 +199,6 @@ export default async function LiveOrdersPage() {
     opacity: 0.92,
   };
 
-  const card: CSSProperties = {
-    border,
-    borderRadius: 14,
-    padding: 14,
-    background: surface,
-  };
-
   const tableWrap: CSSProperties = {
     border,
     borderRadius: 14,
@@ -178,7 +209,7 @@ export default async function LiveOrdersPage() {
   const table: CSSProperties = {
     width: "100%",
     borderCollapse: "collapse",
-    minWidth: 1050,
+    minWidth: 1200,
   };
 
   const th: CSSProperties = {
@@ -205,129 +236,133 @@ export default async function LiveOrdersPage() {
 
   const right: CSSProperties = { textAlign: "right", whiteSpace: "nowrap" };
 
-  function statusPillStyle(status: string): CSSProperties {
-    // subtle in dark mode, readable
-    const base: CSSProperties = {
-      display: "inline-flex",
-      alignItems: "center",
-      padding: "4px 10px",
-      borderRadius: 999,
-      border,
-      fontWeight: 900,
-      fontSize: 12,
-      background: soft,
-      opacity: 0.95,
-    };
+  const btn: CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "6px 10px",
+    borderRadius: 10,
+    border,
+    background: soft2,
+    color: fg,
+    fontWeight: 900,
+    fontSize: 12,
+    cursor: "pointer",
+    textDecoration: "none",
+    whiteSpace: "nowrap",
+  };
 
-    if (status === "ORDERED") return { ...base, background: "rgba(255,193,7,0.12)" };
-    if (status === "ARRIVED") return { ...base, background: "rgba(33,150,243,0.12)" };
-    if (status === "ADDED_TO_INVENTORY") return { ...base, background: "rgba(76,175,80,0.14)" };
-    return base;
-  }
+  const badge = (hidden: boolean): CSSProperties => ({
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "4px 10px",
+    borderRadius: 999,
+    border,
+    fontWeight: 900,
+    fontSize: 12,
+    background: hidden ? "rgba(220,38,38,0.12)" : "rgba(76,175,80,0.12)",
+    opacity: 0.95,
+  });
 
   return (
     <div style={wrap}>
       <div style={headerRow}>
         <div>
-          <h1 style={h1}>Live Orders</h1>
-          <div style={muted}>Each row is one InventoryOrder (item + quantity). Refresh to see updates.</div>
+          <h1 style={h1}>Admin: Live Orders</h1>
+          <div style={muted}>
+            Shows last 100 orders. Use “Hide” to remove an order from the general-user Live Orders board.
+          </div>
         </div>
 
         <div style={topLinks}>
           <Link href="/admin/inventory-orders" style={topLinkStyle}>
-            Inventory Orders
+            Order History
           </Link>
-          <Link href="/admin/items" style={topLinkStyle}>
-            Items
+          <Link href="/admin" style={topLinkStyle}>
+            Admin
           </Link>
         </div>
       </div>
 
-      {orders.length === 0 ? (
-        <div style={card}>
-          <div style={{ fontWeight: 900, marginBottom: 6, opacity: 0.9 }}>No inventory orders found</div>
-          <div style={muted}>Once orders exist, they’ll appear here.</div>
-        </div>
-      ) : (
-        <div style={tableWrap}>
-          <table style={table}>
-            <thead>
+      <div style={tableWrap}>
+        <table style={table}>
+          <thead>
+            <tr>
+              <th style={th}>Ordered</th>
+              <th style={th}>Status</th>
+              <th style={th}>Item</th>
+              <th style={th}>Qty</th>
+              <th style={th}>Store</th>
+              <th style={th}>For User</th>
+              <th style={th}>Created By</th>
+              <th style={th}>Unit</th>
+              <th style={th}>Ship</th>
+              <th style={th}>Tax</th>
+              <th style={th}>User Board</th>
+              <th style={{ ...th, textAlign: "right" }}>Actions</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {orders.map((o) => {
+              const hidden = (o as any).hiddenFromUserLiveBoard === true;
+
+              return (
+                <tr key={o.id}>
+                  <td style={td}>{fmtDateTime(o.orderedAt)}</td>
+                  <td style={td}>
+                    <span style={{ ...mono, fontWeight: 900 }}>{o.status}</span>
+                  </td>
+                  <td style={td}>
+                    <div style={{ fontWeight: 900 }}>{o.item?.name ?? "—"}</div>
+                    <div style={{ ...mono, opacity: 0.8 }}>
+                      {o.item?.sku ?? "—"}
+                      {o.item?.partNumber ? ` · ${o.item.partNumber}` : ""}
+                    </div>
+                  </td>
+                  <td style={{ ...td, ...right, fontWeight: 900 }}>{o.quantity}</td>
+                  <td style={td}>
+                    {o.forStore?.name ?? "—"}
+                    {o.forStore?.locationNumber ? <span style={{ ...mono, opacity: 0.75 }}> · #{o.forStore.locationNumber}</span> : null}
+                  </td>
+                  <td style={td}>{o.forUser?.name ?? "—"}</td>
+                  <td style={td}>{o.createdByUser?.name ?? "—"}</td>
+                  <td style={{ ...td, ...right }}>{fmtMoney(o.unitPrice)}</td>
+                  <td style={{ ...td, ...right }}>{fmtMoney(o.shippingCost)}</td>
+                  <td style={{ ...td, ...right }}>{fmtMoney(o.taxCost)}</td>
+
+                  <td style={td}>
+                    <span style={badge(hidden)}>{hidden ? "HIDDEN" : "VISIBLE"}</span>
+                  </td>
+
+                  <td style={{ ...td, textAlign: "right" }}>
+                    {canEdit ? (
+                      <form action={setHiddenFromUserBoardAction} style={{ display: "inline" }}>
+                        <input type="hidden" name="id" value={o.id} />
+                        <input type="hidden" name="hidden" value={hidden ? "0" : "1"} />
+                        <button type="submit" style={btn}>
+                          {hidden ? "Show" : "Hide"}
+                        </button>
+                      </form>
+                    ) : (
+                      <span style={{ opacity: 0.6 }}>—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+
+            {orders.length === 0 ? (
               <tr>
-                <th style={th}>Ordered</th>
-                <th style={th}>Status</th>
-                <th style={th}>Vendor</th>
-                <th style={th}>Item</th>
-                <th style={th}>For Store</th>
-                <th style={th}>For User</th>
-                <th style={th}>Qty</th>
-                <th style={{ ...th, ...right }}>Unit</th>
-                <th style={{ ...th, ...right }}>Ship</th>
-                <th style={{ ...th, ...right }}>Tax</th>
-                <th style={th}>Created By</th>
-                <th style={th}>Note</th>
+                <td style={{ ...td, padding: 16 }} colSpan={12}>
+                  No orders found.
+                </td>
               </tr>
-            </thead>
-
-            <tbody>
-              {orders.map((o: OrderRow) => {
-                const storeLabel = o.forStore
-                  ? `${o.forStore.name}${o.forStore.locationNumber ? ` (#${o.forStore.locationNumber})` : ""}`
-                  : "—";
-                const userLabel = o.forUser ? `${o.forUser.name} (${o.forUser.email})` : "—";
-                const createdByLabel = o.createdByUser ? `${o.createdByUser.name} (${o.createdByUser.email})` : "—";
-
-                return (
-                  <tr key={o.id}>
-                    <td style={{ ...td, whiteSpace: "nowrap" }}>{fmtDateTime(o.orderedAt)}</td>
-
-                    <td style={{ ...td, whiteSpace: "nowrap" }}>
-                      <span style={statusPillStyle(String(o.status))}>{String(o.status)}</span>
-                    </td>
-
-                    <td style={{ ...td, whiteSpace: "nowrap" }}>{String(o.vendor)}</td>
-
-                    <td style={td}>
-                      <div style={{ fontWeight: 900, display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
-                        <span style={mono}>{o.item.sku}</span>
-                        <span>{o.item.name}</span>
-                      </div>
-
-                      <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72, lineHeight: 1.35 }}>
-                        {o.item.partNumber ? <>Part: {o.item.partNumber} • </> : null}
-                        Default Vendor: {String(o.item.vendor)}
-                        {o.item.active ? "" : " • INACTIVE"}
-                      </div>
-                    </td>
-
-                    <td style={td}>{storeLabel}</td>
-                    <td style={td}>{userLabel}</td>
-
-                    <td style={{ ...td, whiteSpace: "nowrap", fontWeight: 900 }}>{o.quantity}</td>
-                    <td style={{ ...td, ...right }}>{fmtMoney(o.unitPrice)}</td>
-                    <td style={{ ...td, ...right }}>{fmtMoney(o.shippingCost)}</td>
-                    <td style={{ ...td, ...right }}>{fmtMoney(o.taxCost)}</td>
-
-                    <td style={td}>{createdByLabel}</td>
-
-                    <td style={td}>
-                      {o.note ? (
-                        <div style={{ whiteSpace: "pre-wrap" }}>{o.note}</div>
-                      ) : (
-                        <span style={muted}>—</span>
-                      )}
-                      <div style={{ marginTop: 6, fontSize: 12, opacity: 0.6 }}>
-                        <span style={{ ...mono, background: soft2, padding: "2px 6px", borderRadius: 8, border }}>
-                          {o.id}
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+            ) : null}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
