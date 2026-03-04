@@ -3,7 +3,6 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import Script from "next/script";
 import { authOptions } from "@/app/lib/auth";
-import { prisma } from "@/app/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
@@ -67,8 +66,13 @@ export default async function ItemLabelsPage({
   const copiesRaw = parseInt(first(sp.copies) || "1", 10);
   const copies = Number.isFinite(copiesRaw) ? Math.max(1, Math.min(50, copiesRaw)) : 1;
 
-  const items = ids.length
-    ? await prisma.item.findMany({
+  let items: any[] = [];
+  if (ids.length) {
+    try {
+      const prismaModule = await import("@/app/lib/prisma");
+      const prisma = prismaModule.prisma;
+      
+      items = await prisma.item.findMany({
         where: { id: { in: ids } },
         select: {
           id: true,
@@ -77,11 +81,15 @@ export default async function ItemLabelsPage({
           description: true,
           partNumber: true,
         },
-      }).catch((err) => {
+      }).catch((err: any) => {
         console.error("Prisma error:", err);
         return [];
-      })
-    : [];
+      });
+    } catch (err) {
+      console.error("Failed to load Prisma:", err);
+      items = [];
+    }
+  }
 
   // Preserve incoming order
   const idOrder = new Map(ids.map((id, idx) => [id, idx]));
@@ -103,7 +111,7 @@ export default async function ItemLabelsPage({
     <div className="labels-page">
       {debug ? (
         <div className="debug-bar">
-          <strong>DEBUG</strong> ids={JSON.stringify(ids).slice(0, 50)} printable={printable.length} autoprint={String(autoprint)}
+          <strong>DEBUG</strong> ids={ids.length} printable={printable.length} autoprint={String(autoprint)}
         </div>
       ) : null}
       <div className="bar" data-autoprint={autoprint}>
@@ -159,8 +167,8 @@ export default async function ItemLabelsPage({
               const AUTOCLOSE = ${autoclose ? "true" : "false"};
 
               console.log("Label page debug", {
-                ids: ${JSON.stringify(ids)},
-                printable: ${printable.length},
+                idsCount: ${ids.length},
+                printableCount: ${printable.length},
                 autoprint: AUTOPRINT,
                 autoclose: AUTOCLOSE,
                 copies: ${copies},
