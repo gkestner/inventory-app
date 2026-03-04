@@ -64,7 +64,7 @@ export default async function TopNav() {
   const canWorkOrders = hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
   const canCheckout = hasAnyPermission(perms, [Permission.VIEW_CHECKOUT]);
 
-  // ✅ NEW
+  // ✅ NEW: Live Orders board (general users)
   const canLiveOrders = hasAnyPermission(perms, [Permission.VIEW_LIVE_ORDERS]);
 
   return (
@@ -87,7 +87,6 @@ export default async function TopNav() {
             </Link>
           ) : null}
 
-          {/* ✅ NEW: Live Orders board (general users, permission-based) */}
           {canLiveOrders ? (
             <Link href="/employee/live-orders" style={linkStyle}>
               Live Orders
