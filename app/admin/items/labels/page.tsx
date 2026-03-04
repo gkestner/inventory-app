@@ -82,11 +82,6 @@ export default async function ItemLabelsPage({
       })
     : [];
 
-  // Short debug during development
-  if (debug) {
-    console.log("[labels page] ids:", ids, "printable:", printable.length);
-  }
-
   // Preserve incoming order
   const idOrder = new Map(ids.map((id, idx) => [id, idx]));
   const orderedItems = items
@@ -97,6 +92,11 @@ export default async function ItemLabelsPage({
   const printable = orderedItems.flatMap((it) =>
     Array.from({ length: copies }, (_, i) => ({ ...it, __copy: i + 1 })),
   );
+
+  // Short debug during development
+  if (debug) {
+    console.log("[labels page] ids:", ids, "printable:", printable.length);
+  }
 
   return (
     <html>
