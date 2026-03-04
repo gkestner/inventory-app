@@ -690,11 +690,8 @@ export default function ItemsTableClient({
     qs.set("debug", "1"); // debug mode shows diagnostic overlay
     const url = `/labels?${qs.toString()}`;
     console.debug("printLabelsFor", url);
-    const win = window.open("about:blank", "_blank", "noopener,noreferrer,popup=yes");
-    if (win) {
-      // navigate the new window after opening to avoid blockers
-      win.location.href = url;
-    } else {
+    const win = window.open(url, "_blank", "noopener,noreferrer,popup=yes");
+    if (!win) {
       // fallback if popup blocked
       window.location.href = url;
     }

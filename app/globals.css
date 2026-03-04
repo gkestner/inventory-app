@@ -151,6 +151,10 @@ a {
 }
 
 .labels-page {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  overflow: auto;
   margin: 0;
   padding: 0;
   background: #fff;
@@ -285,6 +289,13 @@ a {
 }
 
 @media print {
+  .labels-page {
+    position: static;
+    inset: auto;
+    z-index: auto;
+    overflow: visible;
+  }
+
   .labels-page .bar {
     display: none !important;
   }

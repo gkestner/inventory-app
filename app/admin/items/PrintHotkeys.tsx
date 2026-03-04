@@ -62,11 +62,8 @@ export default function PrintHotkeys({
       // Always open a fresh popup window to avoid reusing an existing tab/window
       // which can sometimes leave stale content (or be blocked from navigating).
       console.debug("PrintHotkeys", url);
-      const win = window.open("about:blank", "_blank", `noopener,noreferrer,popup=yes,width=${w},height=${h},left=${left},top=${top}`);
-      if (win) {
-        // navigate the new window after opening to avoid blockers
-        win.location.href = url;
-      } else {
+      const win = window.open(url, "_blank", `noopener,noreferrer,popup=yes,width=${w},height=${h},left=${left},top=${top}`);
+      if (!win) {
         // fallback if popup blocked
         window.location.href = url;
       }
