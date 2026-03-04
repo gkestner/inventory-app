@@ -447,13 +447,23 @@ function readQFromLocation(): string {
  * - partial matches allowed
  * - AND semantics: all tokens must be found somewhere in the row
  */
-function tokenizeQuery(q: string): string[] {
-  return (q || "")
+function normalizeSearchText(v: string): string {
+  return (v || "")
+    .normalize("NFKC")
+    .replace(/[‐‑‒–—−]/g, "-")
     .toLowerCase()
-    .trim()
-    .split(/\s+/g)
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenizeQuery(q: string): string[] {
+  const normalized = normalizeSearchText(q);
+  if (!normalized) return [];
+
+  return normalized
+    .split(/[ \-]+/g)
     .map((t) => t.trim())
-    .filter(Boolean);
+    .filter((t) => t.length >= 2);
 }
 
 function rowSearchText(row: ItemRow): string {
@@ -472,27 +482,27 @@ function rowSearchText(row: ItemRow): string {
   const taxableStr = row.taxable ? "taxable yes" : "taxable no";
   const activeStr = row.active ? "active yes" : "active no";
 
-  return [
-    row.sku,
-    row.partNumber ?? "",
-    vendorLabel,
-    row.name ?? "",
-    row.category ?? "",
-    row.description ?? "",
-    row.manufacturer ?? "",
-    row.orderFrom ?? "",
-    row.webUrl ?? "",
-    row.cost ?? "",
-    row.price ?? "",
-    taxableStr,
-    activeStr,
-    onHandStr,
-    usedStr,
-    minStr,
-    orderedStr,
-  ]
-    .join(" ")
-    .toLowerCase();
+  return normalizeSearchText(
+    [
+      row.sku,
+      row.partNumber ?? "",
+      vendorLabel,
+      row.name ?? "",
+      row.category ?? "",
+      row.description ?? "",
+      row.manufacturer ?? "",
+      row.orderFrom ?? "",
+      row.webUrl ?? "",
+      row.cost ?? "",
+      row.price ?? "",
+      taxableStr,
+      activeStr,
+      onHandStr,
+      usedStr,
+      minStr,
+      orderedStr,
+    ].join(" "),
+  );
 }
 
 function rowMatchesQuery(row: ItemRow, q: string): boolean {
@@ -655,7 +665,7 @@ export default function ItemsTableClient({
 
     return () => window.clearTimeout(id);
   }, [qInput]);
-  
+
   const createdIndex = useMemo(() => {
     if (!createdSku) return -1;
     return viewRows.findIndex((r) => r.sku === createdSku);
