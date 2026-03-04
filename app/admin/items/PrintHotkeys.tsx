@@ -53,6 +53,12 @@ export default function PrintHotkeys({
 
       const url = `/labels?${qs.toString()}`;
 
+      const lockKey = "__labelsPopupLockUntil" as const;
+      const now = Date.now();
+      const lockUntil = Number((window as any)[lockKey] ?? 0);
+      if (now < lockUntil) return;
+      (window as any)[lockKey] = now + 1200;
+
       // Small popup window (warehouse-style)
       const w = 420;
       const h = 320;

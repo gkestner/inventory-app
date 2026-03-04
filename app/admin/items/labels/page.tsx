@@ -14,6 +14,13 @@ type SearchParams = {
   debug?: string | string[];
 };
 
+declare global {
+  interface Window {
+    __labelsAutoprintInit?: boolean;
+    __labelsAutoprintDone?: boolean;
+  }
+}
+
 function first(v: string | string[] | undefined): string {
   if (!v) return "";
   return Array.isArray(v) ? v[0] ?? "" : v;
@@ -168,6 +175,9 @@ export default async function ItemLabelsPage({
           dangerouslySetInnerHTML={{
             __html: `
               (function () {
+                if (window.__labelsAutoprintInit) return;
+                window.__labelsAutoprintInit = true;
+
                 const AUTOPRINT = ${autoprint ? "true" : "false"};
                 const AUTOCLOSE = ${autoclose ? "true" : "false"};
 
@@ -180,6 +190,8 @@ export default async function ItemLabelsPage({
                 });
 
                 function doPrint() {
+                  if (window.__labelsAutoprintDone) return;
+                  window.__labelsAutoprintDone = true;
                   setTimeout(() => window.print(), 150);
                 }
 

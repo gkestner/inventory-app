@@ -683,6 +683,13 @@ export default function ItemsTableClient({
 
     function printLabelsFor(ids: string[]) {
     if (ids.length === 0) return;
+
+      const lockKey = "__labelsPopupLockUntil" as const;
+      const now = Date.now();
+      const lockUntil = Number((window as any)[lockKey] ?? 0);
+      if (now < lockUntil) return;
+      (window as any)[lockKey] = now + 1200;
+
     const qs = new URLSearchParams();
     qs.set("ids", ids.join(","));
     qs.set("autoprint", "1");

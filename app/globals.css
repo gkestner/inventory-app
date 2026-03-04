@@ -162,6 +162,11 @@ a {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* When labels page is active, suppress root layout chrome entirely. */
+body:has(.labels-page) > *:not(.labels-page) {
+  display: none !important;
+}
+
 .labels-page aside {
   display: none !important;
 }
