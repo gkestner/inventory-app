@@ -51,6 +51,9 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
   // ✅ Travel Log is treated as part of Work Orders permissions (no VIEW_TRAVEL_LOG exists)
   const canTravelLog = canWorkOrders;
 
+  // ✅ NEW: Live Orders board
+  const canLiveOrders = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_LIVE_ORDERS]);
+
   const shell: CSSProperties = {
     borderBottom: "1px solid rgba(128,128,128,0.25)",
     background: "var(--background)",
@@ -114,6 +117,13 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
             {canCheckout ? (
               <Link href="/maintenance/checkout" style={pill()}>
                 Checkout
+              </Link>
+            ) : null}
+
+            {/* ✅ NEW: Live Orders board (permission-based) */}
+            {canLiveOrders ? (
+              <Link href="/employee/live-orders" style={pill()}>
+                Live Orders
               </Link>
             ) : null}
           </div>
