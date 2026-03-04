@@ -56,10 +56,12 @@ export default function PrintHotkeys({
       const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - w) / 2));
       const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - h) / 2));
 
+      // Always open a fresh popup window to avoid reusing an existing tab/window
+      // which can sometimes leave stale content (or be blocked from navigating).
       window.open(
         url,
-        "print_label",
-        `popup=yes,width=${w},height=${h},left=${left},top=${top}`,
+        "_blank",
+        `noopener,noreferrer,popup=yes,width=${w},height=${h},left=${left},top=${top}`,
       );
     };
 
