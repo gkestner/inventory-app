@@ -603,10 +603,20 @@ export default function ItemsTableClient({
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  // ✅ LIVE client-side filtered view (as you type)
+   // ✅ LIVE client-side filtered view while typing.
+  // If the current URL already contains this same q, rows are server-filtered,
+  // so do not apply an extra local filter that could hide valid server matches.
   const viewRows = useMemo(() => {
     const q = (qInput || "").trim();
     if (!q) return rows;
+
+    try {
+      const urlQ = new URLSearchParams(window.location.search).get("q")?.trim() || "";
+      if (urlQ && urlQ === q) return rows;
+    } catch {
+      // no-op; fall back to local filter
+    }
+
     return rows.filter((r) => rowMatchesQuery(r, q));
   }, [rows, qInput]);
 
