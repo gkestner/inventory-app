@@ -80,6 +80,10 @@ export default async function ItemLabelsPage({
           html, body {
             margin: 0 !important;
             padding: 0 !important;
+            background: #fff !important;
+            color: #000 !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
           }
 
           header, nav, footer, aside,
@@ -100,6 +104,12 @@ export default async function ItemLabelsPage({
         body {
           font-family: Arial, Helvetica, sans-serif;
           background: #f5f5f5;
+          color: #000;
+        }
+
+        main {
+          background: #f5f5f5;
+          color: #000;
         }
 
         .sheet {
@@ -113,12 +123,21 @@ export default async function ItemLabelsPage({
           width: 3.5in;
           height: 1.125in;
           box-sizing: border-box;
-          background: white;
+          background: #fff !important;
+          color: #000 !important;
           border: 1px solid #000;
           display: grid;
           grid-template-rows: auto 1fr auto;
           page-break-after: always;
           overflow: hidden;
+          forced-color-adjust: none;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+
+        .label * {
+          color: #000 !important;
+          border-color: #000 !important;
         }
 
         .label:last-child {
@@ -190,9 +209,10 @@ export default async function ItemLabelsPage({
           border: 1px dashed #888;
           border-radius: 8px;
           padding: 16px;
-          background: white;
-          color: #333;
+          background: #fff !important;
+          color: #111 !important;
           max-width: 520px;
+          forced-color-adjust: none;
         }
       `}</style>
 
