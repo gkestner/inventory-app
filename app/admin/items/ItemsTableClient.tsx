@@ -683,7 +683,11 @@ export default function ItemsTableClient({
 
     function printLabelsFor(ids: string[]) {
     if (ids.length === 0) return;
-    const qs = new URLSearchParams({ ids: ids.join(",") });
+    const qs = new URLSearchParams();
+    qs.set("ids", ids.join(","));
+    qs.set("autoprint", "1");
+    qs.set("autoclose", "1");
+    qs.set("debug", "1"); // debug mode shows diagnostic overlay
     window.open(`/admin/items/labels?${qs.toString()}`, "_blank", "noopener,noreferrer");
   }
 
