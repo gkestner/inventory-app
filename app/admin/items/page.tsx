@@ -153,14 +153,20 @@ function intOrDefault(v: FormDataEntryValue | null, fallback: number): number {
   return Math.floor(n);
 }
 
-export default async function AdminItemsPage({ searchParams }: { searchParams: SearchParams }) {
+export default async function AdminItemsPage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
   await requireAdmin();
 
-  const page = toInt(first(searchParams.page), 1);
-  const perPage = Math.min(200, toInt(first(searchParams.perPage), 25));
-  const qRaw = (first(searchParams.q) ?? "").trim();
-  const createdSku = (first(searchParams.createdSku) ?? "").trim() || null;
-  const errMsg = (first(searchParams.error) ?? "").trim() || null;
+   const sp = await searchParams;
+
+  const page = toInt(first(sp.page), 1);
+  const perPage = Math.min(200, toInt(first(sp.perPage), 25));
+  const qRaw = (first(sp.q) ?? "").trim();
+  const createdSku = (first(sp.createdSku) ?? "").trim() || null;
+  const errMsg = (first(sp.error) ?? "").trim() || null;
 
   const where = buildWhere(qRaw);
   const skip = (page - 1) * perPage;
