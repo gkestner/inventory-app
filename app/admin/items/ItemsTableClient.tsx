@@ -681,6 +681,12 @@ export default function ItemsTableClient({
     });
   }
 
+    function printLabelsFor(ids: string[]) {
+    if (ids.length === 0) return;
+    const qs = new URLSearchParams({ ids: ids.join(",") });
+    window.open(`/admin/items/labels?${qs.toString()}`, "_blank", "noopener,noreferrer");
+  }
+
   async function archiveIds(ids: string[]) {
     if (ids.length === 0) return;
     setBulkError(null);
@@ -1130,6 +1136,23 @@ export default function ItemsTableClient({
               title="PURGE selected (irreversible; deletes related tickets/orders/versions)"
             >
               {bulkBusy ? "Working..." : "PURGE Selected"}
+            </button>
+
+            <button
+              onClick={() => printLabelsFor(selectedOnPage)}
+              disabled={bulkBusy}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 10,
+                border: "1px solid var(--border)",
+                background: surface,
+                color: "var(--text)",
+                cursor: bulkBusy ? "not-allowed" : "pointer",
+                fontWeight: 800,
+              }}
+              title="Open printable part labels for selected rows"
+              >
+              Print Selected Labels
             </button>
 
             <button
@@ -1653,6 +1676,23 @@ export default function ItemsTableClient({
                           >
                             Inventory
                           </a>
+
+                           <button
+                            onClick={() => printLabelsFor([row.id])}
+                            disabled={bulkBusy}
+                            style={{
+                              padding: "6px 10px",
+                              borderRadius: 10,
+                              border: "1px solid var(--border)",
+                              background: surface,
+                              color: "var(--text)",
+                              cursor: bulkBusy ? "not-allowed" : "pointer",
+                              opacity: bulkBusy ? 0.7 : 1,
+                            }}
+                            title="Open printable part label"
+                            >
+                            Print Label
+                          </button>
 
                           <button
                             onClick={() => {
