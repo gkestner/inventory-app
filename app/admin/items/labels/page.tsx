@@ -76,6 +76,16 @@ export default async function ItemLabelsPage({
   return (
     <main className="labels-print-root">
       <style>{`
+        /* ============================
+           DYMO 30252: 3.5" x 1.125"
+           ============================ */
+        :root {
+          --label-w: 3.5in;
+          --label-h: 1.125in;
+          --border: 1px;
+        }
+
+        /* Page size hint (some drivers ignore; we still enforce exact block size) */
         @page {
           size: 3.5in 1.125in;
           margin: 0;
@@ -83,11 +93,6 @@ export default async function ItemLabelsPage({
 
         body {
           font-family: Arial, Helvetica, sans-serif;
-          background: #f5f5f5;
-          color: #000;
-        }
-
-        main {
           background: #f5f5f5;
           color: #000;
         }
@@ -100,12 +105,12 @@ export default async function ItemLabelsPage({
         }
 
         .label {
-          width: 3.5in;
-          height: 1.125in;
+          width: var(--label-w);
+          height: var(--label-h);
           box-sizing: border-box;
           background: #fff;
           color: #000;
-          border: 1px solid #000;
+          border: var(--border) solid #000;
           display: grid;
           grid-template-rows: auto 1fr auto;
           overflow: hidden;
@@ -118,13 +123,14 @@ export default async function ItemLabelsPage({
 
         .sku {
           font-size: 11px;
-          font-weight: 700;
-          padding: 2px 5px 1px;
+          font-weight: 800;
+          padding: 2px 6px 1px;
+          line-height: 1.05;
         }
 
         .middle {
-          border-top: 1px solid #000;
-          border-bottom: 1px solid #000;
+          border-top: var(--border) solid #000;
+          border-bottom: var(--border) solid #000;
           display: grid;
           grid-template-columns: 0.95in 1fr;
           align-items: stretch;
@@ -132,7 +138,7 @@ export default async function ItemLabelsPage({
         }
 
         .qr {
-          border-right: 1px solid #000;
+          border-right: var(--border) solid #000;
           display: grid;
           place-items: center;
           overflow: hidden;
@@ -147,34 +153,44 @@ export default async function ItemLabelsPage({
         .name-block {
           display: grid;
           align-content: center;
+          justify-items: center;
           text-align: center;
-          padding: 0 4px;
-          line-height: 1.03;
+          padding: 0 6px;
+          line-height: 1.05;
         }
 
         .name {
-          font-size: 9px;
+          font-size: 12px;
           font-weight: 900;
           text-transform: uppercase;
-          letter-spacing: 0.2px;
+          letter-spacing: 0.3px;
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .desc {
-          margin-top: 1px;
-          font-size: 7px;
+          margin-top: 2px;
+          font-size: 8px;
           font-weight: 800;
           text-transform: uppercase;
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .bottom {
-          padding: 1px 5px;
-          font-size: 7px;
+          padding: 1px 6px;
+          font-size: 9px;
           font-weight: 900;
           display: flex;
           align-items: center;
           justify-content: space-between;
           white-space: nowrap;
-          gap: 6px;
+          gap: 8px;
+          line-height: 1.05;
         }
 
         .empty {
@@ -190,6 +206,9 @@ export default async function ItemLabelsPage({
           display: block;
         }
 
+        /* =========================
+           PRINT: isolate + paginate
+           ========================= */
         @media print {
           html, body {
             margin: 0 !important;
@@ -200,7 +219,7 @@ export default async function ItemLabelsPage({
             print-color-adjust: exact;
           }
 
-          /* Hide everything by visibility, then re-show our root */
+          /* Hide everything, then show only our label root */
           body * {
             visibility: hidden !important;
           }
@@ -210,9 +229,7 @@ export default async function ItemLabelsPage({
             visibility: visible !important;
           }
 
-          /* IMPORTANT: do NOT use position:fixed (it repeats every page) */
           .labels-print-root {
-            position: static !important;
             margin: 0 !important;
             padding: 0 !important;
             background: #fff !important;
@@ -222,20 +239,36 @@ export default async function ItemLabelsPage({
             display: none !important;
           }
 
+          /* Remove screen padding/gaps so each label = each page */
           .sheet {
             padding: 0 !important;
-            gap: 0 !important;
             margin: 0 !important;
+            gap: 0 !important;
           }
 
+          /* Force each label to be a page-sized block */
           .label {
+            width: var(--label-w) !important;
+            height: var(--label-h) !important;
+
             margin: 0 !important;
+
+            /* Hard page breaks so Chrome doesn't create blank pages */
+            page-break-before: always !important;
             page-break-after: always !important;
+            break-before: page !important;
             break-after: page !important;
             break-inside: avoid !important;
+
+            overflow: hidden !important;
             forced-color-adjust: none;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
+          }
+
+          .label:first-child {
+            page-break-before: auto !important;
+            break-before: auto !important;
           }
 
           .label:last-child {
@@ -252,11 +285,12 @@ export default async function ItemLabelsPage({
           display: "flex",
           gap: 8,
           alignItems: "center",
+          flexWrap: "wrap",
         }}
       >
-        <span style={{ fontSize: 12, opacity: 0.8 }}>
-          In the print dialog: Destination = DYMO LabelWriter 450, Paper size =
-          3.5&quot; x 1 1/8&quot; (30252).
+        <span style={{ fontSize: 12, opacity: 0.85 }}>
+          Print settings: <b>Scale 100</b>, <b>Margins None</b>, disable “Fit to
+          page”. Paper: DYMO 30252 (3.5&quot; x 1 1/8&quot;).
         </span>
       </div>
 
@@ -275,6 +309,7 @@ export default async function ItemLabelsPage({
                 <div className="qr">
                   <img src={qrImageUrl(item.sku)} alt={`QR for ${item.sku}`} />
                 </div>
+
                 <div className="name-block">
                   <div className="name">{item.name}</div>
                   {item.description ? (
