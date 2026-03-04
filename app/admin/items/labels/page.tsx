@@ -99,275 +99,118 @@ export default async function ItemLabelsPage({
   }
 
   return (
-    <html>
-      <head>
-        <meta charSet="utf-8" />
-        <title>Print Labels</title>
-
-        <style>{`
-          /* hide admin sidebar/nav added by parent layout */
-          aside { display: none !important; }
-
-          @page { margin: 0; }
-
-          :root {
-            --w: 3.5in;
-            --h: 1.125in;
-            --b: 2px;
-          }
-
-          html, body {
-            margin: 0;
-            padding: 0;
-            background: #fff;
-            color: #000;
-            font-family: Arial, Helvetica, sans-serif;
-          }
-
-          /* Each .label is exactly one "page" worth of content */
-          .label-wrap {
-            width: calc(var(--w) + 12px);
-            height: calc(var(--h) + 12px);
-            display: grid;
-            place-items: center;
-            padding: 6px;
-            box-sizing: border-box;
-          }
-
-          .label {
-            width: var(--w);
-            height: var(--h);
-            box-sizing: border-box;
-            border: var(--b) solid #000;
-            display: grid;
-            grid-template-rows: auto 1fr auto;
-            overflow: hidden;
-            border-radius: 8px;
-            background: #fff;
-
-            page-break-after: always;
-            break-after: page;
-          }
-
-          .label:last-child {
-            page-break-after: auto;
-            break-after: auto;
-          }
-
-          .sku {
-            font-weight: 700;
-            font-size: 11px;
-            padding: 6px 8px 0 8px;
-            align-self: start;
-            justify-self: start;
-            color: #222;
-          }
-
-          .mid {
-            display: grid;
-            grid-template-columns: 1.05in 1fr;
-            min-height: 0;
-            gap: 8px;
-            padding: 6px 8px;
-          }
-
-          .qr {
-            border-right: var(--b) solid #000;
-            display: grid;
-            place-items: center;
-            padding: 4px;
-          }
-
-          .qr img {
-            width: 0.9in;
-            height: 0.9in;
-            display: block;
-          }
-
-          .nameblock {
-            display: grid;
-            align-content: center;
-            justify-items: center;
-            text-align: center;
-            padding: 0 10px;
-            line-height: 1.05;
-          }
-
-          .name {
-            font-weight: 900;
-            font-size: 22px;
-            text-transform: uppercase;
-            max-width: 100%;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-          }
-
-          .desc {
-            margin-top: 2px;
-            font-weight: 800;
-            font-size: 10px;
-            text-transform: uppercase;
-            max-width: 100%;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-          }
-
-          .bottom {
-            border-top: var(--b) solid #000;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-weight: 900;
-            font-size: 13px;
-            padding: 6px 8px;
-            white-space: nowrap;
-            gap: 10px;
-          }
-
-          .idbox {
-            border: 2px solid #000;
-            padding: 2px 6px;
-            font-weight: 900;
-            display: inline-block;
-          }
-
-          /* Screen-only helper bar (hidden during print) */
-          .bar {
-            padding: 10px;
-            border-bottom: 1px solid #eee;
-            font-size: 13px;
-            display: ${autoprint ? "none" : "block"};
-          }
-
-          @media print {
-            .bar { display: none !important; }
-          }
-        `}</style>
-
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function () {
-                const AUTOPRINT = ${autoprint ? "true" : "false"};
-                const AUTOCLOSE = ${autoclose ? "true" : "false"};
-
-                // debug logging
-                console.log("Label page debug", {
-                  ids: ${JSON.stringify(ids)},
-                  printable: ${printable.length},
-                  autoprint: AUTOPRINT,
-                  autoclose: AUTOCLOSE,
-                  copies: ${copies},
-                });
-
-                function doPrint() {
-                  // Small delay helps images (QR) settle
-                  setTimeout(() => window.print(), 150);
-                }
-
-                // Press "P" to print again (warehouse muscle memory)
-                window.addEventListener("keydown", (e) => {
-                  if ((e.key === "p" || e.key === "P") && !e.ctrlKey && !e.metaKey && !e.altKey) {
-                    e.preventDefault();
-                    doPrint();
-                  }
-                  if (e.key === "Escape" && AUTOCLOSE) {
-                    window.close();
-                  }
-                });
-
-                if (AUTOCLOSE) {
-                  window.addEventListener("afterprint", () => {
-                    setTimeout(() => window.close(), 200);
-                  });
-                }
-
-                if (AUTOPRINT) {
-                  // Wait for images before printing; fallback after 1200ms
-                  const imgs = Array.from(document.images || []);
-                  let done = false;
-
-                  const finish = () => {
-                    if (done) return;
-                    done = true;
-                    doPrint();
-                  };
-
-                  if (imgs.length === 0) {
-                    finish();
-                  } else {
-                    let remaining = imgs.length;
-                    const tick = () => {
-                      remaining--;
-                      if (remaining <= 0) finish();
-                    };
-                    imgs.forEach((img) => {
-                      if (img.complete) return tick();
-                      img.addEventListener("load", tick, { once: true });
-                      img.addEventListener("error", tick, { once: true });
-                    });
-                    setTimeout(finish, 1200);
-                  }
-                }
-              })();
-            `,
-          }}
-        />
-      </head>
-
-      <body>
-        {debug ? (
-          <div style={{ padding: 8, background: "#ffeeda", color: "#000", fontSize: 13, border: "1px solid #d4a017" }}>
-            <strong style={{color: "#d4a017"}}>DEBUG</strong> ids={JSON.stringify(ids).slice(0, 50)} printable={printable.length} autoprint={String(autoprint)}
-          </div>
-        ) : null}
-        <div className="bar">
-          Tip: press <b>P</b> to print. Press <b>Esc</b> to close.
+    <>
+      {debug ? (
+        <div className="debug-bar">
+          DEBUG ids={JSON.stringify(ids).slice(0, 50)} printable={printable.length} autoprint={String(autoprint)}
         </div>
+      ) : null}
+      <div className="bar">
+        Tip: press <b>P</b> to print. Press <b>Esc</b> to close.
+      </div>
 
-        {printable.length === 0 ? (
-          <div style={{ padding: 14, fontSize: 14 }}>No items selected.</div>
-        ) : (
-          printable.map((item) => {
-            const labelId = deriveLabelIdFromSku(item.sku);
-            return (
-              <div className="label-wrap" key={`${item.id}-${(item as any).__copy}`}>
-                <div className="label">
-                  <div className="sku">SKU: {item.sku}</div>
+      {printable.length === 0 ? (
+        <div style={{ padding: 14, fontSize: 14 }}>No items selected.</div>
+      ) : (
+        printable.map((item) => {
+          const labelId = deriveLabelIdFromSku(item.sku);
+          return (
+            <div className="label" key={`${item.id}-${(item as any).__copy}`}>
+              <div className="label-sku">SKU: {item.sku}</div>
 
-                  <div className="mid">
-                    <div className="qr">
-                      <img src={qrImageUrl(`Item ID: ${item.id}`)} alt={`Item ID: ${item.id}`} onError={(e) => {
-                        const img = e.target as HTMLImageElement;
-                        img.style.display = 'none';
-                        const fallback = document.createElement('div');
-                        fallback.textContent = `ID: ${labelId}`;
-                        fallback.style.fontSize = '12px';
-                        fallback.style.fontWeight = 'bold';
-                        img.parentNode?.appendChild(fallback);
-                      }} />
-                    </div>
+              <div className="label-content">
+                <div className="label-qr">
+                  <img src={qrImageUrl(`Item ID: ${item.id}`)} alt={`Item ID: ${item.id}`} onError={(e) => {
+                    const img = e.target as HTMLImageElement;
+                    img.style.display = 'none';
+                    const fallback = document.createElement('div');
+                    fallback.textContent = `ID: ${labelId}`;
+                    fallback.style.fontSize = '12px';
+                    fallback.style.fontWeight = 'bold';
+                    img.parentNode?.appendChild(fallback);
+                  }} />
+                </div>
 
-                    <div className="nameblock">
-                      <div className="name">{item.name}</div>
-                      {item.description ? (
-                        <div className="desc">({item.description})</div>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  <div className="bottom">
-                    <span className="idbox">ID# {labelId}</span>
-                    <span>PART# {item.partNumber ?? "—"}</span>
-                  </div>
+                <div className="label-name">{item.name}</div>
+                <div className="label-ids">
+                  ID# {labelId} | PART# {item.partNumber ?? "—"}
+                  {(item as any).__copy > 1 ? <span className="label-copy">Copy {(item as any).__copy}</span> : null}
                 </div>
               </div>
-            );
-          })
-        )}
-      </body>
-    </html>
+            </div>
+          );
+        })
+      )}
+
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `
+            (function () {
+              const AUTOPRINT = ${autoprint ? "true" : "false"};
+              const AUTOCLOSE = ${autoclose ? "true" : "false"};
+
+              // debug logging
+              console.log("Label page debug", {
+                ids: ${JSON.stringify(ids)},
+                printable: ${printable.length},
+                autoprint: AUTOPRINT,
+                autoclose: AUTOCLOSE,
+                copies: ${copies},
+              });
+
+              function doPrint() {
+                // Small delay helps images (QR) settle
+                setTimeout(() => window.print(), 150);
+              }
+
+              // Press "P" to print again (warehouse muscle memory)
+              window.addEventListener("keydown", (e) => {
+                if ((e.key === "p" || e.key === "P") && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                  e.preventDefault();
+                  doPrint();
+                }
+                if (e.key === "Escape" && AUTOCLOSE) {
+                  window.close();
+                }
+              });
+
+              if (AUTOCLOSE) {
+                window.addEventListener("afterprint", () => {
+                  setTimeout(() => window.close(), 200);
+                });
+              }
+
+              if (AUTOPRINT) {
+                // Wait for images before printing; fallback after 1200ms
+                const imgs = Array.from(document.images || []);
+                let done = false;
+
+                const finish = () => {
+                  if (done) return;
+                  done = true;
+                  doPrint();
+                };
+
+                if (imgs.length === 0) {
+                  finish();
+                } else {
+                  let remaining = imgs.length;
+                  const tick = () => {
+                    remaining--;
+                    if (remaining <= 0) finish();
+                  };
+                  imgs.forEach((img) => {
+                    if (img.complete) return tick();
+                    img.addEventListener("load", tick, { once: true });
+                    img.addEventListener("error", tick, { once: true });
+                  });
+                  setTimeout(finish, 1200);
+                }
+              }
+            })();
+          `,
+        }}
+      />
+    </>
   );
 }
