@@ -31,6 +31,7 @@ function parseIds(raw: string): string[] {
 }
 
 function deriveLabelIdFromSku(sku: string): string {
+  if (!sku) return "0";
   const tail = sku.split("-").pop() ?? "";
   const digits = tail.replace(/\D+/g, "");
   if (!digits) return tail || sku;

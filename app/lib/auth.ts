@@ -3,7 +3,7 @@ import type { NextAuthOptions } from "next-auth";
 import type { DefaultSession } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcrypt";
-import { prisma } from "@/app/lib/prisma";
+// import { prisma } from "@/app/lib/prisma"; // moved inside authorize
 import { Role } from "@prisma/client";
 
 /**
@@ -140,6 +140,8 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
+        const { prisma } = await import("@/app/lib/prisma");
+
         const emailRaw = credentials?.email;
         const passwordRaw = credentials?.password;
 
