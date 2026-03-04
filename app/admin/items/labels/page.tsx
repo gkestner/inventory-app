@@ -1,3 +1,4 @@
+// app/admin/items/labels/page.tsx
 import { Role } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
@@ -35,7 +36,9 @@ function deriveLabelIdFromSku(sku: string): string {
 }
 
 function qrImageUrl(sku: string): string {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=120x120&margin=0&data=${encodeURIComponent(sku)}`;
+  return `https://api.qrserver.com/v1/create-qr-code/?size=120x120&margin=0&data=${encodeURIComponent(
+    sku,
+  )}`;
 }
 
 export default async function ItemLabelsPage({
@@ -46,7 +49,8 @@ export default async function ItemLabelsPage({
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
 
-  const role = (session.user as unknown as { role?: Role | null } | null)?.role ?? null;
+  const role =
+    (session.user as unknown as { role?: Role | null } | null)?.role ?? null;
   if (role !== Role.ADMIN) redirect("/");
 
   const sp = await searchParams;
@@ -66,56 +70,20 @@ export default async function ItemLabelsPage({
     : [];
 
   const idOrder = new Map(ids.map((id, idx) => [id, idx]));
-  const orderedItems = items.slice().sort((a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0));
+  const orderedItems = items
+    .slice()
+    .sort((a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0));
 
   return (
     <main className="labels-print-root">
       <style>{`
+        /* === PAGE SIZE: DYMO 30252 (3.5" x 1.125") === */
         @page {
           size: 3.5in 1.125in;
           margin: 0;
         }
 
-        @media print {
-          html, body {
-            margin: 0 !important;
-            padding: 0 !important;
-            background: #fff !important;
-            color: #000 !important;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-          }
-
-          body > * {
-            display: none !important;
-          }
-
-          body > *:has(.labels-print-root) {
-            display: block !important;
-          }
-
-          .labels-print-root {
-            display: block !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            background: #fff !important;
-          }
-
-          .labels-print-root * {
-            display: revert !important;
-          }
-
-          .no-print {
-            display: none !important;
-          }
-
-          .sheet {
-            margin: 0 !important;
-            padding: 0 !important;
-            background: #fff !important;
-          }
-        }
-
+        /* Base screen styling */
         body {
           font-family: Arial, Helvetica, sans-serif;
           background: #f5f5f5;
@@ -138,25 +106,17 @@ export default async function ItemLabelsPage({
           width: 3.5in;
           height: 1.125in;
           box-sizing: border-box;
-          background: #fff !important;
-          color: #000 !important;
+          background: #fff;
+          color: #000;
           border: 1px solid #000;
           display: grid;
           grid-template-rows: auto 1fr auto;
-          page-break-after: always;
           overflow: hidden;
-          forced-color-adjust: none;
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
         }
 
         .label * {
-          color: #000 !important;
-          border-color: #000 !important;
-        }
-
-        .label:last-child {
-          page-break-after: auto;
+          color: #000;
+          border-color: #000;
         }
 
         .sku {
@@ -224,20 +184,97 @@ export default async function ItemLabelsPage({
           border: 1px dashed #888;
           border-radius: 8px;
           padding: 16px;
-          background: #fff !important;
-          color: #111 !important;
+          background: #fff;
+          color: #111;
           max-width: 520px;
-          forced-color-adjust: none;
+        }
+
+        .no-print {
+          display: block;
+        }
+
+        /* =========================
+           PRINT: ISOLATE LABELS ONLY
+           ========================= */
+        @media print {
+          /* Ensure no browser margins bleed */
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #fff !important;
+            color: #000 !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
+          /* The reliable trick: hide everything, then show only what we want */
+          body * {
+            visibility: hidden !important;
+          }
+
+          .labels-print-root,
+          .labels-print-root * {
+            visibility: visible !important;
+          }
+
+          /* Pin the print root to the page so layout wrappers don't matter */
+          .labels-print-root {
+            position: fixed !important;
+            inset: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #fff !important;
+          }
+
+          /* Remove all screen padding/gaps for true label pages */
+          .no-print {
+            display: none !important;
+          }
+
+          .sheet {
+            padding: 0 !important;
+            gap: 0 !important;
+            margin: 0 !important;
+          }
+
+          .label {
+            margin: 0 !important;
+            page-break-after: always !important;
+            break-after: page !important;
+            break-inside: avoid !important;
+            forced-color-adjust: none;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
+          .label:last-child {
+            page-break-after: auto !important;
+            break-after: auto !important;
+          }
         }
       `}</style>
 
-      <div className="no-print" style={{ padding: "12px 12px 0", display: "flex", gap: 8, alignItems: "center" }}>
-        <span style={{ fontSize: 12, opacity: 0.8 }}>Set printer to Dymo 3.5&quot; x 1 1/8&quot; label size.</span>
+      <div
+        className="no-print"
+        style={{
+          padding: "12px 12px 0",
+          display: "flex",
+          gap: 8,
+          alignItems: "center",
+        }}
+      >
+        <span style={{ fontSize: 12, opacity: 0.8 }}>
+          In the print dialog: Destination = DYMO LabelWriter 450, Paper size =
+          3.5&quot; x 1 1/8&quot; (30252).
+        </span>
       </div>
 
       <div className="sheet">
         {orderedItems.length === 0 ? (
-          <div className="empty">No items selected. Open Items and click “Print Label” or select rows and use “Print Selected Labels”. Use your browser print (Ctrl/Cmd+P).</div>
+          <div className="empty">
+            No items selected. Open Items and click “Print Label” or select rows
+            and use “Print Selected Labels”. Use your browser print (Ctrl/Cmd+P).
+          </div>
         ) : (
           orderedItems.map((item) => (
             <article className="label" key={item.id}>
@@ -249,7 +286,9 @@ export default async function ItemLabelsPage({
                 </div>
                 <div className="name-block">
                   <div className="name">{item.name}</div>
-                  {item.description ? <div className="desc">({item.description})</div> : null}
+                  {item.description ? (
+                    <div className="desc">({item.description})</div>
+                  ) : null}
                 </div>
               </div>
 
