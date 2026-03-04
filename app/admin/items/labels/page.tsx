@@ -86,18 +86,15 @@ export default async function ItemLabelsPage({
             print-color-adjust: exact;
           }
 
-          header, nav, footer, aside,
-          body > :not(main) {
-            display: none !important;
-          }
-
           .no-print {
             display: none !important;
           }
 
+          main,
           .sheet {
             margin: 0 !important;
             padding: 0 !important;
+            background: #fff !important;
           }
         }
 
