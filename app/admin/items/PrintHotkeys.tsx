@@ -1,0 +1,71 @@
+"use client";
+
+import { useEffect } from "react";
+
+type Props = {
+  /** The item ids to print (usually [itemId]) */
+  ids: string[];
+  /**
+   * If true, do nothing when the user is typing in an input/textarea/select/contenteditable.
+   * Recommended = true.
+   */
+  ignoreWhenTyping?: boolean;
+  /** How many copies to print per item (handled by the labels page) */
+  copies?: number;
+};
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el) return false;
+  const tag = (el.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea" || tag === "select") return true;
+  if (el.isContentEditable) return true;
+  return false;
+}
+
+export default function PrintHotkeys({
+  ids,
+  ignoreWhenTyping = true,
+  copies = 1,
+}: Props) {
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Press "P" (or "p") to print label(s)
+      if (e.key !== "p" && e.key !== "P") return;
+
+      // Don't hijack Ctrl/Cmd+P (browser print)
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      if (ignoreWhenTyping && isTypingTarget(e.target)) return;
+
+      if (!ids || ids.length === 0) return;
+
+      e.preventDefault();
+
+      const qs = new URLSearchParams();
+      qs.set("ids", ids.join(","));
+      qs.set("autoprint", "1");
+      qs.set("autoclose", "1");
+      qs.set("copies", String(Math.max(1, Math.min(50, copies))));
+
+      const url = `/admin/items/labels?${qs.toString()}`;
+
+      // Small popup window (warehouse-style)
+      const w = 420;
+      const h = 320;
+      const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - w) / 2));
+      const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - h) / 2));
+
+      window.open(
+        url,
+        "print_label",
+        `popup=yes,width=${w},height=${h},left=${left},top=${top}`,
+      );
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [ids, ignoreWhenTyping, copies]);
+
+  return null;
+}

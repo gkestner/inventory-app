@@ -5,7 +5,7 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { Prisma, Role } from "@prisma/client";
-
+import PrintHotkeys from "@/app/admin/items/PrintHotkeys";
 export const dynamic = "force-dynamic";
 
 type SearchParams = {

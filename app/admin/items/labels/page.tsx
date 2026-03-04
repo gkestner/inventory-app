@@ -4,12 +4,13 @@ import { redirect } from "next/navigation";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 
-import DymoClient from "./DymoClient";
-
 export const dynamic = "force-dynamic";
 
 type SearchParams = {
   ids?: string | string[];
+  autoprint?: string;
+  autoclose?: string;
+  copies?: string;
 };
 
 function first(v: string | string[] | undefined): string {
@@ -28,6 +29,20 @@ function parseIds(raw: string): string[] {
   );
 }
 
+function deriveLabelIdFromSku(sku: string): string {
+  const tail = sku.split("-").pop() ?? "";
+  const digits = tail.replace(/\D+/g, "");
+  if (!digits) return tail || sku;
+  const trimmed = digits.replace(/^0+/, "");
+  return trimmed || "0";
+}
+
+function qrImageUrl(sku: string): string {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=160x160&margin=0&data=${encodeURIComponent(
+    sku,
+  )}`;
+}
+
 export default async function ItemLabelsPage({
   searchParams,
 }: {
@@ -41,7 +56,12 @@ export default async function ItemLabelsPage({
   if (role !== Role.ADMIN) redirect("/");
 
   const sp = await searchParams;
+
   const ids = parseIds(first(sp.ids));
+  const autoprint = first(sp.autoprint) === "1";
+  const autoclose = first(sp.autoclose) === "1";
+  const copiesRaw = parseInt(first(sp.copies) || "1", 10);
+  const copies = Number.isFinite(copiesRaw) ? Math.max(1, Math.min(50, copiesRaw)) : 1;
 
   const items = ids.length
     ? await prisma.item.findMany({
@@ -56,49 +76,234 @@ export default async function ItemLabelsPage({
       })
     : [];
 
+  // Preserve incoming order
   const idOrder = new Map(ids.map((id, idx) => [id, idx]));
   const orderedItems = items
     .slice()
     .sort((a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0));
 
-  // Pass only serializable fields to the client component
-  const clientItems = orderedItems.map((it) => ({
-    id: it.id,
-    sku: it.sku,
-    name: it.name,
-    description: it.description ?? "",
-    partNumber: it.partNumber ?? "",
-  }));
+  // Expand copies on the server so print pagination is simple
+  const printable = orderedItems.flatMap((it) =>
+    Array.from({ length: copies }, (_, i) => ({ ...it, __copy: i + 1 })),
+  );
 
   return (
-    <main style={{ padding: 16 }}>
-      <h1 style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>
-        DYMO Labels
-      </h1>
+    <html>
+      <head>
+        <meta charSet="utf-8" />
+        <title>Print Labels</title>
 
-      <p style={{ margin: "0 0 12px", fontSize: 13, opacity: 0.85 }}>
-        Instant printing uses the DYMO Web Service on this computer. If printing
-        doesn’t work, install DYMO Connect and make sure the DYMO service is
-        running.
-      </p>
+        <style>{`
+          @page { margin: 0; }
 
-      <DymoClient items={clientItems} />
+          :root {
+            --w: 3.5in;
+            --h: 1.125in;
+            --b: 2px;
+          }
 
-      {clientItems.length === 0 ? (
-        <div
-          style={{
-            marginTop: 16,
-            border: "1px dashed #aaa",
-            borderRadius: 8,
-            padding: 12,
-            background: "#fff",
-            maxWidth: 720,
+          html, body {
+            margin: 0;
+            padding: 0;
+            background: #fff;
+            color: #000;
+            font-family: Arial, Helvetica, sans-serif;
+          }
+
+          /* Each .label is exactly one "page" worth of content */
+          .label {
+            width: var(--w);
+            height: var(--h);
+            box-sizing: border-box;
+            border: var(--b) solid #000;
+            display: grid;
+            grid-template-rows: auto 1fr auto;
+            overflow: hidden;
+
+            page-break-after: always;
+            break-after: page;
+          }
+
+          .label:last-child {
+            page-break-after: auto;
+            break-after: auto;
+          }
+
+          .sku {
+            font-weight: 900;
+            font-size: 14px;
+            padding: 3px 8px;
+            border-bottom: var(--b) solid #000;
+          }
+
+          .mid {
+            display: grid;
+            grid-template-columns: 1.05in 1fr;
+            min-height: 0;
+          }
+
+          .qr {
+            border-right: var(--b) solid #000;
+            display: grid;
+            place-items: center;
+          }
+
+          .qr img {
+            width: 0.95in;
+            height: 0.95in;
+            display: block;
+          }
+
+          .nameblock {
+            display: grid;
+            align-content: center;
+            justify-items: center;
+            text-align: center;
+            padding: 0 10px;
+            line-height: 1.05;
+          }
+
+          .name {
+            font-weight: 900;
+            font-size: 22px;
+            text-transform: uppercase;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+
+          .desc {
+            margin-top: 2px;
+            font-weight: 800;
+            font-size: 10px;
+            text-transform: uppercase;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+
+          .bottom {
+            border-top: var(--b) solid #000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 900;
+            font-size: 14px;
+            padding: 3px 8px;
+            white-space: nowrap;
+            gap: 10px;
+          }
+
+          /* Screen-only helper bar (hidden during print) */
+          .bar {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            font-size: 13px;
+            display: ${autoprint ? "none" : "block"};
+          }
+
+          @media print {
+            .bar { display: none !important; }
+          }
+        `}</style>
+
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function () {
+                const AUTOPRINT = ${autoprint ? "true" : "false"};
+                const AUTOCLOSE = ${autoclose ? "true" : "false"};
+
+                function doPrint() {
+                  // Small delay helps images (QR) settle
+                  setTimeout(() => window.print(), 150);
+                }
+
+                // Press "P" to print again (warehouse muscle memory)
+                window.addEventListener("keydown", (e) => {
+                  if ((e.key === "p" || e.key === "P") && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                    e.preventDefault();
+                    doPrint();
+                  }
+                  if (e.key === "Escape" && AUTOCLOSE) {
+                    window.close();
+                  }
+                });
+
+                if (AUTOCLOSE) {
+                  window.addEventListener("afterprint", () => {
+                    setTimeout(() => window.close(), 200);
+                  });
+                }
+
+                if (AUTOPRINT) {
+                  // Wait for images before printing; fallback after 1200ms
+                  const imgs = Array.from(document.images || []);
+                  let done = false;
+
+                  const finish = () => {
+                    if (done) return;
+                    done = true;
+                    doPrint();
+                  };
+
+                  if (imgs.length === 0) {
+                    finish();
+                  } else {
+                    let remaining = imgs.length;
+                    const tick = () => {
+                      remaining--;
+                      if (remaining <= 0) finish();
+                    };
+                    imgs.forEach((img) => {
+                      if (img.complete) return tick();
+                      img.addEventListener("load", tick, { once: true });
+                      img.addEventListener("error", tick, { once: true });
+                    });
+                    setTimeout(finish, 1200);
+                  }
+                }
+              })();
+            `,
           }}
-        >
-          No items selected. Go back to Items and use “Print Label” or “Print
-          Selected Labels”.
+        />
+      </head>
+
+      <body>
+        <div className="bar">
+          Tip: press <b>P</b> to print. Press <b>Esc</b> to close.
         </div>
-      ) : null}
-    </main>
+
+        {printable.length === 0 ? (
+          <div style={{ padding: 14, fontSize: 14 }}>No items selected.</div>
+        ) : (
+          printable.map((item) => (
+            <div className="label" key={`${item.id}-${(item as any).__copy}`}>
+              <div className="sku">SKU: {item.sku}</div>
+
+              <div className="mid">
+                <div className="qr">
+                  <img src={qrImageUrl(item.sku)} alt="" />
+                </div>
+
+                <div className="nameblock">
+                  <div className="name">{item.name}</div>
+                  {item.description ? (
+                    <div className="desc">({item.description})</div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="bottom">
+                <span>ID# {deriveLabelIdFromSku(item.sku)}</span>
+                <span>PART# {item.partNumber ?? "—"}</span>
+              </div>
+            </div>
+          ))
+        )}
+      </body>
+    </html>
   );
 }
