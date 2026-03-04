@@ -1,7 +1,6 @@
 import { Role } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import PrintLabelsButton from "./PrintLabelsButton";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 
@@ -198,13 +197,12 @@ export default async function ItemLabelsPage({
       `}</style>
 
       <div className="no-print" style={{ padding: "12px 12px 0", display: "flex", gap: 8, alignItems: "center" }}>
-        <PrintLabelsButton />
         <span style={{ fontSize: 12, opacity: 0.8 }}>Set printer to Dymo 3.5&quot; x 1 1/8&quot; label size.</span>
       </div>
 
       <div className="sheet">
         {orderedItems.length === 0 ? (
-          <div className="empty">No items selected. Open Items and click “Print Label” or select rows and use “Print Selected Labels”.</div>
+          <div className="empty">No items selected. Open Items and click “Print Label” or select rows and use “Print Selected Labels”. Use your browser print (Ctrl/Cmd+P).</div>
         ) : (
           orderedItems.map((item) => (
             <article className="label" key={item.id}>
