@@ -96,6 +96,9 @@ export default async function ItemLabelsPage({
         <title>Print Labels</title>
 
         <style>{`
+          /* hide admin sidebar/nav added by parent layout */
+          aside { display: none !important; }
+
           @page { margin: 0; }
 
           :root {
@@ -240,6 +243,15 @@ export default async function ItemLabelsPage({
               (function () {
                 const AUTOPRINT = ${autoprint ? "true" : "false"};
                 const AUTOCLOSE = ${autoclose ? "true" : "false"};
+
+                // debug logging
+                console.log("Label page debug", {
+                  ids: ${JSON.stringify(ids)},
+                  printable: ${printable.length},
+                  autoprint: AUTOPRINT,
+                  autoclose: AUTOCLOSE,
+                  copies: ${copies},
+                });
 
                 function doPrint() {
                   // Small delay helps images (QR) settle
