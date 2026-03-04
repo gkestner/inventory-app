@@ -11,6 +11,7 @@ type SearchParams = {
   autoprint?: string;
   autoclose?: string;
   copies?: string;
+  debug?: string | string[];
 };
 
 function first(v: string | string[] | undefined): string {
