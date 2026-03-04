@@ -86,19 +86,23 @@ export default async function ItemLabelsPage({
             print-color-adjust: exact;
           }
 
-          body * {
-            visibility: hidden !important;
+          body > * {
+            display: none !important;
           }
 
-          .labels-print-root,
-          .labels-print-root * {
-            visibility: visible !important;
+          body > *:has(.labels-print-root) {
+            display: block !important;
           }
 
           .labels-print-root {
+            display: block !important;
             margin: 0 !important;
             padding: 0 !important;
             background: #fff !important;
+          }
+
+          .labels-print-root * {
+            display: revert !important;
           }
 
           .no-print {
