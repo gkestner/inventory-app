@@ -310,9 +310,12 @@ export default async function ItemLabelsPage({
 
       <body>
         {debug ? (
-          <div style={{ padding: 8, background: "#ffeeda", color: "#000", fontSize: 13 }}>
-            <strong>DEBUG</strong> ids={JSON.stringify(ids)} printable={printable.length} autoprint={String(autoprint)} autoclose={String(autoclose)} copies={copies}
-          </div>
+          <>
+            <div style={{ padding: 8, background: "#ffeeda", color: "#000", fontSize: 13, border: '1px solid #000' }}>
+              <strong>DEBUG MODE</strong> ids={JSON.stringify(ids)} printable={printable.length} autoprint={String(autoprint)} autoclose={String(autoclose)} copies={copies}
+            </div>
+            <div style={{color: 'red', fontSize: '20px', padding: '10px'}}>DEBUG: Labels page loaded successfully</div>
+          </>
         ) : null}
         <div className="bar">
           Tip: press <b>P</b> to print. Press <b>Esc</b> to close.
@@ -330,7 +333,15 @@ export default async function ItemLabelsPage({
 
                   <div className="mid">
                     <div className="qr">
-                      <img src={qrImageUrl(`Item ID: ${item.id}`)} alt="" />
+                      <img src={qrImageUrl(`Item ID: ${item.id}`)} alt={`Item ID: ${item.id}`} onError={(e) => {
+                        const img = e.target as HTMLImageElement;
+                        img.style.display = 'none';
+                        const fallback = document.createElement('div');
+                        fallback.textContent = `ID: ${labelId}`;
+                        fallback.style.fontSize = '12px';
+                        fallback.style.fontWeight = 'bold';
+                        img.parentNode?.appendChild(fallback);
+                      }} />
                     </div>
 
                     <div className="nameblock">
