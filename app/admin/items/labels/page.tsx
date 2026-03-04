@@ -1,4 +1,3 @@
-// app/admin/items/labels/page.tsx
 import { Role } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
@@ -77,13 +76,11 @@ export default async function ItemLabelsPage({
   return (
     <main className="labels-print-root">
       <style>{`
-        /* === PAGE SIZE: DYMO 30252 (3.5" x 1.125") === */
         @page {
           size: 3.5in 1.125in;
           margin: 0;
         }
 
-        /* Base screen styling */
         body {
           font-family: Arial, Helvetica, sans-serif;
           background: #f5f5f5;
@@ -193,11 +190,7 @@ export default async function ItemLabelsPage({
           display: block;
         }
 
-        /* =========================
-           PRINT: ISOLATE LABELS ONLY
-           ========================= */
         @media print {
-          /* Ensure no browser margins bleed */
           html, body {
             margin: 0 !important;
             padding: 0 !important;
@@ -207,7 +200,7 @@ export default async function ItemLabelsPage({
             print-color-adjust: exact;
           }
 
-          /* The reliable trick: hide everything, then show only what we want */
+          /* Hide everything by visibility, then re-show our root */
           body * {
             visibility: hidden !important;
           }
@@ -217,16 +210,14 @@ export default async function ItemLabelsPage({
             visibility: visible !important;
           }
 
-          /* Pin the print root to the page so layout wrappers don't matter */
+          /* IMPORTANT: do NOT use position:fixed (it repeats every page) */
           .labels-print-root {
-            position: fixed !important;
-            inset: 0 !important;
+            position: static !important;
             margin: 0 !important;
             padding: 0 !important;
             background: #fff !important;
           }
 
-          /* Remove all screen padding/gaps for true label pages */
           .no-print {
             display: none !important;
           }
