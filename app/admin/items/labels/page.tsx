@@ -1,6 +1,7 @@
 import { Role } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
+import Script from "next/script";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 
@@ -99,160 +100,13 @@ export default async function ItemLabelsPage({
   }
 
   return (
-    <div style={{ display: "contents" }}>
-      <style>{`
-        /* hide admin sidebar/nav added by parent layout */
-        aside { display: none !important; }
-
-        @page { margin: 0; }
-
-        :root {
-          --w: 3.5in;
-          --h: 1.125in;
-          --b: 2px;
-        }
-
-        html, body {
-          margin: 0;
-          padding: 0;
-          background: #fff;
-          color: #000;
-          font-family: Arial, Helvetica, sans-serif;
-        }
-
-        /* Screen-only helper bar (hidden during print) */
-        .bar {
-          padding: 10px;
-          border-bottom: 1px solid #eee;
-          font-size: 13px;
-          display: ${autoprint ? "none" : "block"};
-        }
-
-        .debug-bar {
-          padding: 8px;
-          background: #ffeeda;
-          color: #000;
-          font-size: 13px;
-          border: 1px solid #d4a017;
-          margin-bottom: 8px;
-        }
-
-        .debug-bar strong {
-          color: #d4a017;
-        }
-
-        /* Each .label is exactly one "page" worth of content */
-        .label {
-          width: var(--w);
-          height: var(--h);
-          box-sizing: border-box;
-          border: var(--b) solid #000;
-          display: grid;
-          grid-template-rows: auto 1fr auto;
-          overflow: hidden;
-          border-radius: 8px;
-          background: #fff;
-          margin-bottom: var(--b);
-          page-break-after: always;
-          break-after: page;
-        }
-
-        .label:last-child {
-          page-break-after: auto;
-          break-after: auto;
-        }
-
-        .sku {
-          font-weight: 700;
-          font-size: 11px;
-          padding: 6px 8px 0 8px;
-          align-self: start;
-          justify-self: start;
-          color: #222;
-        }
-
-        .mid {
-          display: grid;
-          grid-template-columns: 1.05in 1fr;
-          min-height: 0;
-          gap: 8px;
-          padding: 6px 8px;
-        }
-
-        .qr {
-          border-right: var(--b) solid #000;
-          display: grid;
-          place-items: center;
-          padding: 4px;
-        }
-
-        .qr img {
-          width: 0.9in;
-          height: 0.9in;
-          display: block;
-        }
-
-        .nameblock {
-          display: grid;
-          align-content: center;
-          justify-items: center;
-          text-align: center;
-          padding: 0 10px;
-          line-height: 1.05;
-        }
-
-        .name {
-          font-weight: 900;
-          font-size: 22px;
-          text-transform: uppercase;
-          max-width: 100%;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-
-        .desc {
-          margin-top: 2px;
-          font-weight: 800;
-          font-size: 10px;
-          text-transform: uppercase;
-          max-width: 100%;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-
-        .bottom {
-          border-top: var(--b) solid #000;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          font-weight: 900;
-          font-size: 13px;
-          padding: 6px 8px;
-          white-space: nowrap;
-          gap: 10px;
-        }
-
-        .idbox {
-          border: 2px solid #000;
-          padding: 2px 6px;
-          font-weight: 900;
-          display: inline-block;
-        }
-
-        @media print {
-          .bar { display: none !important; }
-          .debug-bar { display: none !important; }
-        }
-      `}</style>
-
+    <div className="labels-page">
       {debug ? (
         <div className="debug-bar">
           <strong>DEBUG</strong> ids={JSON.stringify(ids).slice(0, 50)} printable={printable.length} autoprint={String(autoprint)}
         </div>
       ) : null}
-      <div className="bar">
+      <div className="bar" data-autoprint={autoprint}>
         Tip: press <b>P</b> to print. Press <b>Esc</b> to close.
       </div>
 
@@ -295,14 +149,15 @@ export default async function ItemLabelsPage({
         })
       )}
 
-      <script
+      <Script
+        id="labels-autoprint-script"
+        strategy="afterInteractive"
         dangerouslySetInnerHTML={{
           __html: `
             (function () {
               const AUTOPRINT = ${autoprint ? "true" : "false"};
               const AUTOCLOSE = ${autoclose ? "true" : "false"};
 
-              // debug logging
               console.log("Label page debug", {
                 ids: ${JSON.stringify(ids)},
                 printable: ${printable.length},
@@ -312,11 +167,9 @@ export default async function ItemLabelsPage({
               });
 
               function doPrint() {
-                // Small delay helps images (QR) settle
                 setTimeout(() => window.print(), 150);
               }
 
-              // Press "P" to print again (warehouse muscle memory)
               window.addEventListener("keydown", (e) => {
                 if ((e.key === "p" || e.key === "P") && !e.ctrlKey && !e.metaKey && !e.altKey) {
                   e.preventDefault();
@@ -334,7 +187,6 @@ export default async function ItemLabelsPage({
               }
 
               if (AUTOPRINT) {
-                // Wait for images before printing; fallback after 1200ms
                 const imgs = Array.from(document.images || []);
                 let done = false;
 
