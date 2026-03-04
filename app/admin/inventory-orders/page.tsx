@@ -13,6 +13,13 @@ import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { Decimal } from "@prisma/client/runtime/library";
 
 import ItemPicker from "./ItemPicker";
+import {
+  addToInventoryAction as addToInventoryServerAction,
+  createOrderAction as createOrderServerAction,
+  deleteOrderAction as deleteOrderServerAction,
+  markArrivedAction as markArrivedServerAction,
+  saveOrderDetailsAction as saveOrderDetailsServerAction,
+} from "./actions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -1070,7 +1077,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           <div style={{ marginTop: 10, border, borderRadius: 14, background: surface, padding: 12 }}>
             <div style={{ fontWeight: 900, marginBottom: 8, fontSize: 14 }}>Create Order</div>
 
-            <form action={createOrderAction} style={{ display: "grid", gap: 10 }}>
+            <form action={createOrderServerAction} style={{ display: "grid", gap: 10 }}>
               <div style={wrapRow}>
                 <label style={{ display: "grid", gap: 6, fontSize: 12, opacity: 0.9, fontWeight: 900, ...flexItem(420, 3) }}>
                   Item (select existing)
@@ -1430,14 +1437,14 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                 </div>
 
                 <div className="actionsRow">
-                  <form action={markArrivedAction}>
+                  <form action={markArrivedServerAction}>
                     <input type="hidden" name="id" value={o.id} />
                     <button type="submit" style={{ ...btn, opacity: canArrive ? 1 : 0.5 }} disabled={!canArrive}>
                       Mark Arrived
                     </button>
                   </form>
 
-                  <form action={addToInventoryAction}>
+                  <form action={addToInventoryServerAction}>
                     <input type="hidden" name="id" value={o.id} />
                     <button type="submit" style={{ ...btnPrimary, opacity: canAdd ? 1 : 0.5 }} disabled={!canAdd}>
                       Add to Inventory
@@ -1447,7 +1454,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                   <details className="orderDetails" style={{ border: border, borderRadius: 12, padding: 10, background: soft }}>
                     <summary>Edit</summary>
                     <form
-                      action={saveOrderDetailsAction}
+                      action={saveOrderDetailsServerAction}
                       style={{
                         marginTop: 10,
                         padding: 10,
@@ -1547,7 +1554,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                   <details className="orderDetails" style={{ border: border, borderRadius: 12, padding: 10, background: soft }}>
                     <summary>Delete</summary>
                     <form
-                      action={deleteOrderAction}
+                      action={deleteOrderServerAction}
                       style={{
                         marginTop: 10,
                         padding: 10,
