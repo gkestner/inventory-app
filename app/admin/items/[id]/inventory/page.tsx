@@ -257,6 +257,7 @@ export default async function ItemInventoryPage({
       </div>
       <div style={{ marginTop: 4, opacity: 0.7, fontSize: 13 }}>
         Item ID: <code>{item.id}</code> • Last updated: {updatedAt}
+        <PrintHotkeys ids={[item.id]} />
       </div>
 
       {sp.ok ? (
