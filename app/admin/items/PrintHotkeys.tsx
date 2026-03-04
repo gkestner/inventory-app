@@ -51,7 +51,7 @@ export default function PrintHotkeys({
       // (safe to remove after debugging)
       qs.set("debug", "1");
 
-      const url = `/admin/items/labels?${qs.toString()}`;
+      const url = `/labels?${qs.toString()}`;
 
       // Small popup window (warehouse-style)
       const w = 420;

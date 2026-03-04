@@ -688,7 +688,7 @@ export default function ItemsTableClient({
     qs.set("autoprint", "1");
     qs.set("autoclose", "1");
     qs.set("debug", "1"); // debug mode shows diagnostic overlay
-    const url = `/admin/items/labels?${qs.toString()}`;
+    const url = `/labels?${qs.toString()}`;
     console.debug("printLabelsFor", url);
     const win = window.open("about:blank", "_blank", "noopener,noreferrer,popup=yes");
     if (win) {

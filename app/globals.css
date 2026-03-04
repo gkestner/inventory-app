@@ -162,17 +162,17 @@ a {
   display: none !important;
 }
 
-.bar {
+.labels-page .bar {
   padding: 10px;
   border-bottom: 1px solid #eee;
   font-size: 13px;
 }
 
-.bar[data-autoprint="true"] {
+.labels-page .bar[data-autoprint="true"] {
   display: none;
 }
 
-.debug-bar {
+.labels-page .debug-bar {
   padding: 8px;
   background: #ffeeda;
   color: #000;
@@ -181,11 +181,11 @@ a {
   margin-bottom: 8px;
 }
 
-.debug-bar strong {
+.labels-page .debug-bar strong {
   color: #d4a017;
 }
 
-.label {
+.labels-page .label {
   width: var(--w);
   height: var(--h);
   box-sizing: border-box;
@@ -200,12 +200,12 @@ a {
   break-after: page;
 }
 
-.label:last-child {
+.labels-page .label:last-of-type {
   page-break-after: auto;
   break-after: auto;
 }
 
-.sku {
+.labels-page .sku {
   font-weight: 700;
   font-size: 11px;
   padding: 6px 8px 0 8px;
@@ -214,7 +214,7 @@ a {
   color: #222;
 }
 
-.mid {
+.labels-page .mid {
   display: grid;
   grid-template-columns: 1.05in 1fr;
   min-height: 0;
@@ -222,20 +222,20 @@ a {
   padding: 6px 8px;
 }
 
-.qr {
+.labels-page .qr {
   border-right: var(--b) solid #000;
   display: grid;
   place-items: center;
   padding: 4px;
 }
 
-.qr img {
+.labels-page .qr img {
   width: 0.9in;
   height: 0.9in;
   display: block;
 }
 
-.nameblock {
+.labels-page .nameblock {
   display: grid;
   align-content: center;
   justify-items: center;
@@ -244,7 +244,7 @@ a {
   line-height: 1.05;
 }
 
-.name {
+.labels-page .name {
   font-weight: 900;
   font-size: 22px;
   text-transform: uppercase;
@@ -254,7 +254,7 @@ a {
   white-space: nowrap;
 }
 
-.desc {
+.labels-page .desc {
   margin-top: 2px;
   font-weight: 800;
   font-size: 10px;
@@ -265,7 +265,7 @@ a {
   white-space: nowrap;
 }
 
-.bottom {
+.labels-page .bottom {
   border-top: var(--b) solid #000;
   display: flex;
   justify-content: space-between;
@@ -277,7 +277,7 @@ a {
   gap: 10px;
 }
 
-.idbox {
+.labels-page .idbox {
   border: 2px solid #000;
   padding: 2px 6px;
   font-weight: 900;
@@ -285,10 +285,10 @@ a {
 }
 
 @media print {
-  .bar {
+  .labels-page .bar {
     display: none !important;
   }
-  .debug-bar {
+  .labels-page .debug-bar {
     display: none !important;
   }
 }
