@@ -37,9 +37,9 @@ function deriveLabelIdFromSku(sku: string): string {
   return trimmed || "0";
 }
 
-function qrImageUrl(sku: string): string {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=160x160&margin=0&data=${encodeURIComponent(
-    sku,
+function qrImageUrl(data: string, size = 160): string {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&margin=0&data=${encodeURIComponent(
+    data,
   )}`;
 }
 
@@ -111,6 +111,15 @@ export default async function ItemLabelsPage({
           }
 
           /* Each .label is exactly one "page" worth of content */
+          .label-wrap {
+            width: calc(var(--w) + 12px);
+            height: calc(var(--h) + 12px);
+            display: grid;
+            place-items: center;
+            padding: 6px;
+            box-sizing: border-box;
+          }
+
           .label {
             width: var(--w);
             height: var(--h);
@@ -119,6 +128,8 @@ export default async function ItemLabelsPage({
             display: grid;
             grid-template-rows: auto 1fr auto;
             overflow: hidden;
+            border-radius: 8px;
+            background: #fff;
 
             page-break-after: always;
             break-after: page;
@@ -130,27 +141,32 @@ export default async function ItemLabelsPage({
           }
 
           .sku {
-            font-weight: 900;
-            font-size: 14px;
-            padding: 3px 8px;
-            border-bottom: var(--b) solid #000;
+            font-weight: 700;
+            font-size: 11px;
+            padding: 6px 8px 0 8px;
+            align-self: start;
+            justify-self: start;
+            color: #222;
           }
 
           .mid {
             display: grid;
             grid-template-columns: 1.05in 1fr;
             min-height: 0;
+            gap: 8px;
+            padding: 6px 8px;
           }
 
           .qr {
             border-right: var(--b) solid #000;
             display: grid;
             place-items: center;
+            padding: 4px;
           }
 
           .qr img {
-            width: 0.95in;
-            height: 0.95in;
+            width: 0.9in;
+            height: 0.9in;
             display: block;
           }
 
@@ -190,10 +206,17 @@ export default async function ItemLabelsPage({
             justify-content: space-between;
             align-items: center;
             font-weight: 900;
-            font-size: 14px;
-            padding: 3px 8px;
+            font-size: 13px;
+            padding: 6px 8px;
             white-space: nowrap;
             gap: 10px;
+          }
+
+          .idbox {
+            border: 2px solid #000;
+            padding: 2px 6px;
+            font-weight: 900;
+            display: inline-block;
           }
 
           /* Screen-only helper bar (hidden during print) */
@@ -279,29 +302,34 @@ export default async function ItemLabelsPage({
         {printable.length === 0 ? (
           <div style={{ padding: 14, fontSize: 14 }}>No items selected.</div>
         ) : (
-          printable.map((item) => (
-            <div className="label" key={`${item.id}-${(item as any).__copy}`}>
-              <div className="sku">SKU: {item.sku}</div>
+          printable.map((item) => {
+            const labelId = deriveLabelIdFromSku(item.sku);
+            return (
+              <div className="label-wrap" key={`${item.id}-${(item as any).__copy}`}>
+                <div className="label">
+                  <div className="sku">SKU: {item.sku}</div>
 
-              <div className="mid">
-                <div className="qr">
-                  <img src={qrImageUrl(item.sku)} alt="" />
-                </div>
+                  <div className="mid">
+                    <div className="qr">
+                      <img src={qrImageUrl(labelId)} alt="" />
+                    </div>
 
-                <div className="nameblock">
-                  <div className="name">{item.name}</div>
-                  {item.description ? (
-                    <div className="desc">({item.description})</div>
-                  ) : null}
+                    <div className="nameblock">
+                      <div className="name">{item.name}</div>
+                      {item.description ? (
+                        <div className="desc">({item.description})</div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="bottom">
+                    <span className="idbox">ID# {labelId}</span>
+                    <span>PART# {item.partNumber ?? "—"}</span>
+                  </div>
                 </div>
               </div>
-
-              <div className="bottom">
-                <span>ID# {deriveLabelIdFromSku(item.sku)}</span>
-                <span>PART# {item.partNumber ?? "—"}</span>
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
       </body>
     </html>
