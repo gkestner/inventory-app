@@ -75,8 +75,13 @@ export default async function ItemLabelsPage({
           description: true,
           partNumber: true,
         },
+      }).catch((err) => {
+        console.error("Prisma error:", err);
+        return [];
       })
     : [];
+
+  console.log("Labels page", { ids, debug, itemsCount: items.length });
 
   // Preserve incoming order
   const idOrder = new Map(ids.map((id, idx) => [id, idx]));
