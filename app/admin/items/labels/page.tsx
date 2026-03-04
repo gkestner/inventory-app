@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 
+import DymoClient from "./DymoClient";
+
 export const dynamic = "force-dynamic";
 
 type SearchParams = {
@@ -24,20 +26,6 @@ function parseIds(raw: string): string[] {
         .filter(Boolean),
     ),
   );
-}
-
-function deriveLabelIdFromSku(sku: string): string {
-  const tail = sku.split("-").pop() ?? "";
-  const digits = tail.replace(/\D+/g, "");
-  if (!digits) return tail || sku;
-  const trimmed = digits.replace(/^0+/, "");
-  return trimmed || "0";
-}
-
-function qrImageUrl(sku: string): string {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=120x120&margin=0&data=${encodeURIComponent(
-    sku,
-  )}`;
 }
 
 export default async function ItemLabelsPage({
@@ -73,141 +61,44 @@ export default async function ItemLabelsPage({
     .slice()
     .sort((a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0));
 
+  // Pass only serializable fields to the client component
+  const clientItems = orderedItems.map((it) => ({
+    id: it.id,
+    sku: it.sku,
+    name: it.name,
+    description: it.description ?? "",
+    partNumber: it.partNumber ?? "",
+  }));
+
   return (
-    <main className="labels-print-root">
-      <style>{`
-        :root {
-          --label-w: 3.5in;
-          --label-h: 1.125in;
-        }
+    <main style={{ padding: 16 }}>
+      <h1 style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>
+        DYMO Labels
+      </h1>
 
-        @page {
-          margin: 0;
-        }
+      <p style={{ margin: "0 0 12px", fontSize: 13, opacity: 0.85 }}>
+        Instant printing uses the DYMO Web Service on this computer. If printing
+        doesn’t work, install DYMO Connect and make sure the DYMO service is
+        running.
+      </p>
 
-        body {
-          font-family: Arial, Helvetica, sans-serif;
-          background: #f5f5f5;
-        }
+      <DymoClient items={clientItems} />
 
-        .page {
-          width: var(--label-w);
-          height: var(--label-h);
-          margin: 20px;
-          background: white;
-          border: 1px solid black;
-          box-sizing: border-box;
-          display: grid;
-          grid-template-rows: auto 1fr auto;
-        }
-
-        .sku {
-          font-size: 11px;
-          font-weight: 800;
-          padding: 2px 6px;
-        }
-
-        .middle {
-          border-top: 1px solid black;
-          border-bottom: 1px solid black;
-          display: grid;
-          grid-template-columns: .95in 1fr;
-        }
-
-        .qr {
-          border-right: 1px solid black;
-          display: grid;
-          place-items: center;
-        }
-
-        .qr img {
-          width: .8in;
-          height: .8in;
-        }
-
-        .name-block {
-          display: grid;
-          align-content: center;
-          justify-items: center;
-          text-align: center;
-        }
-
-        .name {
-          font-size: 12px;
-          font-weight: 900;
-          text-transform: uppercase;
-        }
-
-        .desc {
-          font-size: 8px;
-          font-weight: 800;
-          text-transform: uppercase;
-        }
-
-        .bottom {
-          display: flex;
-          justify-content: space-between;
-          padding: 2px 6px;
-          font-size: 9px;
-          font-weight: 900;
-        }
-
-        @media print {
-
-          body * {
-            visibility: hidden;
-          }
-
-          .labels-print-root,
-          .labels-print-root * {
-            visibility: visible;
-          }
-
-          .labels-print-root {
-            position: absolute;
-            left: 0;
-            top: 0;
-          }
-
-          .page {
-            margin: 0;
-            border: none;
-            width: var(--label-w);
-            height: var(--label-h);
-
-            page-break-after: always;
-            break-after: page;
-          }
-
-          .page:last-child {
-            page-break-after: auto;
-          }
-        }
-      `}</style>
-
-      {orderedItems.map((item) => (
-        <div className="page" key={item.id}>
-          <div className="sku">SKU: {item.sku}</div>
-
-          <div className="middle">
-            <div className="qr">
-              <img src={qrImageUrl(item.sku)} alt="" />
-            </div>
-
-            <div className="name-block">
-              <div className="name">{item.name}</div>
-              {item.description && (
-                <div className="desc">({item.description})</div>
-              )}
-            </div>
-          </div>
-
-          <div className="bottom">
-            <span>ID# {deriveLabelIdFromSku(item.sku)}</span>
-            <span>PART# {item.partNumber ?? "—"}</span>
-          </div>
+      {clientItems.length === 0 ? (
+        <div
+          style={{
+            marginTop: 16,
+            border: "1px dashed #aaa",
+            borderRadius: 8,
+            padding: 12,
+            background: "#fff",
+            maxWidth: 720,
+          }}
+        >
+          No items selected. Go back to Items and use “Print Label” or “Print
+          Selected Labels”.
         </div>
-      ))}
+      ) : null}
     </main>
   );
 }
