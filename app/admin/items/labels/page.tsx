@@ -96,12 +96,9 @@ export default async function ItemLabelsPage({
           }
 
           .labels-print-root {
-            position: fixed;
-            inset: 0;
             margin: 0 !important;
             padding: 0 !important;
             background: #fff !important;
-            z-index: 2147483647;
           }
 
           .no-print {
