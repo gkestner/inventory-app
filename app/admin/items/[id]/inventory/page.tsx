@@ -260,6 +260,8 @@ export default async function ItemInventoryPage({
         <PrintHotkeys ids={[item.id]} />
       </div>
 
+      <PrintHotkeys ids={[item.id]} />
+
       {sp.ok ? (
         <div
           style={{
