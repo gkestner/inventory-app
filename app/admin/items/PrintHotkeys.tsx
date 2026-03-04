@@ -61,7 +61,6 @@ export default function PrintHotkeys({
 
       // Always open a fresh popup window to avoid reusing an existing tab/window
       // which can sometimes leave stale content (or be blocked from navigating).
-      const url = `/admin/items/labels?${qs.toString()}`;
       console.debug("PrintHotkeys", url);
       const win = window.open("about:blank", "_blank", `noopener,noreferrer,popup=yes,width=${w},height=${h},left=${left},top=${top}`);
       if (win) {
