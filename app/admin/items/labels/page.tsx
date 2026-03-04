@@ -142,15 +142,7 @@ export default async function ItemLabelsPage({
 
                 <div className="mid">
                   <div className="qr">
-                    <img src={qrImageUrl(`Item ID: ${item.id}`)} alt={`Item ID: ${item.id}`} onError={(e) => {
-                      const img = e.target as HTMLImageElement;
-                      img.style.display = 'none';
-                      const fallback = document.createElement('div');
-                      fallback.textContent = `ID: ${labelId}`;
-                      fallback.style.fontSize = '12px';
-                      fallback.style.fontWeight = 'bold';
-                      img.parentNode?.appendChild(fallback);
-                    }} />
+                    <img src={qrImageUrl(`Item ID: ${item.id}`)} alt={`Item ID: ${item.id}`} />
                   </div>
 
                   <div className="nameblock">
