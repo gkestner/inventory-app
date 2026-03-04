@@ -291,16 +291,17 @@ export default function DymoClient({ items }: { items: LabelItem[] }) {
     <section style={{ display: "grid", gap: 12 }}>
       {/* DYMO SDK script */}
       <Script
-        src="https://labelwriter.com/software/dls/sdk/js/DYMO.Label.Framework.latest.js"
-        strategy="afterInteractive"
-        onLoad={() => setSdkReady(true)}
-        onError={() => {
-          setStatus("no_service");
-          setStatusDetail(
-            "Failed to load DYMO SDK script. Check your network or content blockers.",
-          );
-        }}
-      />
+  src="https://labelwriter.com/software/dls/sdk/js/DYMO.Label.Framework.3.0.js"
+  strategy="afterInteractive"
+  onLoad={() => {
+    console.log("DYMO SDK loaded");
+    setSdkReady(true);
+  }}
+  onError={() => {
+    setStatus("no_service");
+    setStatusDetail("Failed to load DYMO SDK.");
+  }}
+/>
 
       <div style={bannerStyle}>
         <div style={{ display: "grid", gap: 4 }}>
