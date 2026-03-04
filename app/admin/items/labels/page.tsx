@@ -311,7 +311,7 @@ export default async function ItemLabelsPage({
 
                   <div className="mid">
                     <div className="qr">
-                      <img src={qrImageUrl(labelId)} alt="" />
+                      <img src={qrImageUrl(`Item ID: ${item.id}`)} alt="" />
                     </div>
 
                     <div className="nameblock">
