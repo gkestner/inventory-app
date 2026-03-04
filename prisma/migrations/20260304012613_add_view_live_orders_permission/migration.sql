@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "Permission" ADD VALUE 'VIEW_LIVE_ORDERS';

@@ -110,6 +110,9 @@ const PERMS: PermMeta[] = [
   { perm: Permission.VIEW_CHECKOUT, module: "Inventory", group: "Checkout", label: "View Checkout" },
   { perm: Permission.CREATE_CHECKOUT, module: "Inventory", group: "Checkout", label: "Create Checkout" },
 
+  // ✅ NEW: Live Orders board permission (general users)
+  { perm: Permission.VIEW_LIVE_ORDERS, module: "Inventory", group: "Orders", label: "View Live Orders Board" },
+
   { perm: Permission.VIEW_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "View Work Orders" },
   { perm: Permission.CREATE_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "Create Work Orders" },
   { perm: Permission.UPDATE_OWN_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "Update Own Work Orders" },
