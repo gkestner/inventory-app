@@ -69,7 +69,7 @@ export default async function ItemLabelsPage({
   const orderedItems = items.slice().sort((a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0));
 
   return (
-    <main>
+    <main className="labels-print-root">
       <style>{`
         @page {
           size: 3.5in 1.125in;
@@ -86,11 +86,28 @@ export default async function ItemLabelsPage({
             print-color-adjust: exact;
           }
 
+          body * {
+            visibility: hidden !important;
+          }
+
+          .labels-print-root,
+          .labels-print-root * {
+            visibility: visible !important;
+          }
+
+          .labels-print-root {
+            position: fixed;
+            inset: 0;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #fff !important;
+            z-index: 2147483647;
+          }
+
           .no-print {
             display: none !important;
           }
 
-          main,
           .sheet {
             margin: 0 !important;
             padding: 0 !important;
