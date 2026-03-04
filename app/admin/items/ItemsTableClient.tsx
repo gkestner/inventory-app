@@ -688,7 +688,16 @@ export default function ItemsTableClient({
     qs.set("autoprint", "1");
     qs.set("autoclose", "1");
     qs.set("debug", "1"); // debug mode shows diagnostic overlay
-    window.open(`/admin/items/labels?${qs.toString()}`, "_blank", "noopener,noreferrer");
+    const url = `/admin/items/labels?${qs.toString()}`;
+    console.debug("printLabelsFor", url);
+    const win = window.open("about:blank", "_blank", "noopener,noreferrer,popup=yes");
+    if (win) {
+      // navigate the new window after opening to avoid blockers
+      win.location.href = url;
+    } else {
+      // fallback if popup blocked
+      window.location.href = url;
+    }
   }
 
   async function archiveIds(ids: string[]) {
