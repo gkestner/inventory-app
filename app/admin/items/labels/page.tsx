@@ -82,7 +82,10 @@ export default async function ItemLabelsPage({
       })
     : [];
 
-  console.log("Labels page", { ids, debug, itemsCount: items.length });
+  // Short debug during development
+  if (debug) {
+    console.log("[labels page] ids:", ids, "printable:", printable.length);
+  }
 
   // Preserve incoming order
   const idOrder = new Map(ids.map((id, idx) => [id, idx]));
@@ -316,12 +319,9 @@ export default async function ItemLabelsPage({
 
       <body>
         {debug ? (
-          <>
-            <div style={{ padding: 8, background: "#ffeeda", color: "#000", fontSize: 13, border: '1px solid #000' }}>
-              <strong>DEBUG MODE</strong> ids={JSON.stringify(ids)} printable={printable.length} autoprint={String(autoprint)} autoclose={String(autoclose)} copies={copies}
-            </div>
-            <div style={{color: 'red', fontSize: '20px', padding: '10px'}}>DEBUG: Labels page loaded successfully</div>
-          </>
+          <div style={{ padding: 8, background: "#ffeeda", color: "#000", fontSize: 13, border: "1px solid #d4a017" }}>
+            <strong style={{color: "#d4a017"}}>DEBUG</strong> ids={JSON.stringify(ids).slice(0, 50)} printable={printable.length} autoprint={String(autoprint)}
+          </div>
         ) : null}
         <div className="bar">
           Tip: press <b>P</b> to print. Press <b>Esc</b> to close.

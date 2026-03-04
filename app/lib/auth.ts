@@ -4,6 +4,7 @@ import type { DefaultSession } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcrypt";
 // import { prisma } from "@/app/lib/prisma"; // moved inside authorize
+import type { PrismaClient } from "@prisma/client";
 import { Role } from "@prisma/client";
 
 /**
@@ -140,9 +141,11 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        const { prisma } = await import("@/app/lib/prisma");
+        try {
+          const prismaModule = await import("@/app/lib/prisma");
+          const prisma = prismaModule.prisma as PrismaClient;
 
-        const emailRaw = credentials?.email;
+          const emailRaw = credentials?.email;
         const passwordRaw = credentials?.password;
 
         const email = isNonEmptyString(emailRaw) ? emailRaw.trim().toLowerCase() : "";
@@ -203,6 +206,10 @@ export const authOptions: NextAuthOptions = {
 
           active: user.active,
         };
+        } catch (err) {
+          console.error("authorize error:", err);
+          return null;
+        }
       },
     }),
   ],
