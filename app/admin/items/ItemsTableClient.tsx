@@ -585,7 +585,6 @@ export default function ItemsTableClient({
     clearSelection();
     cancelEdit();
     closeHistory();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialItems, page, perPage]);
 
   useEffect(() => {
@@ -640,6 +639,23 @@ export default function ItemsTableClient({
     window.location.assign(`${window.location.pathname}?${p.toString()}`);
   }
 
+  // Keep the inventory search aligned with checkout search behavior by querying
+  // the server as the user types (debounced), instead of only filtering this page.
+  useEffect(() => {
+    const nextQ = qInput.trim();
+
+    const id = window.setTimeout(() => {
+      const current = new URLSearchParams(window.location.search);
+      const currentQ = (current.get("q") || "").trim();
+
+      if (nextQ === currentQ) return;
+
+      applySearch(nextQ);
+    }, 350);
+
+    return () => window.clearTimeout(id);
+  }, [qInput]);
+  
   const createdIndex = useMemo(() => {
     if (!createdSku) return -1;
     return viewRows.findIndex((r) => r.sku === createdSku);
