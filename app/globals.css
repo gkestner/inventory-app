@@ -360,7 +360,7 @@ body:has(.labels-page) > :not(.app-content-shell) {
   display: none !important;
 }
 
-body:has(.labels-page) .app-content-shell > :not(.labels-page) {
+body:has(.labels-page) .app-content-shell > :not(.labels-page):not(:has(.labels-page)) {
   display: none !important;
 }
 
