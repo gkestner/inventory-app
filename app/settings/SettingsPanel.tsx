@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { UserPreferences } from "@/app/lib/user-preferences";
 
 type ThemeMode = "system" | "light" | "dark";
 type DensityMode = "comfortable" | "compact";
@@ -66,14 +67,54 @@ function applyReducedMotion(on: boolean) {
   document.documentElement.dataset.reducedMotion = on ? "true" : "false";
 }
 
-export default function SettingsPanel() {
-  const [theme, setTheme] = useState<ThemeMode>(() => readTheme());
-  const [density, setDensity] = useState<DensityMode>(() => readDensity());
-  const [reducedMotion, setReducedMotion] = useState<boolean>(() => readReducedMotion());
+export default function SettingsPanel({ initialPreferences }: { initialPreferences: UserPreferences }) {
+  const [theme, setTheme] = useState<ThemeMode>(() => initialPreferences.theme || readTheme());
+  const [density, setDensity] = useState<DensityMode>(() => initialPreferences.density || readDensity());
+  const [reducedMotion, setReducedMotion] = useState<boolean>(() => initialPreferences.reducedMotion ?? readReducedMotion());
 
-  const [labelsCopies, setLabelsCopies] = useState<number>(() => readLabelsCopies());
-  const [labelsAutoprint, setLabelsAutoprint] = useState<boolean>(() => readBool(STORAGE_LABELS_AUTOPRINT, false));
-  const [labelsAutoclose, setLabelsAutoclose] = useState<boolean>(() => readBool(STORAGE_LABELS_AUTOCLOSE, false));
+  const [labelsCopies, setLabelsCopies] = useState<number>(() => initialPreferences.labelsDefaultCopies || readLabelsCopies());
+  const [labelsAutoprint, setLabelsAutoprint] = useState<boolean>(() => initialPreferences.labelsAutoprint ?? readBool(STORAGE_LABELS_AUTOPRINT, false));
+  const [labelsAutoclose, setLabelsAutoclose] = useState<boolean>(() => initialPreferences.labelsAutoclose ?? readBool(STORAGE_LABELS_AUTOCLOSE, false));
+
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+
+  async function saveServerPreferences(next: UserPreferences) {
+    setSaveState("saving");
+    try {
+      const res = await fetch("/api/me/preferences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preferences: next }),
+      });
+      if (!res.ok) throw new Error("Save failed");
+      setSaveState("saved");
+      window.setTimeout(() => setSaveState("idle"), 900);
+    } catch {
+      setSaveState("error");
+    }
+  }
+
+  const currentPreferences: UserPreferences = {
+    theme,
+    density,
+    reducedMotion,
+    labelsDefaultCopies: labelsCopies,
+    labelsAutoprint,
+    labelsAutoclose,
+  };
+
+  useEffect(() => {
+    window.localStorage.setItem(STORAGE_THEME, initialPreferences.theme);
+    window.localStorage.setItem(STORAGE_DENSITY, initialPreferences.density);
+    window.localStorage.setItem(STORAGE_REDUCED_MOTION, initialPreferences.reducedMotion ? "1" : "0");
+    window.localStorage.setItem(STORAGE_LABELS_COPIES, String(initialPreferences.labelsDefaultCopies));
+    window.localStorage.setItem(STORAGE_LABELS_AUTOPRINT, initialPreferences.labelsAutoprint ? "1" : "0");
+    window.localStorage.setItem(STORAGE_LABELS_AUTOCLOSE, initialPreferences.labelsAutoclose ? "1" : "0");
+
+    applyTheme(initialPreferences.theme);
+    applyDensity(initialPreferences.density);
+    applyReducedMotion(initialPreferences.reducedMotion);
+  }, [initialPreferences]);
 
   useEffect(() => {
     applyTheme(theme);
@@ -108,6 +149,12 @@ export default function SettingsPanel() {
     window.localStorage.setItem(STORAGE_LABELS_AUTOCLOSE, labelsAutoclose ? "1" : "0");
   }, [labelsAutoclose]);
 
+  useEffect(() => {
+    void saveServerPreferences(currentPreferences);
+    // Intentionally save after each preference change for cross-device sync.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theme, density, reducedMotion, labelsCopies, labelsAutoprint, labelsAutoclose]);
+
   const themeLabel = useMemo(() => {
     if (theme === "system") return `System (${getSystemTheme()})`;
     return theme[0].toUpperCase() + theme.slice(1);
@@ -117,6 +164,9 @@ export default function SettingsPanel() {
     <div style={{ display: "grid", gap: 14 }}>
       <section style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 12, background: "var(--surface)" }}>
         <h2 style={{ margin: 0, fontSize: 16 }}>Appearance</h2>
+        <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
+          Sync status: {saveState === "saving" ? "Saving..." : saveState === "saved" ? "Saved" : saveState === "error" ? "Save failed" : "Idle"}
+        </div>
 
         <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
           <label style={{ display: "grid", gap: 6 }}>

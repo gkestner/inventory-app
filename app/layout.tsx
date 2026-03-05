@@ -64,15 +64,17 @@ export default async function RootLayout({
   }
 
   // Import auth/permissions lazily so module evaluation during build phase doesn't touch Prisma.
-  const [{ getServerSession }, { authOptions }, permsMod, prismaEnums, prismaModule] = await Promise.all([
+  const [{ getServerSession }, { authOptions }, permsMod, prismaEnums, prismaModule, prefsModule] = await Promise.all([
     import("next-auth"),
     import("@/app/lib/auth"),
     import("@/app/lib/permissions"),
     import("@prisma/client"),
     import("@/app/lib/prisma"),
+    import("@/app/lib/user-preferences"),
   ]);
 
   const { hasAnyPermission, loadUserPermissions } = permsMod;
+  const { DEFAULT_USER_PREFERENCES, normalizeUserPreferences } = prefsModule;
   const { Permission, Role } = prismaEnums;
   const { prisma } = prismaModule;
 
@@ -82,15 +84,19 @@ export default async function RootLayout({
 
   const sessionEmail = (session?.user as { email?: string | null } | null)?.email?.trim().toLowerCase() ?? "";
 
-  const dbUserRole =
+  const dbUser =
     sessionEmail.length > 0
       ? (
           await prisma.user.findUnique({
             where: { email: sessionEmail },
-            select: { role: true },
+            select: { role: true, uiPreferences: true },
           })
-        )?.role ?? null
+        ) ?? null
       : null;
+
+  const dbUserRole = dbUser?.role ?? null;
+  const serverPrefs = normalizeUserPreferences(dbUser?.uiPreferences ?? DEFAULT_USER_PREFERENCES);
+  const serverPrefsJson = JSON.stringify(serverPrefs);
 
   const effectiveRole = sessionRole ?? dbUserRole;
   const isRoleAdmin = effectiveRole === Role.ADMIN || effectiveRole === "ADMIN";
@@ -184,9 +190,25 @@ export default async function RootLayout({
             __html: `
               (function () {
                 try {
-                  var themeMode = localStorage.getItem("theme") || "system";
-                  var density = localStorage.getItem("ui_density") || "comfortable";
-                  var reduceMotion = localStorage.getItem("ui_reduce_motion") === "1";
+                  var serverPrefs = ${serverPrefsJson};
+
+                  var themeMode = (serverPrefs && serverPrefs.theme) || localStorage.getItem("theme") || "system";
+                  var density = (serverPrefs && serverPrefs.density) || localStorage.getItem("ui_density") || "comfortable";
+                  var reduceMotion =
+                    (serverPrefs && typeof serverPrefs.reducedMotion === "boolean")
+                      ? serverPrefs.reducedMotion
+                      : localStorage.getItem("ui_reduce_motion") === "1";
+
+                  if (serverPrefs) {
+                    localStorage.setItem("theme", themeMode);
+                    localStorage.setItem("ui_density", density);
+                    localStorage.setItem("ui_reduce_motion", reduceMotion ? "1" : "0");
+                    if (typeof serverPrefs.labelsDefaultCopies === "number") {
+                      localStorage.setItem("labels_default_copies", String(serverPrefs.labelsDefaultCopies));
+                    }
+                    localStorage.setItem("labels_autoprint", serverPrefs.labelsAutoprint ? "1" : "0");
+                    localStorage.setItem("labels_autoclose", serverPrefs.labelsAutoclose ? "1" : "0");
+                  }
 
                   var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
                   var resolvedTheme = themeMode === "system" ? (prefersDark ? "dark" : "light") : themeMode;

@@ -319,6 +319,7 @@ model User {
   securityQuestionsEnabled   Boolean @default(false)
   securityQuestionPrompt     String?
   securityQuestionAnswerHash String?
+  uiPreferences              Json?
 
   active    Boolean  @default(true)
   createdAt DateTime @default(now())

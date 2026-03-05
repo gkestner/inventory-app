@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 
 import { authOptions } from "@/app/lib/auth";
+import { prisma } from "@/app/lib/prisma";
+import { DEFAULT_USER_PREFERENCES, normalizeUserPreferences } from "@/app/lib/user-preferences";
 import SettingsPanel from "@/app/settings/SettingsPanel";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +12,13 @@ export const dynamic = "force-dynamic";
 export default async function AccountSettingsPage() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
+
+  const email = session.user?.email?.trim().toLowerCase() || "";
+  const user = email
+    ? await prisma.user.findUnique({ where: { email }, select: { uiPreferences: true } })
+    : null;
+
+  const initialPreferences = normalizeUserPreferences(user?.uiPreferences ?? DEFAULT_USER_PREFERENCES);
 
   return (
     <main style={{ padding: 16 }}>
@@ -25,7 +34,7 @@ export default async function AccountSettingsPage() {
           Manage your personal preferences for appearance, printing, and overall app behavior.
         </p>
 
-        <SettingsPanel />
+        <SettingsPanel initialPreferences={initialPreferences} />
       </div>
     </main>
   );
