@@ -1372,7 +1372,7 @@ export default function ItemsTableClient({
                     fontSize: 13,
                     color: "var(--text)",
                     whiteSpace: "nowrap",
-                    ...(h === "Actions" ? { width: 360, minWidth: 360 } : {}),
+                    ...(h === "Actions" ? { width: 150, minWidth: 150 } : {}),
                     background: surface,
                   }}
                 >
@@ -1640,7 +1640,7 @@ export default function ItemsTableClient({
                       style={{
                         padding: 10,
                         whiteSpace: "nowrap",
-                        minWidth: 360,
+                        minWidth: 150,
                         overflowWrap: "normal",
                         wordBreak: "normal",
                       }}
@@ -1679,135 +1679,175 @@ export default function ItemsTableClient({
                           </button>
                         </div>
                       ) : (
-                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                          <button
-                            onClick={() => startEdit(row)}
-                            disabled={bulkBusy}
+                        <details style={{ position: "relative", display: "inline-block" }}>
+                          <summary
                             style={{
+                              listStyle: "none",
                               padding: "6px 10px",
                               borderRadius: 10,
                               border: "1px solid var(--border)",
                               background: surface,
                               color: "var(--text)",
-                              cursor: bulkBusy ? "not-allowed" : "pointer",
-                              opacity: bulkBusy ? 0.7 : 1,
+                              fontWeight: 800,
+                              cursor: "pointer",
+                              userSelect: "none",
                               whiteSpace: "nowrap",
                             }}
                           >
-                            Edit
-                          </button>
+                            Actions
+                          </summary>
 
-                          <button
-                            onClick={() => openHistory(row.id)}
-                            disabled={bulkBusy}
+                          <div
                             style={{
-                              padding: "6px 10px",
-                              borderRadius: 10,
+                              position: "absolute",
+                              right: 0,
+                              top: "calc(100% + 8px)",
+                              zIndex: 2500,
+                              minWidth: 172,
+                              borderRadius: 12,
                               border: "1px solid var(--border)",
                               background: surface,
-                              color: "var(--text)",
-                              cursor: bulkBusy ? "not-allowed" : "pointer",
-                              opacity: bulkBusy ? 0.7 : 1,
-                              whiteSpace: "nowrap",
+                              boxShadow: "0 10px 25px rgba(0,0,0,0.25)",
+                              padding: 8,
+                              display: "grid",
+                              gap: 6,
                             }}
                           >
-                            History
-                          </button>
-
-                          <a
-                            href={`/admin/items/${row.id}/inventory`}
-                            style={{
-                              display: "inline-block",
-                              padding: "6px 10px",
-                              borderRadius: 10,
-                              border: "1px solid var(--border)",
-                              background: surface,
-                              color: "var(--text)",
-                              textDecoration: "none",
-                              fontWeight: 700,
-                              lineHeight: 1.1,
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            Inventory
-                          </a>
-
-                           <button
-                            onClick={() => printLabelsFor([row.id])}
-                            disabled={bulkBusy}
-                            style={{
-                              padding: "6px 10px",
-                              borderRadius: 10,
-                              border: "1px solid var(--border)",
-                              background: surface,
-                              color: "var(--text)",
-                              cursor: bulkBusy ? "not-allowed" : "pointer",
-                              opacity: bulkBusy ? 0.7 : 1,
-                              whiteSpace: "nowrap",
-                            }}
-                            title="Open printable part label"
+                            <button
+                              onClick={() => startEdit(row)}
+                              disabled={bulkBusy}
+                              style={{
+                                padding: "6px 10px",
+                                borderRadius: 10,
+                                border: "1px solid var(--border)",
+                                background: surface,
+                                color: "var(--text)",
+                                cursor: bulkBusy ? "not-allowed" : "pointer",
+                                opacity: bulkBusy ? 0.7 : 1,
+                                whiteSpace: "nowrap",
+                                textAlign: "left",
+                              }}
                             >
-                            Print Label
-                          </button>
+                              Edit
+                            </button>
 
-                          <button
-                            onClick={() => {
-                              if (window.confirm(`Archive item ${row.sku}?`)) archiveIds([row.id]);
-                            }}
-                            disabled={bulkBusy}
-                            style={{
-                              padding: "6px 10px",
-                              borderRadius: 10,
-                              border: "1px solid var(--border)",
-                              background: surface,
-                              color: "var(--text)",
-                              cursor: bulkBusy ? "not-allowed" : "pointer",
-                              opacity: bulkBusy ? 0.7 : 1,
-                              whiteSpace: "nowrap",
-                            }}
-                            title="Archive (sets active=false)"
-                          >
-                            Archive
-                          </button>
+                            <button
+                              onClick={() => openHistory(row.id)}
+                              disabled={bulkBusy}
+                              style={{
+                                padding: "6px 10px",
+                                borderRadius: 10,
+                                border: "1px solid var(--border)",
+                                background: surface,
+                                color: "var(--text)",
+                                cursor: bulkBusy ? "not-allowed" : "pointer",
+                                opacity: bulkBusy ? 0.7 : 1,
+                                whiteSpace: "nowrap",
+                                textAlign: "left",
+                              }}
+                            >
+                              History
+                            </button>
 
-                          <button
-                            onClick={() => deleteIds([row.id])}
-                            disabled={bulkBusy}
-                            style={{
-                              padding: "6px 10px",
-                              borderRadius: 10,
-                              border: `1px solid ${danger}`,
-                              background: surface,
-                              color: danger,
-                              cursor: bulkBusy ? "not-allowed" : "pointer",
-                              opacity: bulkBusy ? 0.7 : 1,
-                              fontWeight: 900,
-                              whiteSpace: "nowrap",
-                            }}
-                            title="Delete (may be blocked by audit references)"
-                          >
-                            Delete
-                          </button>
+                            <a
+                              href={`/admin/items/${row.id}/inventory`}
+                              style={{
+                                display: "inline-block",
+                                padding: "6px 10px",
+                                borderRadius: 10,
+                                border: "1px solid var(--border)",
+                                background: surface,
+                                color: "var(--text)",
+                                textDecoration: "none",
+                                fontWeight: 700,
+                                lineHeight: 1.1,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              Inventory
+                            </a>
 
-                          <button
-                            onClick={() => purgeIds([row.id])}
-                            disabled={bulkBusy}
-                            style={{
-                              padding: "6px 10px",
-                              borderRadius: 10,
-                              border: `2px solid ${danger}`,
-                              background: surface,
-                              color: danger,
-                              cursor: bulkBusy ? "not-allowed" : "pointer",
-                              opacity: bulkBusy ? 0.7 : 1,
-                              fontWeight: 950,
-                              whiteSpace: "nowrap",
-                            }}
-                            title="PURGE (irreversible; deletes related tickets/orders/versions)"
-                          >
-                            PURGE
-                          </button>
-                        </div>
+                            <button
+                              onClick={() => printLabelsFor([row.id])}
+                              disabled={bulkBusy}
+                              style={{
+                                padding: "6px 10px",
+                                borderRadius: 10,
+                                border: "1px solid var(--border)",
+                                background: surface,
+                                color: "var(--text)",
+                                cursor: bulkBusy ? "not-allowed" : "pointer",
+                                opacity: bulkBusy ? 0.7 : 1,
+                                whiteSpace: "nowrap",
+                                textAlign: "left",
+                              }}
+                              title="Open printable part label"
+                            >
+                              Print Label
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                if (window.confirm(`Archive item ${row.sku}?`)) archiveIds([row.id]);
+                              }}
+                              disabled={bulkBusy}
+                              style={{
+                                padding: "6px 10px",
+                                borderRadius: 10,
+                                border: "1px solid var(--border)",
+                                background: surface,
+                                color: "var(--text)",
+                                cursor: bulkBusy ? "not-allowed" : "pointer",
+                                opacity: bulkBusy ? 0.7 : 1,
+                                whiteSpace: "nowrap",
+                                textAlign: "left",
+                              }}
+                              title="Archive (sets active=false)"
+                            >
+                              Archive
+                            </button>
+
+                            <button
+                              onClick={() => deleteIds([row.id])}
+                              disabled={bulkBusy}
+                              style={{
+                                padding: "6px 10px",
+                                borderRadius: 10,
+                                border: `1px solid ${danger}`,
+                                background: surface,
+                                color: danger,
+                                cursor: bulkBusy ? "not-allowed" : "pointer",
+                                opacity: bulkBusy ? 0.7 : 1,
+                                fontWeight: 900,
+                                whiteSpace: "nowrap",
+                                textAlign: "left",
+                              }}
+                              title="Delete (may be blocked by audit references)"
+                            >
+                              Delete
+                            </button>
+
+                            <button
+                              onClick={() => purgeIds([row.id])}
+                              disabled={bulkBusy}
+                              style={{
+                                padding: "6px 10px",
+                                borderRadius: 10,
+                                border: `2px solid ${danger}`,
+                                background: surface,
+                                color: danger,
+                                cursor: bulkBusy ? "not-allowed" : "pointer",
+                                opacity: bulkBusy ? 0.7 : 1,
+                                fontWeight: 950,
+                                whiteSpace: "nowrap",
+                                textAlign: "left",
+                              }}
+                              title="PURGE (irreversible; deletes related tickets/orders/versions)"
+                            >
+                              PURGE
+                            </button>
+                          </div>
+                        </details>
                       )}
                     </td>
                   </tr>
