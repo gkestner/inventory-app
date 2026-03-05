@@ -296,25 +296,41 @@ export default async function AdminTravelLogPage({
     fontSize: 13,
   };
 
+  const filterField: CSSProperties = {
+    display: "grid",
+    gap: 6,
+    minWidth: 0,
+    width: "100%",
+  };
+
+  const filterControl: CSSProperties = {
+    width: "100%",
+    minWidth: 0,
+    maxWidth: "100%",
+  };
+
   return (
     <main style={{ padding: 20, width: "100%", maxWidth: "100%", minWidth: 0 }}>
       <h1 style={{ fontSize: 24, fontWeight: 900, marginBottom: 12 }}>Admin Travel Logs</h1>
 
       <div style={{ ...card, marginBottom: 12 }}>
-        <form method="get" style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-          <label style={{ display: "grid", gap: 6 }}>
+        <form
+          method="get"
+          style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", width: "100%" }}
+        >
+          <label style={filterField}>
             <span style={{ fontWeight: 800 }}>From</span>
-            <input type="date" name="from" defaultValue={fromStr} />
+            <input type="date" name="from" defaultValue={fromStr} style={filterControl} />
           </label>
 
-          <label style={{ display: "grid", gap: 6 }}>
+          <label style={filterField}>
             <span style={{ fontWeight: 800 }}>To</span>
-            <input type="date" name="to" defaultValue={toStr} />
+            <input type="date" name="to" defaultValue={toStr} style={filterControl} />
           </label>
 
-          <label style={{ display: "grid", gap: 6 }}>
+          <label style={filterField}>
             <span style={{ fontWeight: 800 }}>User</span>
-            <select name="userId" defaultValue={userId}>
+            <select name="userId" defaultValue={userId} style={filterControl}>
               <option value="ALL">All users</option>
               {users.map((u) => (
                 <option key={u.id} value={u.id}>
@@ -324,9 +340,9 @@ export default async function AdminTravelLogPage({
             </select>
           </label>
 
-          <label style={{ display: "grid", gap: 6 }}>
+          <label style={filterField}>
             <span style={{ fontWeight: 800 }}>Location</span>
-            <select name="locationId" defaultValue={locationId}>
+            <select name="locationId" defaultValue={locationId} style={filterControl}>
               <option value="ALL">All locations</option>
               {locations.map((l) => (
                 <option key={l.id} value={l.id}>
@@ -336,9 +352,9 @@ export default async function AdminTravelLogPage({
             </select>
           </label>
 
-          <label style={{ display: "grid", gap: 6 }}>
+          <label style={filterField}>
             <span style={{ fontWeight: 800 }}>Search</span>
-            <input name="q" defaultValue={q} placeholder="user, location, notes, work order id" />
+            <input name="q" defaultValue={q} placeholder="user, location, notes, work order id" style={filterControl} />
           </label>
 
           <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
