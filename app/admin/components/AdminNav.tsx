@@ -152,6 +152,7 @@ export default async function AdminNav() {
     Permission.VIEW_CHECKOUT,
     Permission.CREATE_CHECKOUT,
   ]);
+  const canAdminTravelLogs = canAdminWorkOrders || canUserWorkOrders;
 
   // For now: gate invoices + order history under items perms (no enum changes)
   const canAdminOrderHistory = canAdminItems;
@@ -214,6 +215,15 @@ export default async function AdminNav() {
       if (t && t.closest && t.closest('[data-admin-nav-root]')) return;
       closeAll(r);
     }, false);
+
+    // Clicking any nav link should collapse dropdowns before route transition.
+    root.addEventListener('click', function (e) {
+      var t = e.target;
+      if (!t || !t.closest) return;
+      var link = t.closest('a[href]');
+      if (!link) return;
+      closeAll(root);
+    }, true);
 
     document.addEventListener('keydown', function (e) {
       if (!e || e.key !== 'Escape') return;
@@ -320,7 +330,13 @@ export default async function AdminNav() {
                     Work Orders
                   </Link>
                 ) : null}
-                <span style={menuItemDisabled}>Travel Logs (coming soon)</span>
+                {canAdminTravelLogs ? (
+                  <Link href="/admin/travel-log" style={menuItemStyle}>
+                    Travel Logs
+                  </Link>
+                ) : (
+                  <span style={menuItemDisabled}>Travel Logs</span>
+                )}
                 {canUserWorkOrders ? (
                   <Link href="/maintenance/work-orders" style={menuItemStyle}>
                     Work Orders (User)
