@@ -146,9 +146,12 @@ a {
 }
 
 :root {
-  --w: 3.5in;
-  --h: 1.125in;
-  --b: 2px;
+  /* Keep content inset from hard edges; DYMO printable area is smaller than stock size. */
+  --w: 3.36in;
+  --h: 1.04in;
+  --safe-x: 0.07in;
+  --safe-y: 0.04in;
+  --b: 1px;
 }
 
 .labels-page {
@@ -201,11 +204,11 @@ body:has(.labels-page) > *:not(.labels-page) {
   box-sizing: border-box;
   border: var(--b) solid #000;
   display: grid;
-  grid-template-rows: 0.19in 1fr 0.19in;
+  grid-template-rows: 0.17in 1fr 0.16in;
   overflow: hidden;
   border-radius: 0;
   background: #fff;
-  margin-bottom: var(--b);
+  margin: var(--safe-y) var(--safe-x) 0 var(--safe-x);
   page-break-after: always;
   break-after: page;
 }
@@ -217,9 +220,9 @@ body:has(.labels-page) > *:not(.labels-page) {
 
 .labels-page .sku {
   font-weight: 800;
-  font-size: 9px;
+  font-size: 8px;
   letter-spacing: 0.1px;
-  padding: 3px 6px 0 6px;
+  padding: 2px 5px 0 5px;
   align-self: start;
   justify-self: start;
   color: #222;
@@ -228,10 +231,10 @@ body:has(.labels-page) > *:not(.labels-page) {
 
 .labels-page .mid {
   display: grid;
-  grid-template-columns: 0.96in 1fr;
+  grid-template-columns: 0.84in 1fr;
   min-height: 0;
-  gap: 6px;
-  padding: 2px 6px 2px 0;
+  gap: 5px;
+  padding: 1px 5px 1px 0;
   overflow: hidden;
 }
 
@@ -244,8 +247,8 @@ body:has(.labels-page) > *:not(.labels-page) {
 }
 
 .labels-page .qr img {
-  width: 0.62in;
-  height: 0.62in;
+  width: 0.52in;
+  height: 0.52in;
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
@@ -263,7 +266,7 @@ body:has(.labels-page) > *:not(.labels-page) {
 
 .labels-page .name {
   font-weight: 900;
-  font-size: 15px;
+  font-size: 13px;
   text-transform: uppercase;
   max-width: 100%;
   overflow: hidden;
@@ -275,7 +278,7 @@ body:has(.labels-page) > *:not(.labels-page) {
 .labels-page .desc {
   margin-top: 1px;
   font-weight: 800;
-  font-size: 8px;
+  font-size: 7px;
   text-transform: uppercase;
   max-width: 100%;
   overflow: hidden;
@@ -289,22 +292,22 @@ body:has(.labels-page) > *:not(.labels-page) {
   justify-content: space-between;
   align-items: center;
   font-weight: 900;
-  font-size: 10px;
+  font-size: 9px;
   line-height: 1;
-  padding: 2px 6px;
+  padding: 1px 5px;
   white-space: nowrap;
-  gap: 6px;
+  gap: 5px;
 }
 
 .labels-page .idbox {
   border: 1px solid #000;
-  padding: 1px 4px;
+  padding: 1px 3px;
   font-weight: 900;
   display: inline-block;
 }
 
 .labels-page .part {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 800;
   overflow: hidden;
   text-overflow: ellipsis;

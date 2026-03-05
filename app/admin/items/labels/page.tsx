@@ -143,6 +143,8 @@ export default async function ItemLabelsPage({
         ) : (
           printable.map((item) => {
             const labelId = deriveLabelIdFromSku(item.sku);
+            const nameText = String(item.name ?? "").toUpperCase().slice(0, 22);
+            const partText = String(item.partNumber ?? "—").slice(0, 16);
             return (
               <div className="label" key={`${item.id}-${(item as any).__copy}`}>
                 <div className="sku">SKU: {item.sku}</div>
@@ -153,7 +155,7 @@ export default async function ItemLabelsPage({
                   </div>
 
                   <div className="nameblock">
-                    <div className="name">{item.name}</div>
+                    <div className="name">{nameText}</div>
                     {item.description ? (
                       <div className="desc">({item.description})</div>
                     ) : null}
@@ -162,7 +164,7 @@ export default async function ItemLabelsPage({
 
                 <div className="bottom">
                   <span className="idbox">ID# {labelId}</span>
-                  <span className="part">PART# {item.partNumber ?? "—"}</span>
+                  <span className="part">PART# {partText}</span>
                 </div>
               </div>
             );
