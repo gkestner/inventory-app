@@ -50,20 +50,35 @@ export default async function EmployeeHomePage() {
   });
 
   const border = "1px solid rgba(128,128,128,0.25)";
-  const surface = "var(--surface)"; // was var(--background)
+  const surface = "var(--surface)";
   const fg = "var(--foreground)";
 
   return (
-    <main style={{ padding: 24, maxWidth: 1000, margin: "0 auto", color: fg }}>
-      <h1 style={{ fontSize: 24, fontWeight: 900 }}>Employee Dashboard</h1>
+    <main>
+      <div style={{ maxWidth: 1100, margin: "0 auto", color: fg }}>
+      <section
+        style={{
+          border,
+          borderRadius: 16,
+          background: "linear-gradient(150deg, color-mix(in srgb, var(--brand) 14%, var(--surface)) 0%, var(--surface) 68%)",
+          boxShadow: "var(--shadow)",
+          padding: 18,
+        }}
+      >
+      <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900 }}>Employee Dashboard</h1>
+      <p style={{ margin: "8px 0 0", color: "var(--muted)", lineHeight: 1.5 }}>
+        Fast access to your daily tasks and recent ticket activity.
+      </p>
+      </section>
 
       <div
         style={{
           marginTop: 16,
           padding: 16,
           border,
-          borderRadius: 12,
+          borderRadius: 14,
           background: surface,
+          boxShadow: "var(--shadow)",
         }}
       >
         <h2 style={{ fontSize: 16, fontWeight: 800 }}>Quick Actions</h2>
@@ -77,8 +92,8 @@ export default async function EmployeeHomePage() {
                 padding: "8px 14px",
                 borderRadius: 10,
                 border,
-                background: surface,
-                color: fg,
+                background: "var(--surface-2)",
+                color: "var(--foreground)",
                 fontWeight: 800,
                 textDecoration: "none",
               }}
@@ -95,8 +110,8 @@ export default async function EmployeeHomePage() {
                 padding: "8px 14px",
                 borderRadius: 10,
                 border,
-                background: surface,
-                color: fg,
+                background: "var(--surface-2)",
+                color: "var(--foreground)",
                 fontWeight: 800,
                 textDecoration: "none",
               }}
@@ -118,8 +133,9 @@ export default async function EmployeeHomePage() {
           marginTop: 20,
           padding: 16,
           border,
-          borderRadius: 12,
+          borderRadius: 14,
           background: surface,
+          boxShadow: "var(--shadow)",
         }}
       >
         <h2 style={{ fontSize: 16, fontWeight: 800 }}>My Recent Tickets</h2>
@@ -163,6 +179,7 @@ export default async function EmployeeHomePage() {
             </table>
           </div>
         )}
+      </div>
       </div>
     </main>
   );

@@ -72,31 +72,26 @@ export default async function AdminHomePage() {
     perms.allowAll ||
     hasAnyPermissionLocal(perms, [Permission.ADMIN_VIEW_MAINTENANCE_TICKETS, Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS]);
 
-  const wrap: CSSProperties = {
-    padding: 16,
-    maxWidth: 1100,
-    margin: "0 auto",
-    color: "var(--foreground)",
-  };
-
   const grid: CSSProperties = {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
     gap: 12,
-    marginTop: 12,
+    marginTop: 14,
   };
 
-  const border = "1px solid rgba(128,128,128,0.25)";
-  const surface = "var(--background)";
+  const border = "1px solid var(--border)";
+  const surface = "var(--surface)";
   const fg = "var(--foreground)";
-  const soft = "rgba(255,255,255,0.03)";
+  const soft = "var(--surface-2)";
 
   const card: CSSProperties = {
     border,
     borderRadius: 14,
     background: surface,
     padding: 14,
-    boxShadow: "0 12px 30px rgba(0,0,0,0.28)",
+    boxShadow: "var(--shadow)",
+    display: "grid",
+    gap: 6,
   };
 
   const title: CSSProperties = { fontSize: 16, fontWeight: 900, margin: 0, color: fg };
@@ -116,8 +111,8 @@ export default async function AdminHomePage() {
     padding: "10px 12px",
     borderRadius: 12,
     border,
-    background: "rgba(17,24,39,0.35)", // subtle “primary” but still dark-mode safe
-    color: fg,
+    background: "linear-gradient(160deg, var(--brand-2) 0%, var(--brand) 100%)",
+    color: "var(--brand-contrast)",
     fontSize: 13,
     textDecoration: "none",
     width: "fit-content",
@@ -127,17 +122,32 @@ export default async function AdminHomePage() {
   const mutedLink: CSSProperties = {
     ...linkStyle,
     background: soft,
+    color: fg,
     opacity: 0.92,
   };
 
   const email = (session.user as unknown as { email?: string | null } | null)?.email ?? "—";
 
   return (
-    <main style={wrap}>
-      <h1 style={{ margin: 0, fontSize: 22, fontWeight: 950 }}>Admin</h1>
-      <div style={{ marginTop: 6, opacity: 0.8, fontSize: 13 }}>Signed in: {email}</div>
+    <main>
+      <div>
+        <section
+          style={{
+            border,
+            borderRadius: 16,
+            background: "linear-gradient(155deg, color-mix(in srgb, var(--brand) 16%, var(--surface)) 0%, var(--surface) 68%)",
+            boxShadow: "var(--shadow)",
+            padding: 18,
+          }}
+        >
+          <h1 style={{ margin: 0, fontSize: 30, fontWeight: 950, lineHeight: 1.05 }}>Admin Operations Center</h1>
+          <div style={{ marginTop: 8, color: "var(--muted)", fontSize: 14 }}>Signed in: {email}</div>
+          <p style={{ margin: "10px 0 0", maxWidth: 900, lineHeight: 1.55, color: "var(--muted)" }}>
+            Manage inventory, users, reporting, locations, and maintenance workflows from a unified command surface.
+          </p>
+        </section>
 
-      <div style={grid}>
+        <div style={grid}>
         <div style={card}>
           <h2 style={title}>Live Orders Board</h2>
           <p style={desc}>Day-to-day operational board with 3 columns (ORDERED / ARRIVED / COMPLETED) and quick actions.</p>
@@ -240,6 +250,7 @@ export default async function AdminHomePage() {
             <p style={desc}>You don’t have access to view this module.</p>
           </div>
         )}
+        </div>
       </div>
     </main>
   );

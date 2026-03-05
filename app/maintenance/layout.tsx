@@ -55,19 +55,11 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
   const canLiveOrders = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_LIVE_ORDERS]);
 
   const shell: CSSProperties = {
-    borderBottom: "1px solid rgba(128,128,128,0.25)",
-    background: "var(--background)",
     color: "var(--foreground)",
   };
 
   const inner: CSSProperties = {
     maxWidth: 1100,
-    margin: "0 auto",
-    padding: "10px 16px",
-    display: "flex",
-    gap: 10,
-    alignItems: "center",
-    justifyContent: "space-between",
   };
 
   const left: CSSProperties = {
@@ -78,35 +70,27 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
   };
 
   const pill = (): CSSProperties => ({
-    display: "inline-flex",
-    alignItems: "center",
-    padding: "6px 12px",
-    borderRadius: 10,
-    border: "1px solid rgba(128,128,128,0.25)",
-    textDecoration: "none",
-    color: "var(--foreground)",
-    fontWeight: 800,
-    opacity: 0.9,
+    whiteSpace: "nowrap",
   });
 
   return (
     <div>
-      <nav style={shell}>
-        <div style={inner}>
+      <nav className="site-nav-shell" style={shell}>
+        <div className="site-nav-inner" style={inner}>
           <div style={left}>
-            <Link href="/maintenance" style={pill()}>
+            <Link href="/maintenance" className="site-brand" style={pill()}>
               Maintenance
             </Link>
 
             {/* ✅ Only show Work Orders + Travel Log if permitted */}
             {canWorkOrders ? (
               <>
-                <Link href="/maintenance/work-orders" style={pill()}>
+                <Link href="/maintenance/work-orders" className="site-link" style={pill()}>
                   Work Orders
                 </Link>
 
                 {canTravelLog ? (
-                  <Link href="/maintenance/travel-log" style={pill()}>
+                  <Link href="/maintenance/travel-log" className="site-link" style={pill()}>
                     Travel Log
                   </Link>
                 ) : null}
@@ -115,14 +99,14 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
 
             {/* ✅ Only show Checkout if permitted */}
             {canCheckout ? (
-              <Link href="/maintenance/checkout" style={pill()}>
+              <Link href="/maintenance/checkout" className="site-link" style={pill()}>
                 Checkout
               </Link>
             ) : null}
 
             {/* ✅ NEW: Live Orders board (permission-based) */}
             {canLiveOrders ? (
-              <Link href="/employee/live-orders" style={pill()}>
+              <Link href="/employee/live-orders" className="site-link" style={pill()}>
                 Live Orders
               </Link>
             ) : null}

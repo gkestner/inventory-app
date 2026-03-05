@@ -1,5 +1,3 @@
-// app/maintenance/layout.tsx
-import type { ReactNode, CSSProperties } from "react";
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
@@ -17,28 +15,16 @@ type SessionUser = {
   name?: string | null;
 };
 
-function isAllowed(role: Role | null | undefined) {
-  // ✅ MAINTENANCE is allowed into /maintenance
-  return role === Role.EMPLOYEE || role === Role.MAINTENANCE || role === Role.MANAGER || role === Role.ADMIN;
-}
-
-export default async function MaintenanceLayout({ children }: { children: ReactNode }) {
+export default async function MaintenanceHomePage() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
 
   const user = session.user as SessionUser;
-
-  const email = (user.email ?? "").trim().toLowerCase();
-  if (!email) redirect("/login");
-
-  if (!isAllowed(user.role)) redirect("/login");
+  if (!user.email) redirect("/login");
 
   const perms = await loadUserPermissions(session);
 
-  // ✅ Checkout is permission-based ONLY (no role special-casing)
   const canCheckout = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
-
-  // ✅ Work Orders are permission-based ONLY
   const canWorkOrders =
     perms.allowAll ||
     hasAnyPermission(perms, [
@@ -47,82 +33,108 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
       Permission.UPDATE_OWN_WORK_ORDERS,
       Permission.SUBMIT_OWN_WORK_ORDERS,
     ]);
-
-  // ✅ Travel Log is treated as part of Work Orders permissions (no VIEW_TRAVEL_LOG exists)
   const canTravelLog = canWorkOrders;
+  const canLiveOrders = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_LIVE_ORDERS]);
 
-  const shell: CSSProperties = {
-    borderBottom: "1px solid rgba(128,128,128,0.25)",
-    background: "var(--background)",
-    color: "var(--foreground)",
+  const border = "1px solid var(--border)";
+
+  const card: React.CSSProperties = {
+    border,
+    borderRadius: 14,
+    background: "var(--surface)",
+    boxShadow: "var(--shadow)",
+    padding: 14,
+    display: "grid",
+    gap: 8,
   };
 
-  const inner: CSSProperties = {
-    maxWidth: 1100,
-    margin: "0 auto",
-    padding: "10px 16px",
-    display: "flex",
-    gap: 10,
-    alignItems: "center",
-    justifyContent: "space-between",
-  };
-
-  const left: CSSProperties = {
-    display: "flex",
-    gap: 10,
-    alignItems: "center",
-    flexWrap: "wrap",
-  };
-
-  const pill = (): CSSProperties => ({
-    display: "inline-flex",
-    alignItems: "center",
-    padding: "6px 12px",
-    borderRadius: 10,
-    border: "1px solid rgba(128,128,128,0.25)",
+  const action: React.CSSProperties = {
+    display: "inline-block",
     textDecoration: "none",
+    padding: "8px 12px",
+    borderRadius: 10,
+    border,
+    background: "var(--surface-2)",
     color: "var(--foreground)",
     fontWeight: 800,
-    opacity: 0.9,
-  });
+    width: "fit-content",
+  };
 
   return (
-    <div>
-      <nav style={shell}>
-        <div style={inner}>
-          <div style={left}>
-            <Link href="/maintenance" style={pill()}>
-              Maintenance
-            </Link>
+    <main>
+      <div>
+        <section
+          style={{
+            border,
+            borderRadius: 16,
+            background: "linear-gradient(150deg, color-mix(in srgb, var(--brand) 14%, var(--surface)) 0%, var(--surface) 65%)",
+            boxShadow: "var(--shadow)",
+            padding: 18,
+          }}
+        >
+          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900 }}>Maintenance Hub</h1>
+          <p style={{ margin: "8px 0 0", color: "var(--muted)", lineHeight: 1.5 }}>
+            Start your day from one place: open work orders, log travel, process part checkouts, and monitor live order flow.
+          </p>
+        </section>
 
-            {/* ✅ Only show Work Orders + Travel Log if permitted */}
-            {canWorkOrders ? (
-              <>
-                <Link href="/maintenance/work-orders" style={pill()}>
-                  Work Orders
-                </Link>
-
-                {canTravelLog ? (
-                  <Link href="/maintenance/travel-log" style={pill()}>
-                    Travel Log
-                  </Link>
-                ) : null}
-              </>
-            ) : null}
-
-            {/* ✅ Only show Checkout if permitted */}
-            {canCheckout ? (
-              <Link href="/maintenance/checkout" style={pill()}>
-                Checkout
+        <section
+          style={{
+            marginTop: 14,
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+            gap: 12,
+          }}
+        >
+          {canWorkOrders ? (
+            <article style={card}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Work Orders</h2>
+              <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.5 }}>
+                Create, update, and submit active work orders with full technician workflow support.
+              </p>
+              <Link href="/maintenance/work-orders" style={action}>
+                Open Work Orders
               </Link>
-            ) : null}
-          </div>
+            </article>
+          ) : null}
 
-          {/* right-side items (logout button etc.) can stay where you already render them elsewhere */}
-        </div>
-      </nav>
+          {canTravelLog ? (
+            <article style={card}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Travel Log</h2>
+              <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.5 }}>
+                Track travel entries tied to your field work for accurate reporting and handoff.
+              </p>
+              <Link href="/maintenance/travel-log" style={action}>
+                Open Travel Log
+              </Link>
+            </article>
+          ) : null}
 
-      {children}
-    </div>
+          {canCheckout ? (
+            <article style={card}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Checkout</h2>
+              <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.5 }}>
+                Check out inventory items to stores or technicians and flag parts that need reorder.
+              </p>
+              <Link href="/maintenance/checkout" style={action}>
+                Open Checkout
+              </Link>
+            </article>
+          ) : null}
+
+          {canLiveOrders ? (
+            <article style={card}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Live Orders</h2>
+              <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.5 }}>
+                Watch operational order movement in real time for immediate status visibility.
+              </p>
+              <Link href="/employee/live-orders" style={action}>
+                Open Live Orders
+              </Link>
+            </article>
+          ) : null}
+        </section>
+      </div>
+    </main>
   );
 }

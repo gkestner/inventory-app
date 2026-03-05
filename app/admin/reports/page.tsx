@@ -32,8 +32,8 @@ async function requireReportsView() {
 export default async function AdminReportsIndexPage() {
   await requireReportsView();
 
-  const border = "1px solid rgba(128,128,128,0.25)";
-  const surface = "var(--background)";
+  const border = "1px solid var(--border)";
+  const surface = "var(--surface)";
   const fg = "var(--foreground)";
 
   const cardStyle: React.CSSProperties = {
@@ -46,16 +46,26 @@ export default async function AdminReportsIndexPage() {
     display: "grid",
     gap: 8,
     minHeight: 110,
+    boxShadow: "var(--shadow)",
   };
 
   const titleStyle: React.CSSProperties = { fontWeight: 900, fontSize: 16, margin: 0 };
   const descStyle: React.CSSProperties = { opacity: 0.85, lineHeight: 1.45, margin: 0, fontSize: 13 };
 
   return (
-    <main style={{ padding: 16 }}>
-      <div style={{ padding: 16, maxWidth: 1200, margin: "0 auto", color: fg }}>
+    <main>
+      <div style={{ maxWidth: 1260, margin: "0 auto", color: fg }}>
+        <section
+          style={{
+            border,
+            borderRadius: 16,
+            background: "linear-gradient(150deg, color-mix(in srgb, var(--brand) 15%, var(--surface)) 0%, var(--surface) 70%)",
+            boxShadow: "var(--shadow)",
+            padding: 18,
+          }}
+        >
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <h1 style={{ fontSize: 26, fontWeight: 900, margin: 0 }}>Admin: Reports</h1>
+          <h1 style={{ fontSize: 30, fontWeight: 900, margin: 0 }}>Reports Hub</h1>
 
           <Link
             href="/admin/items"
@@ -63,7 +73,7 @@ export default async function AdminReportsIndexPage() {
               padding: "10px 14px",
               borderRadius: 12,
               border,
-              background: surface,
+              background: "var(--surface-2)",
               color: fg,
               textDecoration: "none",
               fontWeight: 900,
@@ -78,7 +88,7 @@ export default async function AdminReportsIndexPage() {
               padding: "10px 14px",
               borderRadius: 12,
               border,
-              background: surface,
+              background: "var(--surface-2)",
               color: fg,
               textDecoration: "none",
               fontWeight: 900,
@@ -88,6 +98,10 @@ export default async function AdminReportsIndexPage() {
             Order History →
           </Link>
         </div>
+        <p style={{ margin: "10px 0 0", color: "var(--muted)", maxWidth: 900, lineHeight: 1.5 }}>
+          Centralized analytics and operational reporting for checkout history, reorder pressure, and cost movement.
+        </p>
+        </section>
 
         <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
           <Link href="/admin/reports/checkout-orders" style={cardStyle}>
