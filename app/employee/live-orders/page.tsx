@@ -98,8 +98,8 @@ export default async function EmployeeLiveOrdersPage() {
   const title: CSSProperties = { fontSize: 20, fontWeight: 900, margin: 0 };
   const muted: CSSProperties = { opacity: 0.75, fontSize: 12, lineHeight: 1.35 };
 
-  const tableWrap: CSSProperties = { border, borderRadius: 14, overflowX: "auto", background: surface };
-  const table: CSSProperties = { width: "100%", borderCollapse: "collapse", minWidth: 820 };
+  const tableWrap: CSSProperties = { border, borderRadius: 14, overflowX: "hidden", background: surface };
+  const table: CSSProperties = { width: "100%", borderCollapse: "collapse" };
 
   const th: CSSProperties = {
     textAlign: "left",

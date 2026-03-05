@@ -1313,7 +1313,7 @@ export default function ItemsTableClient({
         <div style={{ padding: 12, borderBottom: "1px solid var(--border)", color: danger }}>{saveError}</div>
       ) : null}
 
-      <div style={{ overflowX: "auto" }}>
+      <div style={{ overflowX: "hidden", width: "100%" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--border)" }}>

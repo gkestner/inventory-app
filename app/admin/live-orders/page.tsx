@@ -216,14 +216,13 @@ export default async function LiveOrdersPage() {
   const tableWrap: CSSProperties = {
     border,
     borderRadius: 14,
-    overflowX: "auto",
+    overflowX: "hidden",
     background: surface,
   };
 
   const table: CSSProperties = {
     width: "100%",
     borderCollapse: "collapse",
-    minWidth: 1200,
   };
 
   const th: CSSProperties = {

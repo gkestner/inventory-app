@@ -154,6 +154,12 @@ body {
   min-height: 100vh;
 }
 
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 .app-body {
   position: relative;
 }
@@ -216,6 +222,9 @@ main > div {
 
 table {
   background: var(--surface);
+  width: 100%;
+  table-layout: fixed;
+  max-width: 100%;
 }
 
 th {
@@ -225,6 +234,16 @@ th {
 td,
 th {
   border-color: var(--border) !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+img,
+video,
+canvas,
+svg {
+  max-width: 100%;
 }
 
 /* Shared nav visuals */

@@ -817,14 +817,14 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
       {/* Table */}
       <div
         style={{
-          overflowX: "auto",
+          overflowX: "hidden",
           WebkitOverflowScrolling: "touch",
           border: "1px solid rgba(128,128,128,0.25)",
           borderRadius: 12,
           paddingBottom: 4, // helps make the horizontal scrollbar easier to grab
         }}
       >
-        <table style={{ width: "100%", minWidth: 1180, borderCollapse: "collapse" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
               {["Select", "Loc #", "Corp #", "Name", "Active", "Created", "Rename", "Set #", "Set Corp #", "Toggle", "Delete"].map((h) => (

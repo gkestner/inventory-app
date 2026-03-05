@@ -327,7 +327,7 @@ export default async function InventoryAlertsPage({ searchParams }: { searchPara
           : `Showing ${(safePage - 1) * perPage + 1}-${Math.min(safePage * perPage, total)} of ${total}`}
       </div>
 
-      <div style={{ overflowX: "auto", border: "1px solid rgba(128,128,128,0.25)", borderRadius: 8 }}>
+      <div style={{ overflowX: "hidden", border: "1px solid rgba(128,128,128,0.25)", borderRadius: 8 }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>

@@ -128,7 +128,7 @@ export default async function AdminWorkOrdersPage() {
 
   const tableWrap: CSSProperties = {
     width: "100%",
-    overflowX: "auto",
+    overflowX: "hidden",
     WebkitOverflowScrolling: "touch",
   };
 

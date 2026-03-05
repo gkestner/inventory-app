@@ -255,7 +255,7 @@ export default async function CheckoutOrdersReportPage({
           </div>
         </form>
 
-        <div style={{ marginTop: 12, border, borderRadius: 10, overflowX: "auto" }}>
+        <div style={{ marginTop: 12, border, borderRadius: 10, overflowX: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
