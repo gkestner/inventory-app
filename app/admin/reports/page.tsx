@@ -90,6 +90,15 @@ export default async function AdminReportsIndexPage() {
         </div>
 
         <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
+          <Link href="/admin/reports/checkout-orders" style={cardStyle}>
+            <h2 style={titleStyle}>Checkout Orders</h2>
+            <p style={descStyle}>
+              Full searchable report of maintenance checkout tickets with all checkout fields, detailed drilldown, and
+              independent of invoice generation state.
+            </p>
+            <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
+          </Link>
+
           <Link href="/admin/reports/needs-ordering" style={cardStyle}>
             <h2 style={titleStyle}>Items Needing Order</h2>
             <p style={descStyle}>
