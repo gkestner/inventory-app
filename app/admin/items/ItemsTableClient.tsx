@@ -1096,7 +1096,7 @@ export default function ItemsTableClient({
   const onHand = (row: ItemRow) => (typeof row.onHandQty === "number" ? row.onHandQty : null);
 
   // Column count (keep in sync with <thead> and colSpan below)
-  const COLS = 13;
+  const COLS = 12;
 
   return (
     <div
@@ -1374,7 +1374,6 @@ export default function ItemsTableClient({
               </th>
 
               {[
-                "SKU",
                 "Part #",
                 "Vendor",
                 "Name",
@@ -1453,28 +1452,6 @@ export default function ItemsTableClient({
                         aria-label={`Select ${row.sku}`}
                         disabled={bulkBusy}
                       />
-                    </td>
-
-                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>
-                      {isEditing ? (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                          <input
-                            value={draft?.sku ?? ""}
-                            onChange={(e) => setDraft((d) => (d ? { ...d, sku: e.target.value } : d))}
-                            style={{
-                              width: 140,
-                              padding: "6px 8px",
-                              border: "1px solid var(--border)",
-                              borderRadius: 8,
-                              background: surface,
-                              color: "var(--text)",
-                            }}
-                          />
-                          {errors.sku ? <span style={{ fontSize: 12, color: danger }}>{errors.sku}</span> : null}
-                        </div>
-                      ) : (
-                        row.sku
-                      )}
                     </td>
 
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>
