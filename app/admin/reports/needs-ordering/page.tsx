@@ -207,6 +207,7 @@ export default async function NeedsOrderingReportPage({
   const redCount = needsOrdering.filter((x) => x.priority === "red").length;
   const yellowCount = needsOrdering.filter((x) => x.priority === "yellow").length;
   const blueCount = needsOrdering.filter((x) => x.priority === "blue").length;
+  const orderMoreItems = needsOrdering.filter((x) => x.hasTechRequest);
 
   return (
     <main style={{ padding: 16 }}>
@@ -316,12 +317,44 @@ export default async function NeedsOrderingReportPage({
           Showing <b>{needsOrdering.length}</b> items (Blue: <b>{blueCount}</b>, Red: <b>{redCount}</b>, Yellow: <b>{yellowCount}</b>, Active: <b>{activeCount}</b>, Ignored: <b>{ignoredCount}</b>)
         </div>
 
-        <div style={{ marginTop: 12, border: "1px solid rgba(128,128,128,0.25)", borderRadius: 10, overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <div
+          style={{
+            marginTop: 10,
+            padding: 10,
+            border: "1px solid rgba(37,99,235,0.32)",
+            borderRadius: 10,
+            background: "rgba(37,99,235,0.10)",
+          }}
+        >
+          <div style={{ fontWeight: 900, marginBottom: 6 }}>Order More Flags</div>
+          {orderMoreItems.length === 0 ? (
+            <div style={{ opacity: 0.8 }}>No active Order More flags.</div>
+          ) : (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {orderMoreItems.map((x) => (
+                <span
+                  key={`order-more-${x.id}`}
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 999,
+                    border: "1px solid rgba(37,99,235,0.4)",
+                    background: "rgba(37,99,235,0.16)",
+                    fontWeight: 800,
+                    fontSize: 12,
+                  }}
+                >
+                  {x.sku} - Order More
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={{ marginTop: 12, border: "1px solid rgba(128,128,128,0.25)", borderRadius: 10, overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
             <thead>
               <tr>
                 {[
-                  "Flag",
                   "SKU",
                   "Item",
                   "Supplier",
@@ -340,7 +373,6 @@ export default async function NeedsOrderingReportPage({
                       textAlign: "left",
                       padding: "10px",
                       borderBottom: "1px solid rgba(128,128,128,0.25)",
-                      whiteSpace: "nowrap",
                       fontSize: 12,
                       opacity: 0.85,
                     }}
@@ -375,10 +407,7 @@ export default async function NeedsOrderingReportPage({
                       opacity: row.reorderIgnored ? 0.62 : 1,
                     }}
                   >
-                  <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>
-                    {row.hasTechRequest ? "Order More" : ""}
-                  </td>
-                  <td style={{ padding: 10, fontWeight: 800, whiteSpace: "nowrap" }}>{row.sku}</td>
+                  <td style={{ padding: 10, fontWeight: 800, wordBreak: "break-word" }}>{row.sku}</td>
                   <td style={{ padding: 10 }}>
                     <div style={{ fontWeight: 700 }}>{row.name}</div>
                     <div style={{ fontSize: 12, opacity: 0.82 }}>{row.partNumber || "—"}</div>
@@ -387,7 +416,7 @@ export default async function NeedsOrderingReportPage({
                     <div>{row.orderFrom || "—"}</div>
                     <div style={{ fontSize: 12, opacity: 0.82 }}>{row.manufacturer || ""}</div>
                   </td>
-                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                  <td style={{ padding: 10 }}>
                     {itemUrl ? (
                       <a
                         href={itemUrl}
@@ -410,12 +439,12 @@ export default async function NeedsOrderingReportPage({
                       <span style={{ opacity: 0.6 }}>—</span>
                     )}
                   </td>
-                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>{row.onHandQty}</td>
-                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>{row.orderedQty}</td>
-                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>{row.available}</td>
-                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>{row.minQty}</td>
-                  <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{row.shortBy}</td>
-                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                  <td style={{ padding: 10 }}>{row.onHandQty}</td>
+                  <td style={{ padding: 10 }}>{row.orderedQty}</td>
+                  <td style={{ padding: 10 }}>{row.available}</td>
+                  <td style={{ padding: 10 }}>{row.minQty}</td>
+                  <td style={{ padding: 10, fontWeight: 900 }}>{row.shortBy}</td>
+                  <td style={{ padding: 10 }}>
                     {row.reorderIgnored
                       ? "Ignored"
                       : row.priority === "blue"
@@ -424,7 +453,7 @@ export default async function NeedsOrderingReportPage({
                           ? "Out"
                           : "Below Min"}
                   </td>
-                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                  <td style={{ padding: 10 }}>
                     {canEdit ? (
                       <form action={setIgnoredAction}>
                         <input type="hidden" name="itemId" value={row.id} />
@@ -457,7 +486,7 @@ export default async function NeedsOrderingReportPage({
 
               {needsOrdering.length === 0 ? (
                 <tr>
-                  <td colSpan={12} style={{ padding: 14, opacity: 0.8 }}>
+                  <td colSpan={11} style={{ padding: 14, opacity: 0.8 }}>
                     No items currently need ordering for your filters.
                   </td>
                 </tr>
