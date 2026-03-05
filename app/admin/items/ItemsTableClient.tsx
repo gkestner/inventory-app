@@ -682,25 +682,12 @@ export default function ItemsTableClient({
     });
   }
 
-    function printLabelsFor(ids: string[]) {
+  function printLabelsFor(ids: string[]) {
     if (ids.length === 0) return;
-
-      const lockKey = "__labelsPopupLockUntil" as const;
-      const now = Date.now();
-      const memLockUntil = Number((window as any)[lockKey] ?? 0);
-      const storageLockUntil = Number(window.sessionStorage.getItem(lockKey) ?? 0);
-      const lockUntil = Math.max(memLockUntil, storageLockUntil);
-      if (now < lockUntil) return;
-      const nextLock = now + 3000;
-      (window as any)[lockKey] = nextLock;
-      window.sessionStorage.setItem(lockKey, String(nextLock));
 
     const qs = new URLSearchParams();
     qs.set("ids", ids.join(","));
-    qs.set("autoprint", "1");
-    qs.set("autoclose", "1");
-    qs.set("debug", "1"); // debug mode shows diagnostic overlay
-    const url = `/labels?${qs.toString()}`;
+    const url = `/admin/items/labels?${qs.toString()}`;
     console.debug("printLabelsFor", url);
     const existing = (window as any).__labelsPopupRef as Window | undefined;
     if (existing && !existing.closed) {
@@ -709,10 +696,10 @@ export default function ItemsTableClient({
       return;
     }
 
-    const win = window.open(url, "labels-print-popup", "noopener,noreferrer,popup=yes");
+    const win = window.open(url, "labels-print-popup", "width=980,height=760,resizable=yes,scrollbars=yes");
     if (!win) {
       // fallback if popup blocked
-      window.location.href = url;
+      window.location.assign(url);
     } else {
       (window as any).__labelsPopupRef = win;
     }
@@ -1314,7 +1301,7 @@ export default function ItemsTableClient({
       ) : null}
 
       <div style={{ overflowX: "hidden", width: "100%" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "auto" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--border)" }}>
               <th
@@ -1363,6 +1350,7 @@ export default function ItemsTableClient({
                     fontSize: 13,
                     color: "var(--text)",
                     whiteSpace: "nowrap",
+                    ...(h === "Actions" ? { width: 360, minWidth: 360 } : {}),
                     background: surface,
                   }}
                 >
@@ -1626,7 +1614,15 @@ export default function ItemsTableClient({
                       {new Date(row.updatedAt).toLocaleString()}
                     </td>
 
-                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                    <td
+                      style={{
+                        padding: 10,
+                        whiteSpace: "nowrap",
+                        minWidth: 360,
+                        overflowWrap: "normal",
+                        wordBreak: "normal",
+                      }}
+                    >
                       {isEditing ? (
                         <div style={{ display: "flex", gap: 8 }}>
                           <button
@@ -1639,6 +1635,7 @@ export default function ItemsTableClient({
                               background: surface,
                               color: "var(--text)",
                               cursor: saving ? "not-allowed" : "pointer",
+                              whiteSpace: "nowrap",
                             }}
                           >
                             {saving ? "Saving..." : "Save"}
@@ -1653,13 +1650,14 @@ export default function ItemsTableClient({
                               background: surface,
                               color: "var(--text)",
                               cursor: saving ? "not-allowed" : "pointer",
+                              whiteSpace: "nowrap",
                             }}
                           >
                             Cancel
                           </button>
                         </div>
                       ) : (
-                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                           <button
                             onClick={() => startEdit(row)}
                             disabled={bulkBusy}
@@ -1671,6 +1669,7 @@ export default function ItemsTableClient({
                               color: "var(--text)",
                               cursor: bulkBusy ? "not-allowed" : "pointer",
                               opacity: bulkBusy ? 0.7 : 1,
+                              whiteSpace: "nowrap",
                             }}
                           >
                             Edit
@@ -1687,6 +1686,7 @@ export default function ItemsTableClient({
                               color: "var(--text)",
                               cursor: bulkBusy ? "not-allowed" : "pointer",
                               opacity: bulkBusy ? 0.7 : 1,
+                              whiteSpace: "nowrap",
                             }}
                           >
                             History
@@ -1704,6 +1704,7 @@ export default function ItemsTableClient({
                               textDecoration: "none",
                               fontWeight: 700,
                               lineHeight: 1.1,
+                              whiteSpace: "nowrap",
                             }}
                           >
                             Inventory
@@ -1720,6 +1721,7 @@ export default function ItemsTableClient({
                               color: "var(--text)",
                               cursor: bulkBusy ? "not-allowed" : "pointer",
                               opacity: bulkBusy ? 0.7 : 1,
+                              whiteSpace: "nowrap",
                             }}
                             title="Open printable part label"
                             >
@@ -1739,6 +1741,7 @@ export default function ItemsTableClient({
                               color: "var(--text)",
                               cursor: bulkBusy ? "not-allowed" : "pointer",
                               opacity: bulkBusy ? 0.7 : 1,
+                              whiteSpace: "nowrap",
                             }}
                             title="Archive (sets active=false)"
                           >
@@ -1757,6 +1760,7 @@ export default function ItemsTableClient({
                               cursor: bulkBusy ? "not-allowed" : "pointer",
                               opacity: bulkBusy ? 0.7 : 1,
                               fontWeight: 900,
+                              whiteSpace: "nowrap",
                             }}
                             title="Delete (may be blocked by audit references)"
                           >
@@ -1775,6 +1779,7 @@ export default function ItemsTableClient({
                               cursor: bulkBusy ? "not-allowed" : "pointer",
                               opacity: bulkBusy ? 0.7 : 1,
                               fontWeight: 950,
+                              whiteSpace: "nowrap",
                             }}
                             title="PURGE (irreversible; deletes related tickets/orders/versions)"
                           >
