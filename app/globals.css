@@ -206,7 +206,7 @@ body:has(.labels-page) > *:not(.labels-page) {
   box-sizing: border-box;
   border: var(--b) solid #000;
   display: grid;
-  grid-template-rows: 0.17in 1fr 0.16in;
+  grid-template-rows: 0.16in 1fr 0.17in;
   overflow: hidden;
   border-radius: 0;
   background: #fff;
@@ -234,9 +234,10 @@ body:has(.labels-page) > *:not(.labels-page) {
 .labels-page .mid {
   display: grid;
   grid-template-columns: 0.80in 1fr;
+  align-items: center;
   min-height: 0;
   gap: 5px;
-  padding: 1px 5px 1px 0;
+  padding: 1px 5px 2px 0;
   overflow: hidden;
 }
 
@@ -246,11 +247,12 @@ body:has(.labels-page) > *:not(.labels-page) {
   place-items: center;
   min-height: 0;
   padding: 1px;
+  overflow: hidden;
 }
 
 .labels-page .qr img {
-  width: 0.67in;
-  height: 0.67in;
+  width: 0.58in;
+  height: 0.58in;
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
