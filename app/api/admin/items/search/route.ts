@@ -93,6 +93,7 @@ function buildWhere(qRaw: string): Prisma.ItemWhereInput {
     // OR across (field x variant)
     const ors: Prisma.ItemWhereInput[] = [];
     for (const v of vs) {
+      ors.push({ id: { contains: v, mode: "insensitive" as const } });
       for (const f of fields) {
         ors.push({ [f]: { contains: v, mode: "insensitive" as const } });
       }

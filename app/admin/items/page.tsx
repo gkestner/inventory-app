@@ -109,6 +109,7 @@ function buildWhere(qRaw: string): Prisma.ItemWhereInput {
     const vs = variants(tok);
 
     const ors: Prisma.ItemWhereInput[] = vs.flatMap((v) => [
+      { id: { contains: v, mode: "insensitive" } },
       { sku: { contains: v, mode: "insensitive" } },
       { partNumber: { contains: v, mode: "insensitive" } },
       { name: { contains: v, mode: "insensitive" } },

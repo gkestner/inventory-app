@@ -242,6 +242,7 @@ export default async function AdminInventoryReceivingPage({ searchParams }: { se
       { note: { contains: q, mode: "insensitive" } },
       { supplierName: { contains: q, mode: "insensitive" } },
       { supplierPartNumber: { contains: q, mode: "insensitive" } },
+      { item: { id: { contains: q, mode: "insensitive" } } },
       { item: { sku: { contains: q, mode: "insensitive" } } },
       { item: { name: { contains: q, mode: "insensitive" } } },
       { forStore: { name: { contains: q, mode: "insensitive" } } },

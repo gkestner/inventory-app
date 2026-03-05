@@ -51,7 +51,7 @@ function label(it: ItemLite): string {
 }
 
 function haystack(it: ItemLite): string {
-  return normalize([it.sku, it.partNumber ?? "", it.name, it.category ?? "", it.manufacturer ?? "", it.orderFrom ?? ""].join(" "));
+  return normalize([it.id, it.sku, it.partNumber ?? "", it.name, it.category ?? "", it.manufacturer ?? "", it.orderFrom ?? ""].join(" "));
 }
 
 type MenuPos = {
@@ -66,7 +66,7 @@ export default function ItemPicker({
   items,
   defaultId,
   defaultItemId,
-  placeholder = "Search SKU, part #, name, category, manufacturer…",
+  placeholder = "Search ID, SKU, part #, name, category, manufacturer…",
   style,
   inputStyle,
 }: Props) {

@@ -401,6 +401,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
       { note: { contains: q, mode: "insensitive" } },
       { supplierName: { contains: q, mode: "insensitive" } },
       { supplierPartNumber: { contains: q, mode: "insensitive" } },
+      { item: { id: { contains: q, mode: "insensitive" } } },
       { item: { sku: { contains: q, mode: "insensitive" } } },
       { item: { name: { contains: q, mode: "insensitive" } } },
       { forStore: { name: { contains: q, mode: "insensitive" } } },
@@ -1082,7 +1083,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                 <label style={{ display: "grid", gap: 6, fontSize: 12, opacity: 0.9, fontWeight: 900, ...flexItem(420, 3) }}>
                   Item (select existing)
                   <div style={{ marginTop: 2 }}>
-                    <ItemPicker name="itemId" items={pickerItems} placeholder="Search SKU, part #, name, category, manufacturer…" />
+                    <ItemPicker name="itemId" items={pickerItems} placeholder="Search ID, SKU, part #, name, category, manufacturer…" />
                   </div>
                   <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>
                     If you’re creating a brand-new item, use the “New item” section below instead.

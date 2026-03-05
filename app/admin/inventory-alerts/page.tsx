@@ -178,6 +178,7 @@ export default async function InventoryAlertsPage({ searchParams }: { searchPara
             { resolvedByName: { contains: q, mode: "insensitive" } },
             { note: { contains: q, mode: "insensitive" } },
             { checkoutId: { contains: q, mode: "insensitive" } },
+            { item: { id: { contains: q, mode: "insensitive" } } },
             { item: { sku: { contains: q, mode: "insensitive" } } },
             { item: { name: { contains: q, mode: "insensitive" } } },
             { item: { partNumber: { contains: q, mode: "insensitive" } } },

@@ -436,11 +436,11 @@ export default async function MaintenanceCheckoutPage({
 
           {/* ✅ Searchable picker (SKU, part#, name, etc.) */}
           <div style={{ marginTop: 2 }}>
-            <ItemPicker name="itemId" items={items} placeholder="Search SKU, part #, name, category, manufacturer…" />
+            <ItemPicker name="itemId" items={items} placeholder="Search ID, SKU, part #, name, category, manufacturer…" />
           </div>
 
           <div style={{ fontSize: 12, opacity: 0.75 }}>
-            Tip: search by <b>SKU</b>, <b>Part #</b>, <b>Name</b>, <b>Category</b>, or <b>Manufacturer</b>.
+            Tip: search by <b>ID</b>, <b>SKU</b>, <b>Part #</b>, <b>Name</b>, <b>Category</b>, or <b>Manufacturer</b>.
           </div>
         </label>
 
