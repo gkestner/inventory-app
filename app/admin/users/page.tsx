@@ -123,6 +123,8 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
       email: true,
       role: true,
       active: true,
+      securityQuestionsEnabled: true,
+      securityQuestionPrompt: true,
       createdAt: true,
 
       locationId: true,
@@ -597,6 +599,80 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     redirect("/admin/users?ok=1");
   }
 
+  async function saveSecurityQuestionAction(formData: FormData) {
+    "use server";
+    await requireAdmin();
+
+    const userId = nonEmpty(formData.get("userId"));
+    const enabled = nonEmpty(formData.get("enabled")) === "1";
+    const prompt = nonEmpty(formData.get("securityQuestionPrompt"));
+    const answer = nonEmpty(formData.get("securityQuestionAnswer"));
+    const confirm = nonEmpty(formData.get("securityQuestionConfirm"));
+
+    if (!userId) redirect("/admin/users?error=" + encodeURIComponent("Missing userId"));
+
+    if (!enabled) {
+      try {
+        await prisma.user.update({
+          where: { id: userId },
+          data: {
+            securityQuestionsEnabled: false,
+            securityQuestionPrompt: null,
+            securityQuestionAnswerHash: null,
+          },
+        });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : "Security question update failed";
+        redirect("/admin/users?error=" + encodeURIComponent(msg));
+      }
+
+      revalidatePath("/admin/users");
+      redirect("/admin/users?ok=1");
+    }
+
+    if (!prompt) {
+      redirect("/admin/users?error=" + encodeURIComponent("Security question prompt is required when enabled."));
+    }
+
+    const hasExistingHash = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { securityQuestionAnswerHash: true },
+    });
+
+    let nextAnswerHash: string | undefined;
+    if (answer || confirm) {
+      if (!answer || !confirm) {
+        redirect("/admin/users?error=" + encodeURIComponent("Enter and confirm the security answer."));
+      }
+      if (answer !== confirm) {
+        redirect("/admin/users?error=" + encodeURIComponent("Security answers do not match."));
+      }
+      if (answer.length < 3) {
+        redirect("/admin/users?error=" + encodeURIComponent("Security answer must be at least 3 characters."));
+      }
+      nextAnswerHash = await bcrypt.hash(answer, 10);
+    } else if (!hasExistingHash?.securityQuestionAnswerHash) {
+      redirect("/admin/users?error=" + encodeURIComponent("Set a security answer before enabling this feature."));
+    }
+
+    try {
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          securityQuestionsEnabled: true,
+          securityQuestionPrompt: prompt,
+          ...(nextAnswerHash ? { securityQuestionAnswerHash: nextAnswerHash } : {}),
+        },
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Security question update failed";
+      redirect("/admin/users?error=" + encodeURIComponent(msg));
+    }
+
+    revalidatePath("/admin/users");
+    redirect("/admin/users?ok=1");
+  }
+
   const pageWrap: CSSProperties = { padding: 24, maxWidth: 1200, margin: "0 auto" };
   const card: CSSProperties = {
     border: "1px solid rgba(128, 128, 128, 0.25)",
@@ -845,6 +921,10 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                       Legacy Role: <span style={{ fontWeight: 800 }}>{u.role}</span>
                     </div>
 
+                    <div style={{ fontSize: 12, opacity: 0.75 }}>
+                      Security Question Reset: <span style={{ fontWeight: 800 }}>{u.securityQuestionsEnabled ? "Enabled" : "Disabled"}</span>
+                    </div>
+
                   </div>
 
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -897,6 +977,63 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                     </form>
                   </div>
                 </div>
+
+                <details style={{ marginTop: 12 }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 900 }}>Security Question Reset</summary>
+
+                  <form action={saveSecurityQuestionAction} style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                    <input type="hidden" name="userId" value={u.id} />
+
+                    <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <input type="checkbox" name="enabled" value="1" defaultChecked={u.securityQuestionsEnabled} />
+                      <span>Enable self-service reset with security question</span>
+                    </label>
+
+                    <label style={label}>
+                      <span style={{ fontWeight: 800 }}>Security Question Prompt</span>
+                      <input
+                        name="securityQuestionPrompt"
+                        defaultValue={u.securityQuestionPrompt ?? ""}
+                        placeholder="Example: What was the name of your first pet?"
+                        style={field}
+                      />
+                    </label>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      <label style={label}>
+                        <span style={{ fontWeight: 800 }}>Security Answer (optional update)</span>
+                        <input
+                          name="securityQuestionAnswer"
+                          type="password"
+                          placeholder="Enter new answer"
+                          autoComplete="new-password"
+                          style={field}
+                        />
+                      </label>
+
+                      <label style={label}>
+                        <span style={{ fontWeight: 800 }}>Confirm Security Answer</span>
+                        <input
+                          name="securityQuestionConfirm"
+                          type="password"
+                          placeholder="Confirm new answer"
+                          autoComplete="new-password"
+                          style={field}
+                        />
+                      </label>
+                    </div>
+
+                    <div style={{ fontSize: 12, opacity: 0.75 }}>
+                      Leave the answer fields blank to keep the current answer hash.
+                    </div>
+
+                    <div>
+                      <button type="submit" style={btn}>
+                        Save Security Question Settings
+                      </button>
+                    </div>
+                  </form>
+                </details>
 
                 <details style={{ marginTop: 12 }}>
                   <summary style={{ cursor: "pointer", fontWeight: 900 }}>Assign Permission Titles</summary>

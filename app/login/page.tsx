@@ -1,10 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { useState } from "react";
 
 export default function LoginPage() {
+  const searchParams = useSearchParams();
+  const resetOk = searchParams.get("reset") === "1";
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
@@ -20,6 +24,21 @@ export default function LoginPage() {
   return (
     <main style={{ maxWidth: 380, margin: "80px auto", padding: 16 }}>
       <h1 style={{ fontSize: 22, fontWeight: 700 }}>Sign in</h1>
+
+      {resetOk ? (
+        <div
+          style={{
+            marginTop: 12,
+            padding: 10,
+            border: "1px solid #8bbf8b",
+            borderRadius: 8,
+            background: "#f3fff3",
+            fontSize: 13,
+          }}
+        >
+          Your password was reset. Sign in with your new password.
+        </div>
+      ) : null}
 
       <form onSubmit={handleSubmit} style={{ display: "grid", gap: 10, marginTop: 16 }}>
         <input
@@ -68,7 +87,7 @@ export default function LoginPage() {
               fontWeight: 700,
             }}
           >
-            Forgot password? Get help signing in ?
+            Forgot password? Reset with security question
           </Link>
         </div>
       </form>

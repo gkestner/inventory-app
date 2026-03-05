@@ -315,6 +315,11 @@ model User {
   // ✅ NEW: dynamic roles assigned to user (0..N)
   roles UserRole[]
 
+  // Self-service password reset via security question
+  securityQuestionsEnabled   Boolean @default(false)
+  securityQuestionPrompt     String?
+  securityQuestionAnswerHash String?
+
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
 
