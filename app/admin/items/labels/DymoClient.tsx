@@ -28,16 +28,13 @@ declare global {
  */
 function buildLabelXml(): string {
   // This XML works well as a baseline for LabelWriter series.
-  // If you later want perfect pixel alignment, we can tune bounds.
+  // Keep generous safe margins because the effective printable area can vary
+  // slightly by printer, label roll, and alignment.
   return `<?xml version="1.0" encoding="utf-8"?>
 <DieCutLabel Version="8.0" Units="twips">
   <PaperOrientation>Landscape</PaperOrientation>
   <Id>Address</Id>
   <PaperName>30252 Address</PaperName>
-
-  <DrawCommands>
-    <RoundRectangle X="0" Y="0" Width="5040" Height="1620" Rx="0" Ry="0" />
-  </DrawCommands>
 
   <!-- SKU -->
   <TextObject>
@@ -45,9 +42,9 @@ function buildLabelXml(): string {
     <Brushes>
       <SolidBrush Color="Black"/>
     </Brushes>
-    <Bounds X="120" Y="60" Width="4800" Height="300" />
+    <Bounds X="220" Y="120" Width="4600" Height="220" />
     <Text>SKU:</Text>
-    <Font Family="Arial" Size="16" Bold="True"/>
+    <Font Family="Arial" Size="13" Bold="True"/>
     <HorizontalAlignment>Left</HorizontalAlignment>
     <VerticalAlignment>Top</VerticalAlignment>
   </TextObject>
@@ -58,7 +55,7 @@ function buildLabelXml(): string {
     <Brushes>
       <SolidBrush Color="Black"/>
     </Brushes>
-    <Bounds X="120" Y="360" Width="1200" Height="1080" />
+    <Bounds X="220" Y="360" Width="900" Height="900" />
     <BarcodeType>QRCode</BarcodeType>
     <QuietZonesPadding Left="0" Top="0" Right="0" Bottom="0"/>
     <Text>QRDATA</Text>
@@ -70,9 +67,9 @@ function buildLabelXml(): string {
     <Brushes>
       <SolidBrush Color="Black"/>
     </Brushes>
-    <Bounds X="1500" Y="540" Width="3360" Height="600" />
+    <Bounds X="1320" Y="420" Width="3500" Height="720" />
     <Text>NAME</Text>
-    <Font Family="Arial" Size="24" Bold="True"/>
+    <Font Family="Arial" Size="18" Bold="True"/>
     <HorizontalAlignment>Center</HorizontalAlignment>
     <VerticalAlignment>Middle</VerticalAlignment>
   </TextObject>
@@ -83,9 +80,9 @@ function buildLabelXml(): string {
     <Brushes>
       <SolidBrush Color="Black"/>
     </Brushes>
-    <Bounds X="120" Y="1320" Width="4800" Height="240" />
+    <Bounds X="220" Y="1290" Width="4600" Height="210" />
     <Text>BOTTOM</Text>
-    <Font Family="Arial" Size="16" Bold="True"/>
+    <Font Family="Arial" Size="12" Bold="True"/>
     <HorizontalAlignment>Left</HorizontalAlignment>
     <VerticalAlignment>Bottom</VerticalAlignment>
   </TextObject>
