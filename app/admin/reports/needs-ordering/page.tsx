@@ -22,6 +22,7 @@ type AdminSession = {
 type SearchParams = {
   q?: string;
   includeIgnored?: string;
+  focus?: string;
   ok?: string;
 };
 
@@ -73,6 +74,9 @@ export default async function NeedsOrderingReportPage({
   const sp = await searchParams;
   const q = String(sp.q ?? "").trim();
   const includeIgnored = boolFromQuery(sp.includeIgnored);
+  const focusRaw = String(sp.focus ?? "").trim().toLowerCase();
+  const focus: "all" | "red" | "yellow" =
+    focusRaw === "red" || focusRaw === "yellow" ? focusRaw : "all";
   const okMsg = String(sp.ok ?? "").trim();
 
   async function setIgnoredAction(formData: FormData) {
@@ -87,9 +91,17 @@ export default async function NeedsOrderingReportPage({
 
     const qBack = String(formData.get("q") ?? "").trim();
     const includeIgnoredBack = String(formData.get("includeIgnored") ?? "").trim();
+    const focusBack = String(formData.get("focus") ?? "").trim();
 
     if (!itemId) {
-      redirect(`/admin/reports/needs-ordering${qs({ q: qBack || undefined, includeIgnored: includeIgnoredBack || undefined, ok: "Missing item id" })}`);
+      redirect(
+        `/admin/reports/needs-ordering${qs({
+          q: qBack || undefined,
+          includeIgnored: includeIgnoredBack || undefined,
+          focus: focusBack || undefined,
+          ok: "Missing item id",
+        })}`
+      );
     }
 
     await prisma.$executeRaw`
@@ -104,6 +116,7 @@ export default async function NeedsOrderingReportPage({
       `/admin/reports/needs-ordering${qs({
         q: qBack || undefined,
         includeIgnored: includeIgnoredBack || undefined,
+        focus: focusBack || undefined,
         ok: nextIgnored ? "Item ignored" : "Item restored",
       })}`
     );
@@ -160,12 +173,20 @@ export default async function NeedsOrderingReportPage({
     .map((item) => {
       const available = item.onHandQty + item.orderedQty;
       const shortBy = Math.max(0, item.minQty - available);
-      return { ...item, available, shortBy };
+      const priority: "red" | "yellow" = available <= 0 ? "red" : "yellow";
+      return { ...item, available, shortBy, priority };
     })
-    .filter((item) => item.shortBy > 0);
+    .filter((item) => item.shortBy > 0)
+    .filter((item) => (focus === "all" ? true : item.priority === focus))
+    .sort((a, b) => {
+      if (a.priority !== b.priority) return a.priority === "red" ? -1 : 1;
+      return a.sku.localeCompare(b.sku);
+    });
 
   const activeCount = needsOrdering.filter((x) => !x.reorderIgnored).length;
   const ignoredCount = needsOrdering.filter((x) => x.reorderIgnored).length;
+  const redCount = needsOrdering.filter((x) => x.priority === "red").length;
+  const yellowCount = needsOrdering.filter((x) => x.priority === "yellow").length;
 
   return (
     <main style={{ padding: 16 }}>
@@ -219,6 +240,8 @@ export default async function NeedsOrderingReportPage({
             Include ignored
           </label>
 
+          <input type="hidden" name="focus" value={focus} />
+
           <button
             type="submit"
             style={{
@@ -236,10 +259,40 @@ export default async function NeedsOrderingReportPage({
           <Link href="/admin/reports/needs-ordering" style={{ textDecoration: "underline" }}>
             Reset
           </Link>
+
+          <Link
+            href={`/admin/reports/needs-ordering${qs({ q: q || undefined, includeIgnored: includeIgnored ? "1" : undefined, focus: "red" })}`}
+            style={{
+              padding: "10px 12px",
+              borderRadius: 12,
+              border: focus === "red" ? "1px solid rgba(220,38,38,0.8)" : "1px solid rgba(220,38,38,0.45)",
+              background: focus === "red" ? "rgba(220,38,38,0.2)" : "rgba(220,38,38,0.10)",
+              color: "var(--foreground)",
+              fontWeight: 900,
+              textDecoration: "none",
+            }}
+          >
+            Red Items
+          </Link>
+
+          <Link
+            href={`/admin/reports/needs-ordering${qs({ q: q || undefined, includeIgnored: includeIgnored ? "1" : undefined, focus: "yellow" })}`}
+            style={{
+              padding: "10px 12px",
+              borderRadius: 12,
+              border: focus === "yellow" ? "1px solid rgba(245,158,11,0.85)" : "1px solid rgba(245,158,11,0.5)",
+              background: focus === "yellow" ? "rgba(245,158,11,0.22)" : "rgba(245,158,11,0.12)",
+              color: "var(--foreground)",
+              fontWeight: 900,
+              textDecoration: "none",
+            }}
+          >
+            Yellow Items
+          </Link>
         </form>
 
         <div style={{ marginTop: 12, opacity: 0.9 }}>
-          Showing <b>{needsOrdering.length}</b> items (Active: <b>{activeCount}</b>, Ignored: <b>{ignoredCount}</b>)
+          Showing <b>{needsOrdering.length}</b> items (Red: <b>{redCount}</b>, Yellow: <b>{yellowCount}</b>, Active: <b>{activeCount}</b>, Ignored: <b>{ignoredCount}</b>)
         </div>
 
         <div style={{ marginTop: 12, border: "1px solid rgba(128,128,128,0.25)", borderRadius: 10, overflowX: "auto" }}>
@@ -279,8 +332,23 @@ export default async function NeedsOrderingReportPage({
             <tbody>
               {needsOrdering.map((row) => {
                 const itemUrl = normalizeExternalUrl(row.webUrl);
+                const highlight =
+                  row.priority === "red"
+                    ? "rgba(220,38,38,0.12)"
+                    : "rgba(245,158,11,0.12)";
+                const borderTint =
+                  row.priority === "red"
+                    ? "rgba(220,38,38,0.22)"
+                    : "rgba(245,158,11,0.24)";
                 return (
-                <tr key={row.id} style={{ borderBottom: "1px solid rgba(128,128,128,0.15)", opacity: row.reorderIgnored ? 0.62 : 1 }}>
+                  <tr
+                    key={row.id}
+                    style={{
+                      borderBottom: `1px solid ${borderTint}`,
+                      background: highlight,
+                      opacity: row.reorderIgnored ? 0.62 : 1,
+                    }}
+                  >
                   <td style={{ padding: 10, fontWeight: 800, whiteSpace: "nowrap" }}>{row.sku}</td>
                   <td style={{ padding: 10 }}>
                     <div style={{ fontWeight: 700 }}>{row.name}</div>
@@ -318,7 +386,9 @@ export default async function NeedsOrderingReportPage({
                   <td style={{ padding: 10, whiteSpace: "nowrap" }}>{row.available}</td>
                   <td style={{ padding: 10, whiteSpace: "nowrap" }}>{row.minQty}</td>
                   <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{row.shortBy}</td>
-                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>{row.reorderIgnored ? "Ignored" : "Needs Order"}</td>
+                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                    {row.reorderIgnored ? "Ignored" : row.priority === "red" ? "Out" : "Below Min"}
+                  </td>
                   <td style={{ padding: 10, whiteSpace: "nowrap" }}>
                     {canEdit ? (
                       <form action={setIgnoredAction}>
@@ -326,6 +396,7 @@ export default async function NeedsOrderingReportPage({
                         <input type="hidden" name="nextIgnored" value={row.reorderIgnored ? "0" : "1"} />
                         <input type="hidden" name="q" value={q} />
                         <input type="hidden" name="includeIgnored" value={includeIgnored ? "1" : ""} />
+                        <input type="hidden" name="focus" value={focus} />
                         <button
                           type="submit"
                           style={{
@@ -346,7 +417,8 @@ export default async function NeedsOrderingReportPage({
                     )}
                   </td>
                 </tr>
-              );})}
+                );
+              })}
 
               {needsOrdering.length === 0 ? (
                 <tr>
