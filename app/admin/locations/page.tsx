@@ -58,14 +58,109 @@ function dedupePreserveOrder(values: string[]): string[] {
   return out;
 }
 
-function parseBulkNames(raw: string): string[] {
-  // Split on newlines and commas; trim; normalize; remove empties; de-dupe preserving order
-  const parts = raw
-    .split(/[\n,]+/g)
-    .map((s) => normalizeLocationName(s))
-    .filter((s) => s.length > 0);
+type BulkLocationRow = {
+  name: string;
+  locationNumber: string | null;
+  corporationNumber: string | null;
+};
 
-  return dedupePreserveOrder(parts);
+function splitBulkColumns(line: string): string[] {
+  if (line.includes("\t")) return line.split("\t").map((c) => c.trim());
+  if (line.includes("|")) return line.split("|").map((c) => c.trim());
+  return splitCsvLine(line);
+}
+
+function canonicalHeaderToken(v: string): string {
+  return v.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function parseBulkLocationRows(raw: string): { rows: BulkLocationRow[]; errors: string[] } {
+  const text = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  if (!text) return { rows: [], errors: [] };
+
+  const lines = text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return { rows: [], errors: [] };
+
+  // Backward compatible: one-line comma list of names.
+  if (lines.length === 1 && !lines[0].includes("\t") && !lines[0].includes("|")) {
+    const cells = splitCsvLine(lines[0]).filter(Boolean);
+    if (cells.length > 3) {
+      const names = dedupePreserveOrder(cells.map((c) => normalizeLocationName(c)).filter(Boolean));
+      return {
+        rows: names.map((name) => ({ name, locationNumber: null, corporationNumber: null })),
+        errors: [],
+      };
+    }
+  }
+
+  const headerTokens = splitBulkColumns(lines[0]).map(canonicalHeaderToken);
+  const nameAliases = new Set(["name", "location", "locationname", "locname"]);
+  const locAliases = new Set(["loc", "locationnumber", "locnumber", "number", "storenumber"]);
+  const corpAliases = new Set(["corp", "corpnumber", "corporation", "corporationnumber"]);
+
+  const nameIdx = headerTokens.findIndex((h) => nameAliases.has(h));
+  const locIdx = headerTokens.findIndex((h) => locAliases.has(h));
+  const corpIdx = headerTokens.findIndex((h) => corpAliases.has(h));
+  const hasHeader = nameIdx !== -1;
+
+  const errors: string[] = [];
+  const parsed: BulkLocationRow[] = [];
+
+  for (let i = hasHeader ? 1 : 0; i < lines.length; i++) {
+    const lineNo = i + 1;
+    const cells = splitBulkColumns(lines[i]);
+
+    let rawName = "";
+    let rawLoc = "";
+    let rawCorp = "";
+
+    if (hasHeader) {
+      rawName = nameIdx >= 0 ? (cells[nameIdx] ?? "") : "";
+      rawLoc = locIdx >= 0 ? (cells[locIdx] ?? "") : "";
+      rawCorp = corpIdx >= 0 ? (cells[corpIdx] ?? "") : "";
+    } else if (cells.length >= 3) {
+      rawLoc = cells[0] ?? "";
+      rawCorp = cells[1] ?? "";
+      rawName = cells.slice(2).join(" ");
+    } else if (cells.length === 2) {
+      rawLoc = cells[0] ?? "";
+      rawName = cells[1] ?? "";
+    } else {
+      rawName = cells[0] ?? "";
+    }
+
+    const name = normalizeLocationName(rawName);
+    const locationNumber = normalizeLocationNumber(rawLoc);
+    const corporationNumber = normalizeCorporationNumber(rawCorp);
+
+    if (!name) {
+      errors.push(`Line ${lineNo}: missing location name.`);
+      continue;
+    }
+    if (String(rawLoc ?? "").trim() && locationNumber === null) {
+      errors.push(`Line ${lineNo}: Location # must be digits only.`);
+      continue;
+    }
+    if (String(rawCorp ?? "").trim() && corporationNumber === null) {
+      errors.push(`Line ${lineNo}: Corp # must be letters/numbers/hyphen only.`);
+      continue;
+    }
+
+    parsed.push({ name, locationNumber, corporationNumber });
+  }
+
+  const seenNames = new Set<string>();
+  const rows: BulkLocationRow[] = [];
+  for (const row of parsed) {
+    if (seenNames.has(row.name)) continue;
+    seenNames.add(row.name);
+    rows.push(row);
+  }
+
+  return { rows, errors };
 }
 
 function stripBom(s: string): string {
@@ -210,45 +305,97 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
     await requireAdmin();
 
     const raw = String(formData.get("bulk") ?? "");
-    const names = parseBulkNames(raw);
+    const { rows, errors } = parseBulkLocationRows(raw);
 
-    if (names.length === 0) {
-      redirect("/admin/locations?err=" + encodeURIComponent("Paste one or more location names."));
+    if (errors.length > 0) {
+      redirect("/admin/locations?err=" + encodeURIComponent(errors.slice(0, 4).join(" ")));
     }
-    if (names.length > 500) {
+
+    if (rows.length === 0) {
+      redirect(
+        "/admin/locations?err=" +
+          encodeURIComponent("Paste one or more rows. Use: Loc #, Corp #, Name (or Name-only).")
+      );
+    }
+    if (rows.length > 500) {
       redirect("/admin/locations?err=" + encodeURIComponent("Too many locations at once (max 500)."));
+    }
+
+    const numberToName = new Map<string, string>();
+    for (const row of rows) {
+      if (!row.locationNumber) continue;
+      const existing = numberToName.get(row.locationNumber);
+      if (existing && existing !== row.name) {
+        redirect(
+          "/admin/locations?err=" +
+            encodeURIComponent(`Location # ${row.locationNumber} is assigned to multiple names in this paste.`)
+        );
+      }
+      numberToName.set(row.locationNumber, row.name);
     }
 
     let createdCount = 0;
     let reactivatedCount = 0;
+    let updatedCount = 0;
 
     try {
       await prisma.$transaction(async (tx) => {
+        const names = rows.map((r) => r.name);
         const existing = await tx.location.findMany({
           where: { name: { in: names } },
-          select: { name: true, active: true },
+          select: { id: true, name: true, active: true, locationNumber: true, corporationNumber: true },
         });
 
         const existingByName = new Map(existing.map((l) => [l.name, l] as const));
 
-        const toCreate = names
-          .filter((n) => !existingByName.has(n))
-          .map((n) => ({ name: n, active: true }));
-
-        const toReactivate = existing.filter((l) => !l.active).map((l) => l.name);
-
-        if (toReactivate.length > 0) {
-          const res = await tx.location.updateMany({
-            where: { name: { in: toReactivate }, active: false },
-            data: { active: true },
+        const requestedNumbers = dedupePreserveOrder(rows.map((r) => r.locationNumber ?? "").filter(Boolean));
+        if (requestedNumbers.length > 0) {
+          const owners = await tx.location.findMany({
+            where: { locationNumber: { in: requestedNumbers } },
+            select: { name: true, locationNumber: true },
           });
-          reactivatedCount = res.count;
+
+          for (const owner of owners) {
+            if (!owner.locationNumber) continue;
+            const target = numberToName.get(owner.locationNumber);
+            if (target && target !== owner.name) {
+              throw new Error(`Location # ${owner.locationNumber} already belongs to ${owner.name}.`);
+            }
+          }
         }
+
+        for (const row of rows) {
+          const ex = existingByName.get(row.name);
+          if (!ex) continue;
+
+          const data: { active?: boolean; locationNumber?: string | null; corporationNumber?: string | null } = {};
+          if (!ex.active) data.active = true;
+          if (row.locationNumber !== null && row.locationNumber !== ex.locationNumber) {
+            data.locationNumber = row.locationNumber;
+          }
+          if (row.corporationNumber !== null && row.corporationNumber !== ex.corporationNumber) {
+            data.corporationNumber = row.corporationNumber;
+          }
+
+          if (Object.keys(data).length > 0) {
+            await tx.location.update({ where: { id: ex.id }, data });
+            if (data.active && !ex.active) reactivatedCount += 1;
+            if (data.locationNumber !== undefined || data.corporationNumber !== undefined) updatedCount += 1;
+          }
+        }
+
+        const toCreate = rows
+          .filter((r) => !existingByName.has(r.name))
+          .map((r) => ({
+            name: r.name,
+            active: true,
+            locationNumber: r.locationNumber,
+            corporationNumber: r.corporationNumber,
+          }));
 
         if (toCreate.length > 0) {
           const res = await tx.location.createMany({
             data: toCreate,
-            skipDuplicates: true,
           });
           createdCount = res.count;
         }
@@ -262,7 +409,7 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
     revalidatePath("/admin/users");
     revalidatePath("/maintenance/checkout");
 
-    const summary = `Bulk add complete. Created: ${createdCount}. Reactivated: ${reactivatedCount}.`;
+    const summary = `Bulk add complete. Created: ${createdCount}. Reactivated: ${reactivatedCount}. Updated fields: ${updatedCount}.`;
     redirect("/admin/locations?ok=" + encodeURIComponent(summary));
   }
 
@@ -728,14 +875,14 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
       >
         <h2 style={{ fontSize: 16, fontWeight: 900, margin: 0 }}>Bulk Add Locations</h2>
         <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-          Paste names separated by new lines or commas. Existing inactive matches will be reactivated.
+          Paste one row per line. Preferred format: <code>Loc #, Corp #, Name</code>. You can also use <code>Loc #, Name</code> or name-only lines. Existing inactive matches will be reactivated.
         </div>
 
         <form action={bulkAddLocationsAction} style={{ marginTop: 10, display: "grid", gap: 10 }}>
           <textarea
             name="bulk"
             rows={8}
-            placeholder={"KINGSPORT\nLEE HWY\nABINGDON\n..."}
+            placeholder={"03, 03, ABINGDON\n61, , AIRPORT PKWY\n51, , BAILEYTON\nKINGSPORT"}
             style={{
               padding: "10px 10px",
               borderRadius: 10,
@@ -804,14 +951,14 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
       {/* Table */}
       <div
         style={{
-          overflowX: "hidden",
+          overflowX: "auto",
           WebkitOverflowScrolling: "touch",
           border: "1px solid rgba(128,128,128,0.25)",
           borderRadius: 12,
           paddingBottom: 4, // helps make the horizontal scrollbar easier to grab
         }}
       >
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <table style={{ width: "max-content", minWidth: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
               {["Select", "Loc #", "Corp #", "Name", "Active", "Created", "Rename", "Set #", "Set Corp #", "Toggle", "Delete"].map((h) => (

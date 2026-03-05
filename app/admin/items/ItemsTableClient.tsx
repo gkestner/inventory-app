@@ -466,6 +466,30 @@ function tokenizeQuery(q: string): string[] {
     .filter((t) => t.length >= 2);
 }
 
+type SkuRoomParts = {
+  location: string;
+  shelf: string;
+  bin: string;
+};
+
+function parseSkuRoomParts(sku: string): SkuRoomParts | null {
+  const raw = String(sku ?? "").trim();
+  if (!raw) return null;
+
+  const segments = raw.split("-");
+  if (segments.length < 2) return null;
+
+  // Expected format: ZONE-MIDDLE-ITEM where MIDDLE contains Location+Shelf+Bin.
+  const middleDigits = String(segments[1] ?? "").replace(/\D/g, "");
+  if (middleDigits.length < 6) return null;
+
+  return {
+    location: middleDigits.slice(0, 2),
+    shelf: middleDigits.slice(2, 4),
+    bin: middleDigits.slice(4, 6),
+  };
+}
+
 function rowSearchText(row: ItemRow): string {
   const vendorLabel =
     (row.vendor ?? "") === "AMERICAN_PLUS"
@@ -481,6 +505,8 @@ function rowSearchText(row: ItemRow): string {
 
   const taxableStr = row.taxable ? "taxable yes" : "taxable no";
   const activeStr = row.active ? "active yes" : "active no";
+  const skuRoom = parseSkuRoomParts(row.sku);
+  const skuRoomText = skuRoom ? `${skuRoom.location} ${skuRoom.shelf} ${skuRoom.bin}` : "";
 
   return normalizeSearchText(
     [
@@ -498,6 +524,7 @@ function rowSearchText(row: ItemRow): string {
       row.price ?? "",
       taxableStr,
       activeStr,
+      skuRoomText,
       onHandStr,
       usedStr,
       minStr,
@@ -1415,6 +1442,7 @@ export default function ItemsTableClient({
               const orderFrom = (row.orderFrom ?? "").trim();
               const web = safeUrl(row.webUrl);
               const descriptionText = (row.description ?? "").trim();
+              const skuRoom = parseSkuRoomParts(row.sku);
 
               const oh = onHand(row);
 
@@ -1424,6 +1452,9 @@ export default function ItemsTableClient({
                 onHand: oh ?? "—",
                 used: used(row) ?? "—",
                 keep: keep(row) ?? "—",
+                roomLocation: skuRoom?.location ?? "—",
+                roomShelf: skuRoom?.shelf ?? "—",
+                roomBin: skuRoom?.bin ?? "—",
                 webLabel: web ? "link" : "—",
               };
 
@@ -2011,6 +2042,15 @@ export default function ItemsTableClient({
 
                           <div style={{ fontSize: 12, opacity: 0.85, display: "flex", flexWrap: "wrap", gap: 12 }}>
                             <span>
+                              <strong>Maint. Loc:</strong> {detailText.roomLocation}
+                            </span>
+                            <span>
+                              <strong>Shelf:</strong> {detailText.roomShelf}
+                            </span>
+                            <span>
+                              <strong>Bin:</strong> {detailText.roomBin}
+                            </span>
+                            <span>
                               <strong>On Hand:</strong> {detailText.onHand}
                             </span>
                             <span>
@@ -2034,6 +2074,15 @@ export default function ItemsTableClient({
                           </div>
 
                           <div style={{ fontSize: 12, opacity: 0.85, display: "flex", flexWrap: "wrap", gap: 12 }}>
+                            <span>
+                              <strong>Maint. Loc:</strong> {detailText.roomLocation}
+                            </span>
+                            <span>
+                              <strong>Shelf:</strong> {detailText.roomShelf}
+                            </span>
+                            <span>
+                              <strong>Bin:</strong> {detailText.roomBin}
+                            </span>
                             <span>
                               <strong>Manufacturer:</strong> {detailText.manufacturer}
                             </span>
