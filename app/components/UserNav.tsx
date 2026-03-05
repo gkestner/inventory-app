@@ -4,7 +4,7 @@ import type { CSSProperties } from "react";
 import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/app/lib/auth";
-import { Permission, Role } from "@prisma/client";
+import { Permission } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import SignOutButton from "@/app/components/SignOutButton";
 
@@ -18,9 +18,6 @@ export const dynamic = "force-dynamic";
 export default async function UserNav() {
   const session = await getServerSession(authOptions);
   const perms = await loadUserPermissions(session);
-
-  const role = (session?.user as { role?: Role | null } | undefined)?.role ?? null;
-  const isEmployee = role === Role.EMPLOYEE;
 
   const shell: CSSProperties = { color: "var(--foreground)" };
 
@@ -49,7 +46,7 @@ export default async function UserNav() {
   };
 
   const canWorkOrders =
-    isEmployee ||
+    perms.allowAll ||
     hasAnyPermission(perms, [
       Permission.VIEW_WORK_ORDERS,
       Permission.CREATE_WORK_ORDERS,
@@ -57,14 +54,11 @@ export default async function UserNav() {
       Permission.SUBMIT_OWN_WORK_ORDERS,
     ]);
 
-  const canTravelLog =
-    isEmployee || hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
+  const canTravelLog = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
 
-  const canCheckout =
-    !isEmployee &&
-    hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
+  const canCheckout = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
 
-  const homeHref = isEmployee ? "/employee" : "/maintenance";
+  const homeHref = canWorkOrders || canCheckout ? "/maintenance" : "/";
 
   return (
     <div className="site-nav-shell" style={shell}>

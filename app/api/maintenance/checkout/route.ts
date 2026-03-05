@@ -3,7 +3,8 @@ import { NextRequest } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
-import { Prisma, Role, InvoiceVendor } from "@prisma/client";
+import { Prisma, Role, InvoiceVendor, Permission } from "@prisma/client";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 type Body = {
   itemId: string;
@@ -54,18 +55,6 @@ function toInt(v: unknown): number | null {
   if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v);
   if (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v))) return Math.trunc(Number(v));
   return null;
-}
-
-function isAllowedMaintenanceCheckoutRole(role: Role): boolean {
-  switch (role) {
-    case Role.EMPLOYEE:
-    case Role.MAINTENANCE:
-    case Role.MANAGER:
-    case Role.ADMIN:
-      return true;
-    default:
-      return false;
-  }
 }
 
 function normalizeVendor(v: unknown): InvoiceVendor | null {
@@ -133,7 +122,9 @@ export async function POST(req: NextRequest) {
   const role = getSessionUserRole(session);
   if (!role) return new Response("Forbidden", { status: 403 });
 
-  if (!isAllowedMaintenanceCheckoutRole(role)) {
+  const perms = await loadUserPermissions(session);
+  const canCreateCheckout = perms.allowAll || hasAnyPermission(perms, [Permission.CREATE_CHECKOUT]);
+  if (!canCreateCheckout) {
     return new Response("Forbidden", { status: 403 });
   }
 
