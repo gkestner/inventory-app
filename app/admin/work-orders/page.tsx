@@ -8,6 +8,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { Role } from "@prisma/client";
+import PingAutoRefresh from "./PingAutoRefresh";
 
 export const dynamic = "force-dynamic";
 
@@ -197,6 +198,9 @@ export default async function AdminWorkOrdersPage() {
 
         <div style={{ ...card, marginTop: 12 }}>
           <div style={{ fontWeight: 900, marginBottom: 10 }}>Location Pings (Admin Only)</div>
+          <div style={{ marginBottom: 10 }}>
+            <PingAutoRefresh intervalMs={12000} />
+          </div>
           <div style={{ opacity: 0.75, fontSize: 13, marginBottom: 10 }}>
             {pings.length} recent pings from work order start, stop, and edit actions.
           </div>
