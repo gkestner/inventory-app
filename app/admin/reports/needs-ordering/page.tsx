@@ -134,52 +134,66 @@ export default async function NeedsOrderingReportPage({
     orderedQty: number;
     minQty: number;
     reorderIgnored: boolean;
+    openTechRequests: number;
   };
 
   const like = `%${q}%`;
   const rows = await prisma.$queryRaw<NeedsOrderingRow[]>(Prisma.sql`
+    WITH tech_req AS (
+      SELECT "itemId", COUNT(*)::int AS "openTechRequests"
+      FROM "InventoryAlert"
+      WHERE "type" = 'TECH_REQUEST_ORDER'::"InventoryAlertType"
+        AND "resolvedAt" IS NULL
+      GROUP BY "itemId"
+    )
     SELECT
-      "id",
-      "sku",
-      "partNumber",
-      "name",
-      "orderFrom",
-      "manufacturer",
-      "webUrl",
-      "onHandQty",
-      "orderedQty",
-      "minQty",
-      "reorderIgnored"
-    FROM "Item"
+      i."id",
+      i."sku",
+      i."partNumber",
+      i."name",
+      i."orderFrom",
+      i."manufacturer",
+      i."webUrl",
+      i."onHandQty",
+      i."orderedQty",
+      i."minQty",
+      i."reorderIgnored",
+      COALESCE(t."openTechRequests", 0) AS "openTechRequests"
+    FROM "Item" i
+    LEFT JOIN tech_req t ON t."itemId" = i."id"
     WHERE "active" = true
-      AND "minQty" > 0
-      AND "minQty" > ("onHandQty" + "orderedQty")
+      AND (
+        i."minQty" > (i."onHandQty" + i."orderedQty")
+        OR COALESCE(t."openTechRequests", 0) > 0
+      )
       AND ${
         q
           ? Prisma.sql`(
-              "sku" ILIKE ${like}
-              OR "name" ILIKE ${like}
-              OR COALESCE("partNumber", '') ILIKE ${like}
-              OR COALESCE("orderFrom", '') ILIKE ${like}
-              OR COALESCE("manufacturer", '') ILIKE ${like}
+              i."sku" ILIKE ${like}
+              OR i."name" ILIKE ${like}
+              OR COALESCE(i."partNumber", '') ILIKE ${like}
+              OR COALESCE(i."orderFrom", '') ILIKE ${like}
+              OR COALESCE(i."manufacturer", '') ILIKE ${like}
             )`
           : Prisma.sql`TRUE`
       }
-      AND ${includeIgnored ? Prisma.sql`TRUE` : Prisma.sql`"reorderIgnored" = false`}
-    ORDER BY "reorderIgnored" ASC, "sku" ASC
+      AND ${includeIgnored ? Prisma.sql`TRUE` : Prisma.sql`i."reorderIgnored" = false`}
+    ORDER BY i."reorderIgnored" ASC, i."sku" ASC
   `);
 
   const needsOrdering = rows
     .map((item) => {
       const available = item.onHandQty + item.orderedQty;
       const shortBy = Math.max(0, item.minQty - available);
-      const priority: "red" | "yellow" = available <= 0 ? "red" : "yellow";
-      return { ...item, available, shortBy, priority };
+      const hasTechRequest = item.openTechRequests > 0;
+      const priority: "blue" | "red" | "yellow" = hasTechRequest ? "blue" : available <= 0 ? "red" : "yellow";
+      return { ...item, available, shortBy, hasTechRequest, priority };
     })
-    .filter((item) => item.shortBy > 0)
+    .filter((item) => item.shortBy > 0 || item.hasTechRequest)
     .filter((item) => (focus === "all" ? true : item.priority === focus))
     .sort((a, b) => {
-      if (a.priority !== b.priority) return a.priority === "red" ? -1 : 1;
+      const rank = { blue: 0, red: 1, yellow: 2 } as const;
+      if (a.priority !== b.priority) return rank[a.priority] - rank[b.priority];
       return a.sku.localeCompare(b.sku);
     });
 
@@ -187,6 +201,7 @@ export default async function NeedsOrderingReportPage({
   const ignoredCount = needsOrdering.filter((x) => x.reorderIgnored).length;
   const redCount = needsOrdering.filter((x) => x.priority === "red").length;
   const yellowCount = needsOrdering.filter((x) => x.priority === "yellow").length;
+  const blueCount = needsOrdering.filter((x) => x.priority === "blue").length;
 
   return (
     <main style={{ padding: 16 }}>
@@ -211,7 +226,8 @@ export default async function NeedsOrderingReportPage({
         </div>
 
         <div style={{ marginTop: 8, opacity: 0.85, lineHeight: 1.5 }}>
-          Items where <code>onHand + ordered &lt; min</code> are listed here. Use Ignore to hide non-actionable rows.
+          Items where <code>onHand + ordered &lt; min</code> are listed here. Items flagged from checkout as "Need to order
+          more" are also included and highlighted in blue. Use Ignore to hide non-actionable rows.
         </div>
 
         {okMsg ? (
@@ -292,7 +308,7 @@ export default async function NeedsOrderingReportPage({
         </form>
 
         <div style={{ marginTop: 12, opacity: 0.9 }}>
-          Showing <b>{needsOrdering.length}</b> items (Red: <b>{redCount}</b>, Yellow: <b>{yellowCount}</b>, Active: <b>{activeCount}</b>, Ignored: <b>{ignoredCount}</b>)
+          Showing <b>{needsOrdering.length}</b> items (Blue: <b>{blueCount}</b>, Red: <b>{redCount}</b>, Yellow: <b>{yellowCount}</b>, Active: <b>{activeCount}</b>, Ignored: <b>{ignoredCount}</b>)
         </div>
 
         <div style={{ marginTop: 12, border: "1px solid rgba(128,128,128,0.25)", borderRadius: 10, overflowX: "auto" }}>
@@ -333,11 +349,15 @@ export default async function NeedsOrderingReportPage({
               {needsOrdering.map((row) => {
                 const itemUrl = normalizeExternalUrl(row.webUrl);
                 const highlight =
-                  row.priority === "red"
+                  row.priority === "blue"
+                    ? "rgba(37,99,235,0.14)"
+                    : row.priority === "red"
                     ? "rgba(220,38,38,0.12)"
                     : "rgba(245,158,11,0.12)";
                 const borderTint =
-                  row.priority === "red"
+                  row.priority === "blue"
+                    ? "rgba(37,99,235,0.32)"
+                    : row.priority === "red"
                     ? "rgba(220,38,38,0.22)"
                     : "rgba(245,158,11,0.24)";
                 return (
@@ -387,7 +407,13 @@ export default async function NeedsOrderingReportPage({
                   <td style={{ padding: 10, whiteSpace: "nowrap" }}>{row.minQty}</td>
                   <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{row.shortBy}</td>
                   <td style={{ padding: 10, whiteSpace: "nowrap" }}>
-                    {row.reorderIgnored ? "Ignored" : row.priority === "red" ? "Out" : "Below Min"}
+                    {row.reorderIgnored
+                      ? "Ignored"
+                      : row.priority === "blue"
+                        ? "Tech Requested"
+                        : row.priority === "red"
+                          ? "Out"
+                          : "Below Min"}
                   </td>
                   <td style={{ padding: 10, whiteSpace: "nowrap" }}>
                     {canEdit ? (
