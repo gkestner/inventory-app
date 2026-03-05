@@ -1381,6 +1381,7 @@ export default function ItemsTableClient({
               const mfg = (row.manufacturer ?? "").trim();
               const orderFrom = (row.orderFrom ?? "").trim();
               const web = safeUrl(row.webUrl);
+              const descriptionText = (row.description ?? "").trim();
 
               const oh = onHand(row);
 
@@ -1794,6 +1795,27 @@ export default function ItemsTableClient({
                     <td colSpan={COLS} style={{ padding: "0 10px 10px 54px" }}>
                       {isEditing ? (
                         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                          <div style={{ display: "grid", gap: 6 }}>
+                            <span style={{ fontSize: 12, opacity: 0.85 }}>
+                              <strong>Description</strong>
+                            </span>
+                            <textarea
+                              value={draft?.description ?? ""}
+                              onChange={(e) => setDraft((d) => (d ? { ...d, description: e.target.value } : d))}
+                              rows={3}
+                              placeholder="Item description..."
+                              style={{
+                                width: "min(900px, 100%)",
+                                padding: "8px 10px",
+                                border: "1px solid var(--border)",
+                                borderRadius: 8,
+                                background: surface,
+                                color: "var(--text)",
+                                resize: "vertical",
+                              }}
+                            />
+                          </div>
+
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-start" }}>
                             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                               <span style={{ fontSize: 12, opacity: 0.85 }}>
@@ -1892,40 +1914,47 @@ export default function ItemsTableClient({
                           </div>
                         </div>
                       ) : (
-                        <div style={{ fontSize: 12, opacity: 0.85, display: "flex", flexWrap: "wrap", gap: 12 }}>
-                          <span>
-                            <strong>Manufacturer:</strong> {detailText.manufacturer}
-                          </span>
-                          <span>
-                            <strong>Order From:</strong> {detailText.orderFrom}
-                          </span>
-                          <span>
-                            <strong>On Hand:</strong> {detailText.onHand}
-                          </span>
-                          <span>
-                            <strong>Used:</strong> {detailText.used}
-                          </span>
-                          <span>
-                            <strong>Keep on hand:</strong> {detailText.keep}
-                          </span>
+                        <div style={{ display: "grid", gap: 10 }}>
+                          <div style={{ fontSize: 12, opacity: 0.9 }}>
+                            <strong>Description:</strong>{" "}
+                            <span style={{ whiteSpace: "pre-wrap" }}>{descriptionText || "—"}</span>
+                          </div>
 
-                          {/* ✅ Show vendor formula used by this item */}
-                          {isCostPlusVendor(currentVendor) && vendorFormula ? (
+                          <div style={{ fontSize: 12, opacity: 0.85, display: "flex", flexWrap: "wrap", gap: 12 }}>
                             <span>
-                              <strong>Cost Plus:</strong> <span style={{ fontFamily: "monospace" }}>{vendorFormula}</span>
+                              <strong>Manufacturer:</strong> {detailText.manufacturer}
                             </span>
-                          ) : null}
+                            <span>
+                              <strong>Order From:</strong> {detailText.orderFrom}
+                            </span>
+                            <span>
+                              <strong>On Hand:</strong> {detailText.onHand}
+                            </span>
+                            <span>
+                              <strong>Used:</strong> {detailText.used}
+                            </span>
+                            <span>
+                              <strong>Keep on hand:</strong> {detailText.keep}
+                            </span>
 
-                          <span>
-                            <strong>Web:</strong>{" "}
-                            {web ? (
-                              <a href={web} target="_blank" rel="noreferrer" style={{ textDecoration: "underline", color: "inherit" }}>
-                                {detailText.webLabel}
-                              </a>
-                            ) : (
-                              "—"
-                            )}
-                          </span>
+                            {/* ✅ Show vendor formula used by this item */}
+                            {isCostPlusVendor(currentVendor) && vendorFormula ? (
+                              <span>
+                                <strong>Cost Plus:</strong> <span style={{ fontFamily: "monospace" }}>{vendorFormula}</span>
+                              </span>
+                            ) : null}
+
+                            <span>
+                              <strong>Web:</strong>{" "}
+                              {web ? (
+                                <a href={web} target="_blank" rel="noreferrer" style={{ textDecoration: "underline", color: "inherit" }}>
+                                  {detailText.webLabel}
+                                </a>
+                              ) : (
+                                "—"
+                              )}
+                            </span>
+                          </div>
                         </div>
                       )}
                     </td>
