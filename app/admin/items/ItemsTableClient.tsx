@@ -701,10 +701,19 @@ export default function ItemsTableClient({
     qs.set("debug", "1"); // debug mode shows diagnostic overlay
     const url = `/labels?${qs.toString()}`;
     console.debug("printLabelsFor", url);
+    const existing = (window as any).__labelsPopupRef as Window | undefined;
+    if (existing && !existing.closed) {
+      existing.location.href = url;
+      existing.focus();
+      return;
+    }
+
     const win = window.open(url, "labels-print-popup", "noopener,noreferrer,popup=yes");
     if (!win) {
       // fallback if popup blocked
       window.location.href = url;
+    } else {
+      (window as any).__labelsPopupRef = win;
     }
   }
 

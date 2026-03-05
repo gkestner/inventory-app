@@ -32,6 +32,7 @@ export default function PrintHotkeys({
     const onKeyDown = (e: KeyboardEvent) => {
       // Press "P" (or "p") to print label(s)
       if (e.key !== "p" && e.key !== "P") return;
+      if (e.repeat) return;
 
       // Don't hijack Ctrl/Cmd+P (browser print)
       if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -72,6 +73,13 @@ export default function PrintHotkeys({
       // Always open a fresh popup window to avoid reusing an existing tab/window
       // which can sometimes leave stale content (or be blocked from navigating).
       console.debug("PrintHotkeys", url);
+      const existing = (window as any).__labelsPopupRef as Window | undefined;
+      if (existing && !existing.closed) {
+        existing.location.href = url;
+        existing.focus();
+        return;
+      }
+
       const win = window.open(
         url,
         "labels-print-popup",
@@ -80,6 +88,8 @@ export default function PrintHotkeys({
       if (!win) {
         // fallback if popup blocked
         window.location.href = url;
+      } else {
+        (window as any).__labelsPopupRef = win;
       }
     };
 
