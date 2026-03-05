@@ -777,6 +777,23 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     redirect(returnToBase);
   }
 
+  async function exportSelectedPassportAction(formData: FormData) {
+    "use server";
+    await requireInvoicesView();
+
+    const idsRaw = formData.getAll("ids");
+    const ids = idsRaw
+      .map((v) => String(v).trim())
+      .filter((v) => v.length > 0)
+      .slice(0, 200);
+
+    if (ids.length === 0) {
+      redirect(buildHref({ err: "none_selected" }));
+    }
+
+    redirect(`/admin/invoices/passport-export?ids=${encodeURIComponent(ids.join(","))}`);
+  }
+
   const errBanner =
     err === "confirm"
       ? 'To hard delete: select invoices, type "DELETE", then click Hard delete selected.'
@@ -1103,7 +1120,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    {["Select", "Created", "Vendor", "Vendor #", "Store", "Invoice date", "Window", "Lines", "Total", "Status", "Print"].map(
+                    {["Select", "Created", "Vendor", "Vendor #", "Store", "Invoice date", "Window", "Lines", "Total", "Status", "Print", "Export"].map(
                       (h) => (
                         <th
                           key={h}
@@ -1153,13 +1170,21 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                             Print
                           </Link>
                         </td>
+                        <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                          <a
+                            href={`/admin/invoices/passport-export?ids=${encodeURIComponent(inv.id)}`}
+                            style={{ ...btn, textDecoration: "none", display: "inline-block" }}
+                          >
+                            Export
+                          </a>
+                        </td>
                       </tr>
                     );
                   })}
 
                   {invoices.length === 0 ? (
                     <tr>
-                      <td colSpan={11} style={{ padding: 14, opacity: 0.8 }}>
+                      <td colSpan={12} style={{ padding: 14, opacity: 0.8 }}>
                         No invoices yet.
                       </td>
                     </tr>
@@ -1239,6 +1264,10 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
               <button type="submit" style={btnDanger}>
                 Hard delete selected
+              </button>
+
+              <button type="submit" formAction={exportSelectedPassportAction} style={btn}>
+                Export selected for Passport
               </button>
 
               <div style={{ fontSize: 12, opacity: 0.75, maxWidth: 700 }}>Hard delete permanently removes invoices and their line items.</div>
