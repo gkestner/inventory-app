@@ -42,9 +42,9 @@ function buildLabelXml(): string {
     <Brushes>
       <SolidBrush Color="Black"/>
     </Brushes>
-    <Bounds X="220" Y="120" Width="4600" Height="220" />
+    <Bounds X="320" Y="170" Width="4300" Height="180" />
     <Text>SKU:</Text>
-    <Font Family="Arial" Size="13" Bold="True"/>
+    <Font Family="Arial" Size="11" Bold="True"/>
     <HorizontalAlignment>Left</HorizontalAlignment>
     <VerticalAlignment>Top</VerticalAlignment>
   </TextObject>
@@ -55,7 +55,7 @@ function buildLabelXml(): string {
     <Brushes>
       <SolidBrush Color="Black"/>
     </Brushes>
-    <Bounds X="220" Y="360" Width="900" Height="900" />
+    <Bounds X="320" Y="360" Width="760" Height="760" />
     <BarcodeType>QRCode</BarcodeType>
     <QuietZonesPadding Left="0" Top="0" Right="0" Bottom="0"/>
     <Text>QRDATA</Text>
@@ -67,9 +67,9 @@ function buildLabelXml(): string {
     <Brushes>
       <SolidBrush Color="Black"/>
     </Brushes>
-    <Bounds X="1320" Y="420" Width="3500" Height="720" />
+    <Bounds X="1160" Y="430" Width="3460" Height="560" />
     <Text>NAME</Text>
-    <Font Family="Arial" Size="18" Bold="True"/>
+    <Font Family="Arial" Size="15" Bold="True"/>
     <HorizontalAlignment>Center</HorizontalAlignment>
     <VerticalAlignment>Middle</VerticalAlignment>
   </TextObject>
@@ -80,9 +80,9 @@ function buildLabelXml(): string {
     <Brushes>
       <SolidBrush Color="Black"/>
     </Brushes>
-    <Bounds X="220" Y="1290" Width="4600" Height="210" />
+    <Bounds X="320" Y="1220" Width="4300" Height="170" />
     <Text>BOTTOM</Text>
-    <Font Family="Arial" Size="12" Bold="True"/>
+    <Font Family="Arial" Size="10" Bold="True"/>
     <HorizontalAlignment>Left</HorizontalAlignment>
     <VerticalAlignment>Bottom</VerticalAlignment>
   </TextObject>
@@ -201,11 +201,11 @@ export default function DymoClient({ items }: { items: LabelItem[] }) {
     label.setObjectText("SKU", `SKU: ${item.sku}`);
     label.setObjectText("QR", item.sku);
 
-    const name = (item.name || "").toUpperCase().slice(0, 28);
+    const name = (item.name || "").toUpperCase().slice(0, 22);
     label.setObjectText("NAME", name);
 
     const id = deriveLabelIdFromSku(item.sku);
-    const part = item.partNumber ? item.partNumber : "—";
+    const part = item.partNumber ? item.partNumber.slice(0, 16) : "—";
     label.setObjectText("BOTTOM", `ID# ${id}     PART# ${part}`);
 
     return label;
