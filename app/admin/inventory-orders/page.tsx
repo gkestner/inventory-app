@@ -1452,6 +1452,15 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                     </button>
                   </form>
 
+                  <Link
+                    href={`/labels?ids=${encodeURIComponent(o.itemId)}&autoprint=1&autoclose=1`}
+                    target="labels-print-popup"
+                    rel="noopener noreferrer"
+                    style={{ ...btn, textDecoration: "none", display: "inline-block" }}
+                  >
+                    Print Label
+                  </Link>
+
                   <details className="orderDetails" style={{ border: border, borderRadius: 12, padding: 10, background: soft }}>
                     <summary>Edit</summary>
                     <form
