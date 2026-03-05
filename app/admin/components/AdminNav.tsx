@@ -56,6 +56,12 @@ export default async function AdminNav() {
     userSelect: "none",
   };
 
+  const topLinkStyle: CSSProperties = {
+    ...summaryStyle,
+    display: "inline-block",
+    textDecoration: "none",
+  };
+
   const detailsStyle: CSSProperties = {
     position: "relative",
     display: "inline-block",
@@ -275,14 +281,9 @@ export default async function AdminNav() {
 
           {/* Reports */}
           {canAdminReports ? (
-            <details data-admin-dropdown style={detailsStyle}>
-              <summary style={summaryStyle}>Reports</summary>
-              <div style={menuStyle}>
-                <Link href="/admin/reports" style={menuItemStyle}>
-                  Report Hub
-                </Link>
-              </div>
-            </details>
+            <Link href="/admin/reports" style={topLinkStyle}>
+              Reports
+            </Link>
           ) : null}
 
           {/* Admin */}
