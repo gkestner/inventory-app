@@ -201,9 +201,9 @@ body:has(.labels-page) > *:not(.labels-page) {
   box-sizing: border-box;
   border: var(--b) solid #000;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: 0.19in 1fr 0.19in;
   overflow: hidden;
-  border-radius: 8px;
+  border-radius: 0;
   background: #fff;
   margin-bottom: var(--b);
   page-break-after: always;
@@ -216,32 +216,34 @@ body:has(.labels-page) > *:not(.labels-page) {
 }
 
 .labels-page .sku {
-  font-weight: 700;
-  font-size: 11px;
-  padding: 6px 8px 0 8px;
+  font-weight: 800;
+  font-size: 9px;
+  letter-spacing: 0.1px;
+  padding: 3px 6px 0 6px;
   align-self: start;
   justify-self: start;
   color: #222;
+  line-height: 1.05;
 }
 
 .labels-page .mid {
   display: grid;
-  grid-template-columns: 1.05in 1fr;
+  grid-template-columns: 0.96in 1fr;
   min-height: 0;
-  gap: 8px;
-  padding: 6px 8px;
+  gap: 6px;
+  padding: 2px 6px 2px 0;
 }
 
 .labels-page .qr {
   border-right: var(--b) solid #000;
   display: grid;
   place-items: center;
-  padding: 4px;
+  padding: 2px 3px 2px 2px;
 }
 
 .labels-page .qr img {
-  width: 0.9in;
-  height: 0.9in;
+  width: 0.72in;
+  height: 0.72in;
   display: block;
 }
 
@@ -256,18 +258,19 @@ body:has(.labels-page) > *:not(.labels-page) {
 
 .labels-page .name {
   font-weight: 900;
-  font-size: 22px;
+  font-size: 15px;
   text-transform: uppercase;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1;
 }
 
 .labels-page .desc {
-  margin-top: 2px;
+  margin-top: 1px;
   font-weight: 800;
-  font-size: 10px;
+  font-size: 8px;
   text-transform: uppercase;
   max-width: 100%;
   overflow: hidden;
@@ -281,17 +284,25 @@ body:has(.labels-page) > *:not(.labels-page) {
   justify-content: space-between;
   align-items: center;
   font-weight: 900;
-  font-size: 13px;
-  padding: 6px 8px;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 6px;
   white-space: nowrap;
-  gap: 10px;
+  gap: 6px;
 }
 
 .labels-page .idbox {
-  border: 2px solid #000;
-  padding: 2px 6px;
+  border: 1px solid #000;
+  padding: 1px 4px;
   font-weight: 900;
   display: inline-block;
+}
+
+.labels-page .part {
+  font-size: 10px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 @media print {

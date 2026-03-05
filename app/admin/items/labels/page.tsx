@@ -162,7 +162,7 @@ export default async function ItemLabelsPage({
 
                 <div className="bottom">
                   <span className="idbox">ID# {labelId}</span>
-                  <span>PART# {item.partNumber ?? "—"}</span>
+                  <span className="part">PART# {item.partNumber ?? "—"}</span>
                 </div>
               </div>
             );
