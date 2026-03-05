@@ -31,7 +31,9 @@ type AppSession = {
   user?: SessionUser;
 } | null;
 
-async function requireInventoryAlertsView(): Promise<AppSession> {
+type AuthSession = NonNullable<AppSession>;
+
+async function requireInventoryAlertsView(): Promise<AuthSession> {
   const session = (await getServerSession(authOptions)) as AppSession;
   if (!session) redirect("/login");
 
@@ -44,7 +46,7 @@ async function requireInventoryAlertsView(): Promise<AppSession> {
   return session;
 }
 
-async function requireInventoryAlertsResolve(): Promise<AppSession> {
+async function requireInventoryAlertsResolve(): Promise<AuthSession> {
   const session = (await getServerSession(authOptions)) as AppSession;
   if (!session) throw new Error("Unauthorized");
 
