@@ -188,6 +188,21 @@ export default async function ItemLabelsPage({
         )}
 
         <Script
+          id="labels-body-mode-script"
+          strategy="afterInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function () {
+                document.body.classList.add("labels-print-mode");
+                window.addEventListener("beforeunload", function () {
+                  document.body.classList.remove("labels-print-mode");
+                });
+              })();
+            `,
+          }}
+        />
+
+        <Script
           id="labels-autoprint-script"
           strategy="afterInteractive"
           dangerouslySetInnerHTML={{

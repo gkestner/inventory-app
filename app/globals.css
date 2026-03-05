@@ -509,6 +509,24 @@ body:has(.labels-page) .app-content-shell > :not(.labels-page):not(:has(.labels-
 }
 
 @media print {
+  body.labels-print-mode * {
+    visibility: hidden !important;
+  }
+
+  body.labels-print-mode .labels-page,
+  body.labels-print-mode .labels-page * {
+    visibility: visible !important;
+  }
+
+  body.labels-print-mode .labels-page {
+    position: absolute !important;
+    inset: 0 !important;
+    z-index: 2147483647 !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
+
   .labels-page {
     position: static;
     inset: auto;
