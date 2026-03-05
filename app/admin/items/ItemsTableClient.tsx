@@ -686,9 +686,13 @@ export default function ItemsTableClient({
 
       const lockKey = "__labelsPopupLockUntil" as const;
       const now = Date.now();
-      const lockUntil = Number((window as any)[lockKey] ?? 0);
+      const memLockUntil = Number((window as any)[lockKey] ?? 0);
+      const storageLockUntil = Number(window.sessionStorage.getItem(lockKey) ?? 0);
+      const lockUntil = Math.max(memLockUntil, storageLockUntil);
       if (now < lockUntil) return;
-      (window as any)[lockKey] = now + 1200;
+      const nextLock = now + 3000;
+      (window as any)[lockKey] = nextLock;
+      window.sessionStorage.setItem(lockKey, String(nextLock));
 
     const qs = new URLSearchParams();
     qs.set("ids", ids.join(","));
@@ -697,7 +701,7 @@ export default function ItemsTableClient({
     qs.set("debug", "1"); // debug mode shows diagnostic overlay
     const url = `/labels?${qs.toString()}`;
     console.debug("printLabelsFor", url);
-    const win = window.open(url, "_blank", "noopener,noreferrer,popup=yes");
+    const win = window.open(url, "labels-print-popup", "noopener,noreferrer,popup=yes");
     if (!win) {
       // fallback if popup blocked
       window.location.href = url;

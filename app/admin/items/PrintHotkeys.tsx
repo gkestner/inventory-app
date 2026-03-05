@@ -55,9 +55,13 @@ export default function PrintHotkeys({
 
       const lockKey = "__labelsPopupLockUntil" as const;
       const now = Date.now();
-      const lockUntil = Number((window as any)[lockKey] ?? 0);
+      const memLockUntil = Number((window as any)[lockKey] ?? 0);
+      const storageLockUntil = Number(window.sessionStorage.getItem(lockKey) ?? 0);
+      const lockUntil = Math.max(memLockUntil, storageLockUntil);
       if (now < lockUntil) return;
-      (window as any)[lockKey] = now + 1200;
+      const nextLock = now + 3000;
+      (window as any)[lockKey] = nextLock;
+      window.sessionStorage.setItem(lockKey, String(nextLock));
 
       // Small popup window (warehouse-style)
       const w = 420;
@@ -68,7 +72,11 @@ export default function PrintHotkeys({
       // Always open a fresh popup window to avoid reusing an existing tab/window
       // which can sometimes leave stale content (or be blocked from navigating).
       console.debug("PrintHotkeys", url);
-      const win = window.open(url, "_blank", `noopener,noreferrer,popup=yes,width=${w},height=${h},left=${left},top=${top}`);
+      const win = window.open(
+        url,
+        "labels-print-popup",
+        `noopener,noreferrer,popup=yes,width=${w},height=${h},left=${left},top=${top}`,
+      );
       if (!win) {
         // fallback if popup blocked
         window.location.href = url;

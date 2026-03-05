@@ -141,6 +141,7 @@ a {
 
 /* Label printing page styles */
 @page {
+  size: 3.5in 1.125in;
   margin: 0;
 }
 
