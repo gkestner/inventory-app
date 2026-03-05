@@ -19,7 +19,9 @@ type PrismaUserCompat = {
   update: (args: unknown) => Promise<unknown>;
 };
 
-const prismaUser = (prisma.user as unknown) as PrismaUserCompat;
+function getPrismaUser(): PrismaUserCompat {
+  return (prisma.user as unknown) as PrismaUserCompat;
+}
 
 async function requireSessionUser() {
   const session = (await getServerSession(authOptions)) as AppSession;
@@ -31,7 +33,7 @@ async function requireSessionUser() {
   if (userId) return { ok: true as const, userId };
   if (!email) return { ok: false as const, status: 401, error: "Unauthorized" };
 
-  const found = await prismaUser.findUnique({ where: { email }, select: { id: true } });
+  const found = await getPrismaUser().findUnique({ where: { email }, select: { id: true } });
   if (!found?.id) return { ok: false as const, status: 401, error: "Unauthorized" };
 
   return { ok: true as const, userId: found.id };
@@ -41,7 +43,7 @@ export async function GET() {
   const auth = await requireSessionUser();
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  const user = await prismaUser.findUnique({
+  const user = await getPrismaUser().findUnique({
     where: { id: auth.userId },
     select: { uiPreferences: true },
   });
@@ -63,7 +65,7 @@ export async function PATCH(req: Request) {
 
   const prefs = normalizeUserPreferences((body as { preferences?: unknown } | null)?.preferences ?? body);
 
-  await prismaUser.update({
+  await getPrismaUser().update({
     where: { id: auth.userId },
     data: { uiPreferences: prefs },
   });
