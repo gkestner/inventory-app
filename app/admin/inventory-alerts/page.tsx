@@ -116,6 +116,7 @@ export default async function InventoryAlertsPage({ searchParams }: { searchPara
 
   const errMsg = (sp.err || "").trim();
   const okMsg = (sp.ok || "").trim();
+  const bulkResolveFormId = "bulkResolveAlertsForm";
 
   async function resolveAlertAction(formData: FormData): Promise<void> {
     "use server";
@@ -174,6 +175,91 @@ export default async function InventoryAlertsPage({ searchParams }: { searchPara
 
     revalidatePath("/admin/inventory-alerts");
     redirect(back + (back.includes("?") ? "&" : "?") + "ok=" + encodeURIComponent("Resolved"));
+  }
+
+  async function bulkResolveAlertsAction(formData: FormData): Promise<void> {
+    "use server";
+
+    const s = await requireInventoryAlertsResolve();
+    const back = String(formData.get("back") || "/admin/inventory-alerts");
+    const note = String(formData.get("note") || "").trim();
+
+    const ids = Array.from(
+      new Set(
+        formData
+          .getAll("alertIds")
+          .map((v) => String(v || "").trim())
+          .filter(Boolean)
+      )
+    );
+
+    if (ids.length === 0) {
+      redirect(back + (back.includes("?") ? "&" : "?") + "err=" + encodeURIComponent("Select one or more alerts."));
+    }
+
+    const selected = await prisma.inventoryAlert.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, type: true, note: true, resolvedAt: true },
+    });
+
+    if (selected.length === 0) {
+      redirect(back + (back.includes("?") ? "&" : "?") + "err=" + encodeURIComponent("Selected alerts not found."));
+    }
+
+    const unresolved = selected.filter((a) => !a.resolvedAt);
+    if (unresolved.length === 0) {
+      revalidatePath("/admin/inventory-alerts");
+      redirect(back + (back.includes("?") ? "&" : "?") + "ok=" + encodeURIComponent("Selected alerts were already resolved."));
+    }
+
+    const hasTechRequestOrder = unresolved.some((a) => a.type === "TECH_REQUEST_ORDER");
+    if (hasTechRequestOrder && !note) {
+      redirect(
+        back +
+          (back.includes("?") ? "&" : "?") +
+          "err=" +
+          encodeURIComponent("Resolve note is required when selection includes TECH_REQUEST_ORDER alerts.")
+      );
+    }
+
+    const resolverName = s.user?.name ?? "ADMIN";
+    const resolverId = s.user?.id ?? null;
+    const now = new Date();
+
+    if (note) {
+      const stamp = `[RESOLVED ${isoShort(now)} by ${resolverName}] ${note}`;
+
+      await prisma.$transaction(
+        unresolved.map((a) =>
+          prisma.inventoryAlert.update({
+            where: { id: a.id },
+            data: {
+              resolvedAt: now,
+              resolvedByUserId: resolverId,
+              resolvedByName: resolverName,
+              note: a.note ? `${a.note}\n${stamp}` : stamp,
+            },
+          })
+        )
+      );
+    } else {
+      await prisma.inventoryAlert.updateMany({
+        where: { id: { in: unresolved.map((a) => a.id) }, resolvedAt: null },
+        data: {
+          resolvedAt: now,
+          resolvedByUserId: resolverId,
+          resolvedByName: resolverName,
+        },
+      });
+    }
+
+    revalidatePath("/admin/inventory-alerts");
+    redirect(
+      back +
+        (back.includes("?") ? "&" : "?") +
+        "ok=" +
+        encodeURIComponent(`Resolved ${unresolved.length} alert(s).`)
+    );
   }
 
   const where: Prisma.InventoryAlertWhereInput = {
@@ -327,11 +413,39 @@ export default async function InventoryAlertsPage({ searchParams }: { searchPara
           : `Showing ${(safePage - 1) * perPage + 1}-${Math.min(safePage * perPage, total)} of ${total}`}
       </div>
 
+      <div
+        style={{
+          marginBottom: 10,
+          padding: 10,
+          border: "1px solid rgba(128,128,128,0.25)",
+          borderRadius: 8,
+          display: "flex",
+          gap: 8,
+          alignItems: "center",
+          flexWrap: "wrap",
+        }}
+      >
+        <span style={{ opacity: 0.85, fontSize: 12 }}>
+          Bulk resolve selected open alerts. Note is required when any selected alert is <code>TECH_REQUEST_ORDER</code>.
+        </span>
+        <form
+          id={bulkResolveFormId}
+          action={bulkResolveAlertsAction}
+          style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
+        >
+          <input type="hidden" name="back" value={backUrl} />
+          <input name="note" placeholder="resolve note (optional unless TECH_REQUEST_ORDER selected)" style={{ padding: "6px 8px", width: 340 }} />
+          <button type="submit" style={{ padding: "6px 10px", fontWeight: 700 }}>
+            Resolve Selected
+          </button>
+        </form>
+      </div>
+
       <div style={{ overflowX: "hidden", maxWidth: "100%", border: "1px solid rgba(128,128,128,0.25)", borderRadius: 8 }}>
         <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
           <thead>
             <tr>
-              {["Created", "Type", "Item", "Store", "Ticket", "Delta", "OnHand/Ordered/Avail/Min", "Status", "Resolve"].map(
+              {["Select", "Created", "Type", "Item", "Store", "Ticket", "Delta", "OnHand/Ordered/Avail/Min", "Status", "Resolve"].map(
                 (h) => (
                   <th
                     key={h}
@@ -359,6 +473,13 @@ export default async function InventoryAlertsPage({ searchParams }: { searchPara
 
               return (
                 <tr key={r.id} style={{ borderBottom: "1px solid rgba(128,128,128,0.15)" }}>
+                  <td style={{ padding: 10 }}>
+                    {resolved ? (
+                      <span style={{ opacity: 0.45 }}>—</span>
+                    ) : (
+                      <input type="checkbox" name="alertIds" value={r.id} form={bulkResolveFormId} aria-label={`Select alert ${r.id}`} />
+                    )}
+                  </td>
                   <td style={{ padding: 10 }}>{new Date(r.createdAt).toLocaleString()}</td>
                   <td style={{ padding: 10, fontFamily: "monospace" }}>{r.type}</td>
 
@@ -432,7 +553,7 @@ export default async function InventoryAlertsPage({ searchParams }: { searchPara
 
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={9} style={{ padding: 14, opacity: 0.8 }}>
+                <td colSpan={10} style={{ padding: 14, opacity: 0.8 }}>
                   No alerts match your filters.
                 </td>
               </tr>
