@@ -39,7 +39,7 @@ async function requireWorkOrdersView(session: SessionShape) {
   if (perms.allowAll) return;
 
   const ok = hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
-  if (!ok) redirect("/");
+  if (!ok) redirect("/maintenance");
 }
 
 async function requireWorkOrdersCreate(session: SessionShape) {
@@ -50,7 +50,7 @@ async function requireWorkOrdersCreate(session: SessionShape) {
   if (perms.allowAll) return;
 
   const ok = hasAnyPermission(perms, [Permission.CREATE_WORK_ORDERS]);
-  if (!ok) redirect("/");
+  if (!ok) redirect("/maintenance");
 }
 
 async function requireWorkOrdersSubmitOwn(session: SessionShape) {
@@ -61,7 +61,7 @@ async function requireWorkOrdersSubmitOwn(session: SessionShape) {
   if (perms.allowAll) return;
 
   const ok = hasAnyPermission(perms, [Permission.SUBMIT_OWN_WORK_ORDERS]);
-  if (!ok) redirect("/");
+  if (!ok) redirect("/maintenance");
 }
 
 /**
@@ -76,7 +76,7 @@ async function requireWorkOrdersUpdateOwn(session: SessionShape) {
   if (perms.allowAll) return;
 
   const ok = hasAnyPermission(perms, [Permission.UPDATE_OWN_WORK_ORDERS]);
-  if (!ok) redirect("/");
+  if (!ok) redirect("/maintenance");
 }
 
 type WorkOrderStatus = "DRAFT" | "SUBMITTED" | "FINALIZED";

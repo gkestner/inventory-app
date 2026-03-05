@@ -3,7 +3,7 @@ import type { ReactNode, CSSProperties } from "react";
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { Permission, Role } from "@prisma/client";
+import { Permission } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
@@ -13,14 +13,8 @@ export const runtime = "nodejs";
 
 type SessionUser = {
   email?: string | null;
-  role?: Role | null;
   name?: string | null;
 };
-
-function isAllowed(role: Role | null | undefined) {
-  // Keep legacy fallback for explicit maintenance-facing roles.
-  return role === Role.EMPLOYEE || role === Role.MAINTENANCE || role === Role.ADMIN;
-}
 
 export default async function MaintenanceLayout({ children }: { children: ReactNode }) {
   const session = await getServerSession(authOptions);
@@ -31,9 +25,21 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
   const email = (user.email ?? "").trim().toLowerCase();
   if (!email) redirect("/login");
 
-  if (!isAllowed(user.role)) redirect("/login");
-
   const perms = await loadUserPermissions(session);
+
+  const hasMaintenanceAreaAccess =
+    perms.allowAll ||
+    hasAnyPermission(perms, [
+      Permission.VIEW_CHECKOUT,
+      Permission.CREATE_CHECKOUT,
+      Permission.VIEW_WORK_ORDERS,
+      Permission.CREATE_WORK_ORDERS,
+      Permission.UPDATE_OWN_WORK_ORDERS,
+      Permission.SUBMIT_OWN_WORK_ORDERS,
+      Permission.VIEW_LIVE_ORDERS,
+    ]);
+
+  if (!hasMaintenanceAreaAccess) redirect("/");
 
   // ✅ Checkout is permission-based ONLY (no role special-casing)
   const canCheckout = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
