@@ -16,9 +16,20 @@ function isPublicPath(pathname: string) {
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  if (isPublicPath(pathname)) return NextResponse.next();
-
   const token = await getToken({ req });
+
+  // Logged-in users should not stay on the login page.
+  if (pathname === "/login") {
+    if (token) {
+      const url = req.nextUrl.clone();
+      url.pathname = "/";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
+    return NextResponse.next();
+  }
+
+  if (isPublicPath(pathname)) return NextResponse.next();
 
   if (!token) {
     const url = req.nextUrl.clone();
@@ -27,22 +38,11 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (pathname === "/login") {
-    const url = req.nextUrl.clone();
-    url.pathname = "/";
-    url.search = "";
-    return NextResponse.redirect(url);
-  }
-
-  if (pathname.startsWith("/admin")) {
-    const role = (token as any)?.role ?? null;
-    if (role !== "ADMIN") {
-      const url = req.nextUrl.clone();
-      url.pathname = "/";
-      url.search = "";
-      return NextResponse.redirect(url);
-    }
-  }
+  // NOTE:
+  // Do not enforce role-only /admin checks in middleware.
+  // Admin access is resolved server-side using permission-based guards.
+  // A strict Role.ADMIN middleware gate can cause redirect loops when
+  // users have admin permissions via titles but non-ADMIN legacy roles.
 
   return NextResponse.next();
 }

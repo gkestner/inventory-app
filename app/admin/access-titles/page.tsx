@@ -67,6 +67,21 @@ function input(): CSSProperties {
   };
 }
 
+function selectInput(): CSSProperties {
+  return {
+    ...input(),
+    background: "#0f1d33",
+    color: "#f8fafc",
+  };
+}
+
+function optionStyle(): CSSProperties {
+  return {
+    background: "#0f1d33",
+    color: "#f8fafc",
+  };
+}
+
 function btn(variant: "primary" | "danger" | "ghost" = "ghost"): CSSProperties {
   const base: CSSProperties = {
     borderRadius: 12,
@@ -425,9 +440,9 @@ export default async function AccessTitlesPage({
 
             <div style={{ minWidth: 320 }}>
               <div style={label()}>Access Title</div>
-              <select key={titleId ?? "none"} name="titleId" defaultValue={titleId ?? ""} style={input()}>
+              <select key={titleId ?? "none"} name="titleId" defaultValue={titleId ?? ""} style={selectInput()}>
                 {titles.map((t) => (
-                  <option key={t.id} value={t.id}>
+                  <option key={t.id} value={t.id} style={optionStyle()}>
                     {t.name}
                   </option>
                 ))}
@@ -486,9 +501,13 @@ export default async function AccessTitlesPage({
 
                 <div>
                   <div style={label()}>Active</div>
-                  <select name="active" defaultValue={(selectedTitle as any).active ? "1" : "0"} style={input()}>
-                    <option value="1">Active</option>
-                    <option value="0">Inactive</option>
+                  <select name="active" defaultValue={(selectedTitle as any).active ? "1" : "0"} style={selectInput()}>
+                    <option value="1" style={optionStyle()}>
+                      Active
+                    </option>
+                    <option value="0" style={optionStyle()}>
+                      Inactive
+                    </option>
                   </select>
                 </div>
 
