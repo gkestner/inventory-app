@@ -8,7 +8,7 @@ import { headers } from "next/headers";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
-import { EquipmentArea, Role } from "@prisma/client";
+import { EquipmentArea, Role, WorkOrderPingEvent } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -397,13 +397,25 @@ export default async function MaintenanceWorkOrderDetailPage({
     const me = await prisma.user.findUnique({ where: { email }, select: { id: true, active: true } });
     if (!me || !me.active) redirect("/login");
 
-    const wo = await prisma.workOrder.findUnique({ where: { id }, select: { createdByUserId: true } });
+    const wo = await prisma.workOrder.findUnique({ where: { id }, select: { createdByUserId: true, locationId: true } });
     if (!wo) notFound();
     if (!isAdmin && wo.createdByUserId !== me.id) redirect("/maintenance/work-orders");
 
-    await prisma.workOrder.update({
-      where: { id },
-      data: { startTime: new Date(), updatedByUserId: me.id },
+    await prisma.$transaction(async (tx) => {
+      await tx.workOrder.update({
+        where: { id },
+        data: { startTime: new Date(), updatedByUserId: me.id },
+      });
+
+      await tx.workOrderPing.create({
+        data: {
+          workOrderId: id,
+          locationId: wo.locationId,
+          actorUserId: me.id,
+          event: WorkOrderPingEvent.STARTED,
+          note: "Work order started.",
+        },
+      });
     });
 
     revalidatePath(`/maintenance/work-orders/${id}`);
@@ -423,13 +435,25 @@ export default async function MaintenanceWorkOrderDetailPage({
     const me = await prisma.user.findUnique({ where: { email }, select: { id: true, active: true } });
     if (!me || !me.active) redirect("/login");
 
-    const wo = await prisma.workOrder.findUnique({ where: { id }, select: { createdByUserId: true } });
+    const wo = await prisma.workOrder.findUnique({ where: { id }, select: { createdByUserId: true, locationId: true } });
     if (!wo) notFound();
     if (!isAdmin && wo.createdByUserId !== me.id) redirect("/maintenance/work-orders");
 
-    await prisma.workOrder.update({
-      where: { id },
-      data: { endTime: new Date(), updatedByUserId: me.id },
+    await prisma.$transaction(async (tx) => {
+      await tx.workOrder.update({
+        where: { id },
+        data: { endTime: new Date(), updatedByUserId: me.id },
+      });
+
+      await tx.workOrderPing.create({
+        data: {
+          workOrderId: id,
+          locationId: wo.locationId,
+          actorUserId: me.id,
+          event: WorkOrderPingEvent.STOPPED,
+          note: "Work order stopped.",
+        },
+      });
     });
 
     revalidatePath(`/maintenance/work-orders/${id}`);
@@ -511,6 +535,16 @@ export default async function MaintenanceWorkOrderDetailPage({
           startingMileage,
           endingMileage,
           updatedByUserId: me.id,
+        },
+      });
+
+      await tx.workOrderPing.create({
+        data: {
+          workOrderId: id,
+          locationId,
+          actorUserId: me.id,
+          event: WorkOrderPingEvent.EDITED,
+          note: "Work order details edited.",
         },
       });
 

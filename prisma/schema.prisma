@@ -207,6 +207,12 @@ enum WorkOrderStatus {
   FINALIZED
 }
 
+enum WorkOrderPingEvent {
+  STARTED
+  STOPPED
+  EDITED
+}
+
 /**
  * Expanded enum:
  * - Includes the REQUIRED pizza-maintenance areas (used by UI)
@@ -280,6 +286,9 @@ model Location {
   // Invoices per store
   invoices Invoice[]
 
+  // Admin-only work order activity pings
+  workOrderPings WorkOrderPing[]
+
   @@index([active])
 }
 
@@ -316,6 +325,7 @@ model User {
   // Work Orders
   workOrdersCreated WorkOrder[] @relation("WorkOrderCreatedBy")
   workOrdersUpdated WorkOrder[] @relation("WorkOrderUpdatedBy")
+  workOrderPings   WorkOrderPing[] @relation("WorkOrderPingActor")
 
   // Inventory Orders
   inventoryOrdersCreated InventoryOrder[] @relation("InventoryOrderCreatedBy")
@@ -380,10 +390,34 @@ model WorkOrder {
   updatedAt DateTime @updatedAt
 
   equipmentAreas WorkOrderEquipmentArea[]
+  pings          WorkOrderPing[]
 
   @@index([status, createdAt])
   @@index([locationId, createdAt])
   @@index([createdByUserId, createdAt])
+}
+
+model WorkOrderPing {
+  id String @id @default(cuid())
+
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
+
+  actorUserId String
+  actorUser   User @relation("WorkOrderPingActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  event WorkOrderPingEvent
+  note  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([locationId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([workOrderId, createdAt])
 }
 
 model WorkOrderEquipmentArea {

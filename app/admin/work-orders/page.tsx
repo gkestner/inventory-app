@@ -85,6 +85,20 @@ export default async function AdminWorkOrdersPage() {
     },
   });
 
+  const pings = await prisma.workOrderPing.findMany({
+    orderBy: { createdAt: "desc" },
+    take: 120,
+    select: {
+      id: true,
+      event: true,
+      note: true,
+      createdAt: true,
+      location: { select: { name: true } },
+      actorUser: { select: { name: true, email: true } },
+      workOrderId: true,
+    },
+  });
+
   const border = "1px solid rgba(128,128,128,0.25)";
   const card: CSSProperties = {
     border,
@@ -178,6 +192,76 @@ export default async function AdminWorkOrdersPage() {
           <h1 style={{ margin: 0, fontSize: 26, fontWeight: 900 }}>Admin: Work Orders</h1>
           <div style={{ opacity: 0.75, fontSize: 13 }}>
             {workOrders.length} shown • Times in <b>{TZ}</b>
+          </div>
+        </div>
+
+        <div style={{ ...card, marginTop: 12 }}>
+          <div style={{ fontWeight: 900, marginBottom: 10 }}>Location Pings (Admin Only)</div>
+          <div style={{ opacity: 0.75, fontSize: 13, marginBottom: 10 }}>
+            {pings.length} recent pings from work order start, stop, and edit actions.
+          </div>
+
+          <div style={tableWrap}>
+            <table style={table}>
+              <colgroup>
+                <col style={{ width: "16%" }} />
+                <col style={{ width: "14%" }} />
+                <col style={{ width: "18%" }} />
+                <col style={{ width: "24%" }} />
+                <col style={{ width: "18%" }} />
+                <col style={{ width: "10%" }} />
+              </colgroup>
+              <thead>
+                <tr style={{ background: "rgba(255,255,255,0.03)" }}>
+                  {[
+                    "Time",
+                    "Event",
+                    "Location",
+                    "User",
+                    "Note",
+                    "Work Order",
+                  ].map((h) => (
+                    <th key={h} style={th}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {pings.map((p) => (
+                  <tr key={p.id} style={{ borderTop: "1px solid rgba(128,128,128,0.18)" }}>
+                    <td style={td}>
+                      <div style={ellipsis}>{fmtLocal(p.createdAt)}</div>
+                    </td>
+                    <td style={{ ...td, fontWeight: 900 }}>
+                      <div style={ellipsis}>{p.event}</div>
+                    </td>
+                    <td style={td}>
+                      <div style={ellipsis}>{p.location?.name ?? "—"}</div>
+                    </td>
+                    <td style={td}>
+                      <div style={ellipsis}>{p.actorUser ? `${p.actorUser.name} (${p.actorUser.email})` : "—"}</div>
+                    </td>
+                    <td style={td}>
+                      <div style={ellipsis}>{p.note ?? "—"}</div>
+                    </td>
+                    <td style={td}>
+                      <Link href={`/admin/work-orders/${p.workOrderId}`} style={btn}>
+                        Open
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+
+                {pings.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} style={{ padding: 14, opacity: 0.85 }}>
+                      No pings yet.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
           </div>
         </div>
 
