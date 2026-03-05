@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import bcrypt from "bcryptjs";
 import { headers } from "next/headers";
+import { createHash } from "crypto";
 
 import { prisma } from "@/app/lib/prisma";
 
@@ -21,6 +22,13 @@ type ForgotResetAttemptState = {
   blockedUntil: number;
 };
 
+type ResetRateLimitRow = {
+  key: string;
+  failedCount: number;
+  windowStartedAt: Date;
+  blockedUntil: Date | null;
+};
+
 const forgotResetAttempts: Map<string, ForgotResetAttemptState> =
   (globalThis as unknown as { __forgotResetAttempts?: Map<string, ForgotResetAttemptState> }).__forgotResetAttempts ??
   new Map<string, ForgotResetAttemptState>();
@@ -35,17 +43,17 @@ function clientIpFromHeaders(h: Headers): string {
 }
 
 function getAttemptKey(email: string, ip: string): string {
-  return `${email}|${ip}`;
+  return createHash("sha256").update(`${email}|${ip}`).digest("hex");
 }
 
-function getRetrySecondsIfBlocked(key: string, nowMs: number): number | null {
+function getRetrySecondsIfBlockedFromMemory(key: string, nowMs: number): number | null {
   const state = forgotResetAttempts.get(key);
   if (!state) return null;
   if (state.blockedUntil <= nowMs) return null;
   return Math.ceil((state.blockedUntil - nowMs) / 1000);
 }
 
-function registerFailedAttempt(key: string, nowMs: number): void {
+function registerFailedAttemptInMemory(key: string, nowMs: number): void {
   const existing = forgotResetAttempts.get(key);
   if (!existing || nowMs - existing.windowStart > FORGOT_RESET_WINDOW_MS) {
     forgotResetAttempts.set(key, {
@@ -70,8 +78,118 @@ function registerFailedAttempt(key: string, nowMs: number): void {
   forgotResetAttempts.set(key, next);
 }
 
-function clearFailedAttempts(key: string): void {
+function clearFailedAttemptsInMemory(key: string): void {
   forgotResetAttempts.delete(key);
+}
+
+function resetRateLimitStore() {
+  return (prisma as unknown as { passwordResetRateLimit?: { findUnique: Function; create: Function; update: Function; deleteMany: Function } }).
+    passwordResetRateLimit;
+}
+
+async function getRetrySecondsIfBlocked(key: string, nowMs: number): Promise<number | null> {
+  const store = resetRateLimitStore();
+  if (!store) return getRetrySecondsIfBlockedFromMemory(key, nowMs);
+
+  try {
+    const row = (await store.findUnique({
+      where: { key },
+      select: { blockedUntil: true },
+    })) as { blockedUntil: Date | null } | null;
+
+    if (!row?.blockedUntil) return null;
+    const blockedUntilMs = row.blockedUntil.getTime();
+    if (blockedUntilMs <= nowMs) return null;
+    return Math.ceil((blockedUntilMs - nowMs) / 1000);
+  } catch {
+    return getRetrySecondsIfBlockedFromMemory(key, nowMs);
+  }
+}
+
+async function registerFailedAttempt(key: string, nowMs: number): Promise<void> {
+  const store = resetRateLimitStore();
+  if (!store) {
+    registerFailedAttemptInMemory(key, nowMs);
+    return;
+  }
+
+  try {
+    const now = new Date(nowMs);
+    const row = (await store.findUnique({
+      where: { key },
+      select: {
+        key: true,
+        failedCount: true,
+        windowStartedAt: true,
+        blockedUntil: true,
+      },
+    })) as ResetRateLimitRow | null;
+
+    if (!row) {
+      await store.create({
+        data: {
+          key,
+          failedCount: 1,
+          windowStartedAt: now,
+          blockedUntil: null,
+          lastAttemptAt: now,
+        },
+      });
+      return;
+    }
+
+    const blockedMs = row.blockedUntil?.getTime() ?? 0;
+    if (blockedMs > nowMs) {
+      await store.update({
+        where: { key },
+        data: { lastAttemptAt: now },
+      });
+      return;
+    }
+
+    const outsideWindow = nowMs - row.windowStartedAt.getTime() > FORGOT_RESET_WINDOW_MS;
+    if (outsideWindow) {
+      await store.update({
+        where: { key },
+        data: {
+          failedCount: 1,
+          windowStartedAt: now,
+          blockedUntil: null,
+          lastAttemptAt: now,
+        },
+      });
+      return;
+    }
+
+    const nextCount = row.failedCount + 1;
+    const nextBlockedUntil =
+      nextCount >= FORGOT_RESET_MAX_ATTEMPTS ? new Date(nowMs + FORGOT_RESET_WINDOW_MS) : null;
+
+    await store.update({
+      where: { key },
+      data: {
+        failedCount: nextCount,
+        blockedUntil: nextBlockedUntil,
+        lastAttemptAt: now,
+      },
+    });
+  } catch {
+    registerFailedAttemptInMemory(key, nowMs);
+  }
+}
+
+async function clearFailedAttempts(key: string): Promise<void> {
+  const store = resetRateLimitStore();
+  if (!store) {
+    clearFailedAttemptsInMemory(key);
+    return;
+  }
+
+  try {
+    await store.deleteMany({ where: { key } });
+  } catch {
+    clearFailedAttemptsInMemory(key);
+  }
 }
 
 function normEmail(v: FormDataEntryValue | null): string {
@@ -125,7 +243,7 @@ export default async function ForgotPasswordPage({ searchParams }: { searchParam
     const ip = clientIpFromHeaders(requestHeaders);
     const key = getAttemptKey(email || "unknown", ip);
     const nowMs = Date.now();
-    const retrySeconds = getRetrySecondsIfBlocked(key, nowMs);
+    const retrySeconds = await getRetrySecondsIfBlocked(key, nowMs);
 
     if (retrySeconds !== null) {
       redirect(
@@ -185,7 +303,7 @@ export default async function ForgotPasswordPage({ searchParams }: { searchParam
       answerOk;
 
     if (!canReset) {
-      registerFailedAttempt(key, nowMs);
+      await registerFailedAttempt(key, nowMs);
       redirect(
         "/forgot-password?email=" +
           encodeURIComponent(email) +
@@ -200,7 +318,7 @@ export default async function ForgotPasswordPage({ searchParams }: { searchParam
       data: { passwordHash },
     });
 
-    clearFailedAttempts(key);
+    await clearFailedAttempts(key);
 
     redirect("/forgot-password?ok=" + encodeURIComponent("Password reset successful. You can sign in now."));
   }

@@ -768,3 +768,18 @@ model ImportRowError {
 
   @@index([jobId, rowNumber])
 }
+
+model PasswordResetRateLimit {
+  key String @id
+
+  failedCount     Int      @default(0)
+  windowStartedAt DateTime @default(now())
+  blockedUntil    DateTime?
+  lastAttemptAt   DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([blockedUntil])
+  @@index([lastAttemptAt])
+}
