@@ -1,6 +1,6 @@
 // app/layout.tsx
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { JetBrains_Mono, Sora } from "next/font/google";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { PHASE_PRODUCTION_BUILD } from "next/constants";
@@ -11,13 +11,13 @@ import UserNav from "@/app/components/UserNav";
 
 export const dynamic = "force-dynamic";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const soraSans = Sora({
+  variable: "--font-sora-sans",
   subsets: ["latin"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-jetbrains-mono",
   subsets: ["latin"],
 });
 
@@ -58,7 +58,7 @@ export default async function RootLayout({
   if (process.env.NEXT_PHASE === PHASE_PRODUCTION_BUILD) {
     return (
       <html lang="en">
-        <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>{children}</body>
+        <body className={`${soraSans.variable} ${jetbrainsMono.variable} app-body antialiased`}>{children}</body>
       </html>
     );
   }
@@ -157,7 +157,7 @@ export default async function RootLayout({
 
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+      <body className={`${soraSans.variable} ${jetbrainsMono.variable} app-body antialiased`}>
         {/* Admin-only preview controls (single source of truth; do NOT duplicate in AdminNav/UserNav) */}
         {isAdmin ? (
           <div
@@ -248,7 +248,7 @@ export default async function RootLayout({
         {showAdminNav ? <AdminNav /> : null}
         {shouldRenderUserNav ? <UserNav /> : null}
 
-        {children}
+        <div className="app-content-shell">{children}</div>
       </body>
     </html>
   );

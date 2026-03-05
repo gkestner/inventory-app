@@ -17,21 +17,9 @@ export default async function TopNav() {
   const role = (session?.user as { role?: Role | null } | undefined)?.role ?? null;
   const isAdmin = role === Role.ADMIN;
 
-  const shell: CSSProperties = {
-    borderBottom: "1px solid rgba(128,128,128,0.25)",
-    background: "var(--background)",
-    color: "var(--foreground)",
-  };
+  const shell: CSSProperties = { color: "var(--foreground)" };
 
-  const inner: CSSProperties = {
-    display: "flex",
-    gap: 10,
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "10px 12px",
-    maxWidth: 1400,
-    margin: "0 auto",
-  };
+  const inner: CSSProperties = {};
 
   const left: CSSProperties = {
     display: "flex",
@@ -40,26 +28,9 @@ export default async function TopNav() {
     flexWrap: "wrap",
   };
 
-  const brand: CSSProperties = {
-    fontWeight: 900,
-    letterSpacing: 0.2,
-    padding: "6px 10px",
-    borderRadius: 10,
-    border: "1px solid rgba(128,128,128,0.25)",
-    textDecoration: "none",
-    color: "var(--foreground)",
-  };
+  const brand: CSSProperties = {};
 
-  const linkStyle: CSSProperties = {
-    padding: "6px 10px",
-    borderRadius: 10,
-    border: "1px solid rgba(128,128,128,0.18)",
-    textDecoration: "none",
-    color: "var(--foreground)",
-    fontWeight: 800,
-    opacity: 0.92,
-    whiteSpace: "nowrap",
-  };
+  const linkStyle: CSSProperties = { whiteSpace: "nowrap" };
 
   const canWorkOrders = hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
   const canCheckout = hasAnyPermission(perms, [Permission.VIEW_CHECKOUT]);
@@ -68,33 +39,33 @@ export default async function TopNav() {
   const canLiveOrders = hasAnyPermission(perms, [Permission.VIEW_LIVE_ORDERS]);
 
   return (
-    <div style={shell}>
-      <div style={inner}>
+    <div className="site-nav-shell" style={shell}>
+      <div className="site-nav-inner" style={inner}>
         <div style={left}>
-          <Link href="/" style={brand}>
+          <Link href="/" className="site-brand" style={brand}>
             Inventory
           </Link>
 
           {canWorkOrders ? (
-            <Link href="/maintenance/work-orders" style={linkStyle}>
+            <Link href="/maintenance/work-orders" className="site-link" style={linkStyle}>
               Work Orders
             </Link>
           ) : null}
 
           {canCheckout ? (
-            <Link href="/maintenance/checkout" style={linkStyle}>
+            <Link href="/maintenance/checkout" className="site-link" style={linkStyle}>
               Checkout
             </Link>
           ) : null}
 
           {canLiveOrders ? (
-            <Link href="/employee/live-orders" style={linkStyle}>
+            <Link href="/employee/live-orders" className="site-link" style={linkStyle}>
               Live Orders
             </Link>
           ) : null}
 
           {isAdmin ? (
-            <Link href="/admin" style={linkStyle}>
+            <Link href="/admin" className="site-link" style={linkStyle}>
               Admin
             </Link>
           ) : null}
@@ -104,9 +75,9 @@ export default async function TopNav() {
           style={{
             padding: "6px 12px",
             borderRadius: 10,
-            border: "1px solid rgba(128,128,128,0.25)",
-            background: "var(--background)",
-            color: "var(--foreground)",
+            border: "1px solid color-mix(in srgb, var(--brand) 55%, var(--border))",
+            background: "linear-gradient(160deg, var(--brand-2) 0%, var(--brand) 100%)",
+            color: "var(--brand-contrast)",
             fontWeight: 800,
             cursor: "pointer",
           }}

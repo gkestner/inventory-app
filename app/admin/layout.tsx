@@ -74,21 +74,32 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     display: "grid",
     gridTemplateColumns: "260px minmax(0, 1fr)",
     minHeight: "100vh",
-    background: "var(--background)",
+    background: "transparent",
     color: "var(--foreground)",
+    gap: 12,
+    padding: 12,
   };
 
   const sidebar: CSSProperties = {
-    borderRight: "1px solid var(--border)",
+    border: "1px solid var(--border)",
     background: "var(--surface)",
     padding: 14,
+    borderRadius: 14,
+    boxShadow: "var(--shadow)",
+    alignSelf: "start",
+    position: "sticky",
+    top: 12,
   };
 
   const main: CSSProperties = {
     padding: 0,
-    background: "var(--background)",
+    background: "var(--surface)",
     color: "var(--foreground)",
     minWidth: 0,
+    border: "1px solid var(--border)",
+    borderRadius: 14,
+    boxShadow: "var(--shadow)",
+    overflow: "hidden",
   };
 
   const brand: CSSProperties = {
@@ -154,7 +165,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     gap: 10,
     padding: "12px 16px",
     borderBottom: "1px solid var(--border)",
-    background: "var(--surface)",
+    background: "color-mix(in srgb, var(--surface-2) 85%, transparent)",
     position: "sticky",
     top: 0,
     zIndex: 10,
@@ -164,8 +175,8 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     padding: "8px 12px",
     borderRadius: 10,
     border: "1px solid var(--border)",
-    background: "var(--surface-2)",
-    color: "var(--foreground)",
+    background: "linear-gradient(160deg, var(--brand-2) 0%, var(--brand) 100%)",
+    color: "var(--brand-contrast)",
     fontWeight: 900,
     cursor: "pointer",
   };
@@ -173,7 +184,20 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   const email = (session.user as unknown as { email?: string | null } | null)?.email ?? "—";
 
   return (
-    <div style={wrap}>
+    <div className="admin-layout-grid" style={wrap}>
+      <style>{`
+        @media (max-width: 1080px) {
+          .admin-layout-grid {
+            grid-template-columns: 1fr !important;
+            gap: 10px !important;
+            padding: 10px !important;
+          }
+          .admin-layout-grid aside {
+            position: static !important;
+          }
+        }
+      `}</style>
+
       <aside style={sidebar}>
         <div style={brand}>Admin</div>
         <div style={meta}>
@@ -256,7 +280,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         </nav>
 
         <div style={{ marginTop: 16, display: "grid", gap: 8 }}>
-          <Link href="/" style={{ ...linkStyle, justifyContent: "center" }}>
+          <Link href="/" style={{ ...linkStyle, justifyContent: "center", background: "var(--surface-2)" }}>
             ← Back to App
           </Link>
 

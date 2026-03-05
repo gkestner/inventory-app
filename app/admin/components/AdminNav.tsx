@@ -14,21 +14,9 @@ export default async function AdminNav() {
   const session = await getServerSession(authOptions);
   const perms = await loadUserPermissions(session);
 
-  const shell: CSSProperties = {
-    borderBottom: "1px solid rgba(128,128,128,0.25)",
-    background: "var(--background)",
-    color: "var(--foreground)",
-  };
+  const shell: CSSProperties = { color: "var(--foreground)" };
 
-  const inner: CSSProperties = {
-    display: "flex",
-    gap: 10,
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "10px 12px",
-    maxWidth: 1400,
-    margin: "0 auto",
-  };
+  const inner: CSSProperties = {};
 
   const left: CSSProperties = {
     display: "flex",
@@ -37,21 +25,13 @@ export default async function AdminNav() {
     flexWrap: "wrap",
   };
 
-  const brand: CSSProperties = {
-    fontWeight: 900,
-    letterSpacing: 0.2,
-    padding: "6px 10px",
-    borderRadius: 10,
-    border: "1px solid rgba(128,128,128,0.25)",
-    textDecoration: "none",
-    color: "var(--foreground)",
-  };
+  const brand: CSSProperties = {};
 
   const summaryStyle: CSSProperties = {
     listStyle: "none",
     padding: "6px 10px",
     borderRadius: 10,
-    border: "1px solid rgba(128,128,128,0.18)",
+    border: "1px solid var(--border)",
     color: "var(--foreground)",
     fontWeight: 900,
     opacity: 0.92,
@@ -73,7 +53,7 @@ export default async function AdminNav() {
     minWidth: 210,
     padding: 8,
     borderRadius: 12,
-    border: "1px solid rgba(128,128,128,0.25)",
+    border: "1px solid var(--border)",
     background: "var(--background)",
     color: "var(--foreground)",
     boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
@@ -163,7 +143,7 @@ export default async function AdminNav() {
     canAdminMaintenanceTickets || canAdminWorkOrders || canUserWorkOrders || canCheckout;
 
   return (
-    <div style={shell} data-admin-nav-root>
+    <div className="site-nav-shell" style={shell} data-admin-nav-root>
       {/* Ensure disclosure marker is hidden consistently */}
       <style>{`
         details > summary::-webkit-details-marker { display: none; }
@@ -250,9 +230,9 @@ export default async function AdminNav() {
 })();
       `}</Script>
 
-      <div style={inner}>
+      <div className="site-nav-inner" style={inner}>
         <div style={left}>
-          <Link href="/admin/items" style={brand}>
+          <Link href="/admin/items" className="site-brand" style={brand}>
             Inventory Admin
           </Link>
 
