@@ -180,6 +180,8 @@ export default async function ItemLabelsPage({
 
                 const AUTOPRINT = ${autoprint ? "true" : "false"};
                 const AUTOCLOSE = ${autoclose ? "true" : "false"};
+                const IS_LABELS_POPUP = window.name === "labels-print-popup";
+                const SHOULD_AUTOCLOSE = AUTOCLOSE && IS_LABELS_POPUP;
                 const AUTOPRINT_LOCK_KEY = "__labels_autoprint_lock_until";
 
                 console.log("Label page debug", {
@@ -214,12 +216,12 @@ export default async function ItemLabelsPage({
                     e.preventDefault();
                     doPrint();
                   }
-                  if (e.key === "Escape" && AUTOCLOSE) {
+                  if (e.key === "Escape" && SHOULD_AUTOCLOSE) {
                     window.close();
                   }
                 });
 
-                if (AUTOCLOSE) {
+                if (SHOULD_AUTOCLOSE) {
                   window.addEventListener("afterprint", () => {
                     setTimeout(() => window.close(), 200);
                   });
@@ -228,7 +230,7 @@ export default async function ItemLabelsPage({
                 if (AUTOPRINT) {
                   if (!acquireAutoprintLock()) {
                     console.log("Duplicate autoprint suppressed.");
-                    if (AUTOCLOSE) {
+                    if (SHOULD_AUTOCLOSE) {
                       setTimeout(() => window.close(), 80);
                     }
                     return;
