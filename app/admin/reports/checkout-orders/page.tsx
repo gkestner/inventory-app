@@ -117,6 +117,9 @@ export default async function CheckoutOrdersReportPage({
             { skuSnapshot: { contains: q, mode: "insensitive" } },
             { partNumberSnapshot: { contains: q, mode: "insensitive" } },
             { nameSnapshot: { contains: q, mode: "insensitive" } },
+            { item: { sku: { contains: q, mode: "insensitive" } } },
+            { item: { name: { contains: q, mode: "insensitive" } } },
+            { item: { partNumber: { contains: q, mode: "insensitive" } } },
             { storeName: { contains: q, mode: "insensitive" } },
             { createdByName: { contains: q, mode: "insensitive" } },
             { note: { contains: q, mode: "insensitive" } },
@@ -146,6 +149,7 @@ export default async function CheckoutOrdersReportPage({
         skuSnapshot: true,
         partNumberSnapshot: true,
         nameSnapshot: true,
+        item: { select: { sku: true, partNumber: true, name: true } },
         vendorSnapshot: true,
         costSnapshot: true,
         priceSnapshot: true,
@@ -284,6 +288,8 @@ export default async function CheckoutOrdersReportPage({
                       <div style={{ marginTop: 8, display: "grid", gap: 4, fontSize: 12 }}>
                         <div><b>Store ID:</b> {t.storeId}</div>
                         <div><b>Item ID:</b> {t.itemId}</div>
+                        <div><b>Current Item:</b> {t.item?.sku ?? "—"} {t.item?.name ? `- ${t.item.name}` : ""}</div>
+                        <div><b>Current Part #:</b> {t.item?.partNumber ?? "—"}</div>
                         <div><b>Created By User ID:</b> {t.createdByUserId}</div>
                         <div><b>Need To Order More:</b> {t.needToOrderMore ? "Yes" : "No"}</div>
                         <div><b>Note:</b> {t.note || "—"}</div>
