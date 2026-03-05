@@ -1301,7 +1301,29 @@ export default function ItemsTableClient({
       ) : null}
 
       <div style={{ overflowX: "hidden", width: "100%" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "auto" }}>
+        <style>{`
+          [data-items-table] th {
+            white-space: nowrap !important;
+            overflow-wrap: normal !important;
+            word-break: normal !important;
+          }
+
+          [data-items-table] td {
+            overflow-wrap: normal !important;
+            word-break: normal !important;
+            white-space: normal !important;
+          }
+
+          [data-items-table] .items-nowrap {
+            white-space: nowrap !important;
+          }
+
+          [data-items-table] .items-wrap {
+            white-space: normal !important;
+          }
+        `}</style>
+
+        <table data-items-table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "auto" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--border)" }}>
               <th
@@ -1519,11 +1541,11 @@ export default function ItemsTableClient({
                       )}
                     </td>
 
-                    <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 800 }}>
+                    <td className="items-nowrap" style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 800 }}>
                       {oh === null ? "—" : oh.toLocaleString()}
                     </td>
 
-                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                    <td className="items-nowrap" style={{ padding: 10, whiteSpace: "nowrap" }}>
                       {isEditing ? (
                         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                           <input
@@ -1545,7 +1567,7 @@ export default function ItemsTableClient({
                       )}
                     </td>
 
-                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                    <td className="items-nowrap" style={{ padding: 10, whiteSpace: "nowrap" }}>
                       {isEditing ? (
                         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                           <input
@@ -1576,7 +1598,7 @@ export default function ItemsTableClient({
                       )}
                     </td>
 
-                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                    <td className="items-nowrap" style={{ padding: 10, whiteSpace: "nowrap" }}>
                       {isEditing ? (
                         <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <input
@@ -1593,7 +1615,7 @@ export default function ItemsTableClient({
                       )}
                     </td>
 
-                    <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                    <td className="items-nowrap" style={{ padding: 10, whiteSpace: "nowrap" }}>
                       {isEditing ? (
                         <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <input
@@ -1610,7 +1632,7 @@ export default function ItemsTableClient({
                       )}
                     </td>
 
-                    <td style={{ padding: 10, whiteSpace: "nowrap", fontSize: 12, opacity: 0.85 }}>
+                    <td className="items-nowrap" style={{ padding: 10, whiteSpace: "nowrap", fontSize: 12, opacity: 0.85 }}>
                       {new Date(row.updatedAt).toLocaleString()}
                     </td>
 
