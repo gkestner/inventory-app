@@ -321,6 +321,7 @@ export default async function NeedsOrderingReportPage({
             <thead>
               <tr>
                 {[
+                  "Flag",
                   "SKU",
                   "Item",
                   "Supplier",
@@ -374,6 +375,9 @@ export default async function NeedsOrderingReportPage({
                       opacity: row.reorderIgnored ? 0.62 : 1,
                     }}
                   >
+                  <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>
+                    {row.hasTechRequest ? "Order More" : ""}
+                  </td>
                   <td style={{ padding: 10, fontWeight: 800, whiteSpace: "nowrap" }}>{row.sku}</td>
                   <td style={{ padding: 10 }}>
                     <div style={{ fontWeight: 700 }}>{row.name}</div>
@@ -453,7 +457,7 @@ export default async function NeedsOrderingReportPage({
 
               {needsOrdering.length === 0 ? (
                 <tr>
-                  <td colSpan={11} style={{ padding: 14, opacity: 0.8 }}>
+                  <td colSpan={12} style={{ padding: 14, opacity: 0.8 }}>
                     No items currently need ordering for your filters.
                   </td>
                 </tr>
