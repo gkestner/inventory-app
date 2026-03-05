@@ -235,7 +235,7 @@ export default async function NeedsOrderingReportPage({
 
         <div style={{ marginTop: 8, opacity: 0.85, lineHeight: 1.5 }}>
           Items where <code>onHand + ordered &lt; min</code> are listed here. Items flagged from checkout as "Need to order
-          more" are also included and highlighted in blue. Use Ignore to hide non-actionable rows.
+          more" are also included and highlighted in magenta. Use Ignore to hide non-actionable rows.
         </div>
 
         {okMsg ? (
@@ -323,9 +323,9 @@ export default async function NeedsOrderingReportPage({
           style={{
             marginTop: 10,
             padding: 10,
-            border: "1px solid rgba(37,99,235,0.32)",
+            border: "1px solid rgba(219,39,119,0.42)",
             borderRadius: 10,
-            background: "rgba(37,99,235,0.10)",
+            background: "rgba(219,39,119,0.12)",
           }}
         >
           <div style={{ fontWeight: 900, marginBottom: 6 }}>Order More Flags</div>
@@ -339,8 +339,8 @@ export default async function NeedsOrderingReportPage({
                   style={{
                     padding: "4px 8px",
                     borderRadius: 999,
-                    border: "1px solid rgba(37,99,235,0.4)",
-                    background: "rgba(37,99,235,0.16)",
+                    border: "1px solid rgba(219,39,119,0.5)",
+                    background: "rgba(219,39,119,0.2)",
                     fontWeight: 800,
                     fontSize: 12,
                   }}
@@ -390,13 +390,13 @@ export default async function NeedsOrderingReportPage({
                 const itemUrl = normalizeExternalUrl(row.webUrl);
                 const highlight =
                   row.priority === "blue"
-                    ? "rgba(37,99,235,0.14)"
+                    ? "rgba(219,39,119,0.16)"
                     : row.priority === "red"
                     ? "rgba(220,38,38,0.12)"
                     : "rgba(245,158,11,0.12)";
                 const borderTint =
                   row.priority === "blue"
-                    ? "rgba(37,99,235,0.32)"
+                    ? "rgba(219,39,119,0.38)"
                     : row.priority === "red"
                     ? "rgba(220,38,38,0.22)"
                     : "rgba(245,158,11,0.24)";

@@ -1,18 +1,28 @@
 // app/admin/components/AdminNav.tsx
 import Link from "next/link";
-import Script from "next/script";
 import type { CSSProperties } from "react";
 import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/app/lib/auth";
-import { Permission } from "@prisma/client";
+import { Permission, Role } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { prisma } from "@/app/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminNav() {
   const session = await getServerSession(authOptions);
   const perms = await loadUserPermissions(session);
+  const email = String(session?.user?.email ?? "").trim().toLowerCase();
+  const dbRole = email
+    ? (
+        await prisma.user.findUnique({
+          where: { email },
+          select: { role: true },
+        })
+      )?.role ?? null
+    : null;
+  const isAdmin = session?.user?.role === Role.ADMIN || dbRole === Role.ADMIN;
 
   const shell: CSSProperties = { color: "var(--foreground)" };
 
@@ -67,7 +77,7 @@ export default async function AdminNav() {
     textDecoration: "none",
     color: "var(--foreground)",
     fontWeight: 800,
-    opacity: 0.95,
+    opacity: 1,
     whiteSpace: "nowrap",
   };
 
@@ -92,41 +102,41 @@ export default async function AdminNav() {
   };
 
   // permissions
-  const canAdminItems = hasAnyPermission(perms, [
+  const canAdminItems = isAdmin || hasAnyPermission(perms, [
     Permission.ADMIN_VIEW_ITEMS,
     Permission.ADMIN_EDIT_ITEMS,
     Permission.ADMIN_IMPORT_EXPORT_ITEMS,
   ]);
 
-  const canAdminUsers = hasAnyPermission(perms, [
+  const canAdminUsers = isAdmin || hasAnyPermission(perms, [
     Permission.ADMIN_VIEW_USERS,
     Permission.ADMIN_EDIT_USERS,
   ]);
 
-  const canAdminLocations = hasAnyPermission(perms, [
+  const canAdminLocations = isAdmin || hasAnyPermission(perms, [
     Permission.ADMIN_VIEW_LOCATIONS,
     Permission.ADMIN_EDIT_LOCATIONS,
   ]);
 
-  const canAdminWorkOrders = hasAnyPermission(perms, [
+  const canAdminWorkOrders = isAdmin || hasAnyPermission(perms, [
     Permission.ADMIN_VIEW_WORK_ORDERS,
     Permission.ADMIN_EDIT_WORK_ORDERS,
     Permission.ADMIN_DELETE_WORK_ORDERS,
   ]);
 
-  const canAdminMaintenanceTickets = hasAnyPermission(perms, [
+  const canAdminMaintenanceTickets = isAdmin || hasAnyPermission(perms, [
     Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
     Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS,
   ]);
 
-  const canUserWorkOrders = hasAnyPermission(perms, [
+  const canUserWorkOrders = isAdmin || hasAnyPermission(perms, [
     Permission.VIEW_WORK_ORDERS,
     Permission.CREATE_WORK_ORDERS,
     Permission.UPDATE_OWN_WORK_ORDERS,
     Permission.SUBMIT_OWN_WORK_ORDERS,
   ]);
 
-  const canCheckout = hasAnyPermission(perms, [
+  const canCheckout = isAdmin || hasAnyPermission(perms, [
     Permission.VIEW_CHECKOUT,
     Permission.CREATE_CHECKOUT,
   ]);
@@ -149,72 +159,6 @@ export default async function AdminNav() {
       <style>{`
         details > summary::-webkit-details-marker { display: none; }
       `}</style>
-
-      {/* ✅ This script WILL execute in App Router */}
-      <Script id="admin-nav-autoclose" strategy="afterInteractive">{`
-(function () {
-  function getRoot() {
-    return document.querySelector('[data-admin-nav-root]');
-  }
-
-  function closeAll(root) {
-    var nodes = (root || document).querySelectorAll('details[data-admin-dropdown][open]');
-    for (var i = 0; i < nodes.length; i++) nodes[i].removeAttribute('open');
-  }
-
-  function closeOthers(root, keep) {
-    var nodes = (root || document).querySelectorAll('details[data-admin-dropdown][open]');
-    for (var i = 0; i < nodes.length; i++) {
-      if (nodes[i] !== keep) nodes[i].removeAttribute('open');
-    }
-  }
-
-  function bindOnce() {
-    var root = getRoot();
-    if (!root) return;
-
-    if (root.__adminNavBound) return;
-    root.__adminNavBound = true;
-
-    // Only one open at a time
-    root.addEventListener('toggle', function (e) {
-      var t = e.target;
-      if (!t || t.tagName !== 'DETAILS') return;
-      if (!t.matches('details[data-admin-dropdown]')) return;
-      if (t.hasAttribute('open')) closeOthers(root, t);
-    }, true);
-
-    // Click outside closes everything
-    document.addEventListener('click', function (e) {
-      var root = getRoot();
-      if (!root) return;
-
-      var t = e.target;
-      if (!t || !t.closest) { closeAll(root); return; }
-
-      if (t.closest('details[data-admin-dropdown]')) return;
-
-      if (t.closest('[data-admin-nav-root]')) {
-        closeAll(root);
-        return;
-      }
-
-      closeAll(root);
-    }, false);
-
-    // Escape closes
-    document.addEventListener('keydown', function (e) {
-      if (!e || e.key !== 'Escape') return;
-      var root = getRoot();
-      if (!root) return;
-      closeAll(root);
-    }, true);
-  }
-
-  bindOnce();
-  setTimeout(bindOnce, 250);
-})();
-      `}</Script>
 
       <div className="site-nav-inner" style={inner}>
         <div style={left}>

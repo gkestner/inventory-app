@@ -40,13 +40,15 @@ export async function GET() {
     select: {
       id: true,
       name: true,
+      locationNumber: true,
+      corporationNumber: true,
       active: true,
       createdAt: true,
       updatedAt: true,
     },
   });
 
-  const header = ["id", "name", "active", "createdAt", "updatedAt"];
+  const header = ["id", "name", "locationNumber", "corporationNumber", "active", "createdAt", "updatedAt"];
 
   const lines: string[] = [];
   lines.push(header.join(","));
@@ -56,6 +58,8 @@ export async function GET() {
       [
         csvEscape(r.id),
         csvEscape(r.name),
+        csvEscape(r.locationNumber ?? ""),
+        csvEscape(r.corporationNumber ?? ""),
         r.active ? "true" : "false",
         csvEscape(isoOrEmpty(r.createdAt)),
         csvEscape(isoOrEmpty(r.updatedAt)),

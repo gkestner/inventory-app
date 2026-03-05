@@ -87,6 +87,20 @@ function fmtMoney(v: unknown) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 }
 
+function rowPhaseStyle(phase: string): CSSProperties {
+  const orderedBg = "var(--order-ordered-bg, rgba(255, 193, 7, 0.10))";
+  const arrivedBg = "var(--order-arrived-bg, rgba(33, 150, 243, 0.10))";
+  const addedBg = "var(--order-added-bg, rgba(76, 175, 80, 0.12))";
+
+  const orderedBar = "var(--order-ordered-bar, rgba(255, 193, 7, 0.55))";
+  const arrivedBar = "var(--order-arrived-bar, rgba(33, 150, 243, 0.55))";
+  const addedBar = "var(--order-added-bar, rgba(76, 175, 80, 0.60))";
+
+  if (phase === "ORDERED") return { background: orderedBg, borderLeft: `6px solid ${orderedBar}` };
+  if (phase === "ARRIVED") return { background: arrivedBg, borderLeft: `6px solid ${arrivedBar}` };
+  return { background: addedBg, borderLeft: `6px solid ${addedBar}` };
+}
+
 export default async function LiveOrdersPage() {
   const { canEdit } = await requireLiveOrdersAccess();
 
@@ -309,7 +323,7 @@ export default async function LiveOrdersPage() {
               const hidden = (o as any).hiddenFromUserLiveBoard === true;
 
               return (
-                <tr key={o.id}>
+                <tr key={o.id} style={rowPhaseStyle(o.status)}>
                   <td style={td}>{fmtDateTime(o.orderedAt)}</td>
                   <td style={td}>
                     <span style={{ ...mono, fontWeight: 900 }}>{o.status}</span>

@@ -274,6 +274,9 @@ model Location {
   // Store number used for invoicing (nullable for safe rollout)
   locationNumber String? @unique
 
+  // Corporation number (optional, per location)
+  corporationNumber String?
+
   // Invoices per store
   invoices Invoice[]
 

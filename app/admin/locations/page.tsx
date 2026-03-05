@@ -166,6 +166,13 @@ function normalizeLocationNumber(raw: string): string | null {
   return v;
 }
 
+function normalizeCorporationNumber(raw: string): string | null {
+  const v = String(raw ?? "").trim();
+  if (!v) return null;
+  if (!/^[A-Za-z0-9-]+$/.test(v)) return null;
+  return v;
+}
+
 export default async function AdminLocationsPage({ searchParams }: { searchParams?: SearchParams }) {
   await requireAdmin();
 
@@ -183,12 +190,13 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
     const raw = String(formData.get("name") ?? "");
     const name = normalizeLocationName(raw);
     const locationNumber = normalizeLocationNumber(String(formData.get("locationNumber") ?? ""));
+    const corporationNumber = normalizeCorporationNumber(String(formData.get("corporationNumber") ?? ""));
 
     if (!name) redirect("/admin/locations?err=" + encodeURIComponent("Name is required"));
 
     try {
       await prisma.location.create({
-        data: { name, active: true, locationNumber },
+        data: { name, active: true, locationNumber, corporationNumber },
       });
     } catch (e: unknown) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
@@ -414,6 +422,36 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
     redirect("/admin/locations?ok=" + encodeURIComponent("Saved"));
   }
 
+  async function setCorporationNumberAction(formData: FormData) {
+    "use server";
+    await requireAdmin();
+
+    const id = String(formData.get("id") ?? "").trim();
+    if (!id) redirect("/admin/locations?err=" + encodeURIComponent("Missing id"));
+
+    const corpRaw = String(formData.get("corporationNumber") ?? "");
+    const corporationNumber = normalizeCorporationNumber(corpRaw);
+    const trimmed = corpRaw.trim();
+    if (trimmed && corporationNumber === null) {
+      redirect("/admin/locations?err=" + encodeURIComponent("Corporation # must be letters/numbers/hyphen only."));
+    }
+
+    try {
+      await prisma.location.update({
+        where: { id },
+        data: { corporationNumber },
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Update failed";
+      redirect("/admin/locations?err=" + encodeURIComponent(msg));
+    }
+
+    revalidatePath("/admin/locations");
+    revalidatePath("/admin/users");
+    revalidatePath("/maintenance/checkout");
+    redirect("/admin/locations?ok=" + encodeURIComponent("Saved"));
+  }
+
   async function toggleActiveAction(formData: FormData) {
     "use server";
     await requireAdmin();
@@ -503,7 +541,7 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
   const locations = await prisma.location.findMany({
     where,
     orderBy: [{ active: "desc" }, { name: "asc" }],
-    select: { id: true, name: true, locationNumber: true, createdAt: true, active: true },
+    select: { id: true, name: true, locationNumber: true, corporationNumber: true, createdAt: true, active: true },
   });
 
   const thStyle: CSSProperties = {
@@ -656,6 +694,18 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
             }}
           />
           <input
+            name="corporationNumber"
+            placeholder="Corp #"
+            style={{
+              padding: "8px 10px",
+              borderRadius: 10,
+              border: "1px solid rgba(128,128,128,0.25)",
+              background: "var(--background)",
+              color: "var(--foreground)",
+              width: 140,
+            }}
+          />
+          <input
             name="name"
             placeholder="Location name (e.g. KINGSPORT)"
             style={{
@@ -777,7 +827,7 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
         <table style={{ width: "100%", minWidth: 1180, borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              {["Select", "Loc #", "Name", "Active", "Created", "Rename", "Set #", "Toggle", "Delete"].map((h) => (
+              {["Select", "Loc #", "Corp #", "Name", "Active", "Created", "Rename", "Set #", "Set Corp #", "Toggle", "Delete"].map((h) => (
                 <th key={h} style={thStyle}>
                   {h}
                 </th>
@@ -793,6 +843,8 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
                 </td>
 
                 <td style={{ ...tdStyle, fontWeight: 900, width: 90 }}>{l.locationNumber ? l.locationNumber : "—"}</td>
+
+                <td style={{ ...tdStyle, fontWeight: 900, width: 110 }}>{l.corporationNumber ? l.corporationNumber : "—"}</td>
 
                 <td style={{ ...tdStyle, fontWeight: 800, minWidth: 180 }}>{l.name}</td>
 
@@ -850,6 +902,31 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
                   <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>Used for invoicing. Blank = not ready.</div>
                 </td>
 
+                <td style={{ padding: 10, minWidth: 240 }}>
+                  <form
+                    action={setCorporationNumberAction}
+                    style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}
+                  >
+                    <input type="hidden" name="id" value={l.id} />
+                    <input
+                      name="corporationNumber"
+                      defaultValue={l.corporationNumber ?? ""}
+                      placeholder="Corp #"
+                      style={{
+                        padding: "6px 8px",
+                        borderRadius: 10,
+                        border: "1px solid rgba(128,128,128,0.25)",
+                        background: "var(--background)",
+                        color: "var(--foreground)",
+                        width: 120,
+                      }}
+                    />
+                    <button type="submit" style={{ padding: "6px 10px", fontWeight: 900 }}>
+                      Save
+                    </button>
+                  </form>
+                </td>
+
                 <td style={tdStyle}>
                   <form action={toggleActiveAction} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <input type="hidden" name="id" value={l.id} />
@@ -890,7 +967,7 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
 
             {locations.length === 0 ? (
               <tr>
-                <td colSpan={9} style={{ padding: 14, opacity: 0.8 }}>
+                <td colSpan={11} style={{ padding: 14, opacity: 0.8 }}>
                   No locations found.
                 </td>
               </tr>
