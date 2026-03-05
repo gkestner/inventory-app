@@ -116,6 +116,29 @@ function nonEmptyString(v: FormDataEntryValue | null): string {
   return String(v ?? "").trim();
 }
 
+function parseTwoDigitSkuPart(raw: FormDataEntryValue | null, label: string): string {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+  if (!/^\d{1,2}$/.test(s)) throw new Error(`${label} must be 1-2 digits.`);
+  return s.padStart(2, "0");
+}
+
+function applySkuMiddleFromParts(skuRaw: string, loc: string, shelf: string, bin: string): string {
+  if (!loc && !shelf && !bin) return skuRaw;
+
+  if (!loc || !shelf || !bin) {
+    throw new Error("Loc, Shelf, and Bin are all required when setting SKU location fields.");
+  }
+
+  const parts = String(skuRaw).trim().split("-");
+  if (parts.length < 3) {
+    throw new Error("New item SKU must be in format ZONE-MIDDLE-ITEM (example: 01-031802-0001).");
+  }
+
+  parts[1] = `${loc}${shelf}${bin}`;
+  return parts.join("-");
+}
+
 function buildSystemAuditLine(args: {
   action:
     | "CREATE_ORDER"
@@ -209,7 +232,7 @@ export async function createOrderAction(formData: FormData) {
     let itemId = nonEmptyString(formData.get("itemId"));
 
     // new item fields (only required when isNewItem)
-    const newSku = nonEmptyString(formData.get("newSku"));
+    const newSkuRaw = nonEmptyString(formData.get("newSku"));
     const newName = nonEmptyString(formData.get("newName"));
     const newPartNumber = nonEmptyString(formData.get("newPartNumber"));
     const newVendorRaw = nonEmptyString(formData.get("newVendor")); // SUCCESS_PLUS / AMERICAN_PLUS
@@ -217,6 +240,10 @@ export async function createOrderAction(formData: FormData) {
     const newManufacturer = nonEmptyString(formData.get("newManufacturer"));
     const newOrderFrom = nonEmptyString(formData.get("newOrderFrom"));
     const newWebUrl = nonEmptyString(formData.get("newWebUrl"));
+    const newLoc = parseTwoDigitSkuPart(formData.get("newLoc"), "Loc");
+    const newShelf = parseTwoDigitSkuPart(formData.get("newShelf"), "Shelf");
+    const newBin = parseTwoDigitSkuPart(formData.get("newBin"), "Bin");
+    const newSku = applySkuMiddleFromParts(newSkuRaw, newLoc, newShelf, newBin);
 
     const qty = parseRequiredInt(formData.get("qty"));
     const supplierName = String(formData.get("supplierName") ?? "").trim();

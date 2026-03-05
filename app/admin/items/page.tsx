@@ -154,6 +154,29 @@ function intOrDefault(v: FormDataEntryValue | null, fallback: number): number {
   return Math.floor(n);
 }
 
+function parseTwoDigitSkuPart(raw: FormDataEntryValue | null, label: string): string {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+  if (!/^\d{1,2}$/.test(s)) throw new Error(`${label} must be 1-2 digits.`);
+  return s.padStart(2, "0");
+}
+
+function applySkuMiddleFromParts(skuRaw: string, loc: string, shelf: string, bin: string): string {
+  if (!loc && !shelf && !bin) return skuRaw;
+
+  if (!loc || !shelf || !bin) {
+    throw new Error("Loc, Shelf, and Bin are all required when setting SKU location fields.");
+  }
+
+  const parts = String(skuRaw).trim().split("-");
+  if (parts.length < 3) {
+    throw new Error("SKU must be in format ZONE-MIDDLE-ITEM (example: 01-031802-0001).");
+  }
+
+  parts[1] = `${loc}${shelf}${bin}`;
+  return parts.join("-");
+}
+
 export default async function AdminItemsPage({
   searchParams,
 }: {
@@ -186,8 +209,13 @@ export default async function AdminItemsPage({
     if (!session) throw new Error("Unauthorized");
     if (!(await canAccessAdmin(session))) throw new Error("Forbidden");
 
-    const sku = requiredText(formData.get("sku"), "SKU");
+    let sku = requiredText(formData.get("sku"), "SKU");
     const name = requiredText(formData.get("name"), "Name");
+
+    const maintLoc = parseTwoDigitSkuPart(formData.get("maintLoc"), "Loc");
+    const maintShelf = parseTwoDigitSkuPart(formData.get("maintShelf"), "Shelf");
+    const maintBin = parseTwoDigitSkuPart(formData.get("maintBin"), "Bin");
+    sku = applySkuMiddleFromParts(sku, maintLoc, maintShelf, maintBin);
 
     const vendorRaw = String(formData.get("vendor") ?? "").trim();
     const vendor: Vendor = vendorRaw === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS";
@@ -429,6 +457,27 @@ export default async function AdminItemsPage({
                 Name (required)
                 <input name="name" placeholder="COOL CURTAIN 60ft Roll" required style={field} />
               </label>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)", gap: 12 }}>
+              <label style={label}>
+                Loc (SKU middle)
+                <input name="maintLoc" placeholder="03" inputMode="numeric" style={field} />
+              </label>
+
+              <label style={label}>
+                Shelf (SKU middle)
+                <input name="maintShelf" placeholder="18" inputMode="numeric" style={field} />
+              </label>
+
+              <label style={label}>
+                Bin (SKU middle)
+                <input name="maintBin" placeholder="02" inputMode="numeric" style={field} />
+              </label>
+            </div>
+
+            <div style={{ fontSize: 12, opacity: 0.75, marginTop: -2 }}>
+              If Loc/Shelf/Bin are provided, they overwrite the SKU middle segment as <code>LLSSBB</code>.
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 12 }}>

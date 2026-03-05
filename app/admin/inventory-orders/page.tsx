@@ -1155,6 +1155,21 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                       <input name="newSku" placeholder="SKU…" style={controlBase} />
                     </label>
 
+                    <label style={{ ...controlLabel, ...flexItem(120, 0) }}>
+                      Loc
+                      <input name="newLoc" placeholder="03" inputMode="numeric" style={controlBase} />
+                    </label>
+
+                    <label style={{ ...controlLabel, ...flexItem(120, 0) }}>
+                      Shelf
+                      <input name="newShelf" placeholder="18" inputMode="numeric" style={controlBase} />
+                    </label>
+
+                    <label style={{ ...controlLabel, ...flexItem(120, 0) }}>
+                      Bin
+                      <input name="newBin" placeholder="02" inputMode="numeric" style={controlBase} />
+                    </label>
+
                     <label style={{ ...controlLabel, ...flexItem(360, 2) }}>
                       Name (required for new)
                       <input name="newName" placeholder="Item name…" style={controlBase} />
@@ -1259,6 +1274,10 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                 <input name="q" defaultValue={q} placeholder="id, sku, name, supplier, note…" style={controlBase} />
               </label>
 
+
+                  <div style={{ fontSize: 12, opacity: 0.75 }}>
+                    Optional: Loc/Shelf/Bin overwrite the SKU middle segment as <code>LLSSBB</code>.
+                  </div>
               <label style={{ ...controlLabel, ...flexItem(170, 0) }}>
                 Phase
                 <select name="phase" defaultValue={phase || ""} style={controlBase}>
