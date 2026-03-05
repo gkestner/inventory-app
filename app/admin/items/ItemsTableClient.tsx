@@ -604,6 +604,30 @@ export default function ItemsTableClient({
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
+  useEffect(() => {
+    const closeAllActionMenus = () => {
+      const openMenus = Array.from(document.querySelectorAll('details[data-item-actions][open]')) as HTMLDetailsElement[];
+      for (const menu of openMenus) menu.removeAttribute("open");
+    };
+
+    const onDocClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest?.('details[data-item-actions]')) return;
+      closeAllActionMenus();
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeAllActionMenus();
+    };
+
+    document.addEventListener("click", onDocClick, false);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("click", onDocClick, false);
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, []);
+
    // ✅ LIVE client-side filtered view while typing.
   // If the current URL already contains this same q, rows are server-filtered,
   // so do not apply an extra local filter that could hide valid server matches.
@@ -1679,7 +1703,7 @@ export default function ItemsTableClient({
                           </button>
                         </div>
                       ) : (
-                        <details style={{ position: "relative", display: "inline-block" }}>
+                        <details data-item-actions style={{ position: "relative", display: "inline-block" }}>
                           <summary
                             style={{
                               listStyle: "none",
