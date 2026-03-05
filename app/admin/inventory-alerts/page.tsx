@@ -257,7 +257,7 @@ export default async function InventoryAlertsPage({ searchParams }: { searchPara
   const backUrl = "/admin/inventory-alerts" + buildQS({ ...baseParams, page: String(safePage) });
 
   return (
-    <div style={{ padding: 16 }}>
+    <div style={{ padding: 16, width: "100%", maxWidth: "100%", minWidth: 0 }}>
       <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 12 }}>Inventory Alerts</h1>
 
       {errMsg ? (
@@ -298,7 +298,7 @@ export default async function InventoryAlertsPage({ searchParams }: { searchPara
             name="q"
             defaultValue={q}
             placeholder="sku, item name, store, tech, ticket id…"
-            style={{ padding: "6px 8px", minWidth: 280 }}
+            style={{ padding: "6px 8px", width: "min(320px, 100%)" }}
           />
         </label>
 
@@ -327,8 +327,8 @@ export default async function InventoryAlertsPage({ searchParams }: { searchPara
           : `Showing ${(safePage - 1) * perPage + 1}-${Math.min(safePage * perPage, total)} of ${total}`}
       </div>
 
-      <div style={{ overflowX: "hidden", border: "1px solid rgba(128,128,128,0.25)", borderRadius: 8 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <div style={{ overflowX: "hidden", maxWidth: "100%", border: "1px solid rgba(128,128,128,0.25)", borderRadius: 8 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
           <thead>
             <tr>
               {["Created", "Type", "Item", "Store", "Ticket", "Delta", "OnHand/Ordered/Avail/Min", "Status", "Resolve"].map(
@@ -341,7 +341,8 @@ export default async function InventoryAlertsPage({ searchParams }: { searchPara
                       borderBottom: "1px solid rgba(128,128,128,0.25)",
                       fontSize: 12,
                       opacity: 0.85,
-                      whiteSpace: "nowrap",
+                      whiteSpace: "normal",
+                      overflowWrap: "anywhere",
                     }}
                   >
                     {h}
@@ -358,8 +359,8 @@ export default async function InventoryAlertsPage({ searchParams }: { searchPara
 
               return (
                 <tr key={r.id} style={{ borderBottom: "1px solid rgba(128,128,128,0.15)" }}>
-                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>{new Date(r.createdAt).toLocaleString()}</td>
-                  <td style={{ padding: 10, whiteSpace: "nowrap", fontFamily: "monospace" }}>{r.type}</td>
+                  <td style={{ padding: 10 }}>{new Date(r.createdAt).toLocaleString()}</td>
+                  <td style={{ padding: 10, fontFamily: "monospace" }}>{r.type}</td>
 
                   <td style={{ padding: 10 }}>
                     <div style={{ fontWeight: 700 }}>{r.item?.sku}</div>
@@ -379,9 +380,9 @@ export default async function InventoryAlertsPage({ searchParams }: { searchPara
                     <div style={{ opacity: 0.75, fontSize: 12 }}>{r.createdByName ? `By: ${r.createdByName}` : ""}</div>
                   </td>
 
-                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                  <td style={{ padding: 10 }}>
                     {r.checkoutId && ticketLink ? (
-                      <Link href={ticketLink} style={{ textDecoration: "underline", fontFamily: "monospace" }}>
+                      <Link href={ticketLink} style={{ textDecoration: "underline", fontFamily: "monospace", overflowWrap: "anywhere" }}>
                         {r.checkoutId.slice(0, 10)}…
                       </Link>
                     ) : (
@@ -389,13 +390,13 @@ export default async function InventoryAlertsPage({ searchParams }: { searchPara
                     )}
                   </td>
 
-                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>{r.qtyDelta ?? "-"}</td>
+                  <td style={{ padding: 10 }}>{r.qtyDelta ?? "-"}</td>
 
-                  <td style={{ padding: 10, whiteSpace: "nowrap", fontFamily: "monospace", fontSize: 12 }}>
+                  <td style={{ padding: 10, fontFamily: "monospace", fontSize: 12 }}>
                     {[r.onHandAfter ?? "-", r.orderedAfter ?? "-", r.availableAfter ?? "-", r.minQtyAtTime ?? "-"].join(" / ")}
                   </td>
 
-                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                  <td style={{ padding: 10 }}>
                     {resolved ? (
                       <div>
                         <div style={{ fontWeight: 700 }}>Resolved</div>
@@ -406,18 +407,18 @@ export default async function InventoryAlertsPage({ searchParams }: { searchPara
                     )}
                   </td>
 
-                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                  <td style={{ padding: 10 }}>
                     {resolved ? (
                       <span style={{ opacity: 0.6 }}>—</span>
                     ) : (
-                      <form action={resolveAlertAction} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <form action={resolveAlertAction} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                         <input type="hidden" name="alertId" value={r.id} />
                         <input type="hidden" name="back" value={backUrl} />
                         <input
                           name="note"
                           placeholder={noteRequired ? "required for TECH_REQUEST_ORDER" : "resolve note (optional)"}
                           required={noteRequired}
-                          style={{ padding: "6px 8px", width: 220 }}
+                          style={{ padding: "6px 8px", width: "min(220px, 100%)" }}
                         />
                         <button type="submit" style={{ padding: "6px 10px", fontWeight: 700 }}>
                           Resolve

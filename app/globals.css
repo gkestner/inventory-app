@@ -189,6 +189,8 @@ body {
 
 .app-content-shell {
   width: 100%;
+  position: relative;
+  z-index: 1;
 }
 
 /* Basic element defaults so inputs/buttons don’t wash out */
@@ -248,6 +250,10 @@ svg {
 
 /* Shared nav visuals */
 .site-nav-shell {
+  position: relative;
+  z-index: 80;
+  isolation: isolate;
+  overflow: visible;
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface) 90%, transparent);
   backdrop-filter: blur(8px);
@@ -261,6 +267,7 @@ svg {
   padding: 10px 14px;
   max-width: 1440px;
   margin: 0 auto;
+  overflow: visible;
 }
 
 .site-brand {

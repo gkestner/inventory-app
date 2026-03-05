@@ -25,7 +25,12 @@ export default async function AdminNav() {
     : null;
   const isAdmin = session?.user?.role === Role.ADMIN || dbRole === Role.ADMIN;
 
-  const shell: CSSProperties = { color: "var(--foreground)" };
+  const shell: CSSProperties = {
+    color: "var(--foreground)",
+    position: "relative",
+    zIndex: 120,
+    overflow: "visible",
+  };
 
   const inner: CSSProperties = {};
 
