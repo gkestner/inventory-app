@@ -52,6 +52,17 @@ function qrImageUrl(data: string, size = 160): string {
   )}`;
 }
 
+function nameFontSizePx(name: string): number {
+  const len = name.length;
+  if (len <= 10) return 16;
+  if (len <= 14) return 15;
+  if (len <= 18) return 14;
+  if (len <= 22) return 13;
+  if (len <= 28) return 12;
+  if (len <= 34) return 11;
+  return 10;
+}
+
 export default async function ItemLabelsPage({
   searchParams,
 }: {
@@ -143,7 +154,12 @@ export default async function ItemLabelsPage({
         ) : (
           printable.map((item) => {
             const labelId = deriveLabelIdFromSku(item.sku);
-            const nameText = String(item.name ?? "").toUpperCase().slice(0, 22);
+            const nameText = String(item.name ?? "")
+              .toUpperCase()
+              .replace(/\s+/g, " ")
+              .trim()
+              .slice(0, 40);
+            const nameSize = nameFontSizePx(nameText);
             const partText = String(item.partNumber ?? "—").slice(0, 16);
             return (
               <div className="label" key={`${item.id}-${(item as any).__copy}`}>
@@ -155,7 +171,9 @@ export default async function ItemLabelsPage({
                   </div>
 
                   <div className="nameblock">
-                    <div className="name">{nameText}</div>
+                    <div className="name" style={{ fontSize: `${nameSize}px` }}>
+                      {nameText}
+                    </div>
                     {item.description ? (
                       <div className="desc">({item.description})</div>
                     ) : null}
