@@ -266,6 +266,31 @@ type ItemLite = {
 export default async function AdminInventoryOrdersPage({ searchParams }: { searchParams: SearchParams }) {
   await requireOrderHistoryView();
 
+  async function createOrderFormAction(formData: FormData) {
+    "use server";
+    await createOrderServerAction(formData);
+  }
+
+  async function markArrivedFormAction(formData: FormData) {
+    "use server";
+    await markArrivedServerAction(formData);
+  }
+
+  async function addToInventoryFormAction(formData: FormData) {
+    "use server";
+    await addToInventoryServerAction(formData);
+  }
+
+  async function saveOrderDetailsFormAction(formData: FormData) {
+    "use server";
+    await saveOrderDetailsServerAction(formData);
+  }
+
+  async function deleteOrderFormAction(formData: FormData) {
+    "use server";
+    await deleteOrderServerAction(formData);
+  }
+
   const anyPrisma = prisma as unknown as { inventoryOrder?: unknown };
   if (!("inventoryOrder" in anyPrisma) || !anyPrisma.inventoryOrder) {
     return (
@@ -1078,7 +1103,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           <div style={{ marginTop: 10, border, borderRadius: 14, background: surface, padding: 12 }}>
             <div style={{ fontWeight: 900, marginBottom: 8, fontSize: 14 }}>Create Order</div>
 
-            <form action={createOrderServerAction} style={{ display: "grid", gap: 10 }}>
+            <form action={createOrderFormAction} style={{ display: "grid", gap: 10 }}>
               <div style={wrapRow}>
                 <label style={{ display: "grid", gap: 6, fontSize: 12, opacity: 0.9, fontWeight: 900, ...flexItem(420, 3) }}>
                   Item (select existing)
@@ -1438,14 +1463,14 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                 </div>
 
                 <div className="actionsRow">
-                  <form action={markArrivedServerAction}>
+                  <form action={markArrivedFormAction}>
                     <input type="hidden" name="id" value={o.id} />
                     <button type="submit" style={{ ...btn, opacity: canArrive ? 1 : 0.5 }} disabled={!canArrive}>
                       Mark Arrived
                     </button>
                   </form>
 
-                  <form action={addToInventoryServerAction}>
+                  <form action={addToInventoryFormAction}>
                     <input type="hidden" name="id" value={o.id} />
                     <button type="submit" style={{ ...btnPrimary, opacity: canAdd ? 1 : 0.5 }} disabled={!canAdd}>
                       Add to Inventory
@@ -1464,7 +1489,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                   <details className="orderDetails" style={{ border: border, borderRadius: 12, padding: 10, background: soft }}>
                     <summary>Edit</summary>
                     <form
-                      action={saveOrderDetailsServerAction}
+                      action={saveOrderDetailsFormAction}
                       style={{
                         marginTop: 10,
                         padding: 10,
@@ -1564,7 +1589,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                   <details className="orderDetails" style={{ border: border, borderRadius: 12, padding: 10, background: soft }}>
                     <summary>Delete</summary>
                     <form
-                      action={deleteOrderServerAction}
+                      action={deleteOrderFormAction}
                       style={{
                         marginTop: 10,
                         padding: 10,
