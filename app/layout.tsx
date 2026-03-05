@@ -179,6 +179,30 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <body className={`${soraSans.variable} ${jetbrainsMono.variable} app-body antialiased`}>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function () {
+                try {
+                  var themeMode = localStorage.getItem("theme") || "system";
+                  var density = localStorage.getItem("ui_density") || "comfortable";
+                  var reduceMotion = localStorage.getItem("ui_reduce_motion") === "1";
+
+                  var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+                  var resolvedTheme = themeMode === "system" ? (prefersDark ? "dark" : "light") : themeMode;
+
+                  document.documentElement.dataset.theme = resolvedTheme;
+                  document.documentElement.style.colorScheme = resolvedTheme;
+                  document.documentElement.dataset.density = density === "compact" ? "compact" : "comfortable";
+                  document.documentElement.dataset.reducedMotion = reduceMotion ? "true" : "false";
+                } catch (e) {
+                  // no-op
+                }
+              })();
+            `,
+          }}
+        />
+
         {/* Admin-only preview controls (single source of truth; do NOT duplicate in AdminNav/UserNav) */}
         {isAdmin ? (
           <div

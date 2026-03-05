@@ -738,6 +738,23 @@ export default function ItemsTableClient({
 
     const qs = new URLSearchParams();
     qs.set("ids", ids.join(","));
+
+    try {
+      const copiesRaw = Number(window.localStorage.getItem("labels_default_copies") || "1");
+      const copies = Number.isFinite(copiesRaw) ? Math.max(1, Math.min(20, Math.floor(copiesRaw))) : 1;
+      if (copies > 1) qs.set("copies", String(copies));
+
+      if (window.localStorage.getItem("labels_autoprint") === "1") {
+        qs.set("autoprint", "1");
+      }
+
+      if (window.localStorage.getItem("labels_autoclose") === "1") {
+        qs.set("autoclose", "1");
+      }
+    } catch {
+      // Ignore localStorage errors and fall back to defaults.
+    }
+
     const url = `/admin/items/labels?${qs.toString()}`;
     console.debug("printLabelsFor", url);
     const existing = (window as any).__labelsPopupRef as Window | undefined;

@@ -222,6 +222,21 @@ main > div {
   margin: 0 auto;
 }
 
+html[data-density="compact"] td,
+html[data-density="compact"] th {
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+}
+
+html[data-reduced-motion="true"] *,
+html[data-reduced-motion="true"] *::before,
+html[data-reduced-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
 table {
   background: var(--surface);
   width: 100%;

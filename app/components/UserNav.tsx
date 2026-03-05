@@ -90,6 +90,21 @@ export default async function UserNav() {
         </div>
 
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <Link
+            href="/settings"
+            className="site-link"
+            style={{
+              padding: "6px 12px",
+              borderRadius: 10,
+              border: "1px solid var(--border)",
+              background: "var(--surface)",
+              textDecoration: "none",
+              fontWeight: 700,
+            }}
+          >
+            Settings
+          </Link>
+
           <SignOutButton
             label="Logout"
             callbackUrl="/login"

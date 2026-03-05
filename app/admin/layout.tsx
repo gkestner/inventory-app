@@ -293,6 +293,10 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         </nav>
 
         <div style={{ marginTop: 16, display: "grid", gap: 8 }}>
+          <Link href="/settings" style={{ ...linkStyle, justifyContent: "center" }}>
+            Account Settings
+          </Link>
+
           <Link href="/" style={{ ...linkStyle, justifyContent: "center", background: "var(--surface-2)" }}>
             ← Back to App
           </Link>
@@ -308,6 +312,20 @@ export default async function AdminLayout({ children }: { children: ReactNode })
       <section style={main}>
         {/* ✅ Visible on every admin page */}
         <div style={topBar}>
+          <Link
+            href="/settings"
+            style={{
+              padding: "8px 12px",
+              borderRadius: 10,
+              border: "1px solid var(--border)",
+              background: "var(--surface)",
+              color: "var(--foreground)",
+              fontWeight: 800,
+              textDecoration: "none",
+            }}
+          >
+            Settings
+          </Link>
           <SignOutButton label="Logout" callbackUrl="/login" style={topLogoutBtn} />
         </div>
 

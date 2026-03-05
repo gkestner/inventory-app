@@ -78,17 +78,34 @@ export default async function TopNav() {
           ) : null}
         </div>
 
-        <LogoutSlot
-          style={{
-            padding: "6px 12px",
-            borderRadius: 10,
-            border: "1px solid color-mix(in srgb, var(--brand) 55%, var(--border))",
-            background: "linear-gradient(160deg, var(--brand-2) 0%, var(--brand) 100%)",
-            color: "var(--brand-contrast)",
-            fontWeight: 800,
-            cursor: "pointer",
-          }}
-        />
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <Link
+            href="/settings"
+            className="site-link"
+            style={{
+              padding: "6px 12px",
+              borderRadius: 10,
+              border: "1px solid var(--border)",
+              background: "var(--surface)",
+              textDecoration: "none",
+              fontWeight: 700,
+            }}
+          >
+            Settings
+          </Link>
+
+          <LogoutSlot
+            style={{
+              padding: "6px 12px",
+              borderRadius: 10,
+              border: "1px solid color-mix(in srgb, var(--brand) 55%, var(--border))",
+              background: "linear-gradient(160deg, var(--brand-2) 0%, var(--brand) 100%)",
+              color: "var(--brand-contrast)",
+              fontWeight: 800,
+              cursor: "pointer",
+            }}
+          />
+        </div>
       </div>
     </div>
   );
