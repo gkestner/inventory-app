@@ -49,7 +49,7 @@ export default async function AdminNav() {
     position: "absolute",
     top: "calc(100% + 8px)",
     left: 0,
-    zIndex: 50,
+    zIndex: 3000,
     minWidth: 210,
     padding: 8,
     borderRadius: 12,
@@ -57,6 +57,7 @@ export default async function AdminNav() {
     background: "var(--background)",
     color: "var(--foreground)",
     boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
+    pointerEvents: "auto",
   };
 
   const menuItemStyle: CSSProperties = {
@@ -175,21 +176,6 @@ export default async function AdminNav() {
     if (root.__adminNavBound) return;
     root.__adminNavBound = true;
 
-    // Close dropdown when clicking a link inside it
-    root.addEventListener('click', function (e) {
-      var t = e.target;
-      if (!t || !t.closest) return;
-
-      var a = t.closest('a');
-      if (!a) return;
-
-      var dd = a.closest('details[data-admin-dropdown]');
-      if (!dd) return;
-
-      dd.removeAttribute('open');
-      closeAll(root);
-    }, true);
-
     // Only one open at a time
     root.addEventListener('toggle', function (e) {
       var t = e.target;
@@ -214,7 +200,7 @@ export default async function AdminNav() {
       }
 
       closeAll(root);
-    }, true);
+    }, false);
 
     // Escape closes
     document.addEventListener('keydown', function (e) {
