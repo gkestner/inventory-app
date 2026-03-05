@@ -153,9 +153,11 @@ export default async function AdminNav() {
   // For now: gate invoices + order history under items perms (no enum changes)
   const canAdminOrderHistory = canAdminItems;
   const canAdminInvoices = canAdminItems;
+  const canAdminReports = canAdminItems;
+  const canAdminInventoryAlerts = canAdminItems;
 
   const showAccounting = canAdminInvoices;
-  const showInventory = canAdminItems || canAdminOrderHistory;
+  const showInventory = canAdminItems || canAdminOrderHistory || canAdminInventoryAlerts;
   const showAdmin = canAdminUsers || canAdminLocations;
   const showMaintenance =
     canAdminMaintenanceTickets || canAdminWorkOrders || canUserWorkOrders || canCheckout;
@@ -290,6 +292,23 @@ export default async function AdminNav() {
                     Order History
                   </Link>
                 ) : null}
+                {canAdminInventoryAlerts ? (
+                  <Link href="/admin/inventory-alerts" style={menuItemStyle}>
+                    Alerts
+                  </Link>
+                ) : null}
+              </div>
+            </details>
+          ) : null}
+
+          {/* Reports */}
+          {canAdminReports ? (
+            <details data-admin-dropdown style={detailsStyle}>
+              <summary style={summaryStyle}>Reports</summary>
+              <div style={menuStyle}>
+                <Link href="/admin/reports" style={menuItemStyle}>
+                  Report Hub
+                </Link>
               </div>
             </details>
           ) : null}

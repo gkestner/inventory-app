@@ -47,6 +47,8 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     ]);
 
   const canOrders = allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
+  const canReports = canOrders;
+  const canAlerts = canOrders;
 
   const canUsers = allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_USERS, Permission.ADMIN_EDIT_USERS]);
 
@@ -190,6 +192,20 @@ export default async function AdminLayout({ children }: { children: ReactNode })
             <Link href="/admin/inventory-orders" style={linkStyle}>
               <span>Inventory Orders</span>
               <span style={pill}>History</span>
+            </Link>
+          ) : null}
+
+          {canAlerts ? (
+            <Link href="/admin/inventory-alerts" style={linkStyle}>
+              <span>Inventory Alerts</span>
+              <span style={pill}>Alerts</span>
+            </Link>
+          ) : null}
+
+          {canReports ? (
+            <Link href="/admin/reports" style={linkStyle}>
+              <span>Reports Hub</span>
+              <span style={pill}>Reports</span>
             </Link>
           ) : null}
 

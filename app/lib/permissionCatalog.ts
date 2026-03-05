@@ -24,8 +24,18 @@ export const PERMISSION_CATALOG: PermissionCatalogEntry[] = [
   { permission: Permission.SUBMIT_OWN_WORK_ORDERS, module: "Maintenance", path: ["Work Orders"], label: "Submit Own Work Orders" },
 
   // ===== Admin / Items =====
-  { permission: Permission.ADMIN_VIEW_ITEMS, module: "Admin", path: ["Items"], label: "View Items" },
-  { permission: Permission.ADMIN_EDIT_ITEMS, module: "Admin", path: ["Items"], label: "Edit Items" },
+  {
+    permission: Permission.ADMIN_VIEW_ITEMS,
+    module: "Admin",
+    path: ["Items"],
+    label: "View Items (also enables Reports Hub + Inventory Alerts)",
+  },
+  {
+    permission: Permission.ADMIN_EDIT_ITEMS,
+    module: "Admin",
+    path: ["Items"],
+    label: "Edit Items (also enables resolving Inventory Alerts)",
+  },
   { permission: Permission.ADMIN_IMPORT_EXPORT_ITEMS, module: "Admin", path: ["Items"], label: "Import / Export Items" },
 
   // ===== Admin / Users =====

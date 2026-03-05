@@ -118,8 +118,18 @@ const PERMS: PermMeta[] = [
   { perm: Permission.UPDATE_OWN_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "Update Own Work Orders" },
   { perm: Permission.SUBMIT_OWN_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "Submit Own Work Orders" },
 
-  { perm: Permission.ADMIN_VIEW_ITEMS, module: "Admin", group: "Items", label: "View Items" },
-  { perm: Permission.ADMIN_EDIT_ITEMS, module: "Admin", group: "Items", label: "Edit Items" },
+  {
+    perm: Permission.ADMIN_VIEW_ITEMS,
+    module: "Admin",
+    group: "Items",
+    label: "View Items (also enables Reports Hub + Inventory Alerts)",
+  },
+  {
+    perm: Permission.ADMIN_EDIT_ITEMS,
+    module: "Admin",
+    group: "Items",
+    label: "Edit Items (also enables resolving Inventory Alerts)",
+  },
   { perm: Permission.ADMIN_IMPORT_EXPORT_ITEMS, module: "Admin", group: "Items", label: "Import / Export Items" },
 
   { perm: Permission.ADMIN_VIEW_USERS, module: "Admin", group: "Users", label: "View Users" },

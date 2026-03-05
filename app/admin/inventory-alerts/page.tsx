@@ -5,7 +5,8 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
-import { InventoryAlertType, Prisma, Role } from "@prisma/client";
+import { InventoryAlertType, Permission, Prisma, Role } from "@prisma/client";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -30,13 +31,28 @@ type AppSession = {
   user?: SessionUser;
 } | null;
 
-async function requireAdmin(): Promise<AppSession> {
+async function requireInventoryAlertsView(): Promise<AppSession> {
   const session = (await getServerSession(authOptions)) as AppSession;
   if (!session) redirect("/login");
 
-  const role = session.user?.role ?? null;
-  const isAdmin = role === Role.ADMIN;
-  if (!isAdmin) redirect("/");
+  const perms = await loadUserPermissions(session);
+  if (perms.allowAll) return session;
+
+  const canView = hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
+  if (!canView) redirect("/");
+
+  return session;
+}
+
+async function requireInventoryAlertsResolve(): Promise<AppSession> {
+  const session = (await getServerSession(authOptions)) as AppSession;
+  if (!session) throw new Error("Unauthorized");
+
+  const perms = await loadUserPermissions(session);
+  if (perms.allowAll) return session;
+
+  const canResolve = hasAnyPermission(perms, [Permission.ADMIN_EDIT_ITEMS]);
+  if (!canResolve) throw new Error("Forbidden");
 
   return session;
 }
@@ -86,7 +102,7 @@ function isoShort(d: Date) {
 
 export default async function InventoryAlertsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   // Auth gate
-  await requireAdmin();
+  await requireInventoryAlertsView();
 
   const sp = await searchParams;
 
@@ -102,11 +118,7 @@ export default async function InventoryAlertsPage({ searchParams }: { searchPara
   async function resolveAlertAction(formData: FormData): Promise<void> {
     "use server";
 
-    const s = (await getServerSession(authOptions)) as AppSession;
-    if (!s) throw new Error("Unauthorized");
-
-    const role = s.user?.role ?? null;
-    if (role !== Role.ADMIN) throw new Error("Forbidden");
+    const s = await requireInventoryAlertsResolve();
 
     const alertId = String(formData.get("alertId") || "");
     const resolveNote = String(formData.get("note") || "").trim();
