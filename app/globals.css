@@ -147,10 +147,12 @@ a {
 
 :root {
   /* Keep content inset from hard edges; DYMO printable area is smaller than stock size. */
-  --w: 3.36in;
+  --w: 3.34in;
   --h: 1.04in;
-  --safe-x: 0.07in;
-  --safe-y: 0.04in;
+  --safe-left: 0.05in;
+  --safe-right: 0.11in;
+  --safe-top: 0.06in;
+  --safe-bottom: 0.025in;
   --b: 1px;
 }
 
@@ -208,7 +210,7 @@ body:has(.labels-page) > *:not(.labels-page) {
   overflow: hidden;
   border-radius: 0;
   background: #fff;
-  margin: var(--safe-y) var(--safe-x) 0 var(--safe-x);
+  margin: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
   page-break-after: always;
   break-after: page;
 }
@@ -231,7 +233,7 @@ body:has(.labels-page) > *:not(.labels-page) {
 
 .labels-page .mid {
   display: grid;
-  grid-template-columns: 0.84in 1fr;
+  grid-template-columns: 0.80in 1fr;
   min-height: 0;
   gap: 5px;
   padding: 1px 5px 1px 0;
@@ -243,12 +245,12 @@ body:has(.labels-page) > *:not(.labels-page) {
   display: grid;
   place-items: center;
   min-height: 0;
-  padding: 1px 2px 1px 1px;
+  padding: 1px;
 }
 
 .labels-page .qr img {
-  width: 0.52in;
-  height: 0.52in;
+  width: 0.67in;
+  height: 0.67in;
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
