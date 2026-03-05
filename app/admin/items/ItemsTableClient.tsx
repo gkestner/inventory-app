@@ -1767,6 +1767,46 @@ export default function ItemsTableClient({
                               Inventory
                             </a>
 
+                            {web ? (
+                              <a
+                                href={web}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{
+                                  display: "inline-block",
+                                  padding: "6px 10px",
+                                  borderRadius: 10,
+                                  border: "1px solid var(--border)",
+                                  background: surface,
+                                  color: "var(--text)",
+                                  textDecoration: "none",
+                                  fontWeight: 700,
+                                  lineHeight: 1.1,
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                Open Web
+                              </a>
+                            ) : (
+                              <span
+                                style={{
+                                  display: "inline-block",
+                                  padding: "6px 10px",
+                                  borderRadius: 10,
+                                  border: "1px solid var(--border)",
+                                  background: surface,
+                                  color: "var(--text)",
+                                  opacity: 0.55,
+                                  whiteSpace: "nowrap",
+                                  cursor: "not-allowed",
+                                  fontWeight: 700,
+                                }}
+                                title="No web URL on this item"
+                              >
+                                Open Web
+                              </span>
+                            )}
+
                             <button
                               onClick={() => printLabelsFor([row.id])}
                               disabled={bulkBusy}
