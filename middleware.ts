@@ -18,14 +18,10 @@ export async function middleware(req: NextRequest) {
 
   const token = await getToken({ req });
 
-  // Logged-in users should not stay on the login page.
+  // Keep /login reachable even when authenticated.
+  // This prevents redirect loops for users whose role/permissions
+  // no longer resolve to a landing page, and allows account switching.
   if (pathname === "/login") {
-    if (token) {
-      const url = req.nextUrl.clone();
-      url.pathname = "/";
-      url.search = "";
-      return NextResponse.redirect(url);
-    }
     return NextResponse.next();
   }
 
