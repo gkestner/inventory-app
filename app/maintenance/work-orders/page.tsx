@@ -166,6 +166,25 @@ function parseRequiredInt(v: FormDataEntryValue | null, message: string): number
   return n;
 }
 
+function parseOptionalDateTimeLocal(v: FormDataEntryValue | null): Date | null {
+  if (!v || typeof v !== "string") return null;
+  const s = v.trim();
+  if (!s) return null;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function fmtForDatetimeLocal(d: Date | null): string {
+  if (!d) return "";
+  const x = new Date(d);
+  const y = x.getFullYear();
+  const mo = String(x.getMonth() + 1).padStart(2, "0");
+  const da = String(x.getDate()).padStart(2, "0");
+  const h = String(x.getHours()).padStart(2, "0");
+  const mi = String(x.getMinutes()).padStart(2, "0");
+  return `${y}-${mo}-${da}T${h}:${mi}`;
+}
+
 function fmtLocal(d: Date | null): string {
   if (!d) return "—";
   return new Intl.DateTimeFormat("en-US", {
@@ -516,7 +535,7 @@ export default async function MaintenanceWorkOrdersPage() {
     redirect(CANONICAL_RETURN);
   }
 
-  async function updateInProgressWorkOrderAction(formData: FormData) {
+  async function updateWorkOrderFromListAction(formData: FormData) {
     "use server";
 
     const session = (await getServerSession(authOptions)) as SessionShape;
@@ -529,9 +548,20 @@ export default async function MaintenanceWorkOrdersPage() {
     const id = String(formData.get("id") ?? "").trim();
     if (!id) throw new Error("Missing work order id");
 
+    const locationId = String(formData.get("locationId") ?? "").trim();
+    if (!locationId) throw new Error("Location is required.");
+
     const notes = String(formData.get("notes") ?? "");
+    const startTime = parseOptionalDateTimeLocal(formData.get("startTime"));
+    const endTime = parseOptionalDateTimeLocal(formData.get("endTime"));
     const startingMileage = parseOptionalInt(formData.get("startingMileage"));
+    const endingMileage = parseOptionalInt(formData.get("endingMileage"));
     const areas = parseAreas(formData);
+
+    const allowedLocationIds = new Set<string>(allowedLocations.map((l) => l.id));
+    if (!allowedLocationIds.has(locationId)) {
+      throw new Error("Invalid location selection.");
+    }
 
     await prisma.$transaction(async (tx) => {
       const wo = await tx.workOrder.findUnique({
@@ -540,64 +570,25 @@ export default async function MaintenanceWorkOrdersPage() {
       });
 
       if (!wo || wo.createdByUserId !== me.id) throw new Error("Work order not found.");
-      if (wo.status !== "DRAFT") throw new Error("Only IN PROGRESS work orders can be edited here.");
-      if (wo.endTime !== null) throw new Error("In-progress work order already has an end time.");
-
-      await tx.workOrder.update({
-        where: { id },
-        data: {
-          notes,
-          startingMileage,
-        },
-      });
-
-      await tx.workOrderEquipmentArea.deleteMany({ where: { workOrderId: id } });
-      if (areas.length > 0) {
-        await tx.workOrderEquipmentArea.createMany({
-          data: areas.map((area) => ({ workOrderId: id, area })),
-        });
+      if (wo.status !== "DRAFT" && wo.status !== "SUBMITTED") {
+        throw new Error("Only IN PROGRESS or SUBMITTED work orders can be edited here.");
       }
-    });
 
-    revalidatePath("/work-orders");
-    revalidatePath("/maintenance/work-orders");
-    redirect(CANONICAL_RETURN);
-  }
-
-  async function updateSubmittedWorkOrderAction(formData: FormData) {
-    "use server";
-
-    const session = (await getServerSession(authOptions)) as SessionShape;
-    await requireWorkOrdersUpdateOwn(session);
-
-    const email = (session?.user?.email ?? "").toLowerCase().trim();
-    const me = await prisma.user.findUnique({ where: { email }, select: { id: true, active: true } });
-    if (!me || !me.active) redirect("/login");
-
-    const id = String(formData.get("id") ?? "").trim();
-    if (!id) throw new Error("Missing work order id");
-
-    const startingMileage = parseOptionalInt(formData.get("startingMileage"));
-    const endingMileage = parseRequiredInt(formData.get("endingMileage"), "Ending mileage is required.");
-    const notes = String(formData.get("notes") ?? "");
-    const areas = parseAreas(formData);
-
-    await prisma.$transaction(async (tx) => {
-      const wo = await tx.workOrder.findUnique({
-        where: { id },
-        select: { id: true, createdByUserId: true, status: true, endTime: true },
-      });
-
-      if (!wo || wo.createdByUserId !== me.id) throw new Error("Work order not found.");
-      if (wo.status !== "SUBMITTED") throw new Error("Only SUBMITTED work orders can be edited here.");
-      if (wo.endTime === null) throw new Error("Submitted work order is missing an end time.");
+      // Keep submitted work orders complete.
+      if (wo.status === "SUBMITTED") {
+        if (!endTime) throw new Error("Submitted work orders require End Time.");
+        if (endingMileage === null) throw new Error("Submitted work orders require Ending Mileage.");
+      }
 
       await tx.workOrder.update({
         where: { id },
         data: {
+          locationId,
+          notes,
+          startTime,
+          endTime,
           startingMileage,
           endingMileage,
-          notes,
         },
       });
 
@@ -851,14 +842,50 @@ export default async function MaintenanceWorkOrdersPage() {
                           width: 260,
                         }}
                       >
-                        {canUpdateOwn && isOpenDraft ? (
+                        {canUpdateOwn && (isOpenDraft || isSubmitted) ? (
                           <details style={{ marginLeft: "auto", textAlign: "left", display: "inline-block", width: "100%" }}>
                             <summary style={{ cursor: "pointer", fontWeight: 900, textAlign: "right" }}>Edit</summary>
 
                             <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
-                              <form action={updateInProgressWorkOrderAction} style={{ display: "grid", gap: 10 }}>
+                              <form action={updateWorkOrderFromListAction} style={{ display: "grid", gap: 10 }}>
                                 <input type="hidden" name="id" value={wo.id} />
 
+                                <label style={label}>
+                                  Location
+                                  <select name="locationId" defaultValue={wo.locationId} style={input}>
+                                    {allowedLocations.map((l) => (
+                                      <option key={`${wo.id}-loc-${l.id}`} value={l.id}>
+                                        {l.name}
+                                        {l.source === "PRIMARY" ? " (Primary)" : ""}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                                  <label style={label}>
+                                    Start Time
+                                    <input
+                                      name="startTime"
+                                      type="datetime-local"
+                                      defaultValue={fmtForDatetimeLocal(wo.startTime)}
+                                      style={input}
+                                    />
+                                  </label>
+
+                                  <label style={label}>
+                                    End Time {isSubmitted ? "(required)" : "(optional)"}
+                                    <input
+                                      name="endTime"
+                                      type="datetime-local"
+                                      defaultValue={fmtForDatetimeLocal(wo.endTime)}
+                                      style={input}
+                                      required={isSubmitted}
+                                    />
+                                  </label>
+                                </div>
+
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                                 <label style={label}>
                                   Starting Mileage (optional)
                                   <input
@@ -869,6 +896,18 @@ export default async function MaintenanceWorkOrdersPage() {
                                     placeholder="e.g. 12345"
                                   />
                                 </label>
+
+                                  <label style={label}>
+                                    Ending Mileage {isSubmitted ? "(required)" : "(optional)"}
+                                    <input
+                                      name="endingMileage"
+                                      type="number"
+                                      defaultValue={wo.endingMileage ?? ""}
+                                      style={input}
+                                      required={isSubmitted}
+                                    />
+                                  </label>
+                                </div>
 
                                 <label style={label}>
                                   Notes (optional)
@@ -894,58 +933,8 @@ export default async function MaintenanceWorkOrdersPage() {
                                 </button>
 
                                 <div style={{ fontSize: 12, opacity: 0.75 }}>
-                                  This edits an <b>IN PROGRESS</b> work order (notes/mileage/areas). Use the End button above to submit.
-                                </div>
-                              </form>
-                            </div>
-                          </details>
-                        ) : null}
-
-                        {canUpdateOwn && isSubmitted ? (
-                          <details style={{ marginLeft: "auto", textAlign: "left", display: "inline-block", width: "100%", marginTop: isOpenDraft ? 8 : 0 }}>
-                            <summary style={{ cursor: "pointer", fontWeight: 900, textAlign: "right" }}>Edit</summary>
-
-                            <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
-                              <form action={updateSubmittedWorkOrderAction} style={{ display: "grid", gap: 10 }}>
-                                <input type="hidden" name="id" value={wo.id} />
-
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                                  <label style={label}>
-                                    Starting Mileage (optional)
-                                    <input name="startingMileage" type="number" defaultValue={wo.startingMileage ?? ""} style={input} />
-                                  </label>
-
-                                  <label style={label}>
-                                    Ending Mileage (required)
-                                    <input name="endingMileage" type="number" defaultValue={wo.endingMileage ?? ""} style={input} required />
-                                  </label>
-                                </div>
-
-                                <label style={label}>
-                                  Notes (optional)
-                                  <textarea name="notes" defaultValue={wo.notes ?? ""} style={{ ...textareaBase, minHeight: 90 }} />
-                                </label>
-
-                                <div>
-                                  <div style={{ fontSize: 14, fontWeight: 900, opacity: 0.95 }}>Equipment Areas</div>
-                                  <div style={gridWrap}>
-                                    {EQUIPMENT_AREAS.map((area) => (
-                                      <label key={`edit-submitted-area-${wo.id}-${area}`} style={gridItem}>
-                                        <input type="checkbox" name="areas" value={area} defaultChecked={checked.has(area)} style={checkboxStyle} />
-                                        <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                          {formatAreaLabel(area)}
-                                        </span>
-                                      </label>
-                                    ))}
-                                  </div>
-                                </div>
-
-                                <button type="submit" style={{ ...btnSaveEdit, width: 240 }}>
-                                  Save Changes
-                                </button>
-
-                                <div style={{ fontSize: 12, opacity: 0.75 }}>
-                                  Editing is allowed for <b>SUBMITTED</b> work orders only. FINALIZED work orders cannot be edited.
+                                  You can edit all fields for <b>IN PROGRESS</b> and <b>SUBMITTED</b> work orders.
+                                  FINALIZED work orders stay locked.
                                 </div>
                               </form>
                             </div>
@@ -974,7 +963,8 @@ export default async function MaintenanceWorkOrdersPage() {
           </div>
 
           <div style={{ marginTop: 12, fontSize: 14, opacity: 0.85 }}>
-            You can edit your own IN PROGRESS and SUBMITTED work orders (including starting mileage). FINALIZED work orders are locked.
+            You can edit your own IN PROGRESS and SUBMITTED work orders from this list, including location, times,
+            mileage, notes, and equipment areas. FINALIZED work orders are locked.
           </div>
         </div>
       </div>
