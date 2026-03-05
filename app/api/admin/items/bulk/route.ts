@@ -4,7 +4,7 @@ import type { Session } from "next-auth";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../../../../lib/auth";
 import { prisma } from "../../../../lib/prisma";
-import { Permission, Prisma, Role } from "@prisma/client";
+import { Permission, Prisma } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
@@ -27,18 +27,6 @@ function isNonEmptyString(v: unknown): v is string {
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function getUserRole(session: Session | null): Role | null {
-  const u = session?.user as unknown;
-  if (!u || typeof u !== "object") return null;
-  const role = (u as { role?: unknown }).role;
-
-  if (role === Role.ADMIN || role === "ADMIN") return Role.ADMIN;
-  if (role === Role.MANAGER || role === "MANAGER") return Role.MANAGER;
-  if (role === Role.EMPLOYEE || role === "EMPLOYEE") return Role.EMPLOYEE;
-
-  return null;
 }
 
 function normNullableText(v: unknown): string | null {
@@ -244,11 +232,10 @@ async function gateAdminItems(required: Permission[]): Promise<Gate> {
   const session = await getServerSession(authOptions);
   if (!session) return { ok: false, status: 401, error: "Unauthorized" };
 
-  const role = getUserRole(session);
   const perms = await loadUserPermissions(session);
 
   // Admin bypass (allow-all)
-  if (perms.allowAll || role === Role.ADMIN) return { ok: true, session, allowAll: true };
+  if (perms.allowAll) return { ok: true, session, allowAll: true };
 
   // Non-admin must hold required permissions
   const ok = hasAnyPermission(perms, required);

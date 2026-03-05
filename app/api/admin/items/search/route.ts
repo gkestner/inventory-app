@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
-import { Role, Prisma } from "@prisma/client";
+import { Permission, Prisma } from "@prisma/client";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 function toInt(v: string | null, fallback: number) {
   const n = Number(v ?? "");
@@ -107,9 +108,14 @@ function buildWhere(qRaw: string): Prisma.ItemWhereInput {
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
-  const role = (session?.user as unknown as { role?: Role | null } | null)?.role ?? null;
-  if (!session || role !== Role.ADMIN) {
+  if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const perms = await loadUserPermissions(session);
+  const canSearchItems = perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
+  if (!canSearchItems) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const url = new URL(req.url);

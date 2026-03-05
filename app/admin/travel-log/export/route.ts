@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { Prisma, Role, WorkOrderStatus } from "@prisma/client";
+import { Permission, Prisma, WorkOrderStatus } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -114,8 +115,8 @@ function fmtFixed2(n: number | null): string {
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
   if (!session) return false;
-  const role = (session.user as { role?: Role | null } | null)?.role ?? null;
-  return role === Role.ADMIN;
+  const perms = await loadUserPermissions(session);
+  return perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_WORK_ORDERS, Permission.ADMIN_EDIT_WORK_ORDERS]);
 }
 
 export async function GET(req: Request) {

@@ -4,7 +4,8 @@ import type { Session } from "next-auth";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../../../lib/auth";
 import { prisma } from "../../../lib/prisma";
-import { Prisma, Role } from "@prisma/client";
+import { Permission, Prisma } from "@prisma/client";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 type CreateBody = {
   sku?: unknown;
@@ -43,17 +44,14 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function getUserRole(session: Session | null): Role | null {
-  const u = session?.user as unknown;
-  if (!u || typeof u !== "object") return null;
-  const role = (u as { role?: unknown }).role;
+type Gate = { ok: true } | { ok: false; status: number; error: string };
 
-  // Accept Role enum strings and raw "ADMIN" strings depending on NextAuth callbacks typing
-  if (role === Role.ADMIN || role === "ADMIN") return Role.ADMIN;
-  if (role === Role.MANAGER || role === "MANAGER") return Role.MANAGER;
-  if (role === Role.EMPLOYEE || role === "EMPLOYEE") return Role.EMPLOYEE;
-
-  return null;
+async function requireAnyPermission(session: Session | null, required: Permission[]): Promise<Gate> {
+  if (!session) return { ok: false, status: 401, error: "Unauthorized" };
+  const perms = await loadUserPermissions(session);
+  if (perms.allowAll) return { ok: true };
+  if (!hasAnyPermission(perms, required)) return { ok: false, status: 403, error: "Forbidden" };
+  return { ok: true };
 }
 
 function isMoneyString(v: string) {
@@ -250,8 +248,8 @@ function toRow(it: {
 // - Page mode (compat): ?page=1&perPage=25&sort=updatedAt&dir=desc&q=...
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session) return json({ error: "Unauthorized" }, 401);
-  if (getUserRole(session) !== Role.ADMIN) return json({ error: "Forbidden" }, 403);
+  const gate = await requireAnyPermission(session, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
+  if (!gate.ok) return json({ error: gate.error }, gate.status);
 
   const url = new URL(req.url);
   const tokens = normalizeSearch(url.searchParams.get("q"));
@@ -363,8 +361,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session) return json({ error: "Unauthorized" }, 401);
-  if (getUserRole(session) !== Role.ADMIN) return json({ error: "Forbidden" }, 403);
+  const gate = await requireAnyPermission(session, [Permission.ADMIN_EDIT_ITEMS]);
+  if (!gate.ok) return json({ error: gate.error }, gate.status);
 
   let raw: unknown;
   try {

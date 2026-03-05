@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { Permission, Role } from "@prisma/client";
+import { Permission } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
@@ -52,12 +52,9 @@ async function requireAdminInvoiceExport() {
   const session = await getServerSession(authOptions);
   if (!session) return false;
 
-  const role = (session.user as { role?: Role | null } | null)?.role ?? null;
-  if (role === Role.ADMIN) return true;
-
   const perms = await loadUserPermissions(session);
   if (perms.allowAll) return true;
-  return hasAnyPermission(perms, [Permission.ADMIN_EDIT_ITEMS]);
+  return hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
 }
 
 export async function GET(req: Request) {

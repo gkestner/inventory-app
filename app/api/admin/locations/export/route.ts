@@ -1,10 +1,11 @@
 // app/api/admin/locations/export/route.ts
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { Role } from "@prisma/client";
+import { Permission } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +24,9 @@ async function requireAdmin() {
   const session = await getServerSession(authOptions);
   if (!session) return null;
 
-  const role = (session.user as unknown as { role?: Role | null } | null)?.role ?? null;
-  if (role !== Role.ADMIN) return null;
+  const perms = await loadUserPermissions(session);
+  const canViewLocations = perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_LOCATIONS]);
+  if (!canViewLocations) return null;
 
   return session;
 }

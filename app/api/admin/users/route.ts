@@ -4,7 +4,8 @@ import { getServerSession } from "next-auth";
 import bcrypt from "bcrypt";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
-import { Role } from "@prisma/client";
+import { Permission, Role } from "@prisma/client";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 type AdminSession = {
   user?: {
@@ -92,8 +93,14 @@ function isCreateUserBody(v: unknown): v is CreateUserBody {
 export async function POST(req: Request) {
   const session = (await getServerSession(authOptions)) as AdminSession;
 
-  if (!session || session.user?.role !== Role.ADMIN) {
+  if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const perms = await loadUserPermissions(session);
+  const canEditUsers = perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_EDIT_USERS]);
+  if (!canEditUsers) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   let body: unknown;

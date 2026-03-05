@@ -2,19 +2,21 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
-import { Prisma, Role, InvoiceVendor } from "@prisma/client";
+import { Permission, Prisma, InvoiceVendor } from "@prisma/client";
 import type { Session } from "next-auth";
 import { revalidatePath } from "next/cache";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 /**
  * NOTE:
  * After the auth typing change, `session.user` can be `null`.
  * Keep this guard minimal and local (no refactors).
  */
-function requireAdminOrThrow(session: Session | null): asserts session is Session {
-  if (!session) throw new Error("Unauthorized");
-  if (!session.user) throw new Error("Unauthorized");
-  if (session.user.role !== Role.ADMIN) throw new Error("Forbidden");
+async function requireAdminOrThrow(session: Session | null): Promise<void> {
+  if (!session || !session.user) throw new Error("Unauthorized");
+  const perms = await loadUserPermissions(session);
+  const canEditItems = perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_EDIT_ITEMS]);
+  if (!canEditItems) throw new Error("Forbidden");
 }
 
 function normNullableText(v: unknown): string | null | undefined {
@@ -74,7 +76,7 @@ export type UpdateItemInput = {
 
 export async function updateItemAction(input: UpdateItemInput) {
   const session = (await getServerSession(authOptions)) as Session | null;
-  requireAdminOrThrow(session);
+  await requireAdminOrThrow(session);
 
   const id = String(input.id ?? "").trim();
   if (!id) throw new Error("Missing id");

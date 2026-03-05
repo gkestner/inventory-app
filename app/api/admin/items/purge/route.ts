@@ -2,10 +2,10 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import type { Session } from "next-auth";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
-import { Role } from "@prisma/client";
+import { Permission } from "@prisma/client";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -17,15 +17,6 @@ function json(body: unknown, status: number) {
       "Cache-Control": "no-store",
     },
   });
-}
-
-function getUserRole(session: Session | null): Role | null {
-  const u = session?.user as unknown;
-  if (!u || typeof u !== "object") return null;
-  const role = (u as { role?: unknown }).role;
-  if (typeof role !== "string") return null;
-  if (role === Role.ADMIN || role === Role.EMPLOYEE || role === Role.MANAGER) return role as Role;
-  return null;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -52,7 +43,9 @@ function parseBody(body: unknown): { ids: string[] } {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return json({ error: "Unauthorized" }, 401);
-  if (getUserRole(session) !== Role.ADMIN) return json({ error: "Forbidden" }, 403);
+  const perms = await loadUserPermissions(session);
+  const canPurgeItems = perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_EDIT_ITEMS]);
+  if (!canPurgeItems) return json({ error: "Forbidden" }, 403);
 
   let raw: unknown;
   try {

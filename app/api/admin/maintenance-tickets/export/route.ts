@@ -3,7 +3,8 @@ import { NextRequest } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
-import { PartsCheckoutStatus, Prisma } from "@prisma/client";
+import { PartsCheckoutStatus, Permission, Prisma } from "@prisma/client";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -14,18 +15,6 @@ export const dynamic = "force-dynamic";
  *  - before: YYYY-MM-DD or ISO (filters createdAt < before)
  *  - q:      free text (ticket id, store, tech, sku, part#, item name)
  */
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null;
-}
-
-function getUserRole(session: unknown): string | null {
-  if (!isRecord(session)) return null;
-  const user = session.user;
-  if (!isRecord(user)) return null;
-  const role = user.role;
-  return typeof role === "string" ? role : null;
-}
 
 function parseDateOrNull(s: string | null): Date | null {
   if (!s) return null;
@@ -47,8 +36,11 @@ export async function GET(req: NextRequest) {
     const session = await getServerSession(authOptions);
     if (!session) return new Response("Unauthorized", { status: 401 });
 
-    const role = getUserRole(session);
-    if (role !== "ADMIN") return new Response("Forbidden", { status: 403 });
+    const perms = await loadUserPermissions(session);
+    const canExport =
+      perms.allowAll ||
+      hasAnyPermission(perms, [Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS, Permission.ADMIN_VIEW_MAINTENANCE_TICKETS]);
+    if (!canExport) return new Response("Forbidden", { status: 403 });
 
     const url = new URL(req.url);
     const sp = url.searchParams;

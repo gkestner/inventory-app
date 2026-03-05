@@ -1,22 +1,12 @@
 // app/api/admin/items/export/route.ts
 import type { NextRequest } from "next/server";
-import type { Session } from "next-auth";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../../../../lib/auth";
 import { prisma } from "../../../../lib/prisma";
-import { Prisma, Role, InvoiceVendor } from "@prisma/client";
+import { Permission, Prisma, InvoiceVendor } from "@prisma/client";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
-
-function getUserRole(session: Session | null): Role | null {
-  const u = session?.user as unknown;
-  if (!u || typeof u !== "object") return null;
-  const role = (u as { role?: unknown }).role;
-  if (role === Role.ADMIN || role === "ADMIN") return Role.ADMIN;
-  if (role === Role.MANAGER || role === "MANAGER") return Role.MANAGER;
-  if (role === Role.EMPLOYEE || role === "EMPLOYEE") return Role.EMPLOYEE;
-  return null;
-}
 
 function parseActive(raw: string | null): boolean | null {
   if (!raw) return null;
@@ -124,7 +114,10 @@ function formatIso(d: Date): string {
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return new Response("Unauthorized", { status: 401 });
-  if (getUserRole(session) !== Role.ADMIN) return new Response("Forbidden", { status: 403 });
+  const perms = await loadUserPermissions(session);
+  const canExportItems =
+    perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_IMPORT_EXPORT_ITEMS, Permission.ADMIN_VIEW_ITEMS]);
+  if (!canExportItems) return new Response("Forbidden", { status: 403 });
 
   const url = new URL(req.url);
 
