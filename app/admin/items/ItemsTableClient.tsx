@@ -1982,9 +1982,14 @@ export default function ItemsTableClient({
                         </div>
                       ) : (
                         <div style={{ display: "grid", gap: 10 }}>
-                          <div style={{ fontSize: 12, opacity: 0.9 }}>
-                            <strong>Description:</strong>{" "}
-                            <span style={{ whiteSpace: "pre-wrap" }}>{descriptionText || "—"}</span>
+                          <div style={{ fontSize: 12, opacity: 0.85, display: "flex", flexWrap: "wrap", gap: 12 }}>
+                            <span>
+                              <strong>Description:</strong>{" "}
+                              <span style={{ whiteSpace: "pre-wrap" }}>{descriptionText || "—"}</span>
+                            </span>
+                            <span>
+                              <strong>SKU:</strong> {row.sku}
+                            </span>
                           </div>
 
                           <div style={{ fontSize: 12, opacity: 0.85, display: "flex", flexWrap: "wrap", gap: 12 }}>
