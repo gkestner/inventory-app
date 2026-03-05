@@ -180,6 +180,7 @@ export default async function ItemLabelsPage({
 
                 const AUTOPRINT = ${autoprint ? "true" : "false"};
                 const AUTOCLOSE = ${autoclose ? "true" : "false"};
+                const AUTOPRINT_LOCK_KEY = "__labels_autoprint_lock_until";
 
                 console.log("Label page debug", {
                   idsCount: ${ids.length},
@@ -193,6 +194,19 @@ export default async function ItemLabelsPage({
                   if (window.__labelsAutoprintDone) return;
                   window.__labelsAutoprintDone = true;
                   setTimeout(() => window.print(), 150);
+                }
+
+                function acquireAutoprintLock() {
+                  try {
+                    const now = Date.now();
+                    const current = Number(window.localStorage.getItem(AUTOPRINT_LOCK_KEY) || 0);
+                    if (now < current) return false;
+                    window.localStorage.setItem(AUTOPRINT_LOCK_KEY, String(now + 5000));
+                    return true;
+                  } catch {
+                    // If storage is unavailable, fail open so printing still works.
+                    return true;
+                  }
                 }
 
                 window.addEventListener("keydown", (e) => {
@@ -212,6 +226,14 @@ export default async function ItemLabelsPage({
                 }
 
                 if (AUTOPRINT) {
+                  if (!acquireAutoprintLock()) {
+                    console.log("Duplicate autoprint suppressed.");
+                    if (AUTOCLOSE) {
+                      setTimeout(() => window.close(), 80);
+                    }
+                    return;
+                  }
+
                   const imgs = Array.from(document.images || []);
                   let done = false;
 
