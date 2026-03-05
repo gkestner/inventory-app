@@ -8,6 +8,7 @@ import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { InvoiceStatus, Permission, Role, InvoiceVendor } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
+import AutoOpenPassportExport from "./AutoOpenPassportExport";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -74,10 +75,12 @@ function parseIds(raw: string | undefined): string[] {
     .slice(0, 200);
 }
 
-export default async function PrintInvoiceBatchPage({ searchParams }: { searchParams: { ids?: string } }) {
+export default async function PrintInvoiceBatchPage({ searchParams }: { searchParams: { ids?: string; autoExport?: string } }) {
   await requireInvoicesView();
 
   const ids = parseIds(searchParams.ids);
+  const autoExport = String(searchParams.autoExport ?? "").trim() === "1";
+  const exportUrl = ids.length > 0 ? `/admin/invoices/passport-export?ids=${encodeURIComponent(ids.join(","))}` : "";
 
   const invoices =
     ids.length > 0
@@ -226,6 +229,8 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
 
   return (
     <main>
+      <AutoOpenPassportExport enabled={autoExport && !!exportUrl} exportUrl={exportUrl} />
+
       {/* Reliable auto-print */}
       <script
         suppressHydrationWarning
@@ -292,6 +297,15 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
 
       <div className="no-print" style={{ padding: 10, fontSize: 12, opacity: 0.8, maxWidth: 1100, margin: "0 auto" }}>
         Printing <b>{invoices.length}</b> invoice(s). If the print dialog doesn’t open automatically, press <b>Ctrl+P</b>. • {templateStamp}
+        {exportUrl ? (
+          <>
+            {" "}
+            •{" "}
+            <a href={exportUrl} style={{ textDecoration: "underline", color: "inherit", fontWeight: 700 }}>
+              Download Passport Export CSV
+            </a>
+          </>
+        ) : null}
       </div>
 
       <div id="print-root">

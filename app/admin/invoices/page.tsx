@@ -664,7 +664,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
         .filter((x) => x.length > 0) ?? [];
 
     if (ids.length > 0) {
-      redirect(`/admin/invoices/print-batch?ids=${encodeURIComponent(ids.join(","))}`);
+      redirect(`/admin/invoices/print-batch?ids=${encodeURIComponent(ids.join(","))}&autoExport=1`);
     }
 
     const h = await headers();
