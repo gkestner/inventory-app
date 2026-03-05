@@ -6,7 +6,7 @@ import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { Role } from "@prisma/client";
+import { Permission, Role } from "@prisma/client";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
@@ -40,17 +40,12 @@ function nonEmpty(v: FormDataEntryValue | null): string {
  * - Works whether or not your Prisma Role enum includes MAINTENANCE
  * - Never triggers ts-expect-error build failures
  */
-function pickRole(v: string): Role {
-  const roles = new Set<string>(Object.values(Role) as string[]);
-  const wanted = String(v ?? "").trim();
+const ADMIN_PERMISSIONS: Permission[] = (Object.values(Permission) as Permission[]).filter((p) =>
+  String(p).startsWith("ADMIN_")
+);
 
-  if (wanted === Role.ADMIN) return Role.ADMIN;
-  if (wanted === Role.MANAGER) return Role.MANAGER;
-
-  if (roles.has("MAINTENANCE") && wanted === "MAINTENANCE") {
-    return "MAINTENANCE" as Role;
-  }
-
+function pickRole(): Role {
+  // Legacy role is retained only as fallback metadata.
   return Role.EMPLOYEE;
 }
 
@@ -93,6 +88,10 @@ function makeTempPassword(): string {
 
 function safePermissionTitleIdsFromFormData(fd: FormData): string[] {
   return safeIdsFromFormData(fd, "permissionTitleIds");
+}
+
+function safeCreatePermissionTitleIdsFromFormData(fd: FormData): string[] {
+  return safeIdsFromFormData(fd, "createPermissionTitleIds");
 }
 
 export default async function AdminUsersPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
@@ -147,6 +146,10 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         },
         orderBy: [{ title: { name: "asc" } }],
       },
+
+      permissions: {
+        select: { permission: true },
+      },
     },
   });
 
@@ -162,7 +165,8 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     const name = nonEmpty(formData.get("name"));
     const emailRaw = nonEmpty(formData.get("email"));
     const password = nonEmpty(formData.get("password"));
-    const role = pickRole(nonEmpty(formData.get("role")));
+    const role = pickRole();
+    const createTitleIds = safeCreatePermissionTitleIdsFromFormData(formData);
 
     const primaryIds = safeIdsFromFormData(formData, "primaryLocationIds");
     const optionalIds = safeIdsFromFormData(formData, "optionalLocationIds");
@@ -286,6 +290,21 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
           },
           select: { id: true },
         });
+
+        if (createTitleIds.length > 0) {
+          const validTitles = await tx.permissionTitle.findMany({
+            where: { id: { in: createTitleIds } },
+            select: { id: true },
+          });
+          const validIds = validTitles.map((t) => t.id);
+
+          if (validIds.length > 0) {
+            await tx.userPermissionTitle.createMany({
+              data: validIds.map((titleId) => ({ userId: u.id, titleId })),
+              skipDuplicates: true,
+            });
+          }
+        }
 
         return u;
       });
@@ -538,6 +557,46 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     redirect("/admin/users?ok=1");
   }
 
+  async function toggleAdminAccessAction(formData: FormData) {
+    "use server";
+    await requireAdmin();
+
+    const userId = nonEmpty(formData.get("userId"));
+    const enabled = nonEmpty(formData.get("enabled")) === "1";
+
+    if (!userId) redirect("/admin/users?error=" + encodeURIComponent("Missing userId"));
+
+    try {
+      await prisma.$transaction(async (tx) => {
+        if (enabled) {
+          await tx.userPermission.createMany({
+            data: ADMIN_PERMISSIONS.map((permission) => ({ userId, permission })),
+            skipDuplicates: true,
+          });
+          return;
+        }
+
+        await tx.userPermission.deleteMany({
+          where: {
+            userId,
+            permission: { in: ADMIN_PERMISSIONS },
+          },
+        });
+
+        await tx.user.updateMany({
+          where: { id: userId, role: Role.ADMIN },
+          data: { role: Role.EMPLOYEE },
+        });
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Admin access update failed";
+      redirect("/admin/users?error=" + encodeURIComponent(msg));
+    }
+
+    revalidatePath("/admin/users");
+    redirect("/admin/users?ok=1");
+  }
+
   const pageWrap: CSSProperties = { padding: 24, maxWidth: 1200, margin: "0 auto" };
   const card: CSSProperties = {
     border: "1px solid rgba(128, 128, 128, 0.25)",
@@ -578,7 +637,6 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
   }
 
   const createOpen = Boolean(error || created);
-  const roleOptions = Object.values(Role) as Role[];
 
   return (
     <div style={pageWrap}>
@@ -649,16 +707,20 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                 <input name="password" type="password" required style={field} />
               </label>
 
-              <label style={label}>
-                <span style={{ fontWeight: 800 }}>Legacy Role (routing fallback)</span>
-                <select name="role" defaultValue={Role.EMPLOYEE} style={field}>
-                  {roleOptions.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
+              <div style={label}>
+                <span style={{ fontWeight: 800 }}>Access Titles (optional)</span>
+                <div style={{ display: "grid", gap: 6, maxHeight: 120, overflow: "auto", paddingRight: 6 }}>
+                  {allTitles.filter((t) => t.active).map((t) => (
+                    <label key={`create-title-${t.id}`} style={{ display: "grid", gridTemplateColumns: "20px 1fr", gap: 8 }}>
+                      <input type="checkbox" name="createPermissionTitleIds" value={t.id} />
+                      <span>
+                        <span style={{ fontWeight: 800 }}>{t.name}</span>
+                        {t.description ? <span style={{ opacity: 0.75 }}> — {t.description}</span> : null}
+                      </span>
+                    </label>
                   ))}
-                </select>
-              </label>
+                </div>
+              </div>
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -734,6 +796,9 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
             const optionalChoices = locationsAll.filter((l) => l.active || checkedOptional.has(l.id));
 
             const currentTitleIds = new Set(u.permissionTitles.map((r) => r.titleId));
+            const hasAdminPermission =
+              u.role === Role.ADMIN || u.permissions.some((p) => ADMIN_PERMISSIONS.includes(p.permission));
+            const titleNames = u.permissionTitles.map((r) => r.title?.name ?? "").filter(Boolean);
 
             // show active titles + any inactive already assigned (so you can remove them)
             const permissionTitles = allTitles.filter((t) => t.active || currentTitleIds.has(t.id));
@@ -752,7 +817,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                 <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside" }}>
                   {u.name}{" "}
                   <span style={{ opacity: 0.75, fontWeight: 700 }}>
-                    (Legacy: {u.role}) {u.active ? "• Active" : "• Disabled"}
+                    ({titleNames.length ? titleNames.join(", ") : "No Access Title"}) {u.active ? "• Active" : "• Disabled"}
                   </span>
                 </summary>
 
@@ -770,10 +835,14 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                     </div>
 
                     <div style={{ fontSize: 12, opacity: 0.75 }}>
-                      Permission Titles:{" "}
+                      Access Titles:{" "}
                       <span style={{ fontWeight: 800 }}>
                         {u.permissionTitles.length ? u.permissionTitles.map((r) => r.title?.name ?? "").filter(Boolean).join(", ") : "—"}
                       </span>
+                    </div>
+
+                    <div style={{ fontSize: 12, opacity: 0.75 }}>
+                      Legacy Role: <span style={{ fontWeight: 800 }}>{u.role}</span>
                     </div>
 
                   </div>
@@ -784,6 +853,14 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                       <input type="hidden" name="nextActive" value={u.active ? "false" : "true"} />
                       <button type="submit" style={btn}>
                         {u.active ? "Disable" : "Enable"}
+                      </button>
+                    </form>
+
+                    <form action={toggleAdminAccessAction}>
+                      <input type="hidden" name="userId" value={u.id} />
+                      <input type="hidden" name="enabled" value={hasAdminPermission ? "0" : "1"} />
+                      <button type="submit" style={btn}>
+                        {hasAdminPermission ? "Disable Admin Access" : "Enable Admin Access"}
                       </button>
                     </form>
 
