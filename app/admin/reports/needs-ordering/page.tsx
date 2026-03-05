@@ -319,39 +319,49 @@ export default async function NeedsOrderingReportPage({
 
         <div
           style={{
-            marginTop: 10,
-            padding: 10,
-            border: "1px solid rgba(37,99,235,0.32)",
-            borderRadius: 10,
-            background: "rgba(37,99,235,0.10)",
+            marginTop: 12,
+            display: "grid",
+            gridTemplateColumns: "minmax(220px, 28%) minmax(0, 1fr)",
+            gap: 12,
+            alignItems: "start",
           }}
         >
-          <div style={{ fontWeight: 900, marginBottom: 6 }}>Order More Flags</div>
-          {orderMoreItems.length === 0 ? (
-            <div style={{ opacity: 0.8 }}>No active Order More flags.</div>
-          ) : (
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {orderMoreItems.map((x) => (
-                <span
-                  key={`order-more-${x.id}`}
-                  style={{
-                    padding: "4px 8px",
-                    borderRadius: 999,
-                    border: "1px solid rgba(37,99,235,0.4)",
-                    background: "rgba(37,99,235,0.16)",
-                    fontWeight: 800,
-                    fontSize: 12,
-                  }}
-                >
-                  {x.sku} - Order More
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
+          <aside
+            style={{
+              padding: 10,
+              border: "1px solid rgba(37,99,235,0.32)",
+              borderRadius: 10,
+              background: "rgba(37,99,235,0.10)",
+              position: "sticky",
+              top: 12,
+            }}
+          >
+            <div style={{ fontWeight: 900, marginBottom: 6 }}>Order More Flags</div>
+            {orderMoreItems.length === 0 ? (
+              <div style={{ opacity: 0.8 }}>No active Order More flags.</div>
+            ) : (
+              <div style={{ display: "grid", gap: 6 }}>
+                {orderMoreItems.map((x) => (
+                  <div
+                    key={`order-more-${x.id}`}
+                    style={{
+                      padding: "6px 8px",
+                      borderRadius: 8,
+                      border: "1px solid rgba(37,99,235,0.4)",
+                      background: "rgba(37,99,235,0.16)",
+                      fontSize: 12,
+                    }}
+                  >
+                    <div style={{ fontWeight: 900 }}>{x.sku}</div>
+                    <div style={{ opacity: 0.9 }}>{x.name}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </aside>
 
-        <div style={{ marginTop: 12, border: "1px solid rgba(128,128,128,0.25)", borderRadius: 10, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+          <div style={{ border: "1px solid rgba(128,128,128,0.25)", borderRadius: 10, overflow: "hidden" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
             <thead>
               <tr>
                 {[
@@ -492,7 +502,8 @@ export default async function NeedsOrderingReportPage({
                 </tr>
               ) : null}
             </tbody>
-          </table>
+            </table>
+          </div>
         </div>
       </div>
     </main>
