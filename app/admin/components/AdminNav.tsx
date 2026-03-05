@@ -1,5 +1,6 @@
 // app/admin/components/AdminNav.tsx
 import Link from "next/link";
+import Script from "next/script";
 import type { CSSProperties } from "react";
 import { getServerSession } from "next-auth";
 
@@ -158,7 +159,63 @@ export default async function AdminNav() {
       {/* Ensure disclosure marker is hidden consistently */}
       <style>{`
         details > summary::-webkit-details-marker { display: none; }
+        details[data-admin-dropdown][open] { z-index: 4000; }
       `}</style>
+
+      <Script id="admin-nav-dropdown-behavior" strategy="afterInteractive">{`
+(function () {
+  function getRoot() {
+    return document.querySelector('[data-admin-nav-root]');
+  }
+
+  function getOpen(root) {
+    return Array.prototype.slice.call((root || document).querySelectorAll('details[data-admin-dropdown][open]'));
+  }
+
+  function closeAll(root) {
+    var nodes = getOpen(root);
+    for (var i = 0; i < nodes.length; i++) nodes[i].removeAttribute('open');
+  }
+
+  function bind() {
+    var root = getRoot();
+    if (!root || root.__adminNavBound) return;
+    root.__adminNavBound = true;
+
+    // Keep only one dropdown open at a time.
+    root.addEventListener('toggle', function (e) {
+      var t = e.target;
+      if (!t || t.tagName !== 'DETAILS') return;
+      if (!t.matches('details[data-admin-dropdown]')) return;
+      if (!t.hasAttribute('open')) return;
+
+      var opened = getOpen(root);
+      for (var i = 0; i < opened.length; i++) {
+        if (opened[i] !== t) opened[i].removeAttribute('open');
+      }
+    }, true);
+
+    // Click outside closes any open dropdown.
+    document.addEventListener('click', function (e) {
+      var r = getRoot();
+      if (!r) return;
+      var t = e.target;
+      if (t && t.closest && t.closest('[data-admin-nav-root]')) return;
+      closeAll(r);
+    }, false);
+
+    document.addEventListener('keydown', function (e) {
+      if (!e || e.key !== 'Escape') return;
+      var r = getRoot();
+      if (!r) return;
+      closeAll(r);
+    }, true);
+  }
+
+  bind();
+  setTimeout(bind, 250);
+})();
+      `}</Script>
 
       <div className="site-nav-inner" style={inner}>
         <div style={left}>
