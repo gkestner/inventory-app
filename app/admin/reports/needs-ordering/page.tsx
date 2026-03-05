@@ -146,7 +146,7 @@ export default async function NeedsOrderingReportPage({
       WHERE ia."type" = 'TECH_REQUEST_ORDER'::"InventoryAlertType"
         AND ia."resolvedAt" IS NULL
         AND pct."needToOrderMore" = true
-      GROUP BY "itemId"
+      GROUP BY ia."itemId"
     )
     SELECT
       i."id",
