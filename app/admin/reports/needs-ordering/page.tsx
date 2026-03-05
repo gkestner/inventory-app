@@ -55,6 +55,13 @@ function qs(params: Record<string, string | undefined>): string {
   return out ? `?${out}` : "";
 }
 
+function normalizeExternalUrl(v: string | null): string | null {
+  const raw = String(v ?? "").trim();
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return `https://${raw}`;
+}
+
 export default async function NeedsOrderingReportPage({
   searchParams,
 }: {
@@ -109,6 +116,7 @@ export default async function NeedsOrderingReportPage({
     name: string;
     orderFrom: string | null;
     manufacturer: string | null;
+    webUrl: string | null;
     onHandQty: number;
     orderedQty: number;
     minQty: number;
@@ -124,6 +132,7 @@ export default async function NeedsOrderingReportPage({
       "name",
       "orderFrom",
       "manufacturer",
+      "webUrl",
       "onHandQty",
       "orderedQty",
       "minQty",
@@ -241,6 +250,7 @@ export default async function NeedsOrderingReportPage({
                   "SKU",
                   "Item",
                   "Supplier",
+                  "Web",
                   "On Hand",
                   "Ordered",
                   "Available",
@@ -267,7 +277,9 @@ export default async function NeedsOrderingReportPage({
             </thead>
 
             <tbody>
-              {needsOrdering.map((row) => (
+              {needsOrdering.map((row) => {
+                const itemUrl = normalizeExternalUrl(row.webUrl);
+                return (
                 <tr key={row.id} style={{ borderBottom: "1px solid rgba(128,128,128,0.15)", opacity: row.reorderIgnored ? 0.62 : 1 }}>
                   <td style={{ padding: 10, fontWeight: 800, whiteSpace: "nowrap" }}>{row.sku}</td>
                   <td style={{ padding: 10 }}>
@@ -277,6 +289,29 @@ export default async function NeedsOrderingReportPage({
                   <td style={{ padding: 10 }}>
                     <div>{row.orderFrom || "—"}</div>
                     <div style={{ fontSize: 12, opacity: 0.82 }}>{row.manufacturer || ""}</div>
+                  </td>
+                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                    {itemUrl ? (
+                      <a
+                        href={itemUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: 10,
+                          border: "1px solid rgba(128,128,128,0.25)",
+                          background: "var(--background)",
+                          color: "var(--foreground)",
+                          fontWeight: 800,
+                          textDecoration: "none",
+                          display: "inline-block",
+                        }}
+                      >
+                        Open
+                      </a>
+                    ) : (
+                      <span style={{ opacity: 0.6 }}>—</span>
+                    )}
                   </td>
                   <td style={{ padding: 10, whiteSpace: "nowrap" }}>{row.onHandQty}</td>
                   <td style={{ padding: 10, whiteSpace: "nowrap" }}>{row.orderedQty}</td>
@@ -311,11 +346,11 @@ export default async function NeedsOrderingReportPage({
                     )}
                   </td>
                 </tr>
-              ))}
+              );})}
 
               {needsOrdering.length === 0 ? (
                 <tr>
-                  <td colSpan={10} style={{ padding: 14, opacity: 0.8 }}>
+                  <td colSpan={11} style={{ padding: 14, opacity: 0.8 }}>
                     No items currently need ordering for your filters.
                   </td>
                 </tr>
