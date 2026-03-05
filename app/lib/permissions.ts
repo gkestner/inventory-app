@@ -7,7 +7,6 @@ import { Permission, Role } from "@prisma/client";
  *
  * Compatibility rules (kept):
  * - Session enum role ADMIN => allowAll = true
- * - Session role string "MAINTENANCE" => legacy fallback baseline permissions ONLY when user has no explicit grants
  * - Others => direct permissions + title-based permissions
  *
  * New (dynamic roles) rules:
@@ -284,16 +283,6 @@ export async function loadUserPermissions(session: unknown): Promise<LoadedPermi
         for (const r of roleTitlePermRows) permissions.add(r.permission);
       }
     }
-  }
-
-  // Legacy fallback: only apply MAINTENANCE baseline when the user has no
-  // explicit grants from direct permissions, titles, or dynamic roles.
-  if (role === "MAINTENANCE" && permissions.size === 0 && !allowAll) {
-    permissions.add(Permission.VIEW_HOME);
-    permissions.add(Permission.VIEW_WORK_ORDERS);
-    permissions.add(Permission.CREATE_WORK_ORDERS);
-    permissions.add(Permission.UPDATE_OWN_WORK_ORDERS);
-    permissions.add(Permission.SUBMIT_OWN_WORK_ORDERS);
   }
 
   return {

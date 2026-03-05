@@ -37,8 +37,6 @@ export default async function HomePage() {
     ]);
 
   const hasMaintenanceAccess =
-    role === Role.EMPLOYEE ||
-    role === Role.MAINTENANCE ||
     perms.allowAll ||
     hasAnyPermission(perms, [
       Permission.VIEW_WORK_ORDERS,

@@ -4,7 +4,7 @@ import type { CSSProperties } from "react";
 import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/app/lib/auth";
-import { Permission, Role } from "@prisma/client";
+import { Permission } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import LogoutSlot from "@/app/components/LogoutSlot";
 
@@ -13,9 +13,6 @@ export const dynamic = "force-dynamic";
 export default async function TopNav() {
   const session = await getServerSession(authOptions);
   const perms = await loadUserPermissions(session);
-
-  const role = (session?.user as { role?: Role | null } | undefined)?.role ?? null;
-  const isAdmin = role === Role.ADMIN;
 
   const shell: CSSProperties = { color: "var(--foreground)" };
 
@@ -32,11 +29,21 @@ export default async function TopNav() {
 
   const linkStyle: CSSProperties = { whiteSpace: "nowrap" };
 
-  const canWorkOrders = hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
-  const canCheckout = hasAnyPermission(perms, [Permission.VIEW_CHECKOUT]);
+  const canWorkOrders = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
+  const canCheckout = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
 
   // ✅ NEW: Live Orders board (general users)
-  const canLiveOrders = hasAnyPermission(perms, [Permission.VIEW_LIVE_ORDERS]);
+  const canLiveOrders = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_LIVE_ORDERS]);
+
+  const canAdmin =
+    perms.allowAll ||
+    hasAnyPermission(perms, [
+      Permission.ADMIN_VIEW_ITEMS,
+      Permission.ADMIN_VIEW_USERS,
+      Permission.ADMIN_VIEW_LOCATIONS,
+      Permission.ADMIN_VIEW_WORK_ORDERS,
+      Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
+    ]);
 
   return (
     <div className="site-nav-shell" style={shell}>
@@ -64,7 +71,7 @@ export default async function TopNav() {
             </Link>
           ) : null}
 
-          {isAdmin ? (
+          {canAdmin ? (
             <Link href="/admin" className="site-link" style={linkStyle}>
               Admin
             </Link>

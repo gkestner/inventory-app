@@ -94,7 +94,6 @@ export default async function RootLayout({
 
   const effectiveRole = sessionRole ?? dbUserRole;
   const isRoleAdmin = effectiveRole === Role.ADMIN || effectiveRole === "ADMIN";
-  const isEmployee = effectiveRole === Role.EMPLOYEE || effectiveRole === "EMPLOYEE";
 
   // ✅ Load per-user permissions server-side (single source of truth)
   const perms = await loadUserPermissions(session);
@@ -119,17 +118,26 @@ export default async function RootLayout({
   async function setPreviewAction(formData: FormData) {
     "use server";
 
-    const [{ getServerSession }, { authOptions }, prismaEnums] = await Promise.all([
+    const [{ getServerSession }, { authOptions }, permsMod] = await Promise.all([
       import("next-auth"),
       import("@/app/lib/auth"),
-      import("@prisma/client"),
+      import("@/app/lib/permissions"),
     ]);
 
-    const { Role } = prismaEnums;
+    const { hasAnyPermission, loadUserPermissions } = permsMod;
+    const { Permission } = await import("@prisma/client");
 
     const s = await getServerSession(authOptions);
-    const r = (s?.user as unknown as { role?: unknown })?.role;
-    const admin = r === Role.ADMIN || r === "ADMIN";
+    const p = await loadUserPermissions(s);
+    const admin =
+      p.allowAll ||
+      hasAnyPermission(p, [
+        Permission.ADMIN_VIEW_ITEMS,
+        Permission.ADMIN_VIEW_USERS,
+        Permission.ADMIN_VIEW_LOCATIONS,
+        Permission.ADMIN_VIEW_WORK_ORDERS,
+        Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
+      ]);
     if (!admin) redirect("/");
 
     const next = String(formData.get("preview") ?? "").trim().toLowerCase();
@@ -159,9 +167,10 @@ export default async function RootLayout({
       Permission.VIEW_HOME,
       Permission.VIEW_CHECKOUT,
       Permission.VIEW_WORK_ORDERS,
+      Permission.VIEW_LIVE_ORDERS,
     ]);
 
-  const shouldRenderUserNav = showUserNav && (hasAnyUserNavPermission || isEmployee);
+  const shouldRenderUserNav = showUserNav && hasAnyUserNavPermission;
 
   const border = "1px solid rgba(128,128,128,0.25)";
   const bg = "var(--card, var(--background))";
