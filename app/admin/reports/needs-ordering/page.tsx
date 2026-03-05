@@ -140,7 +140,7 @@ export default async function NeedsOrderingReportPage({
   const like = `%${q}%`;
   const rows = await prisma.$queryRaw<NeedsOrderingRow[]>(Prisma.sql`
     WITH tech_req AS (
-      SELECT "itemId", COUNT(*)::int AS "openTechRequests"
+      SELECT ia."itemId", COUNT(*)::int AS "openTechRequests"
       FROM "InventoryAlert" ia
       INNER JOIN "PartsCheckoutTicket" pct ON pct."id" = ia."checkoutId"
       WHERE ia."type" = 'TECH_REQUEST_ORDER'::"InventoryAlertType"
