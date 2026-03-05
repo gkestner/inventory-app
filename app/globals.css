@@ -509,18 +509,23 @@ body:has(.labels-page) .app-content-shell > :not(.labels-page):not(:has(.labels-
 }
 
 @media print {
-  body.labels-print-mode * {
-    visibility: hidden !important;
+  body.labels-print-mode > :not(.app-content-shell) {
+    display: none !important;
   }
 
-  body.labels-print-mode .labels-page,
-  body.labels-print-mode .labels-page * {
-    visibility: visible !important;
+  body.labels-print-mode .app-content-shell > :not(:has(.labels-page)) {
+    display: none !important;
+  }
+
+  body.labels-print-mode .app-content-shell,
+  body.labels-print-mode .app-content-shell > :has(.labels-page),
+  body.labels-print-mode .labels-page {
+    display: block !important;
   }
 
   body.labels-print-mode .labels-page {
-    position: absolute !important;
-    inset: 0 !important;
+    position: static !important;
+    inset: auto !important;
     z-index: 2147483647 !important;
     overflow: visible !important;
     background: #fff !important;
