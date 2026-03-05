@@ -73,22 +73,20 @@ export default async function ItemLabelsPage({
     const sp = await searchParams;
     const debug = first(sp.debug) === "1";
 
-    // Auth check (skip if debug mode)
-    if (!debug) {
-      let session: any = null;
-      try {
-        session = await getServerSession(authOptions);
-      } catch (authErr) {
-        console.error("Session error:", authErr);
-      }
+    // Always enforce auth; debug mode must never bypass security.
+    let session: any = null;
+    try {
+      session = await getServerSession(authOptions);
+    } catch (authErr) {
+      console.error("Session error:", authErr);
+    }
 
-      if (!session) {
-        redirect("/login");
-      }
+    if (!session) {
+      redirect("/login");
+    }
 
-      if (!(await canAccessAdmin(session))) {
-        redirect("/");
-      }
+    if (!(await canAccessAdmin(session))) {
+      redirect("/");
     }
 
     const ids = parseIds(first(sp.ids));

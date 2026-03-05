@@ -1,13 +1,78 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import bcrypt from "bcryptjs";
+import { headers } from "next/headers";
 
 import { prisma } from "@/app/lib/prisma";
 
 type SearchParams = {
   email?: string;
   error?: string;
+  ok?: string;
 };
+
+const FORGOT_RESET_WINDOW_MS = 15 * 60 * 1000;
+const FORGOT_RESET_MAX_ATTEMPTS = 5;
+const DUMMY_ANSWER_HASH = bcrypt.hashSync("dummy-security-answer", 10);
+
+type ForgotResetAttemptState = {
+  count: number;
+  windowStart: number;
+  blockedUntil: number;
+};
+
+const forgotResetAttempts: Map<string, ForgotResetAttemptState> =
+  (globalThis as unknown as { __forgotResetAttempts?: Map<string, ForgotResetAttemptState> }).__forgotResetAttempts ??
+  new Map<string, ForgotResetAttemptState>();
+
+(globalThis as unknown as { __forgotResetAttempts?: Map<string, ForgotResetAttemptState> }).__forgotResetAttempts =
+  forgotResetAttempts;
+
+function clientIpFromHeaders(h: Headers): string {
+  const xff = h.get("x-forwarded-for") ?? "";
+  const firstIp = xff.split(",")[0]?.trim();
+  return firstIp || "unknown";
+}
+
+function getAttemptKey(email: string, ip: string): string {
+  return `${email}|${ip}`;
+}
+
+function getRetrySecondsIfBlocked(key: string, nowMs: number): number | null {
+  const state = forgotResetAttempts.get(key);
+  if (!state) return null;
+  if (state.blockedUntil <= nowMs) return null;
+  return Math.ceil((state.blockedUntil - nowMs) / 1000);
+}
+
+function registerFailedAttempt(key: string, nowMs: number): void {
+  const existing = forgotResetAttempts.get(key);
+  if (!existing || nowMs - existing.windowStart > FORGOT_RESET_WINDOW_MS) {
+    forgotResetAttempts.set(key, {
+      count: 1,
+      windowStart: nowMs,
+      blockedUntil: 0,
+    });
+    return;
+  }
+
+  const nextCount = existing.count + 1;
+  const next: ForgotResetAttemptState = {
+    count: nextCount,
+    windowStart: existing.windowStart,
+    blockedUntil: existing.blockedUntil,
+  };
+
+  if (nextCount >= FORGOT_RESET_MAX_ATTEMPTS) {
+    next.blockedUntil = nowMs + FORGOT_RESET_WINDOW_MS;
+  }
+
+  forgotResetAttempts.set(key, next);
+}
+
+function clearFailedAttempts(key: string): void {
+  forgotResetAttempts.delete(key);
+}
 
 function normEmail(v: FormDataEntryValue | null): string {
   return String(v ?? "").trim().toLowerCase();
@@ -21,6 +86,7 @@ export default async function ForgotPasswordPage({ searchParams }: { searchParam
   const sp = await searchParams;
   const email = String(sp.email ?? "").trim().toLowerCase();
   const error = String(sp.error ?? "").trim();
+  const ok = String(sp.ok ?? "").trim();
 
   const userForQuestion = email
     ? await prisma.user.findUnique({
@@ -35,12 +101,17 @@ export default async function ForgotPasswordPage({ searchParams }: { searchParam
       })
     : null;
 
-  const canShowQuestion =
+  const canShowRealQuestion =
     !!userForQuestion &&
     userForQuestion.active &&
     userForQuestion.securityQuestionsEnabled &&
     !!userForQuestion.securityQuestionPrompt &&
     !!userForQuestion.securityQuestionAnswerHash;
+
+  const showResetForm = email.length > 0;
+  const promptText = canShowRealQuestion
+    ? String(userForQuestion?.securityQuestionPrompt ?? "")
+    : "Security question on file";
 
   async function resetWithSecurityQuestionAction(formData: FormData) {
     "use server";
@@ -49,6 +120,21 @@ export default async function ForgotPasswordPage({ searchParams }: { searchParam
     const answer = nonEmpty(formData.get("securityAnswer"));
     const newPassword = nonEmpty(formData.get("newPassword"));
     const confirmPassword = nonEmpty(formData.get("confirmPassword"));
+
+    const requestHeaders = await headers();
+    const ip = clientIpFromHeaders(requestHeaders);
+    const key = getAttemptKey(email || "unknown", ip);
+    const nowMs = Date.now();
+    const retrySeconds = getRetrySecondsIfBlocked(key, nowMs);
+
+    if (retrySeconds !== null) {
+      redirect(
+        "/forgot-password?email=" +
+          encodeURIComponent(email) +
+          "&error=" +
+          encodeURIComponent(`Too many attempts. Try again in ${retrySeconds} seconds.`)
+      );
+    }
 
     if (!email) redirect("/forgot-password?error=" + encodeURIComponent("Email is required."));
     if (!answer) redirect("/forgot-password?email=" + encodeURIComponent(email) + "&error=" + encodeURIComponent("Security answer is required."));
@@ -87,22 +173,24 @@ export default async function ForgotPasswordPage({ searchParams }: { searchParam
       },
     });
 
-    if (!user || !user.active || !user.securityQuestionsEnabled || !user.securityQuestionAnswerHash) {
-      redirect(
-        "/forgot-password?email=" +
-          encodeURIComponent(email) +
-          "&error=" +
-          encodeURIComponent("Security question reset is not enabled for this account.")
-      );
-    }
+    // Always run a compare to reduce account-enumeration timing differences.
+    const compareHash = user?.securityQuestionAnswerHash || DUMMY_ANSWER_HASH;
+    const answerOk = await bcrypt.compare(answer, compareHash);
 
-    const answerOk = await bcrypt.compare(answer, user.securityQuestionAnswerHash);
-    if (!answerOk) {
+    const canReset =
+      !!user &&
+      user.active &&
+      user.securityQuestionsEnabled &&
+      !!user.securityQuestionAnswerHash &&
+      answerOk;
+
+    if (!canReset) {
+      registerFailedAttempt(key, nowMs);
       redirect(
         "/forgot-password?email=" +
           encodeURIComponent(email) +
           "&error=" +
-          encodeURIComponent("Security answer is incorrect.")
+          encodeURIComponent("Could not reset password. Check your details and try again.")
       );
     }
 
@@ -112,7 +200,9 @@ export default async function ForgotPasswordPage({ searchParams }: { searchParam
       data: { passwordHash },
     });
 
-    redirect("/login?reset=1");
+    clearFailedAttempts(key);
+
+    redirect("/forgot-password?ok=" + encodeURIComponent("Password reset successful. You can sign in now."));
   }
 
   return (
@@ -125,6 +215,12 @@ export default async function ForgotPasswordPage({ searchParams }: { searchParam
       {error ? (
         <div style={{ marginTop: 12, padding: 10, border: "1px solid #c66", borderRadius: 8, background: "#fff5f5" }}>
           {error}
+        </div>
+      ) : null}
+
+      {ok ? (
+        <div style={{ marginTop: 12, padding: 10, border: "1px solid #6a6", borderRadius: 8, background: "#f4fff4" }}>
+          {ok}
         </div>
       ) : null}
 
@@ -142,13 +238,13 @@ export default async function ForgotPasswordPage({ searchParams }: { searchParam
         </button>
       </form>
 
-      {canShowQuestion ? (
+      {showResetForm ? (
         <form action={resetWithSecurityQuestionAction} style={{ display: "grid", gap: 10, marginTop: 16 }}>
           <input type="hidden" name="email" value={email} />
 
           <label style={{ display: "grid", gap: 6 }}>
             <span style={{ fontWeight: 700 }}>Security Question</span>
-            <div style={{ padding: 10, border: "1px solid #ccc", borderRadius: 8 }}>{userForQuestion.securityQuestionPrompt}</div>
+            <div style={{ padding: 10, border: "1px solid #ccc", borderRadius: 8 }}>{promptText}</div>
           </label>
 
           <input
@@ -180,10 +276,6 @@ export default async function ForgotPasswordPage({ searchParams }: { searchParam
             Reset Password
           </button>
         </form>
-      ) : email ? (
-        <p style={{ marginTop: 14, opacity: 0.8 }}>
-          Security question reset is not enabled for this account. Contact an administrator.
-        </p>
       ) : null}
 
       <div style={{ marginTop: 20 }}>
