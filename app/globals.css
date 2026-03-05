@@ -147,12 +147,12 @@ a {
 
 :root {
   /* Keep content inset from hard edges; DYMO printable area is smaller than stock size. */
-  --w: 3.31in;
-  --h: 1.04in;
+  --w: 3.27in;
+  --h: 1.01in;
   --safe-left: 0.05in;
-  --safe-right: 0.14in;
+  --safe-right: 0.18in;
   --safe-top: 0.06in;
-  --safe-bottom: 0.025in;
+  --safe-bottom: 0.055in;
   --b: 1px;
 }
 
