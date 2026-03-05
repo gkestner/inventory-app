@@ -95,28 +95,6 @@ function safePermissionTitleIdsFromFormData(fd: FormData): string[] {
   return safeIdsFromFormData(fd, "permissionTitleIds");
 }
 
-function safeRoleIdsFromFormData(fd: FormData): string[] {
-  return safeIdsFromFormData(fd, "appRoleIds");
-}
-
-/**
- * ✅ Runtime DB guard: do dynamic-role reads ONLY if the tables exist.
- * This prevents Prisma P2021 on prod before migrations are deployed.
- */
-async function dynamicRolesTablesReady(): Promise<boolean> {
-  try {
-    const rows = await prisma.$queryRaw<Array<{ c: bigint }>>`
-      SELECT COUNT(*)::bigint AS c
-      FROM information_schema.tables
-      WHERE table_schema = 'public'
-        AND table_name IN ('AppRole','UserRole')
-    `;
-    return Number(rows?.[0]?.c ?? 0) === 2;
-  } catch {
-    return false;
-  }
-}
-
 export default async function AdminUsersPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
 
@@ -126,8 +104,6 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
   const created = (sp.created ?? "").trim();
   const resetUser = (sp.resetUser ?? "").trim();
   const temp = (sp.temp ?? "").trim();
-
-  const rolesReady = await dynamicRolesTablesReady();
 
   const [locationsAll, allTitles] = await Promise.all([
     prisma.location.findMany({
@@ -140,91 +116,39 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     }),
   ]);
 
-  // Users query MUST be different depending on rolesReady, otherwise Prisma can hit missing tables.
-  const users = rolesReady
-    ? await prisma.user.findMany({
-        orderBy: [{ name: "asc" }, { email: "asc" }],
+  const users = await prisma.user.findMany({
+    orderBy: [{ name: "asc" }, { email: "asc" }],
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      active: true,
+      createdAt: true,
+
+      locationId: true,
+      location: { select: { id: true, name: true, active: true } },
+
+      allowedLocations: {
         select: {
-          id: true,
-          name: true,
-          email: true,
-          role: true,
-          active: true,
-          createdAt: true,
-
           locationId: true,
+          isPrimary: true,
+          sortOrder: true,
           location: { select: { id: true, name: true, active: true } },
-
-          allowedLocations: {
-            select: {
-              locationId: true,
-              isPrimary: true,
-              sortOrder: true,
-              location: { select: { id: true, name: true, active: true } },
-            },
-            orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
-          },
-
-          permissionTitles: {
-            select: {
-              titleId: true,
-              title: { select: { id: true, name: true, active: true } },
-              assignedAt: true,
-            },
-            orderBy: [{ title: { name: "asc" } }],
-          },
-
-          // ✅ NEW: dynamic roles
-          roles: {
-            select: {
-              roleId: true,
-              assignedAt: true,
-              role: { select: { id: true, name: true, isSystem: true } },
-            },
-            orderBy: [{ role: { name: "asc" } }],
-          },
         },
-      })
-    : await prisma.user.findMany({
-        orderBy: [{ name: "asc" }, { email: "asc" }],
+        orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
+      },
+
+      permissionTitles: {
         select: {
-          id: true,
-          name: true,
-          email: true,
-          role: true,
-          active: true,
-          createdAt: true,
-
-          locationId: true,
-          location: { select: { id: true, name: true, active: true } },
-
-          allowedLocations: {
-            select: {
-              locationId: true,
-              isPrimary: true,
-              sortOrder: true,
-              location: { select: { id: true, name: true, active: true } },
-            },
-            orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
-          },
-
-          permissionTitles: {
-            select: {
-              titleId: true,
-              title: { select: { id: true, name: true, active: true } },
-              assignedAt: true,
-            },
-            orderBy: [{ title: { name: "asc" } }],
-          },
+          titleId: true,
+          title: { select: { id: true, name: true, active: true } },
+          assignedAt: true,
         },
-      });
-
-  const appRoles = rolesReady
-    ? await prisma.appRole.findMany({
-        orderBy: [{ isSystem: "desc" }, { name: "asc" }],
-        select: { id: true, name: true, description: true, isSystem: true },
-      })
-    : [];
+        orderBy: [{ title: { name: "asc" } }],
+      },
+    },
+  });
 
   const activeLocations = locationsAll.filter((l) => l.active);
   const hasActiveLocations = activeLocations.length > 0;
@@ -374,29 +298,6 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
     revalidatePath("/admin/users");
     redirect(`/admin/users?ok=1&created=${encodeURIComponent(createdUserId)}`);
-  }
-
-  async function updateRoleAction(formData: FormData) {
-    "use server";
-    await requireAdmin();
-
-    const userId = nonEmpty(formData.get("userId"));
-    const nextRole = pickRole(nonEmpty(formData.get("role")));
-
-    if (!userId) redirect("/admin/users?error=" + encodeURIComponent("Missing userId"));
-
-    try {
-      await prisma.user.update({
-        where: { id: userId },
-        data: { role: nextRole },
-      });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Role update failed";
-      redirect("/admin/users?error=" + encodeURIComponent(msg));
-    }
-
-    revalidatePath("/admin/users");
-    redirect("/admin/users?ok=1");
   }
 
   async function toggleActiveAction(formData: FormData) {
@@ -637,56 +538,6 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     redirect("/admin/users?ok=1");
   }
 
-  // ✅ assign dynamic AppRoles to user (atomic replace)
-  async function assignAppRolesAction(formData: FormData) {
-    "use server";
-    await requireAdmin();
-
-    if (!(await dynamicRolesTablesReady())) {
-      redirect(
-        "/admin/users?error=" +
-          encodeURIComponent('Dynamic roles tables are not migrated yet. Deploy migrations first (AppRole/UserRole).')
-      );
-    }
-
-    const userId = nonEmpty(formData.get("userId"));
-    if (!userId) redirect("/admin/users?error=" + encodeURIComponent("Missing userId"));
-
-    const selectedRoleIds = safeRoleIdsFromFormData(formData);
-
-    try {
-      await prisma.$transaction(async (tx) => {
-        const u = await tx.user.findUnique({ where: { id: userId }, select: { id: true } });
-        if (!u) throw new Error("User not found");
-
-        if (selectedRoleIds.length > 0) {
-          const existing = await tx.appRole.findMany({
-            where: { id: { in: selectedRoleIds } },
-            select: { id: true },
-          });
-          const found = new Set(existing.map((x) => x.id));
-          const missing = selectedRoleIds.filter((id) => !found.has(id));
-          if (missing.length > 0) throw new Error("One or more roles are missing.");
-        }
-
-        await tx.userRole.deleteMany({ where: { userId } });
-
-        if (selectedRoleIds.length > 0) {
-          await tx.userRole.createMany({
-            data: selectedRoleIds.map((roleId) => ({ userId, roleId })),
-            skipDuplicates: true,
-          });
-        }
-      });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Assign roles failed";
-      redirect("/admin/users?error=" + encodeURIComponent(msg));
-    }
-
-    revalidatePath("/admin/users");
-    redirect("/admin/users?ok=1");
-  }
-
   const pageWrap: CSSProperties = { padding: 24, maxWidth: 1200, margin: "0 auto" };
   const card: CSSProperties = {
     border: "1px solid rgba(128, 128, 128, 0.25)",
@@ -735,7 +586,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 900, marginBottom: 6 }}>Admin Users</h1>
           <div style={{ opacity: 0.8, marginBottom: 16 }}>
-            Manage users, legacy enum role, dynamic roles, locations, and Permission Titles (RBAC templates).
+            Manage users, locations, and Permission Titles (RBAC templates).
           </div>
         </div>
 
@@ -743,21 +594,8 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
           <Link href="/admin/access-titles" style={{ ...btn, textDecoration: "none", display: "inline-block" }}>
             Permission Titles
           </Link>
-          <Link href="/admin/roles" style={{ ...btn, textDecoration: "none", display: "inline-block" }}>
-            Roles
-          </Link>
         </div>
       </div>
-
-      {!rolesReady ? (
-        <div style={{ ...card, marginBottom: 12, border: "1px solid rgba(255,180,0,0.55)" }}>
-          <div style={{ fontWeight: 900, marginBottom: 6 }}>⚠️ Dynamic roles not migrated yet</div>
-          <div style={{ opacity: 0.9 }}>
-            Your database does not have the <code>AppRole</code>/<code>UserRole</code> tables yet. The page will still work,
-            but dynamic role assignment is hidden until migrations are deployed.
-          </div>
-        </div>
-      ) : null}
 
       {error ? (
         <div style={{ ...card, marginBottom: 12 }}>
@@ -900,11 +738,6 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
             // show active titles + any inactive already assigned (so you can remove them)
             const permissionTitles = allTitles.filter((t) => t.active || currentTitleIds.has(t.id));
 
-            const rolesAny =
-              (u as unknown as { roles?: Array<{ roleId: string; role?: { name: string } | null }> }).roles ?? [];
-            const currentAppRoleIds = new Set(rolesAny.map((r) => r.roleId));
-            const roleNames = rolesAny.map((r) => r.role?.name ?? "").filter(Boolean);
-
             return (
               <details
                 key={u.id}
@@ -943,26 +776,9 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                       </span>
                     </div>
 
-                    <div style={{ fontSize: 12, opacity: 0.75 }}>
-                      Dynamic Roles: <span style={{ fontWeight: 800 }}>{roleNames.length ? roleNames.join(", ") : "—"}</span>
-                    </div>
                   </div>
 
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                    <form action={updateRoleAction} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <input type="hidden" name="userId" value={u.id} />
-                      <select name="role" defaultValue={u.role} style={field}>
-                        {roleOptions.map((r) => (
-                          <option key={r} value={r}>
-                            {r}
-                          </option>
-                        ))}
-                      </select>
-                      <button type="submit" style={btn}>
-                        Update Role
-                      </button>
-                    </form>
-
                     <form action={toggleActiveAction}>
                       <input type="hidden" name="userId" value={u.id} />
                       <input type="hidden" name="nextActive" value={u.active ? "false" : "true"} />
@@ -1004,47 +820,6 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                     </form>
                   </div>
                 </div>
-
-                {rolesReady ? (
-                  <details style={{ marginTop: 12 }}>
-                    <summary style={{ cursor: "pointer", fontWeight: 900 }}>Assign Dynamic Roles</summary>
-
-                    <div style={{ marginTop: 10 }}>
-                      {appRoles.length === 0 ? (
-                        <div style={{ fontSize: 13, opacity: 0.8 }}>
-                          No roles exist yet. Create roles in{" "}
-                          <a href="/admin/roles" style={{ textDecoration: "underline" }}>
-                            Roles
-                          </a>
-                          .
-                        </div>
-                      ) : (
-                        <form action={assignAppRolesAction} style={{ display: "grid", gap: 12 }}>
-                          <input type="hidden" name="userId" value={u.id} />
-
-                          <div style={{ display: "grid", gap: 6, maxHeight: 220, overflow: "auto", paddingRight: 6 }}>
-                            {appRoles.map((r) => (
-                              <label key={`ar-${u.id}-${r.id}`} style={{ display: "grid", gridTemplateColumns: "20px 1fr", gap: 10 }}>
-                                <input type="checkbox" name="appRoleIds" value={r.id} defaultChecked={currentAppRoleIds.has(r.id)} />
-                                <span>
-                                  <span style={{ fontWeight: 900 }}>{r.name}</span>{" "}
-                                  {r.isSystem ? <span style={{ opacity: 0.75 }}>(System)</span> : null}
-                                  {r.description ? <span style={{ opacity: 0.75 }}> — {r.description}</span> : null}
-                                </span>
-                              </label>
-                            ))}
-                          </div>
-
-                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                            <button type="submit" style={{ ...btn, width: 240 }}>
-                              Save Dynamic Roles
-                            </button>
-                          </div>
-                        </form>
-                      )}
-                    </div>
-                  </details>
-                ) : null}
 
                 <details style={{ marginTop: 12 }}>
                   <summary style={{ cursor: "pointer", fontWeight: 900 }}>Assign Permission Titles</summary>

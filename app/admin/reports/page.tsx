@@ -90,6 +90,15 @@ export default async function AdminReportsIndexPage() {
         </div>
 
         <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
+          <Link href="/admin/reports/needs-ordering" style={cardStyle}>
+            <h2 style={titleStyle}>Items Needing Order</h2>
+            <p style={descStyle}>
+              Live reorder queue for active items where available qty is below minimum. Includes optional Ignore/Unignore
+              controls for non-actionable rows.
+            </p>
+            <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
+          </Link>
+
           <Link href="/admin/reports/item-cost-history" style={cardStyle}>
             <h2 style={titleStyle}>Item Cost History</h2>
             <p style={descStyle}>
