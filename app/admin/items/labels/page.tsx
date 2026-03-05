@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import Script from "next/script";
 import { authOptions } from "@/app/lib/auth";
+import { canAccessAdmin } from "@/app/lib/admin-access";
 
 export const dynamic = "force-dynamic";
 
@@ -85,8 +86,7 @@ export default async function ItemLabelsPage({
         redirect("/login");
       }
 
-      const role = (session?.user as any)?.role ?? null;
-      if (role !== Role.ADMIN) {
+      if (!(await canAccessAdmin(session))) {
         redirect("/");
       }
     }

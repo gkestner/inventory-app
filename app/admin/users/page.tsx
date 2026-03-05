@@ -10,6 +10,7 @@ import { Role } from "@prisma/client";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
+import { canAccessAdmin } from "@/app/lib/admin-access";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -26,8 +27,7 @@ type SearchParams = {
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
-  const role = (session.user as unknown as { role?: Role | null } | null)?.role ?? null;
-  if (role !== Role.ADMIN) redirect("/");
+  if (!(await canAccessAdmin(session))) redirect("/");
   return session;
 }
 
@@ -650,7 +650,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
               </label>
 
               <label style={label}>
-                <span style={{ fontWeight: 800 }}>Role (legacy enum)</span>
+                <span style={{ fontWeight: 800 }}>Legacy Role (routing fallback)</span>
                 <select name="role" defaultValue={Role.EMPLOYEE} style={field}>
                   {roleOptions.map((r) => (
                     <option key={r} value={r}>
@@ -752,7 +752,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                 <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside" }}>
                   {u.name}{" "}
                   <span style={{ opacity: 0.75, fontWeight: 700 }}>
-                    ({u.role}) {u.active ? "• Active" : "• Disabled"}
+                    (Legacy: {u.role}) {u.active ? "• Active" : "• Disabled"}
                   </span>
                 </summary>
 

@@ -2,9 +2,10 @@ import type { CSSProperties } from "react";
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { Prisma, Role, WorkOrderStatus } from "@prisma/client";
+import { Prisma, WorkOrderStatus } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
+import { canAccessAdmin } from "@/app/lib/admin-access";
 import { prisma } from "@/app/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,7 @@ type SearchParams = {
 
 type SessionShape = {
   user?: {
-    role?: Role | null;
+    role?: unknown;
   } | null;
 } | null;
 
@@ -140,7 +141,7 @@ function buildQS(params: Record<string, string | undefined>) {
 async function requireAdmin() {
   const session = (await getServerSession(authOptions)) as SessionShape;
   if (!session) redirect("/login");
-  if (session.user?.role !== Role.ADMIN) redirect("/");
+  if (!(await canAccessAdmin(session))) redirect("/");
 }
 
 export default async function AdminTravelLogPage({

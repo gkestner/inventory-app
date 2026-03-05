@@ -5,8 +5,9 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
+import { canAccessAdmin } from "@/app/lib/admin-access";
 import ItemsTableClient from "./ItemsTableClient";
-import { Role, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 
 export const dynamic = "force-dynamic";
@@ -37,8 +38,7 @@ function toInt(v: string | undefined, fallback: number): number {
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
-  const role = (session.user as unknown as { role?: Role | null } | null)?.role ?? null;
-  if (role !== Role.ADMIN) redirect("/");
+  if (!(await canAccessAdmin(session))) redirect("/");
   return session;
 }
 
@@ -184,8 +184,7 @@ export default async function AdminItemsPage({
     // keep auth check local + strict
     const session = await getServerSession(authOptions);
     if (!session) throw new Error("Unauthorized");
-    const role = (session.user as unknown as { role?: Role | null } | null)?.role ?? null;
-    if (role !== Role.ADMIN) throw new Error("Forbidden");
+    if (!(await canAccessAdmin(session))) throw new Error("Forbidden");
 
     const sku = requiredText(formData.get("sku"), "SKU");
     const name = requiredText(formData.get("name"), "Name");

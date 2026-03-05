@@ -1,10 +1,11 @@
 // app/admin/items/[id]/inventory/page.tsx
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
+import { canAccessAdmin } from "@/app/lib/admin-access";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { Prisma, Role } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import PrintHotkeys from "@/app/admin/items/PrintHotkeys";
 export const dynamic = "force-dynamic";
 
@@ -16,8 +17,7 @@ type SearchParams = {
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
-  const role = (session.user as unknown as { role?: Role }).role;
-  if (role !== Role.ADMIN) redirect("/");
+  if (!(await canAccessAdmin(session))) redirect("/");
   return session;
 }
 
@@ -90,8 +90,7 @@ export default async function ItemInventoryPage({
     try {
       const session = await getServerSession(authOptions);
       if (!session) throw new Error("Unauthorized");
-      const role = (session.user as unknown as { role?: Role }).role;
-      if (role !== Role.ADMIN) throw new Error("Forbidden");
+      if (!(await canAccessAdmin(session))) throw new Error("Forbidden");
 
       const itemId = String(formData.get("itemId") ?? "").trim();
       if (!itemId) throw new Error("Missing itemId");

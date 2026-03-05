@@ -1,6 +1,7 @@
 // app/admin/maintenance-tickets/page.tsx
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
+import { canAccessAdmin } from "@/app/lib/admin-access";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -16,23 +17,15 @@ type SearchParams = {
 
 type AdminSession = Session & {
   user: Session["user"] & {
-    role?: string;
     id?: string;
     name?: string | null;
   };
 };
 
-function isAdminSession(session: Session | null): session is AdminSession {
-  const u = session?.user as unknown;
-  if (!u || typeof u !== "object") return false;
-  const role = (u as { role?: unknown }).role;
-  return typeof role === "string" && role === "ADMIN";
-}
-
 async function requireAdmin(): Promise<AdminSession> {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
-  if (!isAdminSession(session)) redirect("/");
+  if (!(await canAccessAdmin(session))) redirect("/");
   return session;
 }
 
@@ -53,7 +46,7 @@ export default async function MaintenanceTicketsPage({ searchParams }: { searchP
   async function markInvoicedAction(formData: FormData) {
     "use server";
     const session = await getServerSession(authOptions);
-    if (!isAdminSession(session)) throw new Error("Forbidden");
+    if (!(await canAccessAdmin(session))) throw new Error("Forbidden");
 
     const id = String(formData.get("id") || "");
     if (!id) throw new Error("Missing ticket id");
@@ -73,7 +66,7 @@ export default async function MaintenanceTicketsPage({ searchParams }: { searchP
   async function voidRestoreAction(formData: FormData) {
     "use server";
     const session = await getServerSession(authOptions);
-    if (!isAdminSession(session)) throw new Error("Forbidden");
+    if (!session || !(await canAccessAdmin(session))) throw new Error("Forbidden");
 
     const ticketId = String(formData.get("id") || "");
     const voidNote = String(formData.get("voidNote") || "").trim();

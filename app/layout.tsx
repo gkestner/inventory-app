@@ -93,11 +93,23 @@ export default async function RootLayout({
       : null;
 
   const effectiveRole = sessionRole ?? dbUserRole;
-  const isAdmin = effectiveRole === Role.ADMIN || effectiveRole === "ADMIN";
+  const isRoleAdmin = effectiveRole === Role.ADMIN || effectiveRole === "ADMIN";
   const isEmployee = effectiveRole === Role.EMPLOYEE || effectiveRole === "EMPLOYEE";
 
   // ✅ Load per-user permissions server-side (single source of truth)
   const perms = await loadUserPermissions(session);
+
+  const hasAdminPermission =
+    perms.allowAll ||
+    hasAnyPermission(perms, [
+      Permission.ADMIN_VIEW_ITEMS,
+      Permission.ADMIN_VIEW_USERS,
+      Permission.ADMIN_VIEW_LOCATIONS,
+      Permission.ADMIN_VIEW_WORK_ORDERS,
+      Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
+    ]);
+
+  const isAdmin = isRoleAdmin || hasAdminPermission;
 
   // Cookie-backed preview (Admin-only). In your Next 16 runtime, cookies()/headers() are awaited.
   const jar = await cookies();

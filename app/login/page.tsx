@@ -8,34 +8,41 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    await signIn("credentials", {
+      email,
+      password,
+      callbackUrl: "/",
+    });
+  }
+
   return (
     <main style={{ maxWidth: 380, margin: "80px auto", padding: 16 }}>
       <h1 style={{ fontSize: 22, fontWeight: 700 }}>Sign in</h1>
 
-      <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
+      <form onSubmit={handleSubmit} style={{ display: "grid", gap: 10, marginTop: 16 }}>
         <input
+          name="email"
           placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          autoComplete="username"
           style={{ padding: 10, border: "1px solid #ccc", borderRadius: 8 }}
         />
 
         <input
+          name="password"
           placeholder="Password"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
           style={{ padding: 10, border: "1px solid #ccc", borderRadius: 8 }}
         />
 
         <button
-          onClick={() =>
-            signIn("credentials", {
-              email,
-              password,
-              callbackUrl: "/",
-            })
-          }
+          type="submit"
           style={{ padding: 10, borderRadius: 8 }}
         >
           Sign in
@@ -64,7 +71,7 @@ export default function LoginPage() {
             Forgot password? Get help signing in ?
           </Link>
         </div>
-      </div>
+      </form>
     </main>
   );
 }

@@ -4,22 +4,22 @@ import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { Role } from "@prisma/client";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
+import { canAccessAdmin } from "@/app/lib/admin-access";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 type AdminSession = {
-  user?: { role?: Role | null } | null;
+  user?: { role?: unknown } | null;
 } | null;
 
 async function requireAdmin() {
   const session = (await getServerSession(authOptions)) as AdminSession;
   if (!session) redirect("/login");
-  if ((session.user?.role ?? null) !== Role.ADMIN) redirect("/");
+  if (!(await canAccessAdmin(session))) redirect("/");
 }
 
 function nonEmpty(v: FormDataEntryValue | null): string {

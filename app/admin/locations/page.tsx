@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
+import { canAccessAdmin } from "@/app/lib/admin-access";
 
 import { Prisma, Role } from "@prisma/client";
 
@@ -32,21 +33,7 @@ type AppSession = {
 async function requireAdmin(): Promise<AppSession> {
   const session = (await getServerSession(authOptions)) as AppSession;
   if (!session) redirect("/login");
-
-  const sessionRole = session.user?.role ?? null;
-  const email = (session.user?.email ?? "").trim().toLowerCase();
-
-  const dbRole = email
-    ? (
-        await prisma.user.findUnique({
-          where: { email },
-          select: { role: true },
-        })
-      )?.role ?? null
-    : null;
-
-  const effectiveRole = sessionRole ?? dbRole;
-  if (effectiveRole !== Role.ADMIN) redirect("/");
+  if (!(await canAccessAdmin(session))) redirect("/");
 
   return session;
 }

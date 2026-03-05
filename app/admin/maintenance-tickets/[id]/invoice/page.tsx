@@ -1,6 +1,7 @@
 // app/admin/maintenance-tickets/[id]/invoice/page.tsx
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
+import { canAccessAdmin } from "@/app/lib/admin-access";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -10,23 +11,15 @@ export const dynamic = "force-dynamic";
 
 type AdminSession = Session & {
   user: Session["user"] & {
-    role?: string;
     id?: string;
     name?: string | null;
   };
 };
 
-function isAdminSession(session: Session | null): session is AdminSession {
-  const u = session?.user as unknown;
-  if (!u || typeof u !== "object") return false;
-  const role = (u as { role?: unknown }).role;
-  return typeof role === "string" && role === "ADMIN";
-}
-
 async function requireAdmin(): Promise<AdminSession> {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
-  if (!isAdminSession(session)) redirect("/");
+  if (!(await canAccessAdmin(session))) redirect("/");
   return session;
 }
 
@@ -119,7 +112,7 @@ export default async function InvoicePage({
   async function resolveAlertAction(formData: FormData): Promise<void> {
     "use server";
     const s = await getServerSession(authOptions);
-    if (!isAdminSession(s)) throw new Error("Forbidden");
+    if (!s || !(await canAccessAdmin(s))) throw new Error("Forbidden");
 
     const alertId = String(formData.get("alertId") || "");
     const note = String(formData.get("note") || "").trim();

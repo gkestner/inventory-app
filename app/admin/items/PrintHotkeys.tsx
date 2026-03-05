@@ -48,9 +48,6 @@ export default function PrintHotkeys({
       qs.set("autoprint", "1");
       qs.set("autoclose", "1");
       qs.set("copies", String(Math.max(1, Math.min(50, copies))));
-      // Debug flag: show diagnostic overlay in the popup to help troubleshoot
-      // (safe to remove after debugging)
-      qs.set("debug", "1");
 
       const url = `/labels?${qs.toString()}`;
 

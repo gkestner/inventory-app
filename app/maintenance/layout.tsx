@@ -18,8 +18,8 @@ type SessionUser = {
 };
 
 function isAllowed(role: Role | null | undefined) {
-  // ✅ MAINTENANCE is allowed into /maintenance
-  return role === Role.EMPLOYEE || role === Role.MAINTENANCE || role === Role.MANAGER || role === Role.ADMIN;
+  // Keep legacy fallback for explicit maintenance-facing roles.
+  return role === Role.EMPLOYEE || role === Role.MAINTENANCE || role === Role.ADMIN;
 }
 
 export default async function MaintenanceLayout({ children }: { children: ReactNode }) {

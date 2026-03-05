@@ -1,9 +1,10 @@
 // app/page.tsx
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { Role } from "@prisma/client";
+import { Permission, Role } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -23,12 +24,40 @@ export default async function HomePage() {
   }
 
   const role = session.user?.role ?? null;
+  const perms = await loadUserPermissions(session);
+
+  const hasAdminAccess =
+    perms.allowAll ||
+    hasAnyPermission(perms, [
+      Permission.ADMIN_VIEW_ITEMS,
+      Permission.ADMIN_VIEW_USERS,
+      Permission.ADMIN_VIEW_LOCATIONS,
+      Permission.ADMIN_VIEW_WORK_ORDERS,
+      Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
+    ]);
+
+  const hasMaintenanceAccess =
+    role === Role.EMPLOYEE ||
+    role === Role.MAINTENANCE ||
+    perms.allowAll ||
+    hasAnyPermission(perms, [
+      Permission.VIEW_WORK_ORDERS,
+      Permission.CREATE_WORK_ORDERS,
+      Permission.UPDATE_OWN_WORK_ORDERS,
+      Permission.SUBMIT_OWN_WORK_ORDERS,
+      Permission.VIEW_CHECKOUT,
+      Permission.CREATE_CHECKOUT,
+      Permission.VIEW_LIVE_ORDERS,
+    ]);
 
   // Admin -> admin area
-  if (role === Role.ADMIN) {
+  if (role === Role.ADMIN || hasAdminAccess) {
     redirect("/admin");
   }
 
-  // Non-admin -> send to main app area (maintenance default)
-  redirect("/maintenance/work-orders");
+  if (hasMaintenanceAccess) {
+    redirect("/maintenance/work-orders");
+  }
+
+  redirect("/login");
 }

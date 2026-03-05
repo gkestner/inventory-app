@@ -10,6 +10,7 @@ import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { InvoiceVendor, Permission, PartsCheckoutStatus, Role, Prisma } from "@prisma/client";
+import InvoiceSelectionWiring from "./InvoiceSelectionWiring";
 
 import { createInvoicesForWindow } from "./actions";
 
@@ -1113,6 +1114,9 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
               <button type="button" id="invoice_select_toggle" style={{ ...btn, padding: "9px 12px" }}>
                 Select all
               </button>
+              <div id="invoice_selected_count" style={{ fontSize: 12, opacity: 0.85, fontWeight: 800 }}>
+                0 selected
+              </div>
               <div style={{ fontSize: 12, opacity: 0.75 }}>Toggles selection for invoices on this page.</div>
             </div>
 
@@ -1150,11 +1154,9 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                         <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocalDate(inv.createdAt)}</td>
                         <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{vendorLabel(inv.vendor)}</td>
                         <td style={{ padding: 10, whiteSpace: "nowrap" }}>{inv.vendorNumber ?? "—"}</td>
-                        <td style={{ padding: 10, whiteSpace: "nowrap" }}>
-                          <div style={{ fontWeight: 900 }}>
-                            {inv.storeNumber} {inv.storeName}
-                          </div>
-                          <div style={{ fontSize: 12, opacity: 0.75 }}>{inv.billedTo ?? "—"}</div>
+                        <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>
+                          {inv.storeNumber} {inv.storeName}
+                          {inv.billedTo ? ` - ${inv.billedTo}` : ""}
                         </td>
                         <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocalDate(inv.invoiceDate)}</td>
                         <td style={{ padding: 10, whiteSpace: "nowrap" }}>
@@ -1193,53 +1195,10 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
               </table>
             </div>
 
-            {/* lightweight client-side wiring (keeps page server-first) */}
-            <script
-              dangerouslySetInnerHTML={{
-                __html: `(() => {
-  function init() {
-    const form = document.getElementById("hard_delete_invoices_form");
-    if (!form) return;
-
-    // Avoid double-binding if Next re-renders parts of the page.
-    if (form.dataset.selectAllInit === "1") return;
-    form.dataset.selectAllInit = "1";
-
-    const btn = form.querySelector("#invoice_select_toggle");
-    if (!btn) return;
-
-    const getBoxes = () => Array.from(form.querySelectorAll('input[type="checkbox"][name="ids"]'));
-
-    const syncLabel = () => {
-      const boxes = getBoxes();
-      const all = boxes.length > 0 && boxes.every((b) => b.checked);
-      btn.textContent = all ? "Clear selection" : "Select all";
-      btn.setAttribute("aria-pressed", all ? "true" : "false");
-    };
-
-    btn.addEventListener("click", () => {
-      const boxes = getBoxes();
-      if (boxes.length === 0) return;
-      const all = boxes.every((b) => b.checked);
-      for (const b of boxes) b.checked = !all;
-      syncLabel();
-    });
-
-    form.addEventListener("change", (e) => {
-      const t = e.target;
-      if (t && t.matches && t.matches('input[type="checkbox"][name="ids"]')) syncLabel();
-    });
-
-    syncLabel();
-  }
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
-})();`,
-              }}
+            <InvoiceSelectionWiring
+              formId="hard_delete_invoices_form"
+              toggleId="invoice_select_toggle"
+              countId="invoice_selected_count"
             />
 
             <div

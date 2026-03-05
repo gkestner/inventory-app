@@ -7,7 +7,7 @@ import { revalidatePath } from "next/cache";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
-import { Role } from "@prisma/client";
+import { canAccessAdmin } from "@/app/lib/admin-access";
 import PingAutoRefresh from "./PingAutoRefresh";
 
 export const dynamic = "force-dynamic";
@@ -17,13 +17,13 @@ const TZ = "America/New_York";
 type AdminSession = {
   user?: {
     email?: string | null;
-    role?: Role | null;
+    role?: unknown;
   } | null;
 } | null;
 
-function requireAdmin(session: AdminSession) {
+async function requireAdmin(session: AdminSession) {
   if (!session) redirect("/login");
-  if (session.user?.role !== Role.ADMIN) redirect("/");
+  if (!(await canAccessAdmin(session))) redirect("/");
 }
 
 function fmtLocal(d: Date | null): string {
@@ -41,13 +41,13 @@ function fmtLocal(d: Date | null): string {
 
 export default async function AdminWorkOrdersPage() {
   const session = (await getServerSession(authOptions)) as AdminSession;
-  requireAdmin(session);
+  await requireAdmin(session);
 
   async function purgeWorkOrderAction(formData: FormData) {
     "use server";
 
     const session = (await getServerSession(authOptions)) as AdminSession;
-    requireAdmin(session);
+    await requireAdmin(session);
 
     const id = String(formData.get("id") ?? "").trim();
     if (!id) throw new Error("Missing work order id");

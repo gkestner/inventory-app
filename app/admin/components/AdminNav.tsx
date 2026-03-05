@@ -23,7 +23,17 @@ export default async function AdminNav() {
         })
       )?.role ?? null
     : null;
-  const isAdmin = session?.user?.role === Role.ADMIN || dbRole === Role.ADMIN;
+  const isAdminByRole = session?.user?.role === Role.ADMIN || dbRole === Role.ADMIN;
+  const isAdminByPermission =
+    perms.allowAll ||
+    hasAnyPermission(perms, [
+      Permission.ADMIN_VIEW_ITEMS,
+      Permission.ADMIN_VIEW_USERS,
+      Permission.ADMIN_VIEW_LOCATIONS,
+      Permission.ADMIN_VIEW_WORK_ORDERS,
+      Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
+    ]);
+  const isAdmin = isAdminByRole || isAdminByPermission;
 
   const shell: CSSProperties = {
     color: "var(--foreground)",

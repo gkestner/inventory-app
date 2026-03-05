@@ -8,20 +8,20 @@ import { headers } from "next/headers";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
-import { Role } from "@prisma/client";
+import { canAccessAdmin } from "@/app/lib/admin-access";
 
 export const dynamic = "force-dynamic";
 
 type AdminSession = {
   user?: {
     email?: string | null;
-    role?: Role | null;
+    role?: unknown;
   } | null;
 } | null;
 
-function requireAdmin(session: AdminSession) {
+async function requireAdmin(session: AdminSession) {
   if (!session) redirect("/login");
-  if (session.user?.role !== Role.ADMIN) redirect("/");
+  if (!(await canAccessAdmin(session))) redirect("/");
 }
 
 /**
@@ -306,7 +306,7 @@ export default async function AdminWorkOrderDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const session = (await getServerSession(authOptions)) as AdminSession;
-  requireAdmin(session);
+  await requireAdmin(session);
 
   const { id } = await params;
 
@@ -373,7 +373,7 @@ export default async function AdminWorkOrderDetailPage({
   async function startNowAction() {
     "use server";
     const session = (await getServerSession(authOptions)) as AdminSession;
-    requireAdmin(session);
+    await requireAdmin(session);
 
     await db.workOrder.update({
       where: { id },
@@ -390,7 +390,7 @@ export default async function AdminWorkOrderDetailPage({
   async function endNowAction() {
     "use server";
     const session = (await getServerSession(authOptions)) as AdminSession;
-    requireAdmin(session);
+    await requireAdmin(session);
 
     await db.workOrder.update({
       where: { id },
@@ -407,7 +407,7 @@ export default async function AdminWorkOrderDetailPage({
   async function saveAction(formData: FormData) {
     "use server";
     const session = (await getServerSession(authOptions)) as AdminSession;
-    requireAdmin(session);
+    await requireAdmin(session);
 
     const locationId = String(formData.get("locationId") ?? "").trim();
     if (!locationId) throw new Error("Location is required");
@@ -459,7 +459,7 @@ export default async function AdminWorkOrderDetailPage({
   async function deleteAction(formData: FormData) {
     "use server";
     const session = (await getServerSession(authOptions)) as AdminSession;
-    requireAdmin(session);
+    await requireAdmin(session);
 
     const confirmText = String(formData.get("confirm") ?? "").trim().toUpperCase();
     if (confirmText !== "DELETE") throw new Error('Type "DELETE" to confirm deletion.');

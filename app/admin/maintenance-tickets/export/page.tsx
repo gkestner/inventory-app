@@ -1,5 +1,6 @@
 // app/admin/maintenance-tickets/export/page.tsx
 import { authOptions } from "@/app/lib/auth";
+import { canAccessAdmin } from "@/app/lib/admin-access";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { PartsCheckoutStatus } from "@prisma/client";
@@ -15,22 +16,13 @@ type SearchParams = {
 };
 
 type AdminSession = Session & {
-  user: Session["user"] & {
-    role?: string;
-  };
+  user: Session["user"];
 };
-
-function isAdminSession(session: Session | null): session is AdminSession {
-  const u = session?.user as unknown;
-  if (!u || typeof u !== "object") return false;
-  const role = (u as { role?: unknown }).role;
-  return typeof role === "string" && role === "ADMIN";
-}
 
 async function requireAdmin(): Promise<AdminSession> {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
-  if (!isAdminSession(session)) redirect("/");
+  if (!(await canAccessAdmin(session))) redirect("/");
   return session;
 }
 

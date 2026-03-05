@@ -25,7 +25,20 @@ async function requireAdmin() {
   if (!session) redirect("/login");
 
   const role = (session.user as unknown as { role?: Role | null } | null)?.role ?? null;
-  if (role !== Role.ADMIN) redirect("/");
+  if (role === Role.ADMIN) return session;
+
+  const perms = await loadUserPermissions(session as unknown as Parameters<typeof loadUserPermissions>[0]);
+  const hasAdminAccess =
+    perms.allowAll ||
+    hasAnyPermission(perms, [
+      Permission.ADMIN_VIEW_ITEMS,
+      Permission.ADMIN_VIEW_USERS,
+      Permission.ADMIN_VIEW_LOCATIONS,
+      Permission.ADMIN_VIEW_WORK_ORDERS,
+      Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
+    ]);
+
+  if (!hasAdminAccess) redirect("/");
 
   return session;
 }

@@ -351,8 +351,16 @@ svg {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* When labels page is active, suppress root layout chrome entirely. */
-body:has(.labels-page) > *:not(.labels-page) {
+/*
+  When labels page is active, suppress root layout chrome entirely.
+  Root layout wraps pages in .app-content-shell, so hide body siblings and
+  non-label children inside that shell.
+*/
+body:has(.labels-page) > :not(.app-content-shell) {
+  display: none !important;
+}
+
+body:has(.labels-page) .app-content-shell > :not(.labels-page) {
   display: none !important;
 }
 
