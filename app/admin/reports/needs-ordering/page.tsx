@@ -186,7 +186,12 @@ export default async function NeedsOrderingReportPage({
       const available = item.onHandQty + item.orderedQty;
       const shortBy = Math.max(0, item.minQty - available);
       const hasTechRequest = item.openTechRequests > 0;
-      const priority: "blue" | "red" | "yellow" = hasTechRequest ? "blue" : available <= 0 ? "red" : "yellow";
+      const isBelowMin = shortBy > 0;
+      const priority: "blue" | "red" | "yellow" = isBelowMin
+        ? available <= 0
+          ? "red"
+          : "yellow"
+        : "blue";
       return { ...item, available, shortBy, hasTechRequest, priority };
     })
     .filter((item) => item.shortBy > 0 || item.hasTechRequest)
