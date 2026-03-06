@@ -79,6 +79,26 @@ function fmtLocal(d: Date | null): string {
   }).format(new Date(d));
 }
 
+function fmtDate(d: Date | null): string {
+  if (!d) return "-";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(d));
+}
+
+function fmtTime(d: Date | null): string {
+  if (!d) return "-";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: TZ,
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(new Date(d));
+}
+
 function hoursBetweenNumber(start: Date | null, end: Date | null): number | null {
   if (!start || !end) return null;
   const ms = end.getTime() - start.getTime();
@@ -223,13 +243,22 @@ export async function GET(req: Request) {
   </div>
 
   <table>
+    <colgroup>
+      <col style="width: 14%" />
+      <col style="width: 14%" />
+      <col style="width: 8%" />
+      <col style="width: 9%" />
+      <col style="width: 9%" />
+      <col style="width: 7%" />
+      <col style="width: 39%" />
+    </colgroup>
     <thead>
       <tr><th>Start</th><th>End</th><th>Hours</th><th>Start Mi</th><th>End Mi</th><th>Miles</th><th>Equipment Areas</th></tr>
     </thead>
     <tbody>
       <tr>
-        <td>${escapeHtml(fmtLocal(r.startTime))}</td>
-        <td>${escapeHtml(fmtLocal(r.endTime))}</td>
+        <td><div>${escapeHtml(fmtDate(r.startTime))}</div><div class="time">${escapeHtml(fmtTime(r.startTime))}</div></td>
+        <td><div>${escapeHtml(fmtDate(r.endTime))}</div><div class="time">${escapeHtml(fmtTime(r.endTime))}</div></td>
         <td>${escapeHtml(fmtFixed2(hours))}</td>
         <td>${escapeHtml(r.startingMileage === null ? "-" : String(r.startingMileage))}</td>
         <td>${escapeHtml(r.endingMileage === null ? "-" : String(r.endingMileage))}</td>
@@ -275,8 +304,11 @@ export async function GET(req: Request) {
     .head { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
     .title { font-size: 16px; font-weight: 900; margin-bottom: 4px; }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-    th, td { border: 1px solid #bbb; padding: 5px; font-size: 11px; text-align: left; vertical-align: top; white-space: nowrap; }
-    td.wrap { white-space: normal; word-break: break-word; }
+    th, td { border: 1px solid #bbb; padding: 4px 5px; font-size: 10px; text-align: left; vertical-align: top; white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
+    th { white-space: nowrap; font-size: 10px; }
+    td:nth-child(3), td:nth-child(4), td:nth-child(5), td:nth-child(6) { white-space: nowrap; }
+    .time { white-space: nowrap; }
+    td.wrap { white-space: normal; }
     .notes { margin-top: 8px; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
     .empty { border: 1px solid #999; padding: 10px; font-size: 13px; }
   </style>
