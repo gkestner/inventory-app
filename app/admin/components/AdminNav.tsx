@@ -7,7 +7,24 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/lib/auth";
 import { Permission, Role } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import { CREATE_WORK_ORDERS_FOR_OTHERS } from "@/app/lib/permission-constants";
+import {
+  ADMIN_VIEW_COMPANY_VEHICLES,
+  ADMIN_VIEW_EQUIPMENT_TRACKING,
+  ADMIN_VIEW_MAINTENANCE_REQUESTS,
+  ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
+  ADMIN_VIEW_REPORT_FLEET_TCO,
+  ADMIN_VIEW_REPORT_NOTIFICATION_EFFECTIVENESS,
+  ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS,
+  ADMIN_VIEW_REPORT_PERMISSION_COVERAGE,
+  ADMIN_VIEW_REPORT_PM_COMPLIANCE,
+  ADMIN_VIEW_REPORT_SLA_BREACHES,
+  ADMIN_VIEW_REPORT_TECHNICIAN_WORKLOAD,
+  ADMIN_VIEW_REPORT_TEMPERATURE_INCIDENTS,
+  ADMIN_VIEW_TEMPERATURE_DASHBOARD,
+  CREATE_COMPANY_VEHICLE_INFO,
+  CREATE_WORK_ORDERS_FOR_OTHERS,
+  EDIT_COMPANY_VEHICLE_INFO,
+} from "@/app/lib/permission-constants";
 import { prisma } from "@/app/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -152,6 +169,13 @@ export default async function AdminNav() {
     Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS,
   ]);
 
+  const canPreventativeMaintenance = isAdmin || hasAnyPermission(perms, [ADMIN_VIEW_PREVENTATIVE_MAINTENANCE]);
+  const canEquipmentTracking = isAdmin || hasAnyPermission(perms, [ADMIN_VIEW_EQUIPMENT_TRACKING]);
+  const canCompanyVehicles =
+    isAdmin || hasAnyPermission(perms, [ADMIN_VIEW_COMPANY_VEHICLES, CREATE_COMPANY_VEHICLE_INFO, EDIT_COMPANY_VEHICLE_INFO]);
+  const canMaintenanceRequests = isAdmin || hasAnyPermission(perms, [ADMIN_VIEW_MAINTENANCE_REQUESTS]);
+  const canTemperatureDashboard = isAdmin || hasAnyPermission(perms, [ADMIN_VIEW_TEMPERATURE_DASHBOARD]);
+
   const canUserWorkOrders = isAdmin || hasAnyPermission(perms, [
     Permission.VIEW_WORK_ORDERS,
     Permission.CREATE_WORK_ORDERS,
@@ -169,14 +193,34 @@ export default async function AdminNav() {
   // For now: gate invoices + order history under items perms (no enum changes)
   const canAdminOrderHistory = canAdminItems;
   const canAdminInvoices = canAdminItems;
-  const canAdminReports = canAdminItems;
+  const canAdminReports =
+    canAdminItems ||
+    isAdmin ||
+    hasAnyPermission(perms, [
+      ADMIN_VIEW_REPORT_SLA_BREACHES,
+      ADMIN_VIEW_REPORT_TECHNICIAN_WORKLOAD,
+      ADMIN_VIEW_REPORT_TEMPERATURE_INCIDENTS,
+      ADMIN_VIEW_REPORT_PM_COMPLIANCE,
+      ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS,
+      ADMIN_VIEW_REPORT_FLEET_TCO,
+      ADMIN_VIEW_REPORT_PERMISSION_COVERAGE,
+      ADMIN_VIEW_REPORT_NOTIFICATION_EFFECTIVENESS,
+    ]);
   const canAdminInventoryAlerts = canAdminItems;
 
   const showAccounting = canAdminInvoices;
   const showInventory = canAdminItems || canAdminOrderHistory || canAdminInventoryAlerts;
   const showAdmin = canAdminUsers || canAdminLocations;
   const showMaintenance =
-    canAdminMaintenanceTickets || canAdminWorkOrders || canUserWorkOrders || canCheckout;
+    canAdminMaintenanceTickets ||
+    canAdminWorkOrders ||
+    canUserWorkOrders ||
+    canCheckout ||
+    canPreventativeMaintenance ||
+    canEquipmentTracking ||
+    canCompanyVehicles ||
+    canMaintenanceRequests ||
+    canTemperatureDashboard;
 
   return (
     <div className="site-nav-shell" style={shell} data-admin-nav-root>
@@ -341,9 +385,29 @@ export default async function AdminNav() {
                     Maintenance Tickets (Parts)
                   </Link>
                 ) : null}
-                {canAdminMaintenanceTickets ? (
+                {canMaintenanceRequests ? (
                   <Link href="/admin/maintenance-requests" style={menuItemStyle}>
                     Maintenance Requests (Queue)
+                  </Link>
+                ) : null}
+                {canPreventativeMaintenance ? (
+                  <Link href="/admin/preventative-maintenance" style={menuItemStyle}>
+                    Preventative Maintenance
+                  </Link>
+                ) : null}
+                {canEquipmentTracking ? (
+                  <Link href="/admin/equipment-tracking" style={menuItemStyle}>
+                    Equipment Tracking
+                  </Link>
+                ) : null}
+                {canCompanyVehicles ? (
+                  <Link href="/admin/company-vehicles" style={menuItemStyle}>
+                    Company Vehicles
+                  </Link>
+                ) : null}
+                {canTemperatureDashboard ? (
+                  <Link href="/maintenance/temperature-dashboard" style={menuItemStyle}>
+                    Temperature Dashboard
                   </Link>
                 ) : null}
                 {canAdminWorkOrders ? (
