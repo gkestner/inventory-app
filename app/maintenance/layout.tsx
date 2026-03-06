@@ -1,6 +1,7 @@
 // app/maintenance/layout.tsx
 import type { ReactNode, CSSProperties } from "react";
 import Link from "next/link";
+import Script from "next/script";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { Permission } from "@prisma/client";
@@ -151,13 +152,74 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
 
   return (
     <div>
-      <nav className="site-nav-shell" style={shell}>
+      <nav className="site-nav-shell" style={shell} data-maintenance-nav-root>
         <div className="site-nav-inner" style={inner}>
           <div style={left}>
             <style>{`
               details > summary::-webkit-details-marker { display: none; }
               details[data-maintenance-dropdown][open] { z-index: 4000; }
             `}</style>
+
+            <Script id="maintenance-nav-dropdown-behavior" strategy="afterInteractive">{`
+(function () {
+  function getRoot() {
+    return document.querySelector('[data-maintenance-nav-root]');
+  }
+
+  function getOpen(root) {
+    return Array.prototype.slice.call((root || document).querySelectorAll('details[data-maintenance-dropdown][open]'));
+  }
+
+  function closeAll(root) {
+    var nodes = getOpen(root);
+    for (var i = 0; i < nodes.length; i++) nodes[i].removeAttribute('open');
+  }
+
+  function bind() {
+    var root = getRoot();
+    if (!root || root.__maintenanceNavBound) return;
+    root.__maintenanceNavBound = true;
+
+    root.addEventListener('toggle', function (e) {
+      var t = e.target;
+      if (!t || t.tagName !== 'DETAILS') return;
+      if (!t.matches('details[data-maintenance-dropdown]')) return;
+      if (!t.hasAttribute('open')) return;
+
+      var opened = getOpen(root);
+      for (var i = 0; i < opened.length; i++) {
+        if (opened[i] !== t) opened[i].removeAttribute('open');
+      }
+    }, true);
+
+    document.addEventListener('click', function (e) {
+      var r = getRoot();
+      if (!r) return;
+      var t = e.target;
+      if (t && t.closest && t.closest('[data-maintenance-nav-root]')) return;
+      closeAll(r);
+    }, false);
+
+    root.addEventListener('click', function (e) {
+      var t = e.target;
+      if (!t || !t.closest) return;
+      var link = t.closest('a[href]');
+      if (!link) return;
+      closeAll(root);
+    }, true);
+
+    document.addEventListener('keydown', function (e) {
+      if (!e || e.key !== 'Escape') return;
+      var r = getRoot();
+      if (!r) return;
+      closeAll(r);
+    }, true);
+  }
+
+  bind();
+  setTimeout(bind, 250);
+})();
+            `}</Script>
 
             <Link href="/maintenance" className="site-brand" style={pill()}>
               Maintenance
