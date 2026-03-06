@@ -69,6 +69,10 @@ type Db = {
 
 const db = prisma as unknown as Db;
 
+function isOfficeLocationName(name: string): boolean {
+  return name.trim().toLowerCase() === "office";
+}
+
 export function normalizePmYear(raw: string | string[] | undefined): number {
   const currentYear = new Date().getFullYear();
   if (!raw) return currentYear;
@@ -116,6 +120,7 @@ export async function loadMaintenancePrimaryAssignments(): Promise<PreventativeM
   const out: PreventativeMaintenanceAssignment[] = [];
   for (const row of rows) {
     if (!row.location || !row.user) continue;
+    if (isOfficeLocationName(row.location.name)) continue;
     out.push({
       locationId: row.locationId,
       locationName: row.location.name,

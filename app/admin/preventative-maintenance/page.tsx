@@ -108,7 +108,7 @@ export default async function AdminPreventativeMaintenancePage({
 
   const [locations, entries, assignments] = await Promise.all([
     prisma.location.findMany({
-      where: { active: true },
+      where: { active: true, NOT: [{ name: "Office" }, { name: "office" }] },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
