@@ -949,7 +949,26 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
       </div>
 
       {/* Table */}
+      <style>{`
+        [data-locations-table] table {
+          table-layout: auto !important;
+        }
+        [data-locations-table] th,
+        [data-locations-table] td {
+          white-space: nowrap !important;
+          overflow-wrap: normal !important;
+          word-break: normal !important;
+          vertical-align: middle;
+        }
+        [data-locations-table] .loc-note {
+          white-space: normal !important;
+          overflow-wrap: anywhere !important;
+          word-break: break-word !important;
+        }
+      `}</style>
+
       <div
+        data-locations-table
         style={{
           overflowX: "auto",
           WebkitOverflowScrolling: "touch",
@@ -959,6 +978,19 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
         }}
       >
         <table style={{ width: "max-content", minWidth: "100%", borderCollapse: "collapse" }}>
+          <colgroup>
+            <col style={{ width: 70 }} />
+            <col style={{ width: 90 }} />
+            <col style={{ width: 110 }} />
+            <col style={{ width: 200 }} />
+            <col style={{ width: 90 }} />
+            <col style={{ width: 190 }} />
+            <col style={{ width: 350 }} />
+            <col style={{ width: 280 }} />
+            <col style={{ width: 280 }} />
+            <col style={{ width: 170 }} />
+            <col style={{ width: 190 }} />
+          </colgroup>
           <thead>
             <tr>
               {["Select", "Loc #", "Corp #", "Name", "Active", "Created", "Rename", "Set #", "Set Corp #", "Toggle", "Delete"].map((h) => (
@@ -989,7 +1021,7 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
                 <td style={tdStyle}>{new Date(l.createdAt).toLocaleString()}</td>
 
                 <td style={{ padding: 10, minWidth: 320 }}>
-                  <form action={renameLocationAction} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <form action={renameLocationAction} style={{ display: "flex", gap: 8, flexWrap: "nowrap" }}>
                     <input type="hidden" name="id" value={l.id} />
                     <input
                       name="name"
@@ -1012,7 +1044,7 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
                 <td style={{ padding: 10, minWidth: 240 }}>
                   <form
                     action={setLocationNumberAction}
-                    style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}
+                    style={{ display: "flex", gap: 8, flexWrap: "nowrap", alignItems: "center" }}
                   >
                     <input type="hidden" name="id" value={l.id} />
                     <input
@@ -1033,13 +1065,15 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
                       Save
                     </button>
                   </form>
-                  <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>Used for invoicing. Blank = not ready.</div>
+                  <div className="loc-note" style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
+                    Used for invoicing. Blank = not ready.
+                  </div>
                 </td>
 
                 <td style={{ padding: 10, minWidth: 240 }}>
                   <form
                     action={setCorporationNumberAction}
-                    style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}
+                    style={{ display: "flex", gap: 8, flexWrap: "nowrap", alignItems: "center" }}
                   >
                     <input type="hidden" name="id" value={l.id} />
                     <input
@@ -1062,10 +1096,10 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
                 </td>
 
                 <td style={tdStyle}>
-                  <form action={toggleActiveAction} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <form action={toggleActiveAction} style={{ display: "flex", gap: 8, flexWrap: "nowrap" }}>
                     <input type="hidden" name="id" value={l.id} />
                     <input type="hidden" name="nextActive" value={l.active ? "false" : "true"} />
-                    <button type="submit" style={{ padding: "6px 10px", fontWeight: 900 }}>
+                    <button type="submit" style={{ padding: "6px 10px", fontWeight: 900, whiteSpace: "nowrap" }}>
                       {l.active ? "Make Inactive" : "Make Active"}
                     </button>
                   </form>
