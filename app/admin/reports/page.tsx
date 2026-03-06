@@ -6,7 +6,12 @@ import { redirect } from "next/navigation";
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { Permission, Role } from "@prisma/client";
-import { ADMIN_VIEW_MAINTENANCE_REQUESTS, ADMIN_VIEW_PREVENTATIVE_MAINTENANCE } from "@/app/lib/permission-constants";
+import {
+  ADMIN_VIEW_COMPANY_VEHICLES,
+  ADMIN_VIEW_MAINTENANCE_REQUESTS,
+  ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
+  ADMIN_VIEW_TEMPERATURE_DASHBOARD,
+} from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +47,12 @@ export default async function AdminReportsIndexPage() {
 
   const canPmReports = perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_PREVENTATIVE_MAINTENANCE]);
   const canRequestReports = perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_MAINTENANCE_REQUESTS]);
+  const canTemperatureReports = perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_TEMPERATURE_DASHBOARD]);
+  const canFleetReports = perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_COMPANY_VEHICLES]);
+  const canWorkOrderReports =
+    perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_WORK_ORDERS, Permission.ADMIN_EDIT_WORK_ORDERS]);
+  const canItemsReports = perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
+  const canSecurityReports = perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_USERS, Permission.ADMIN_EDIT_USERS]);
 
   const border = "1px solid var(--border)";
   const surface = "var(--surface)";
@@ -182,6 +193,86 @@ export default async function AdminReportsIndexPage() {
               <h2 style={titleStyle}>Maintenance Request Reports</h2>
               <p style={descStyle}>
                 Analyze maintenance issue request volume, assignment load by technician, closeout pace, and request audit events. Separate from parts checkout ticket reports.
+              </p>
+              <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
+            </Link>
+          ) : null}
+
+          {canRequestReports ? (
+            <Link href="/admin/reports/sla-breaches" style={cardStyle}>
+              <h2 style={titleStyle}>SLA Breach Monitor</h2>
+              <p style={descStyle}>
+                Overdue and slow-close maintenance requests against response and close-hour targets.
+              </p>
+              <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
+            </Link>
+          ) : null}
+
+          {canRequestReports || canWorkOrderReports ? (
+            <Link href="/admin/reports/technician-workload" style={cardStyle}>
+              <h2 style={titleStyle}>Technician Workload</h2>
+              <p style={descStyle}>
+                Open load and close-throughput by technician across maintenance requests and work orders.
+              </p>
+              <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
+            </Link>
+          ) : null}
+
+          {canTemperatureReports ? (
+            <Link href="/admin/reports/temperature-incidents" style={cardStyle}>
+              <h2 style={titleStyle}>Temperature Incident Timeline</h2>
+              <p style={descStyle}>
+                Hub/device alert timeline with high/low incident counts and recent abnormal readings.
+              </p>
+              <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
+            </Link>
+          ) : null}
+
+          {canPmReports ? (
+            <Link href="/admin/reports/pm-compliance" style={cardStyle}>
+              <h2 style={titleStyle}>PM Compliance Scorecard</h2>
+              <p style={descStyle}>
+                Completion coverage by location and year using PM field fill-rate and update activity.
+              </p>
+              <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
+            </Link>
+          ) : null}
+
+          {canItemsReports ? (
+            <Link href="/admin/reports/parts-consumption-costs" style={cardStyle}>
+              <h2 style={titleStyle}>Parts Consumption + Cost</h2>
+              <p style={descStyle}>
+                Parts checkout quantity and estimated spend by store and item over a selected date range.
+              </p>
+              <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
+            </Link>
+          ) : null}
+
+          {canFleetReports ? (
+            <Link href="/admin/reports/fleet-tco" style={cardStyle}>
+              <h2 style={titleStyle}>Fleet TCO</h2>
+              <p style={descStyle}>
+                Vehicle service spend, mileage deltas, and cost-per-mile trends by unit.
+              </p>
+              <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
+            </Link>
+          ) : null}
+
+          {canSecurityReports ? (
+            <Link href="/admin/reports/permission-coverage" style={cardStyle}>
+              <h2 style={titleStyle}>Permission Coverage</h2>
+              <p style={descStyle}>
+                User access matrix showing direct grants and role/title-based permission coverage.
+              </p>
+              <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
+            </Link>
+          ) : null}
+
+          {canSecurityReports ? (
+            <Link href="/admin/reports/notification-effectiveness" style={cardStyle}>
+              <h2 style={titleStyle}>Notification Effectiveness</h2>
+              <p style={descStyle}>
+                Delivery and read-time trends by notification type to tune alert routing behavior.
               </p>
               <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
             </Link>
