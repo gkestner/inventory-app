@@ -115,6 +115,10 @@ export default async function AdminLayout({ children }: { children: ReactNode })
       Permission.ADMIN_DELETE_WORK_ORDERS,
     ]);
 
+  const canLiveOrders =
+    allowAll ||
+    hasAnyPermission(perms, [Permission.VIEW_LIVE_ORDERS, Permission.ADMIN_VIEW_WORK_ORDERS, Permission.ADMIN_EDIT_WORK_ORDERS]);
+
   const canTickets =
     allowAll ||
     hasAnyPermission(perms, [Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS, Permission.ADMIN_VIEW_MAINTENANCE_TICKETS]);
@@ -264,10 +268,12 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
         <div style={sectionTitle}>Operations</div>
         <nav style={nav}>
-          <Link href="/admin/live-orders" style={linkStyle}>
-            <span>Live Orders Board</span>
-            <span style={pill}>Live</span>
-          </Link>
+          {canLiveOrders ? (
+            <Link href="/admin/live-orders" style={linkStyle}>
+              <span>Live Orders Board</span>
+              <span style={pill}>Live</span>
+            </Link>
+          ) : null}
 
           {canOrders ? (
             <Link href="/admin/inventory-orders" style={linkStyle}>

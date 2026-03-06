@@ -97,6 +97,10 @@ export default async function AdminHomePage() {
     perms.allowAll ||
     hasAnyPermissionLocal(perms, [Permission.ADMIN_VIEW_WORK_ORDERS, Permission.ADMIN_EDIT_WORK_ORDERS, Permission.ADMIN_DELETE_WORK_ORDERS]);
 
+  const canLiveOrders =
+    perms.allowAll ||
+    hasAnyPermissionLocal(perms, [Permission.VIEW_LIVE_ORDERS, Permission.ADMIN_VIEW_WORK_ORDERS, Permission.ADMIN_EDIT_WORK_ORDERS]);
+
   const canTickets =
     perms.allowAll ||
     hasAnyPermissionLocal(perms, [Permission.ADMIN_VIEW_MAINTENANCE_TICKETS, Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS]);
@@ -184,13 +188,15 @@ export default async function AdminHomePage() {
         </section>
 
         <div style={grid}>
-        <div style={card}>
-          <h2 style={title}>Live Orders Board</h2>
-          <p style={desc}>Day-to-day operational board with 3 columns (ORDERED / ARRIVED / COMPLETED) and quick actions.</p>
-          <Link href="/admin/live-orders" style={linkStyle}>
-            Open Live Orders →
-          </Link>
-        </div>
+        {canLiveOrders ? (
+          <div style={card}>
+            <h2 style={title}>Live Orders Board</h2>
+            <p style={desc}>Day-to-day operational board with 3 columns (ORDERED / ARRIVED / COMPLETED) and quick actions.</p>
+            <Link href="/admin/live-orders" style={linkStyle}>
+              Open Live Orders →
+            </Link>
+          </div>
+        ) : null}
 
         {canOrders ? (
           <div style={card}>
@@ -205,12 +211,7 @@ export default async function AdminHomePage() {
               </Link>
             </div>
           </div>
-        ) : (
-          <div style={card}>
-            <h2 style={title}>Inventory Orders</h2>
-            <p style={desc}>You don’t have access to view this module.</p>
-          </div>
-        )}
+        ) : null}
 
         {canItems ? (
           <div style={card}>
@@ -220,12 +221,7 @@ export default async function AdminHomePage() {
               Open Items →
             </Link>
           </div>
-        ) : (
-          <div style={card}>
-            <h2 style={title}>Items</h2>
-            <p style={desc}>You don’t have access to view this module.</p>
-          </div>
-        )}
+        ) : null}
 
         {canUsers ? (
           <div style={card}>
@@ -235,12 +231,7 @@ export default async function AdminHomePage() {
               Open Users →
             </Link>
           </div>
-        ) : (
-          <div style={card}>
-            <h2 style={title}>Users</h2>
-            <p style={desc}>You don’t have access to view this module.</p>
-          </div>
-        )}
+        ) : null}
 
         {canLocations ? (
           <div style={card}>
@@ -250,12 +241,7 @@ export default async function AdminHomePage() {
               Open Locations →
             </Link>
           </div>
-        ) : (
-          <div style={card}>
-            <h2 style={title}>Locations</h2>
-            <p style={desc}>You don’t have access to view this module.</p>
-          </div>
-        )}
+        ) : null}
 
         {canWorkOrders ? (
           <div style={card}>
@@ -265,12 +251,7 @@ export default async function AdminHomePage() {
               Open Work Orders →
             </Link>
           </div>
-        ) : (
-          <div style={card}>
-            <h2 style={title}>Work Orders</h2>
-            <p style={desc}>You don’t have access to view this module.</p>
-          </div>
-        )}
+        ) : null}
 
         {canPreventativeMaintenance ? (
           <div style={card}>
@@ -280,12 +261,7 @@ export default async function AdminHomePage() {
               Open PM List →
             </Link>
           </div>
-        ) : (
-          <div style={card}>
-            <h2 style={title}>Preventative Maintenance</h2>
-            <p style={desc}>You don’t have access to view this module.</p>
-          </div>
-        )}
+        ) : null}
 
         {canEquipmentTracking ? (
           <div style={card}>
@@ -295,12 +271,7 @@ export default async function AdminHomePage() {
               Open Equipment Log →
             </Link>
           </div>
-        ) : (
-          <div style={card}>
-            <h2 style={title}>Equipment Tracking</h2>
-            <p style={desc}>You don’t have access to view this module.</p>
-          </div>
-        )}
+        ) : null}
 
         {canCompanyVehicles ? (
           <div style={card}>
@@ -310,12 +281,7 @@ export default async function AdminHomePage() {
               Open Fleet Log →
             </Link>
           </div>
-        ) : (
-          <div style={card}>
-            <h2 style={title}>Company Vehicles</h2>
-            <p style={desc}>You don’t have access to view this module.</p>
-          </div>
-        )}
+        ) : null}
 
         {canMaintenanceRequests ? (
           <div style={card}>
@@ -325,12 +291,7 @@ export default async function AdminHomePage() {
               Open Request Queue →
             </Link>
           </div>
-        ) : (
-          <div style={card}>
-            <h2 style={title}>Maintenance Requests (Issue Queue)</h2>
-            <p style={desc}>You don’t have access to view this module.</p>
-          </div>
-        )}
+        ) : null}
 
         {canTemperatureDashboard ? (
           <div style={card}>
@@ -340,12 +301,7 @@ export default async function AdminHomePage() {
               Open Temperature Dashboard →
             </Link>
           </div>
-        ) : (
-          <div style={card}>
-            <h2 style={title}>Temperature Dashboard</h2>
-            <p style={desc}>You don’t have access to view this module.</p>
-          </div>
-        )}
+        ) : null}
 
         {canTickets ? (
           <div style={card}>
@@ -355,12 +311,7 @@ export default async function AdminHomePage() {
               Open Tickets →
             </Link>
           </div>
-        ) : (
-          <div style={card}>
-            <h2 style={title}>Maintenance Tickets (Parts Checkout)</h2>
-            <p style={desc}>You don’t have access to view this module.</p>
-          </div>
-        )}
+        ) : null}
         </div>
       </div>
     </main>
