@@ -206,6 +206,20 @@ function mergeLocationOptions(me: MeRow): LocationOption[] {
   return [...primary, ...optional];
 }
 
+async function withOfficeLocation(options: LocationOption[]): Promise<LocationOption[]> {
+  const seen = new Set(options.map((x) => x.id));
+  const office = await prisma.location.findFirst({
+    where: {
+      active: true,
+      name: { equals: "office", mode: "insensitive" },
+    },
+    select: { id: true, name: true },
+  });
+
+  if (!office || seen.has(office.id)) return options;
+  return [...options, office];
+}
+
 export default async function MaintenanceRequestsPage({
   searchParams,
 }: {
@@ -270,7 +284,7 @@ export default async function MaintenanceRequestsPage({
     const canUseRequests =
       perms.allowAll || hasAnyPermission(perms, [VIEW_MAINTENANCE_REQUESTS, ADMIN_VIEW_MAINTENANCE_REQUESTS]) || isAdmin;
     if (!canUseRequests) redirect("/");
-    const locationOptions = mergeLocationOptions(me);
+    const locationOptions = await withOfficeLocation(mergeLocationOptions(me));
     const locationIds = new Set(locationOptions.map((l) => l.id));
 
     const locationId = String(formData.get("locationId") ?? "").trim();
@@ -457,7 +471,7 @@ export default async function MaintenanceRequestsPage({
   ]);
   const params = paramsRaw as Record<string, string | string[] | undefined>;
 
-  const locationOptions = mergeLocationOptions(me);
+  const locationOptions = await withOfficeLocation(mergeLocationOptions(me));
   const maintenanceUserIds = new Set(assignees.map((a) => a.userId));
   const isMaintenanceMan = maintenanceUserIds.has(me.id);
 
