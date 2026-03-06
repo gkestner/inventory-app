@@ -6,8 +6,9 @@ import { revalidatePath } from "next/cache";
 import { authOptions } from "@/app/lib/auth";
 import { canAccessAdmin } from "@/app/lib/admin-access";
 import { prisma } from "@/app/lib/prisma";
+import { loadMaintenanceRequestAssignees } from "@/app/lib/maintenance-requests";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import { createNotification } from "@/app/lib/workflow-foundations";
+import { createNotification, createNotificationForUsers } from "@/app/lib/workflow-foundations";
 import { ADMIN_VIEW_MAINTENANCE_REQUESTS, RECEIVE_NOTIFICATION_MAINTENANCE_REQUESTS } from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +18,16 @@ type SessionShape = {
     email?: string | null;
   } | null;
 } | null;
+
+type RawSearchParams = {
+  archived?: string | string[];
+  resent?: string | string[];
+};
+
+function firstParam(v: string | string[] | undefined): string {
+  if (!v) return "";
+  return Array.isArray(v) ? v[0] ?? "" : v;
+}
 
 type Db = {
   user: {
@@ -83,8 +94,15 @@ async function requireAdmin() {
   return session;
 }
 
-export default async function AdminMaintenanceRequestsPage() {
+export default async function AdminMaintenanceRequestsPage({
+  searchParams,
+}: {
+  searchParams?: RawSearchParams | Promise<RawSearchParams>;
+}) {
   const session = await requireAdmin();
+  const sp = await Promise.resolve(searchParams);
+  const archived = firstParam(sp?.archived) === "1";
+  const resent = firstParam(sp?.resent) === "1";
 
   async function archiveAction(formData: FormData) {
     "use server";
@@ -157,6 +175,69 @@ export default async function AdminMaintenanceRequestsPage() {
     redirect("/admin/maintenance-requests?archived=1");
   }
 
+  async function resendNotificationAction(formData: FormData) {
+    "use server";
+
+    const session = await requireAdmin();
+    const email = String(session.user?.email ?? "").trim().toLowerCase();
+    if (!email) redirect("/login");
+
+    const actor = await db.user.findUnique({ where: { email }, select: { id: true, active: true } });
+    if (!actor || !actor.active) redirect("/login");
+
+    const requestId = String(formData.get("requestId") ?? "").trim();
+    if (!requestId) redirect("/admin/maintenance-requests");
+
+    const existing = await db.maintenanceRequest.findUnique({
+      where: { id: requestId },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        location: { select: { id: true, name: true } },
+      },
+    });
+    if (!existing) redirect("/admin/maintenance-requests");
+
+    const assignees = await loadMaintenanceRequestAssignees();
+    const recipientIds = Array.from(
+      new Set(assignees.filter((a) => a.locationId === existing.location.id).map((a) => a.userId))
+    );
+
+    if (recipientIds.length > 0) {
+      await createNotificationForUsers({
+        userIds: recipientIds,
+        type: "SYSTEM",
+        title: `Reminder: maintenance request - ${existing.location.name}`,
+        body: `${existing.title} is currently ${existing.status.toLowerCase()}. Please review in the maintenance request queue.`,
+        href: "/maintenance-requests",
+        requiredPermission: RECEIVE_NOTIFICATION_MAINTENANCE_REQUESTS,
+      });
+    }
+
+    await db.auditLog.create({
+      data: {
+        actorUserId: actor.id,
+        module: "MAINTENANCE_REQUESTS",
+        action: "ADMIN_RESEND_REQUEST_NOTIFICATION",
+        entityType: "MaintenanceRequest",
+        entityId: existing.id,
+        message: `Admin resent maintenance request notification: ${existing.title}`,
+        metadata: {
+          locationId: existing.location.id,
+          locationName: existing.location.name,
+          recipientIds,
+          recipientCount: recipientIds.length,
+        },
+      },
+    });
+
+    revalidatePath("/admin/maintenance-requests");
+    revalidatePath("/maintenance-requests");
+    revalidatePath("/notifications");
+    redirect("/admin/maintenance-requests?resent=1");
+  }
+
   const rows = await db.maintenanceRequest.findMany({
     orderBy: [{ status: "asc" }, { createdAt: "desc" }],
     take: 400,
@@ -196,6 +277,17 @@ export default async function AdminMaintenanceRequestsPage() {
           </div>
         </section>
 
+        {archived ? (
+          <div style={{ border: "1px solid var(--border)", borderRadius: 12, background: "color-mix(in srgb, #087c3e 14%, var(--surface))", padding: 10, fontWeight: 700 }}>
+            Request resolved and archived.
+          </div>
+        ) : null}
+        {resent ? (
+          <div style={{ border: "1px solid var(--border)", borderRadius: 12, background: "color-mix(in srgb, #087c3e 14%, var(--surface))", padding: 10, fontWeight: 700 }}>
+            Notification resent to assigned users.
+          </div>
+        ) : null}
+
         <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", overflow: "hidden" }}>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
@@ -226,17 +318,29 @@ export default async function AdminMaintenanceRequestsPage() {
                     <td style={{ padding: 10 }}>{personLabel(row.assignedMaintenanceUser)}</td>
                     <td style={{ padding: 10 }}>{fmtDateTime(row.resolvedAt)}</td>
                     <td style={{ padding: 10 }}>
-                      {row.status === "OPEN" ? (
-                        <form action={archiveAction} style={{ display: "grid", gap: 6 }}>
+                      <div style={{ display: "grid", gap: 8 }}>
+                        <form action={resendNotificationAction}>
                           <input type="hidden" name="requestId" value={row.id} />
-                          <input name="resolutionNotes" placeholder="Resolution notes" style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", width: 220 }} />
-                          <button type="submit" style={{ width: "fit-content", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface-2)", padding: "7px 10px", fontWeight: 800, cursor: "pointer" }}>
-                            Resolve & Archive
+                          <button
+                            type="submit"
+                            style={{ width: "fit-content", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface-2)", padding: "7px 10px", fontWeight: 800, cursor: "pointer" }}
+                          >
+                            Resend Notification
                           </button>
                         </form>
-                      ) : (
-                        <span style={{ opacity: 0.7, fontSize: 12 }}>Closed</span>
-                      )}
+
+                        {row.status === "OPEN" ? (
+                          <form action={archiveAction} style={{ display: "grid", gap: 6 }}>
+                            <input type="hidden" name="requestId" value={row.id} />
+                            <input name="resolutionNotes" placeholder="Resolution notes" style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", width: 220 }} />
+                            <button type="submit" style={{ width: "fit-content", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface-2)", padding: "7px 10px", fontWeight: 800, cursor: "pointer" }}>
+                              Resolve & Archive
+                            </button>
+                          </form>
+                        ) : (
+                          <span style={{ opacity: 0.7, fontSize: 12 }}>Closed</span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
