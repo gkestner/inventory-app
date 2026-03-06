@@ -216,6 +216,11 @@ function linePointsForTimedSeries(args: {
     .join(" ");
 }
 
+function firstParam(v: string | string[] | undefined): string | undefined {
+  if (Array.isArray(v)) return v[0];
+  return v;
+}
+
 export default async function TemperatureDashboardPage({
   searchParams,
 }: {
@@ -229,6 +234,7 @@ export default async function TemperatureDashboardPage({
 
   const me = await db.user.findUnique({ where: { email }, select: { id: true, active: true } });
   if (!me || !me.active) redirect("/login");
+  const meId = me.id;
 
   const isAdmin = await canAccessAdmin(session);
   const perms = await loadUserPermissions(session);
@@ -703,7 +709,7 @@ export default async function TemperatureDashboardPage({
       where: isAdmin
         ? {}
         : {
-            OR: [{ assignedMaintenanceUserId: me.id }, { recipients: { some: { userId: me.id } } }],
+            OR: [{ assignedMaintenanceUserId: meId }, { recipients: { some: { userId: meId } } }],
           },
       orderBy: [{ active: "desc" }, { name: "asc" }],
       select: {
@@ -742,7 +748,7 @@ export default async function TemperatureDashboardPage({
         hub: isAdmin
           ? undefined
           : {
-              OR: [{ assignedMaintenanceUserId: me.id }, { recipients: { some: { userId: me.id } } }],
+              OR: [{ assignedMaintenanceUserId: meId }, { recipients: { some: { userId: meId } } }],
             },
       },
       orderBy: { recordedAt: "desc" },
@@ -784,15 +790,16 @@ export default async function TemperatureDashboardPage({
   const historyByDevice = new Map<string, SensorPoint[]>();
 
   for (const row of sensorReadings) {
-    if (!row.deviceId) continue;
-    const temp = toNumberOrNull(row.tempF);
-    if (temp === null) continue;
-    latestReadingByDevice.set(row.deviceId, { tempF: temp, recordedAt: row.recordedAt });
+    const deviceIdKey = String(row.deviceId ?? "").trim();
+    if (!deviceIdKey) continue;
+    const temp = Number(row.tempF);
+    if (!Number.isFinite(temp)) continue;
+    latestReadingByDevice.set(deviceIdKey, { tempF: temp, recordedAt: row.recordedAt });
 
-    const hist = historyByDevice.get(row.deviceId) ?? [];
+    const hist = historyByDevice.get(deviceIdKey) ?? [];
     hist.push({ ts: row.recordedAt.getTime(), temp });
     if (hist.length > 120) hist.shift();
-    historyByDevice.set(row.deviceId, hist);
+    historyByDevice.set(deviceIdKey, hist);
   }
   const params = paramsRaw as SearchParams;
 
@@ -800,10 +807,10 @@ export default async function TemperatureDashboardPage({
     ? "This dashboard lets you register Mocreo hubs, assign the maintenance tech, and add extra notification recipients."
     : "This dashboard shows your assigned hubs and any alerts where you are a recipient.";
 
-  const testValue = Array.isArray(params.test) ? params.test[0] : params.test;
-  const testCode = Array.isArray(params.code) ? params.code[0] : params.code;
+  const testValue = firstParam(params.test);
+  const testCode = firstParam(params.code);
   const testState = testValue ? `${testValue}${testCode ? ` (${testCode})` : ""}` : null;
-  const refreshSecRaw = Array.isArray(params.refreshSec) ? params.refreshSec[0] : params.refreshSec;
+  const refreshSecRaw = firstParam(params.refreshSec);
   const refreshSec = Math.max(5, Math.min(300, Number.isFinite(Number(refreshSecRaw)) ? Number(refreshSecRaw) : 20));
   const reqHeaders = await headers();
   const host = reqHeaders.get("x-forwarded-host") ?? reqHeaders.get("host") ?? "";
