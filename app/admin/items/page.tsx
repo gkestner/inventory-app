@@ -5,10 +5,10 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
-import { canAccessAdmin } from "@/app/lib/admin-access";
 import ItemsTableClient from "./ItemsTableClient";
-import { Prisma } from "@prisma/client";
+import { Permission, Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -35,11 +35,22 @@ function toInt(v: string | undefined, fallback: number): number {
   return x > 0 ? x : fallback;
 }
 
-async function requireAdmin() {
+async function requireItemsAccess() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
-  if (!(await canAccessAdmin(session))) redirect("/");
-  return session;
+
+  const perms = await loadUserPermissions(session);
+  const canViewItems =
+    perms.allowAll ||
+    hasAnyPermission(perms, [
+      Permission.ADMIN_VIEW_ITEMS,
+      Permission.ADMIN_EDIT_ITEMS,
+      Permission.ADMIN_IMPORT_EXPORT_ITEMS,
+    ]);
+
+  if (!canViewItems) redirect("/");
+
+  return { session, perms };
 }
 
 /**
@@ -182,7 +193,8 @@ export default async function AdminItemsPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  await requireAdmin();
+  const { perms } = await requireItemsAccess();
+  const canEditItems = perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_EDIT_ITEMS]);
 
    const sp = await searchParams;
 
@@ -204,10 +216,10 @@ export default async function AdminItemsPage({
   async function createItemAction(formData: FormData) {
     "use server";
 
-    // keep auth check local + strict
-    const session = await getServerSession(authOptions);
-    if (!session) throw new Error("Unauthorized");
-    if (!(await canAccessAdmin(session))) throw new Error("Forbidden");
+    // Keep auth check local + strict and require explicit item edit permission.
+    const { session, perms } = await requireItemsAccess();
+    const canEditItems = perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_EDIT_ITEMS]);
+    if (!session || !canEditItems) throw new Error("Forbidden");
 
     let sku = requiredText(formData.get("sku"), "SKU");
     const name = requiredText(formData.get("name"), "Name");
@@ -424,6 +436,7 @@ export default async function AdminItemsPage({
       ) : null}
 
       {/* ✅ Create Item (collapsed until clicked) */}
+      {canEditItems ? (
       <details style={{ marginBottom: 12 }}>
         <summary
           style={{
@@ -565,6 +578,11 @@ export default async function AdminItemsPage({
           </form>
         </div>
       </details>
+      ) : (
+        <div style={{ ...card, marginBottom: 12, opacity: 0.82 }}>
+          You have view-only access to items. Edit permissions are required to create items.
+        </div>
+      )}
 
       <ItemsTableClient
         initialItems={initialItems}

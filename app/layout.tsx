@@ -100,6 +100,7 @@ export default async function RootLayout({
   let session: { user?: { role?: unknown; email?: string | null } | null } | null = null;
   let perms = fallbackPerms;
   let isAdmin = false;
+  let canUsePreview = false;
   let serverPrefs = DEFAULT_USER_PREFERENCES;
 
   try {
@@ -130,6 +131,7 @@ export default async function RootLayout({
     const hasAdminPermission = perms.allowAll || hasAnyPermission(perms, ADMIN_ENTRY_PERMISSIONS);
 
     isAdmin = isRoleAdmin || hasAdminPermission;
+    canUsePreview = !!perms.allowAll;
   } catch (error) {
     // Prevent auth/DB boot failures from taking down the entire app shell.
     console.error("RootLayout bootstrap error:", error);
@@ -140,7 +142,7 @@ export default async function RootLayout({
   // Cookie-backed preview (Admin-only). In your Next 16 runtime, cookies()/headers() are awaited.
   const jar = await cookies();
   const previewCookie = jar.get("preview_view")?.value ?? null;
-  const preview = parsePreviewCookie(previewCookie, isAdmin);
+  const preview = parsePreviewCookie(previewCookie, canUsePreview);
 
   async function setPreviewAction(formData: FormData) {
     "use server";
@@ -157,7 +159,7 @@ export default async function RootLayout({
 
       const s = await getServerSession(authOptions);
       const p = await loadUserPermissions(s);
-      const admin = p.allowAll || hasAnyPermission(p, ADMIN_ENTRY_PERMISSIONS);
+      const admin = p.allowAll;
       if (!admin) redirect("/");
 
       const next = String(formData.get("preview") ?? "").trim().toLowerCase();
@@ -251,7 +253,7 @@ export default async function RootLayout({
         />
 
         {/* Admin-only preview controls (single source of truth; do NOT duplicate in AdminNav/UserNav) */}
-        {isAdmin ? (
+        {canUsePreview ? (
           <div
             style={{
               position: "sticky",

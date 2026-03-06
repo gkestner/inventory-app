@@ -49,16 +49,7 @@ export default async function AdminNav() {
     ? await prisma.notification.count({ where: { userId: me.id, readAt: null } })
     : 0;
   const unreadBadgeText = unreadCount > 99 ? "99+" : String(unreadCount);
-  const isAdminByPermission =
-    perms.allowAll ||
-    hasAnyPermission(perms, [
-      Permission.ADMIN_VIEW_ITEMS,
-      Permission.ADMIN_VIEW_USERS,
-      Permission.ADMIN_VIEW_LOCATIONS,
-      Permission.ADMIN_VIEW_WORK_ORDERS,
-      Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
-    ]);
-  const isAdmin = isAdminByRole || isAdminByPermission;
+  const isAdmin = isAdminByRole || perms.allowAll;
 
   const shell: CSSProperties = {
     color: "var(--foreground)",
@@ -220,6 +211,15 @@ export default async function AdminNav() {
     ]);
   const canAdminInventoryAlerts = canAdminItems;
 
+  const brandHref = canAdminItems
+    ? "/admin/items"
+    : canAdminReports
+      ? "/admin/reports"
+      : canMaintenanceRequests
+        ? "/admin/maintenance-requests"
+        : "/admin";
+  const brandLabel = canAdminItems ? "Inventory Admin" : "Admin";
+
   const showAccounting = canAdminInvoices;
   const showInventory = canAdminItems || canAdminOrderHistory || canAdminInventoryAlerts;
   const showAdmin = canAdminUsers || canAdminLocations;
@@ -308,8 +308,8 @@ export default async function AdminNav() {
 
       <div className="site-nav-inner" style={inner}>
         <div style={left}>
-          <Link href="/admin/items" className="site-brand" style={brand}>
-            Inventory Admin
+          <Link href={brandHref} className="site-brand" style={brand}>
+            {brandLabel}
           </Link>
 
           <span style={groupLabel}>Admin</span>

@@ -74,6 +74,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   const perms = (await loadUserPermissions(sessionArg)) as LoadedPermissions;
 
   const allowAll = !!perms.allowAll;
+  const roleLabel = allowAll ? "ADMIN" : "PERMISSIONED";
 
   const canItems =
     allowAll ||
@@ -266,7 +267,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         <div style={brand}>Admin</div>
         <div style={meta}>
           <div>{email}</div>
-          <div style={{ marginTop: 2 }}>Role: ADMIN</div>
+          <div style={{ marginTop: 2 }}>Role: {roleLabel}</div>
         </div>
 
         <div style={sectionTitle}>Operations</div>
