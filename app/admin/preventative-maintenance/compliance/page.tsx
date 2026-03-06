@@ -18,10 +18,35 @@ type SearchParams = {
   year?: string | string[];
 };
 
+type NumberedLocation = {
+  id: string;
+  name: string;
+  locationNumber: string | null;
+};
+
 export const dynamic = "force-dynamic";
 
 function toTrimmed(v: FormDataEntryValue | null) {
   return String(v ?? "").trim();
+}
+
+function locationSortValue(locationNumber: string | null | undefined): number {
+  const raw = String(locationNumber ?? "").trim();
+  if (!raw) return Number.MAX_SAFE_INTEGER;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+}
+
+function sortLocationsByNumberThenName(a: NumberedLocation, b: NumberedLocation): number {
+  const an = locationSortValue(a.locationNumber);
+  const bn = locationSortValue(b.locationNumber);
+  if (an !== bn) return an - bn;
+  return a.name.localeCompare(b.name);
+}
+
+function formatLocationLabel(location: NumberedLocation): string {
+  const number = String(location.locationNumber ?? "").trim();
+  return number ? `${number} - ${location.name}` : location.name;
 }
 
 async function requireAdminAccess(session: unknown) {
@@ -44,7 +69,7 @@ function getComplianceValues(formData: FormData, locationId: string): Partial<Pr
     backflowCompany: toTrimmed(formData.get(`backflowCompany:${locationId}`)),
     backflowAmount: toTrimmed(formData.get(`backflowAmount:${locationId}`)),
     boilerInspectionDatePrimary: toTrimmed(formData.get(`boilerInspectionDatePrimary:${locationId}`)),
-    boilerInspectionDateSecondary: toTrimmed(formData.get(`boilerInspectionDateSecondary:${locationId}`)),
+    boilerInspectionCost: toTrimmed(formData.get(`boilerInspectionCost:${locationId}`)),
     boilerInspectionCompany: toTrimmed(formData.get(`boilerInspectionCompany:${locationId}`)),
   };
 }
@@ -71,11 +96,11 @@ export default async function AdminPreventativeMaintenanceCompliancePage({
   });
   if (!actor || !actor.active) redirect("/login");
 
-  const locations = await prisma.location.findMany({
+  const rawLocations = await prisma.location.findMany({
     where: { active: true },
-    orderBy: { name: "asc" },
-    select: { id: true, name: true },
+    select: { id: true, name: true, locationNumber: true },
   });
+  const locations = rawLocations.sort(sortLocationsByNumberThenName);
 
   const entries = await prisma.preventativeMaintenanceEntry.findMany({
     where: { year },
@@ -90,7 +115,7 @@ export default async function AdminPreventativeMaintenanceCompliancePage({
       backflowCompany: true,
       backflowAmount: true,
       boilerInspectionDatePrimary: true,
-      boilerInspectionDateSecondary: true,
+      boilerInspectionCost: true,
       boilerInspectionCompany: true,
     },
   });
@@ -204,48 +229,95 @@ export default async function AdminPreventativeMaintenanceCompliancePage({
 
       <form action={saveCompliance} style={card}>
         <input type="hidden" name="year" value={year} />
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Location</th>
-                <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 120 }}>Grease Date</th>
-                <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 130 }}>Grease Company</th>
-                <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 100 }}>Grease Gallons</th>
-                <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 110 }}>Grease Tank Size</th>
-                <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 100 }}>Grease Cost</th>
-                <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 120 }}>Backflow Date</th>
-                <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 130 }}>Backflow Company</th>
-                <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 100 }}>Backflow Amount</th>
-                <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 120 }}>Boiler Date 1</th>
-                <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 120 }}>Boiler Date 2</th>
-                <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 130 }}>Boiler Company</th>
-              </tr>
-            </thead>
-            <tbody>
-              {locations.map((location) => {
-                const row = entryByLocation.get(location.id);
+        <section>
+          <h2 style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 900 }}>Grease Trap</h2>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Location</th>
+                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 140 }}>Pumped Date</th>
+                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Company Who Pumped</th>
+                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 140 }}>Grease Trap Size</th>
+                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 120 }}>Cost to Pump</th>
+                </tr>
+              </thead>
+              <tbody>
+                {locations.map((location) => {
+                  const row = entryByLocation.get(location.id);
+                  return (
+                    <tr key={`grease-${location.id}`}>
+                      <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>{formatLocationLabel(location)}</td>
+                      <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`greaseTrapDatePumped:${location.id}`} defaultValue={row?.greaseTrapDatePumped ?? ""} style={inputStyle} /></td>
+                      <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`greaseTrapCompany:${location.id}`} defaultValue={row?.greaseTrapCompany ?? ""} style={inputStyle} /></td>
+                      <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`greaseTrapTankSize:${location.id}`} defaultValue={row?.greaseTrapTankSize ?? ""} style={inputStyle} /></td>
+                      <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`greaseTrapCost:${location.id}`} defaultValue={row?.greaseTrapCost ?? ""} style={inputStyle} /></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
-                return (
-                  <tr key={location.id}>
-                    <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>{location.name}</td>
-                    <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`greaseTrapDatePumped:${location.id}`} defaultValue={row?.greaseTrapDatePumped ?? ""} style={inputStyle} /></td>
-                    <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`greaseTrapCompany:${location.id}`} defaultValue={row?.greaseTrapCompany ?? ""} style={inputStyle} /></td>
-                    <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`greaseTrapGallons:${location.id}`} defaultValue={row?.greaseTrapGallons ?? ""} style={inputStyle} /></td>
-                    <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`greaseTrapTankSize:${location.id}`} defaultValue={row?.greaseTrapTankSize ?? ""} style={inputStyle} /></td>
-                    <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`greaseTrapCost:${location.id}`} defaultValue={row?.greaseTrapCost ?? ""} style={inputStyle} /></td>
-                    <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`backflowDateChecked:${location.id}`} defaultValue={row?.backflowDateChecked ?? ""} style={inputStyle} /></td>
-                    <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`backflowCompany:${location.id}`} defaultValue={row?.backflowCompany ?? ""} style={inputStyle} /></td>
-                    <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`backflowAmount:${location.id}`} defaultValue={row?.backflowAmount ?? ""} style={inputStyle} /></td>
-                    <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`boilerInspectionDatePrimary:${location.id}`} defaultValue={row?.boilerInspectionDatePrimary ?? ""} style={inputStyle} /></td>
-                    <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`boilerInspectionDateSecondary:${location.id}`} defaultValue={row?.boilerInspectionDateSecondary ?? ""} style={inputStyle} /></td>
-                    <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`boilerInspectionCompany:${location.id}`} defaultValue={row?.boilerInspectionCompany ?? ""} style={inputStyle} /></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <section style={{ marginTop: 14 }}>
+          <h2 style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 900 }}>Backflow Test</h2>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Location</th>
+                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 140 }}>Date Inspected</th>
+                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 120 }}>Cost</th>
+                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Company</th>
+                </tr>
+              </thead>
+              <tbody>
+                {locations.map((location) => {
+                  const row = entryByLocation.get(location.id);
+                  return (
+                    <tr key={`backflow-${location.id}`}>
+                      <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>{formatLocationLabel(location)}</td>
+                      <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`backflowDateChecked:${location.id}`} defaultValue={row?.backflowDateChecked ?? ""} style={inputStyle} /></td>
+                      <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`backflowAmount:${location.id}`} defaultValue={row?.backflowAmount ?? ""} style={inputStyle} /></td>
+                      <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`backflowCompany:${location.id}`} defaultValue={row?.backflowCompany ?? ""} style={inputStyle} /></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section style={{ marginTop: 14 }}>
+          <h2 style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 900 }}>Boiler Inspection</h2>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Location</th>
+                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 140 }}>Date Inspected</th>
+                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 120 }}>Cost</th>
+                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Company</th>
+                </tr>
+              </thead>
+              <tbody>
+                {locations.map((location) => {
+                  const row = entryByLocation.get(location.id);
+                  return (
+                    <tr key={`boiler-${location.id}`}>
+                      <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>{formatLocationLabel(location)}</td>
+                      <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`boilerInspectionDatePrimary:${location.id}`} defaultValue={row?.boilerInspectionDatePrimary ?? ""} style={inputStyle} /></td>
+                      <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`boilerInspectionCost:${location.id}`} defaultValue={row?.boilerInspectionCost ?? ""} style={inputStyle} /></td>
+                      <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`boilerInspectionCompany:${location.id}`} defaultValue={row?.boilerInspectionCompany ?? ""} style={inputStyle} /></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end" }}>
           <button type="submit" style={btn}>
             Save Compliance Dashboard

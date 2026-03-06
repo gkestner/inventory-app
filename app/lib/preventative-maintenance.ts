@@ -15,6 +15,7 @@ export type PreventativeMaintenanceFieldKey =
   | "backflowAmount"
   | "boilerInspectionDatePrimary"
   | "boilerInspectionCompany"
+  | "boilerInspectionCost"
   | "boilerInspectionDateSecondary";
 
 export const PM_CHECKLIST_FIELDS: Array<{ key: PreventativeMaintenanceFieldKey; label: string }> = [
@@ -40,8 +41,8 @@ export const BACKFLOW_TRACKING_FIELDS: Array<{ key: PreventativeMaintenanceField
 
 export const BOILER_TRACKING_FIELDS: Array<{ key: PreventativeMaintenanceFieldKey; label: string }> = [
   { key: "boilerInspectionDatePrimary", label: "Date Inspected" },
+  { key: "boilerInspectionCost", label: "Cost" },
   { key: "boilerInspectionCompany", label: "Company" },
-  { key: "boilerInspectionDateSecondary", label: "Date Inspected (2)" },
 ];
 
 export const PREVENTATIVE_MAINTENANCE_FIELDS = PM_CHECKLIST_FIELDS;
@@ -99,6 +100,7 @@ export type PreventativeMaintenanceValues = {
   backflowAmount: string;
   boilerInspectionDatePrimary: string;
   boilerInspectionCompany: string;
+  boilerInspectionCost: string;
   boilerInspectionDateSecondary: string;
 };
 
@@ -117,6 +119,7 @@ type PreventativeMaintenancePersistedValues = {
   backflowAmount: string | null;
   boilerInspectionDatePrimary: string | null;
   boilerInspectionCompany: string | null;
+  boilerInspectionCost: string | null;
   boilerInspectionDateSecondary: string | null;
 };
 
@@ -135,6 +138,7 @@ const EMPTY_VALUES: PreventativeMaintenanceValues = {
   backflowAmount: "",
   boilerInspectionDatePrimary: "",
   boilerInspectionCompany: "",
+  boilerInspectionCost: "",
   boilerInspectionDateSecondary: "",
 };
 
@@ -300,6 +304,7 @@ export async function savePreventativeMaintenanceEntryWithAudit(args: {
       backflowAmount: true,
       boilerInspectionDatePrimary: true,
       boilerInspectionCompany: true,
+      boilerInspectionCost: true,
       boilerInspectionDateSecondary: true,
     },
   });
@@ -336,6 +341,7 @@ export async function savePreventativeMaintenanceEntryWithAudit(args: {
       backflowAmount: true,
       boilerInspectionDatePrimary: true,
       boilerInspectionCompany: true,
+      boilerInspectionCost: true,
       boilerInspectionDateSecondary: true,
     },
   });
@@ -371,6 +377,7 @@ export async function savePreventativeMaintenanceEntryWithAudit(args: {
             backflowAmount: saved.backflowAmount,
             boilerInspectionDatePrimary: saved.boilerInspectionDatePrimary,
             boilerInspectionCompany: saved.boilerInspectionCompany,
+            boilerInspectionCost: saved.boilerInspectionCost,
             boilerInspectionDateSecondary: saved.boilerInspectionDateSecondary,
           },
         },

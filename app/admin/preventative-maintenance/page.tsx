@@ -41,8 +41,34 @@ type PmEntry = {
   backflowAmount: string | null;
   boilerInspectionDatePrimary: string | null;
   boilerInspectionCompany: string | null;
+  boilerInspectionCost: string | null;
   boilerInspectionDateSecondary: string | null;
 };
+
+type NumberedLocation = {
+  id: string;
+  name: string;
+  locationNumber: string | null;
+};
+
+function locationSortValue(locationNumber: string | null | undefined): number {
+  const raw = String(locationNumber ?? "").trim();
+  if (!raw) return Number.MAX_SAFE_INTEGER;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+}
+
+function sortLocationsByNumberThenName(a: NumberedLocation, b: NumberedLocation): number {
+  const an = locationSortValue(a.locationNumber);
+  const bn = locationSortValue(b.locationNumber);
+  if (an !== bn) return an - bn;
+  return a.name.localeCompare(b.name);
+}
+
+function formatLocationLabel(location: NumberedLocation): string {
+  const number = String(location.locationNumber ?? "").trim();
+  return number ? `${number} - ${location.name}` : location.name;
+}
 
 type PmDb = {
   preventativeMaintenanceEntry: {
@@ -122,11 +148,10 @@ export default async function AdminPreventativeMaintenancePage({
     revalidatePath("/maintenance/preventative-maintenance");
   }
 
-  const [locations, entries, assignments] = await Promise.all([
+  const [rawLocations, entries, assignments] = await Promise.all([
     prisma.location.findMany({
       where: { active: true, NOT: [{ name: "Office" }, { name: "office" }] },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true },
+      select: { id: true, name: true, locationNumber: true },
     }),
     pmDb.preventativeMaintenanceEntry.findMany({
       where: { year },
@@ -147,11 +172,14 @@ export default async function AdminPreventativeMaintenancePage({
         backflowAmount: true,
         boilerInspectionDatePrimary: true,
         boilerInspectionCompany: true,
+        boilerInspectionCost: true,
         boilerInspectionDateSecondary: true,
       },
     }),
     loadMaintenancePrimaryAssignments(),
   ]);
+
+  const locations = rawLocations.sort(sortLocationsByNumberThenName);
 
   const entryByLocation = new Map(entries.map((e) => [e.locationId, e]));
 
@@ -162,7 +190,7 @@ export default async function AdminPreventativeMaintenancePage({
     usersByLocation.set(a.locationId, list);
   }
 
-  const groupMap = new Map<string, { label: string; locations: Array<{ id: string; name: string }> }>();
+  const groupMap = new Map<string, { label: string; locations: NumberedLocation[] }>();
   for (const location of locations) {
     const assignedUsers = usersByLocation.get(location.id) ?? [];
     if (assignedUsers.length === 0) {
@@ -293,7 +321,7 @@ export default async function AdminPreventativeMaintenancePage({
                         return (
                           <tr key={`${group.label}-${section.id}-${location.id}`}>
                             <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>
-                              {location.name}
+                              {formatLocationLabel(location)}
                             </td>
                             <td colSpan={section.fields.length + 1} style={{ padding: 0, borderBottom: "1px solid var(--border)" }}>
                               <form

@@ -552,6 +552,7 @@ model PreventativeMaintenanceEntry {
 
   boilerInspectionDatePrimary String?
   boilerInspectionCompany String?
+  boilerInspectionCost String?
   boilerInspectionDateSecondary String?
 
   updatedByUserId String?

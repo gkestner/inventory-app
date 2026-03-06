@@ -15,15 +15,24 @@ type SearchParams = {
   year?: string | string[];
 };
 
+type NumberedLocation = {
+  id: string;
+  name: string;
+  locationNumber: string | null;
+};
+
 type PmEntry = {
   locationId: string;
+  greaseTrapTankSize: string | null;
   greaseTrapDatePumped: string | null;
   greaseTrapCompany: string | null;
+  greaseTrapCost: string | null;
   backflowDateChecked: string | null;
   backflowCompany: string | null;
+  backflowAmount: string | null;
   boilerInspectionDatePrimary: string | null;
-  boilerInspectionDateSecondary: string | null;
   boilerInspectionCompany: string | null;
+  boilerInspectionCost: string | null;
 };
 
 type PmDb = {
@@ -37,6 +46,25 @@ const pmDb = prisma as unknown as PmDb;
 function valueOrDash(v: string | null | undefined) {
   const s = String(v ?? "").trim();
   return s || "-";
+}
+
+function locationSortValue(locationNumber: string | null | undefined): number {
+  const raw = String(locationNumber ?? "").trim();
+  if (!raw) return Number.MAX_SAFE_INTEGER;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+}
+
+function sortLocationsByNumberThenName(a: NumberedLocation, b: NumberedLocation): number {
+  const an = locationSortValue(a.locationNumber);
+  const bn = locationSortValue(b.locationNumber);
+  if (an !== bn) return an - bn;
+  return a.name.localeCompare(b.name);
+}
+
+function formatLocationLabel(location: NumberedLocation): string {
+  const number = String(location.locationNumber ?? "").trim();
+  return number ? `${number} - ${location.name}` : location.name;
 }
 
 export default async function MaintenancePreventativeMaintenanceCompliancePage({
@@ -81,7 +109,16 @@ export default async function MaintenancePreventativeMaintenanceCompliancePage({
     }
   }
 
-  const locations = Array.from(uniqueLocations.values()).sort((a, b) => a.name.localeCompare(b.name));
+  const assignedIds = Array.from(uniqueLocations.keys());
+  const locations =
+    assignedIds.length > 0
+      ? (
+          await prisma.location.findMany({
+            where: { id: { in: assignedIds }, active: true },
+            select: { id: true, name: true, locationNumber: true },
+          })
+        ).sort(sortLocationsByNumberThenName)
+      : [];
   const locationIds = locations.map((l) => l.id);
 
   const entries =
@@ -90,13 +127,16 @@ export default async function MaintenancePreventativeMaintenanceCompliancePage({
           where: { year, locationId: { in: locationIds } },
           select: {
             locationId: true,
+            greaseTrapTankSize: true,
             greaseTrapDatePumped: true,
             greaseTrapCompany: true,
+            greaseTrapCost: true,
             backflowDateChecked: true,
             backflowCompany: true,
+            backflowAmount: true,
             boilerInspectionDatePrimary: true,
-            boilerInspectionDateSecondary: true,
             boilerInspectionCompany: true,
+            boilerInspectionCost: true,
           },
         })
       : [];
@@ -165,8 +205,9 @@ export default async function MaintenancePreventativeMaintenanceCompliancePage({
           <p style={{ margin: 0, color: "var(--muted)" }}>No primary PM assignments found for your user.</p>
         </section>
       ) : (
+        <>
         <section style={card}>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Service Dates & Companies</h2>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Grease Trap</h2>
           <div style={{ overflowX: "auto", marginTop: 10 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
               <thead>
@@ -175,25 +216,16 @@ export default async function MaintenancePreventativeMaintenanceCompliancePage({
                     Location
                   </th>
                   <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>
-                    Grease Trap Date Serviced
+                    Grease Trap Pumped Date
                   </th>
                   <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>
-                    Grease Trap Company
+                    Company Who Pumped
                   </th>
                   <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>
-                    Backflow Date Serviced
+                    Grease Trap Size
                   </th>
                   <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>
-                    Backflow Company
-                  </th>
-                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>
-                    Boiler Date Serviced
-                  </th>
-                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>
-                    Boiler Date Serviced (2)
-                  </th>
-                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>
-                    Boiler Company
+                    Cost to Pump
                   </th>
                 </tr>
               </thead>
@@ -202,13 +234,68 @@ export default async function MaintenancePreventativeMaintenanceCompliancePage({
                   const row = entryByLocation.get(location.id);
                   return (
                     <tr key={location.id}>
-                      <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>{location.name}</td>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>{formatLocationLabel(location)}</td>
                       <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.greaseTrapDatePumped)}</td>
                       <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.greaseTrapCompany)}</td>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.greaseTrapTankSize)}</td>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.greaseTrapCost)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section style={card}>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Backflow Test</h2>
+          <div style={{ overflowX: "auto", marginTop: 10 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 180 }}>Location</th>
+                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Date Inspected</th>
+                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Cost</th>
+                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Company</th>
+                </tr>
+              </thead>
+              <tbody>
+                {locations.map((location) => {
+                  const row = entryByLocation.get(location.id);
+                  return (
+                    <tr key={`backflow-${location.id}`}>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>{formatLocationLabel(location)}</td>
                       <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.backflowDateChecked)}</td>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.backflowAmount)}</td>
                       <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.backflowCompany)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section style={card}>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Boiler Inspection</h2>
+          <div style={{ overflowX: "auto", marginTop: 10 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 180 }}>Location</th>
+                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Date Inspected</th>
+                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Cost</th>
+                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Company</th>
+                </tr>
+              </thead>
+              <tbody>
+                {locations.map((location) => {
+                  const row = entryByLocation.get(location.id);
+                  return (
+                    <tr key={`boiler-${location.id}`}>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>{formatLocationLabel(location)}</td>
                       <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.boilerInspectionDatePrimary)}</td>
-                      <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.boilerInspectionDateSecondary)}</td>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.boilerInspectionCost)}</td>
                       <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.boilerInspectionCompany)}</td>
                     </tr>
                   );
@@ -217,6 +304,7 @@ export default async function MaintenancePreventativeMaintenanceCompliancePage({
             </table>
           </div>
         </section>
+        </>
       )}
     </main>
   );

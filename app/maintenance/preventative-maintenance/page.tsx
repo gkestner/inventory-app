@@ -41,9 +41,35 @@ type PmEntry = {
   backflowAmount: string | null;
   boilerInspectionDatePrimary: string | null;
   boilerInspectionCompany: string | null;
+  boilerInspectionCost: string | null;
   boilerInspectionDateSecondary: string | null;
   updatedAt: Date;
 };
+
+type NumberedLocation = {
+  id: string;
+  name: string;
+  locationNumber: string | null;
+};
+
+function locationSortValue(locationNumber: string | null | undefined): number {
+  const raw = String(locationNumber ?? "").trim();
+  if (!raw) return Number.MAX_SAFE_INTEGER;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+}
+
+function sortLocationsByNumberThenName(a: NumberedLocation, b: NumberedLocation): number {
+  const an = locationSortValue(a.locationNumber);
+  const bn = locationSortValue(b.locationNumber);
+  if (an !== bn) return an - bn;
+  return a.name.localeCompare(b.name);
+}
+
+function formatLocationLabel(location: NumberedLocation): string {
+  const number = String(location.locationNumber ?? "").trim();
+  return number ? `${number} - ${location.name}` : location.name;
+}
 
 type PmDb = {
   preventativeMaintenanceEntry: {
@@ -153,7 +179,16 @@ export default async function MaintenancePreventativeMaintenancePage({
     }
   }
 
-  const locations = Array.from(uniqueLocations.values()).sort((a, b) => a.name.localeCompare(b.name));
+  const assignedIds = Array.from(uniqueLocations.keys());
+  const locations =
+    assignedIds.length > 0
+      ? (
+          await prisma.location.findMany({
+            where: { id: { in: assignedIds }, active: true },
+            select: { id: true, name: true, locationNumber: true },
+          })
+        ).sort(sortLocationsByNumberThenName)
+      : [];
   const locationIds = locations.map((l) => l.id);
 
   const entries =
@@ -177,6 +212,7 @@ export default async function MaintenancePreventativeMaintenancePage({
             backflowAmount: true,
             boilerInspectionDatePrimary: true,
             boilerInspectionCompany: true,
+            boilerInspectionCost: true,
             boilerInspectionDateSecondary: true,
             updatedAt: true,
           },
@@ -284,7 +320,7 @@ export default async function MaintenancePreventativeMaintenancePage({
                     const cols = `repeat(${section.fields.length}, minmax(170px, 1fr)) 120px`;
                     return (
                       <tr key={`${section.id}-${location.id}`}>
-                        <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>{location.name}</td>
+                        <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>{formatLocationLabel(location)}</td>
                         <td colSpan={section.fields.length + 1} style={{ padding: 0, borderBottom: "1px solid var(--border)" }}>
                           <form
                             action={savePmRowAction}
