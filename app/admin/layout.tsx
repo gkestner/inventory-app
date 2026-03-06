@@ -85,9 +85,12 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   const canOrders = allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
   const canReports =
-    canOrders ||
     allowAll ||
     hasAnyPermission(perms, [
+      Permission.ADMIN_VIEW_ITEMS,
+      Permission.ADMIN_EDIT_ITEMS,
+      ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
+      ADMIN_VIEW_MAINTENANCE_REQUESTS,
       ADMIN_VIEW_REPORT_SLA_BREACHES,
       ADMIN_VIEW_REPORT_TECHNICIAN_WORKLOAD,
       ADMIN_VIEW_REPORT_TEMPERATURE_INCIDENTS,

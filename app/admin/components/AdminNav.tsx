@@ -194,9 +194,12 @@ export default async function AdminNav() {
   const canAdminOrderHistory = canAdminItems;
   const canAdminInvoices = canAdminItems;
   const canAdminReports =
-    canAdminItems ||
     isAdmin ||
     hasAnyPermission(perms, [
+      Permission.ADMIN_VIEW_ITEMS,
+      Permission.ADMIN_EDIT_ITEMS,
+      ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
+      ADMIN_VIEW_MAINTENANCE_REQUESTS,
       ADMIN_VIEW_REPORT_SLA_BREACHES,
       ADMIN_VIEW_REPORT_TECHNICIAN_WORKLOAD,
       ADMIN_VIEW_REPORT_TEMPERATURE_INCIDENTS,
