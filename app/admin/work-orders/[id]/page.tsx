@@ -10,6 +10,7 @@ import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { canAccessAdmin } from "@/app/lib/admin-access";
 import { createAuditLog, getCompatDb, getGcsConfig } from "@/app/lib/workflow-foundations";
+import AttachmentUploader from "./AttachmentUploader";
 
 export const dynamic = "force-dynamic";
 
@@ -795,6 +796,12 @@ export default async function AdminWorkOrderDetailPage({
                 bucket: <code>{gcs.bucket}</code>
               </>
             ) : null}
+          </div>
+
+          <AttachmentUploader workOrderId={workOrder.id} />
+
+          <div style={{ marginTop: 12, marginBottom: 6, fontSize: 12, fontWeight: 900, opacity: 0.9 }}>
+            Manual URL Attachment
           </div>
 
           <form action={addAttachmentAction} style={{ display: "grid", gap: 10 }}>
