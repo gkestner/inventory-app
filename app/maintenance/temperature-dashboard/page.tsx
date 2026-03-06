@@ -804,66 +804,82 @@ export default async function TemperatureDashboardPage({
                       </table>
                     </div>
 
-                    {isAdmin && hub.devices.length > 0 ? (
+                    {isAdmin ? (
                       <details style={{ marginTop: 10 }}>
                         <summary style={{ cursor: "pointer", fontWeight: 800 }}>Edit Sensor Thresholds</summary>
-                        <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-                          {hub.devices.map((device) => (
-                            <form
-                              key={`threshold-${device.id}`}
-                              action={saveDeviceThresholdAction}
-                              style={{
-                                display: "grid",
-                                gridTemplateColumns: "minmax(180px, 2fr) repeat(2, minmax(120px, 1fr)) auto",
-                                gap: 8,
-                                alignItems: "end",
-                                border: "1px solid var(--border)",
-                                borderRadius: 8,
-                                padding: 8,
-                                background: "var(--surface)",
-                              }}
-                            >
-                              <input type="hidden" name="hubId" value={hub.id} />
-                              <input type="hidden" name="deviceId" value={device.id} />
-
-                              <label style={{ display: "grid", gap: 2 }}>
-                                <span style={{ fontWeight: 700, fontSize: 12 }}>{device.name}</span>
-                                <span style={{ opacity: 0.75, fontSize: 11, fontFamily: "monospace" }}>{device.externalDeviceId}</span>
-                              </label>
-
-                              <label style={{ display: "grid", gap: 2 }}>
-                                <span style={{ fontSize: 12, fontWeight: 700 }}>Min F</span>
-                                <input
-                                  name="deviceMinTempF"
-                                  type="number"
-                                  step="0.1"
-                                  defaultValue={toNumberOrNull(device.minTempF) ?? ""}
-                                  placeholder={toNumberOrNull(hub.minTempF) === null ? "Hub default" : String(toNumberOrNull(hub.minTempF))}
-                                  style={{ padding: "7px 8px", borderRadius: 8, border: "1px solid var(--border)" }}
-                                />
-                              </label>
-
-                              <label style={{ display: "grid", gap: 2 }}>
-                                <span style={{ fontSize: 12, fontWeight: 700 }}>Max F</span>
-                                <input
-                                  name="deviceMaxTempF"
-                                  type="number"
-                                  step="0.1"
-                                  defaultValue={toNumberOrNull(device.maxTempF) ?? ""}
-                                  placeholder={toNumberOrNull(hub.maxTempF) === null ? "Hub default" : String(toNumberOrNull(hub.maxTempF))}
-                                  style={{ padding: "7px 8px", borderRadius: 8, border: "1px solid var(--border)" }}
-                                />
-                              </label>
-
-                              <button
-                                type="submit"
-                                style={{ padding: "8px 10px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface-2)", fontWeight: 800, cursor: "pointer" }}
+                        {hub.devices.length === 0 ? (
+                          <div
+                            style={{
+                              marginTop: 8,
+                              border: "1px solid var(--border)",
+                              borderRadius: 8,
+                              padding: 10,
+                              background: "var(--surface)",
+                              fontSize: 13,
+                              opacity: 0.9,
+                            }}
+                          >
+                            No sensors discovered yet for this hub. Run <strong>Webhook Pairing Test</strong> for this hub or verify Mocreo webhook delivery. Sensor controls appear here after the first reading is ingested.
+                          </div>
+                        ) : (
+                          <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                            {hub.devices.map((device) => (
+                              <form
+                                key={`threshold-${device.id}`}
+                                action={saveDeviceThresholdAction}
+                                style={{
+                                  display: "grid",
+                                  gridTemplateColumns: "minmax(180px, 2fr) repeat(2, minmax(120px, 1fr)) auto",
+                                  gap: 8,
+                                  alignItems: "end",
+                                  border: "1px solid var(--border)",
+                                  borderRadius: 8,
+                                  padding: 8,
+                                  background: "var(--surface)",
+                                }}
                               >
-                                Save Sensor
-                              </button>
-                            </form>
-                          ))}
-                        </div>
+                                <input type="hidden" name="hubId" value={hub.id} />
+                                <input type="hidden" name="deviceId" value={device.id} />
+
+                                <label style={{ display: "grid", gap: 2 }}>
+                                  <span style={{ fontWeight: 700, fontSize: 12 }}>{device.name}</span>
+                                  <span style={{ opacity: 0.75, fontSize: 11, fontFamily: "monospace" }}>{device.externalDeviceId}</span>
+                                </label>
+
+                                <label style={{ display: "grid", gap: 2 }}>
+                                  <span style={{ fontSize: 12, fontWeight: 700 }}>Min F</span>
+                                  <input
+                                    name="deviceMinTempF"
+                                    type="number"
+                                    step="0.1"
+                                    defaultValue={toNumberOrNull(device.minTempF) ?? ""}
+                                    placeholder={toNumberOrNull(hub.minTempF) === null ? "Hub default" : String(toNumberOrNull(hub.minTempF))}
+                                    style={{ padding: "7px 8px", borderRadius: 8, border: "1px solid var(--border)" }}
+                                  />
+                                </label>
+
+                                <label style={{ display: "grid", gap: 2 }}>
+                                  <span style={{ fontSize: 12, fontWeight: 700 }}>Max F</span>
+                                  <input
+                                    name="deviceMaxTempF"
+                                    type="number"
+                                    step="0.1"
+                                    defaultValue={toNumberOrNull(device.maxTempF) ?? ""}
+                                    placeholder={toNumberOrNull(hub.maxTempF) === null ? "Hub default" : String(toNumberOrNull(hub.maxTempF))}
+                                    style={{ padding: "7px 8px", borderRadius: 8, border: "1px solid var(--border)" }}
+                                  />
+                                </label>
+
+                                <button
+                                  type="submit"
+                                  style={{ padding: "8px 10px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface-2)", fontWeight: 800, cursor: "pointer" }}
+                                >
+                                  Save Sensor
+                                </button>
+                              </form>
+                            ))}
+                          </div>
+                        )}
                       </details>
                     ) : null}
 
