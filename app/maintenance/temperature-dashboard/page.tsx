@@ -163,6 +163,18 @@ function sparklinePoints(values: number[], width = 160, height = 34): string {
     .join(" ");
 }
 
+function getConnectionHealth(lastSeen: Date | null): {
+  label: "ONLINE" | "DEGRADED" | "OFFLINE" | "NO_DATA";
+  minutes: number | null;
+  color: string;
+} {
+  if (!lastSeen) return { label: "NO_DATA", minutes: null, color: "#9ca3af" };
+  const mins = Math.max(0, Math.round((Date.now() - lastSeen.getTime()) / 60000));
+  if (mins <= 5) return { label: "ONLINE", minutes: mins, color: "#22c55e" };
+  if (mins <= 15) return { label: "DEGRADED", minutes: mins, color: "#f59e0b" };
+  return { label: "OFFLINE", minutes: mins, color: "#ef4444" };
+}
+
 function linePointsForTimedSeries(args: {
   points: SensorPoint[];
   width: number;
@@ -946,6 +958,38 @@ export default async function TemperatureDashboardPage({
                     </div>
 
                     <div style={{ marginTop: 10, overflowX: "auto" }}>
+                      <div
+                        style={{
+                          marginBottom: 8,
+                          border: "1px solid var(--border)",
+                          borderRadius: 8,
+                          background: "var(--surface)",
+                          padding: 8,
+                          display: "flex",
+                          gap: 12,
+                          flexWrap: "wrap",
+                          alignItems: "center",
+                          fontSize: 12,
+                        }}
+                      >
+                        <strong>Connection Health:</strong>
+                        {hub.devices.map((device) => {
+                          const latest = latestReadingByDevice.get(device.id);
+                          const dSeen = latest?.recordedAt ?? device.lastReadingAt;
+                          const health = getConnectionHealth(dSeen);
+                          return (
+                            <span key={`health-${device.id}`} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ width: 8, height: 8, borderRadius: 999, background: health.color, display: "inline-block" }} />
+                              <span>
+                                {device.name}: <b>{health.label}</b>
+                                {health.minutes !== null ? ` (${health.minutes}m)` : ""}
+                              </span>
+                            </span>
+                          );
+                        })}
+                        {hub.devices.length === 0 ? <span style={{ opacity: 0.75 }}>No sensors discovered yet.</span> : null}
+                      </div>
+
                       <div style={{ marginBottom: 6, fontSize: 12, opacity: 0.8 }}>
                         Live sensor table (auto-refresh) with 24h trend sparkline per sensor.
                       </div>
@@ -954,6 +998,7 @@ export default async function TemperatureDashboardPage({
                           <tr style={{ borderBottom: "1px solid var(--border)" }}>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Device</th>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Device ID</th>
+                            <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Connection</th>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Thresholds (F)</th>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Current Temp</th>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Trend (24h)</th>
@@ -969,19 +1014,29 @@ export default async function TemperatureDashboardPage({
                             const dSeen = latest?.recordedAt ?? device.lastReadingAt;
                             const dMin = toNumberOrNull(device.minTempF);
                             const dMax = toNumberOrNull(device.maxTempF);
+                            const health = getConnectionHealth(dSeen);
                             const trend = historyByDevice.get(device.id) ?? [];
                             const points = sparklinePoints(trend.map((t) => t.temp));
                             return (
                               <tr key={device.id} style={{ borderBottom: "1px solid var(--border)" }}>
                                 <td style={{ padding: "6px 4px" }}>{device.name}</td>
                                 <td style={{ padding: "6px 4px", fontFamily: "monospace", fontSize: 12 }}>{device.externalDeviceId}</td>
+                                <td style={{ padding: "6px 4px", fontSize: 12, whiteSpace: "nowrap" }}>
+                                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                    <span style={{ width: 8, height: 8, borderRadius: 999, background: health.color, display: "inline-block" }} />
+                                    <span>
+                                      {health.label}
+                                      {health.minutes !== null ? ` (${health.minutes}m)` : ""}
+                                    </span>
+                                  </span>
+                                </td>
                                 <td style={{ padding: "6px 4px" }}>
                                   {dMin === null && dMax === null
                                     ? `Hub default (${min === null ? "-" : min} to ${max === null ? "-" : max})`
                                     : `${dMin === null ? "-" : dMin} to ${dMax === null ? "-" : dMax}`}
                                 </td>
                                 <td style={{ padding: "6px 4px", fontWeight: 800 }}>
-                                  {dTemp === null ? "No live reading" : `${dTemp.toFixed(1)}F`}
+                                  {dTemp === null ? "No temperature parsed" : `${dTemp.toFixed(1)}F`}
                                 </td>
                                 <td style={{ padding: "6px 4px" }}>
                                   {trend.length < 2 ? (
@@ -1007,7 +1062,7 @@ export default async function TemperatureDashboardPage({
                           })}
                           {hub.devices.length === 0 ? (
                             <tr>
-                              <td colSpan={8} style={{ padding: "8px 4px", opacity: 0.8 }}>
+                              <td colSpan={9} style={{ padding: "8px 4px", opacity: 0.8 }}>
                                 No readings have been received yet for this hub.
                               </td>
                             </tr>

@@ -60,18 +60,50 @@ function firstNonEmptyString(...values: Array<unknown>): string {
 }
 
 function extractTemperatureF(candidate: Record<string, unknown>): number | null {
-  const tempF = toNumberOrNull(candidate.temperatureF ?? candidate.tempF ?? candidate.fahrenheit);
+  const tempF = toNumberOrNull(
+    candidate.temperatureF ??
+      candidate.tempF ??
+      candidate.fahrenheit ??
+      candidate.temperature_f ??
+      candidate.temp_f ??
+      candidate.currentTempF ??
+      candidate.lastTempF
+  );
   if (tempF !== null) return tempF;
 
-  const tempC = toNumberOrNull(candidate.temperatureC ?? candidate.tempC ?? candidate.celsius);
+  const tempC = toNumberOrNull(
+    candidate.temperatureC ??
+      candidate.tempC ??
+      candidate.celsius ??
+      candidate.temperature_c ??
+      candidate.temp_c ??
+      candidate.currentTempC ??
+      candidate.lastTempC
+  );
   if (tempC !== null) return cToF(tempC);
 
   const nestedTemp = asObject(candidate.temperature);
   if (nestedTemp) {
-    const nestedF = toNumberOrNull(nestedTemp.f ?? nestedTemp.fahrenheit);
+    const nestedF = toNumberOrNull(
+      nestedTemp.f ?? nestedTemp.fahrenheit ?? nestedTemp.valueF ?? nestedTemp.tempF ?? nestedTemp.currentF
+    );
     if (nestedF !== null) return nestedF;
-    const nestedC = toNumberOrNull(nestedTemp.c ?? nestedTemp.celsius);
+    const nestedC = toNumberOrNull(
+      nestedTemp.c ?? nestedTemp.celsius ?? nestedTemp.valueC ?? nestedTemp.tempC ?? nestedTemp.currentC ?? nestedTemp.value
+    );
     if (nestedC !== null) return cToF(nestedC);
+  }
+
+  const nestedData = asObject(candidate.data);
+  if (nestedData) {
+    const dataTemp = extractTemperatureF(nestedData);
+    if (dataTemp !== null) return dataTemp;
+  }
+
+  const nestedReading = asObject(candidate.reading);
+  if (nestedReading) {
+    const readingTemp = extractTemperatureF(nestedReading);
+    if (readingTemp !== null) return readingTemp;
   }
 
   return null;
@@ -113,7 +145,11 @@ export function parseMocreoWebhookPayload(raw: unknown): MocreoWebhookReading | 
     firstNonEmptyString(device.name, event.deviceName, root.deviceName, device.alias) || `Device ${externalDeviceId}`;
 
   const recordedAt = toDateOrNow(event.recordedAt ?? event.timestamp ?? root.recordedAt ?? root.timestamp);
-  const temperatureF = extractTemperatureF(event);
+  const temperatureF =
+    extractTemperatureF(event) ??
+    extractTemperatureF(device) ??
+    extractTemperatureF(hub) ??
+    extractTemperatureF(root);
   const batteryPct = toIntOrNull(event.batteryPct ?? event.battery ?? root.batteryPct ?? root.battery);
   const signalPct = toIntOrNull(event.signalPct ?? event.signal ?? root.signalPct ?? root.signal);
 
