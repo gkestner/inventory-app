@@ -254,6 +254,17 @@ export async function GET(req: Request) {
             )}</b></div>
 </div>
 <table>
+  <colgroup>
+    <col style="width: 9%" />
+    <col style="width: 13%" />
+    <col style="width: 8%" />
+    <col style="width: 8%" />
+    <col style="width: 7%" />
+    <col style="width: 8%" />
+    <col style="width: 8%" />
+    <col style="width: 7%" />
+    <col style="width: 32%" />
+  </colgroup>
   <thead><tr><th>Date</th><th>Location</th><th>Departure</th><th>Return</th><th>Hours</th><th>Start Mi</th><th>End Mi</th><th>Miles</th><th>Notes</th></tr></thead>
   <tbody>${rowsHtml}</tbody>
 </table>
@@ -281,9 +292,23 @@ export async function GET(req: Request) {
     .email { font-size: 12px; color: #333; }
     .totals { font-size: 12px; }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-    th, td { border: 1px solid #bbb; padding: 5px; font-size: 11px; text-align: left; vertical-align: top; white-space: nowrap; }
-    td.wrap { white-space: normal; word-break: break-word; }
+    th, td { border: 1px solid #bbb; padding: 5px; font-size: 11px; text-align: left; vertical-align: top; white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
+    th { white-space: nowrap; }
+    tbody td:nth-child(1),
+    tbody td:nth-child(3),
+    tbody td:nth-child(4),
+    tbody td:nth-child(5),
+    tbody td:nth-child(6),
+    tbody td:nth-child(7),
+    tbody td:nth-child(8) { white-space: nowrap; }
+    td.wrap { white-space: normal; }
     .empty { font-size: 13px; }
+
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .card { break-inside: avoid-page; page-break-inside: avoid; }
+      .section-head { align-items: center; }
+    }
   </style>
 </head>
 <body>
