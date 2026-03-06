@@ -255,9 +255,14 @@ export default async function MaintenanceTicketsPage({ searchParams }: { searchP
         USING NEW maintenance-tickets/page.tsx (invoice link enabled)
       </div>
 
-      <h1 style={{ fontSize: 20, fontWeight: 800, marginBottom: 6 }}>Maintenance Tickets</h1>
+      <h1 style={{ fontSize: 20, fontWeight: 800, marginBottom: 6 }}>Maintenance Tickets (Parts Checkout)</h1>
       <div style={{ opacity: 0.8, marginBottom: 12 }}>
-        Review part checkouts. Mark invoiced or void (void restores inventory atomically).
+        Review part checkout tickets. Mark invoiced or void (void restores inventory atomically). This module is separate from Maintenance Requests.
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <a href="/admin/maintenance-requests" style={{ textDecoration: "underline", fontWeight: 800 }}>
+          Open Maintenance Requests Queue
+        </a>
       </div>
 
       {/* ✅ NEW: Quick jump to Items search (search items from this page) */}

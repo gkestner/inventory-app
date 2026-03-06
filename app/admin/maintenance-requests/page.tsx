@@ -180,7 +180,7 @@ export default async function AdminMaintenanceRequestsPage() {
         <section style={{ border: "1px solid var(--border)", borderRadius: 16, padding: 18, background: "var(--surface)", boxShadow: "var(--shadow)" }}>
           <h1 style={{ margin: 0, fontSize: 28, fontWeight: 950 }}>Maintenance Request Queue</h1>
           <p style={{ margin: "8px 0 0", color: "var(--muted)", lineHeight: 1.45 }}>
-            Admin running log for all maintenance requests, assignment visibility, and closeout actions.
+            Admin running log for maintenance issue requests, assignment visibility, and closeout actions. This is separate from Maintenance Tickets (parts checkout invoicing).
           </p>
           <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
             <Link href="/maintenance-requests" style={{ textDecoration: "none", fontWeight: 800 }}>
@@ -188,6 +188,9 @@ export default async function AdminMaintenanceRequestsPage() {
             </Link>
             <Link href="/admin/reports/maintenance-requests" style={{ textDecoration: "none", fontWeight: 800 }}>
               {"Open Request Reports ->"}
+            </Link>
+            <Link href="/admin/maintenance-tickets" style={{ textDecoration: "none", fontWeight: 800 }}>
+              {"Open Maintenance Tickets (Parts) ->"}
             </Link>
           </div>
         </section>

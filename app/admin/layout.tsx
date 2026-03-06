@@ -313,7 +313,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
           {canMaintenanceRequests ? (
             <Link href="/admin/maintenance-requests" style={linkStyle}>
-              <span>Maintenance Requests</span>
+              <span>Maintenance Requests (Queue)</span>
               <span style={pill}>Queue</span>
             </Link>
           ) : null}
@@ -327,8 +327,8 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
           {canTickets ? (
             <Link href="/admin/maintenance-tickets" style={linkStyle}>
-              <span>Maintenance Tickets</span>
-              <span style={pill}>Export</span>
+              <span>Maintenance Tickets (Parts)</span>
+              <span style={pill}>Invoicing</span>
             </Link>
           ) : null}
         </nav>

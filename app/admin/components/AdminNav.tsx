@@ -338,7 +338,12 @@ export default async function AdminNav() {
               <div style={menuStyle}>
                 {canAdminMaintenanceTickets ? (
                   <Link href="/admin/maintenance-tickets" style={menuItemStyle}>
-                    Maintenance Tickets
+                    Maintenance Tickets (Parts)
+                  </Link>
+                ) : null}
+                {canAdminMaintenanceTickets ? (
+                  <Link href="/admin/maintenance-requests" style={menuItemStyle}>
+                    Maintenance Requests (Queue)
                   </Link>
                 ) : null}
                 {canAdminWorkOrders ? (

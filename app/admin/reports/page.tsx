@@ -167,7 +167,7 @@ export default async function AdminReportsIndexPage() {
           <Link href="/admin/reports/maintenance-requests" style={cardStyle}>
             <h2 style={titleStyle}>Maintenance Request Reports</h2>
             <p style={descStyle}>
-              Analyze request volume, assignment load by technician, closeout pace, and request audit events.
+              Analyze maintenance issue request volume, assignment load by technician, closeout pace, and request audit events. Separate from parts checkout ticket reports.
             </p>
             <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
           </Link>

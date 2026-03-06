@@ -302,15 +302,15 @@ export default async function AdminHomePage() {
 
         {canMaintenanceRequests ? (
           <div style={card}>
-            <h2 style={title}>Maintenance Requests</h2>
-            <p style={desc}>Running log of store requests with assigned maintenance tech routing, resolution, and archive workflow.</p>
+            <h2 style={title}>Maintenance Requests (Issue Queue)</h2>
+            <p style={desc}>Store issue queue with assigned maintenance tech routing, resolution, and archive workflow. Separate from parts checkout tickets.</p>
             <Link href="/admin/maintenance-requests" style={linkStyle}>
               Open Request Queue →
             </Link>
           </div>
         ) : (
           <div style={card}>
-            <h2 style={title}>Maintenance Requests</h2>
+            <h2 style={title}>Maintenance Requests (Issue Queue)</h2>
             <p style={desc}>You don’t have access to view this module.</p>
           </div>
         )}
@@ -332,15 +332,15 @@ export default async function AdminHomePage() {
 
         {canTickets ? (
           <div style={card}>
-            <h2 style={title}>Maintenance Tickets</h2>
-            <p style={desc}>Admin export + reporting for maintenance tickets.</p>
+            <h2 style={title}>Maintenance Tickets (Parts Checkout)</h2>
+            <p style={desc}>Parts checkout ticket invoice/export workflow. Separate from maintenance issue requests.</p>
             <Link href="/admin/maintenance-tickets" style={linkStyle}>
               Open Tickets →
             </Link>
           </div>
         ) : (
           <div style={card}>
-            <h2 style={title}>Maintenance Tickets</h2>
+            <h2 style={title}>Maintenance Tickets (Parts Checkout)</h2>
             <p style={desc}>You don’t have access to view this module.</p>
           </div>
         )}
