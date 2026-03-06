@@ -8,7 +8,9 @@ import { headers } from "next/headers";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
+import { getCompatDb, getGcsConfig } from "@/app/lib/workflow-foundations";
 import { EquipmentArea, Role, WorkOrderPingEvent } from "@prisma/client";
+import AttachmentUploader from "./AttachmentUploader";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +47,17 @@ type RequiredEquipmentArea =
   | "OTHER";
 
 type LegacyEquipmentArea = "FRONT_COUNTER" | "DRIVE_THRU" | "KITCHEN" | "ROOF" | "HVAC";
+
+type WorkOrderAttachmentRow = {
+  id: string;
+  fileName: string;
+  contentType: string | null;
+  byteSize: number | null;
+  storageKey: string | null;
+  url: string;
+  createdAt: Date;
+  addedByUser: { name: string | null; email: string } | null;
+};
 
 const EQUIPMENT_AREAS: RequiredEquipmentArea[] = [
   "DOUGH_ROLLER",
@@ -234,6 +247,18 @@ function statusLabel(s: WorkOrderStatus): string {
   return s;
 }
 
+function formatBytes(n: number | null | undefined): string {
+  if (!Number.isFinite(n as number) || !n || n < 0) return "-";
+  const num = Number(n);
+  if (num < 1024) return `${num} B`;
+  const kb = num / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${mb.toFixed(1)} MB`;
+  const gb = mb / 1024;
+  return `${gb.toFixed(2)} GB`;
+}
+
 function safeReturnToPathFromReferer(referer: string | null, fallback: string) {
   if (!referer) return fallback;
   try {
@@ -326,6 +351,25 @@ export default async function MaintenanceWorkOrderDetailPage({
 
   const selectedAreasDb: EquipmentArea[] = workOrder.equipmentAreas.map((a) => a.area);
   const hasLegacy = selectedAreasDb.some((a) => isLegacyArea(a));
+  const gcs = getGcsConfig();
+
+  const compat = getCompatDb() as any;
+  const attachments: WorkOrderAttachmentRow[] = compat.workOrderAttachment?.findMany
+    ? await compat.workOrderAttachment.findMany({
+        where: { workOrderId: id },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          fileName: true,
+          contentType: true,
+          byteSize: true,
+          storageKey: true,
+          url: true,
+          createdAt: true,
+          addedByUser: { select: { name: true, email: true } },
+        },
+      })
+    : [];
 
   // Theme-variable styling (no hardcoded colors; just sizing/layout)
   const border = "1px solid rgba(128,128,128,0.25)";
@@ -786,6 +830,57 @@ export default async function MaintenanceWorkOrderDetailPage({
         </div>
 
         {/* SUBMIT */}
+        <div style={{ ...card, marginTop: 14 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 900, marginTop: 0 }}>Pictures</h2>
+          <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 10 }}>
+            Optional photo uploads for this work order.
+          </div>
+          <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 10 }}>
+            Upload path: <code>{gcs.basePath}</code>
+          </div>
+
+          <AttachmentUploader workOrderId={workOrder.id} />
+
+          <div style={{ marginTop: 12, border, borderRadius: 12, overflow: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
+              <thead>
+                <tr>
+                  {["Added", "By", "File", "Type", "Size", "Open"].map((h) => (
+                    <th key={h} style={{ textAlign: "left", padding: 8, borderBottom: border, fontSize: 12, opacity: 0.9 }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {attachments.map((a) => (
+                  <tr key={a.id}>
+                    <td style={{ padding: 8, borderBottom: border, whiteSpace: "nowrap" }}>{fmtLocal(a.createdAt)}</td>
+                    <td style={{ padding: 8, borderBottom: border }}>
+                      {a.addedByUser ? `${a.addedByUser.name ?? "(no name)"} (${a.addedByUser.email})` : "-"}
+                    </td>
+                    <td style={{ padding: 8, borderBottom: border }}>{a.fileName}</td>
+                    <td style={{ padding: 8, borderBottom: border }}>{a.contentType ?? "-"}</td>
+                    <td style={{ padding: 8, borderBottom: border }}>{formatBytes(a.byteSize)}</td>
+                    <td style={{ padding: 8, borderBottom: border, whiteSpace: "nowrap" }}>
+                      <a href={a.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+                        Open
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+                {attachments.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} style={{ padding: 10, fontSize: 12, opacity: 0.75 }}>
+                      No pictures uploaded yet.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <div style={{ ...card, marginTop: 14 }}>
           <h2 style={{ fontSize: 18, fontWeight: 900, marginTop: 0 }}>Submit</h2>
 
