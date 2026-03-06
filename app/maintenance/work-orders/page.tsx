@@ -151,6 +151,12 @@ function parseAreas(formData: FormData): EquipmentArea[] {
   return uniq;
 }
 
+function requireNotesWhenOtherAreaSelected(areas: EquipmentArea[], notes: string) {
+  if (!areas.includes("OTHER")) return;
+  if (notes.trim().length > 0) return;
+  throw new Error("Notes are required when Equipment Area 'Other' is selected.");
+}
+
 function parseOptionalInt(v: FormDataEntryValue | null): number | null {
   if (!v || typeof v !== "string") return null;
   const s = v.trim();
@@ -462,6 +468,8 @@ export default async function MaintenanceWorkOrdersPage() {
     const startingMileage = parseOptionalInt(formData.get("startingMileage"));
     const areas = parseAreas(formData);
 
+    requireNotesWhenOtherAreaSelected(areas, notes);
+
     await prisma.$transaction(async (tx) => {
       const wo = await tx.workOrder.create({
         data: {
@@ -503,6 +511,8 @@ export default async function MaintenanceWorkOrdersPage() {
     const endingMileage = parseRequiredInt(formData.get("endingMileage"), "Ending mileage is required.");
     const notes = String(formData.get("notes") ?? "");
     const areas = parseAreas(formData);
+
+    requireNotesWhenOtherAreaSelected(areas, notes);
 
     await prisma.$transaction(async (tx) => {
       const wo = await tx.workOrder.findUnique({
@@ -557,6 +567,8 @@ export default async function MaintenanceWorkOrdersPage() {
     const startingMileage = parseOptionalInt(formData.get("startingMileage"));
     const endingMileage = parseOptionalInt(formData.get("endingMileage"));
     const areas = parseAreas(formData);
+
+    requireNotesWhenOtherAreaSelected(areas, notes);
 
     const allowedLocationIds = new Set<string>(allowedLocations.map((l) => l.id));
     if (!allowedLocationIds.has(locationId)) {
@@ -669,7 +681,7 @@ export default async function MaintenanceWorkOrdersPage() {
                   </div>
 
                   <label style={label}>
-                    Notes (optional)
+                    Notes (optional, required if Other is selected)
                     <textarea name="notes" placeholder="Short description (optional)..." style={textareaBase} />
                   </label>
 
@@ -727,7 +739,7 @@ export default async function MaintenanceWorkOrdersPage() {
                   </div>
 
                   <label style={label}>
-                    Notes (optional)
+                    Notes (optional, required if Other is selected)
                     <textarea
                       name="notes"
                       defaultValue={inProgress.notes ?? ""}
@@ -910,7 +922,7 @@ export default async function MaintenanceWorkOrdersPage() {
                                 </div>
 
                                 <label style={label}>
-                                  Notes (optional)
+                                  Notes (optional, required if Other is selected)
                                   <textarea name="notes" defaultValue={wo.notes ?? ""} style={{ ...textareaBase, minHeight: 90 }} />
                                 </label>
 
