@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { Permission } from "@prisma/client";
+import { CREATE_WORK_ORDERS_FOR_OTHERS } from "@/app/lib/permission-constants";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
@@ -130,6 +131,12 @@ const PERMS: PermMeta[] = [
 
   { perm: Permission.VIEW_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "View Work Orders" },
   { perm: Permission.CREATE_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "Create Work Orders" },
+  {
+    perm: CREATE_WORK_ORDERS_FOR_OTHERS,
+    module: "Maintenance",
+    group: "Work Orders",
+    label: "Create Work Orders For Others (Office Entry)",
+  },
   { perm: Permission.UPDATE_OWN_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "Update Own Work Orders" },
   { perm: Permission.SUBMIT_OWN_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "Submit Own Work Orders" },
 

@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "Permission" ADD VALUE 'CREATE_WORK_ORDERS_FOR_OTHERS';

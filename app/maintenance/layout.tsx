@@ -7,6 +7,7 @@ import { Permission } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { CREATE_WORK_ORDERS_FOR_OTHERS } from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -34,6 +35,7 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
       Permission.CREATE_CHECKOUT,
       Permission.VIEW_WORK_ORDERS,
       Permission.CREATE_WORK_ORDERS,
+      CREATE_WORK_ORDERS_FOR_OTHERS,
       Permission.UPDATE_OWN_WORK_ORDERS,
       Permission.SUBMIT_OWN_WORK_ORDERS,
       Permission.VIEW_LIVE_ORDERS,
@@ -50,9 +52,12 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
     hasAnyPermission(perms, [
       Permission.VIEW_WORK_ORDERS,
       Permission.CREATE_WORK_ORDERS,
+      CREATE_WORK_ORDERS_FOR_OTHERS,
       Permission.UPDATE_OWN_WORK_ORDERS,
       Permission.SUBMIT_OWN_WORK_ORDERS,
     ]);
+
+  const canOfficeEntry = perms.allowAll || hasAnyPermission(perms, [CREATE_WORK_ORDERS_FOR_OTHERS]);
 
   // ✅ Travel Log is treated as part of Work Orders permissions (no VIEW_TRAVEL_LOG exists)
   const canTravelLog = canWorkOrders;
@@ -89,11 +94,19 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
             </Link>
 
             {/* ✅ Only show Work Orders + Travel Log if permitted */}
-            {canWorkOrders ? (
+            {canWorkOrders || canOfficeEntry ? (
               <>
-                <Link href="/maintenance/work-orders" className="site-link" style={pill()}>
-                  Work Orders
-                </Link>
+                {canWorkOrders ? (
+                  <Link href="/maintenance/work-orders" className="site-link" style={pill()}>
+                    Work Orders
+                  </Link>
+                ) : null}
+
+                {canOfficeEntry ? (
+                  <Link href="/maintenance/work-orders/office-entry" className="site-link" style={pill()}>
+                    Office Entry
+                  </Link>
+                ) : null}
 
                 {canTravelLog ? (
                   <Link href="/maintenance/travel-log" className="site-link" style={pill()}>

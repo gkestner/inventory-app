@@ -6,6 +6,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/lib/auth";
 import { Permission } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { CREATE_WORK_ORDERS_FOR_OTHERS } from "@/app/lib/permission-constants";
 import SignOutButton from "@/app/components/SignOutButton";
 
 export const dynamic = "force-dynamic";
@@ -50,15 +51,18 @@ export default async function UserNav() {
     hasAnyPermission(perms, [
       Permission.VIEW_WORK_ORDERS,
       Permission.CREATE_WORK_ORDERS,
+      CREATE_WORK_ORDERS_FOR_OTHERS,
       Permission.UPDATE_OWN_WORK_ORDERS,
       Permission.SUBMIT_OWN_WORK_ORDERS,
     ]);
+
+  const canOfficeEntry = perms.allowAll || hasAnyPermission(perms, [CREATE_WORK_ORDERS_FOR_OTHERS]);
 
   const canTravelLog = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
 
   const canCheckout = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
 
-  const homeHref = canWorkOrders || canCheckout ? "/maintenance" : "/";
+  const homeHref = canWorkOrders || canOfficeEntry || canCheckout ? "/maintenance" : "/";
 
   return (
     <div className="site-nav-shell" style={shell}>
@@ -73,6 +77,12 @@ export default async function UserNav() {
           {canWorkOrders && (
             <Link href="/maintenance/work-orders" className="site-link" style={linkStyle}>
               Work Orders
+            </Link>
+          )}
+
+          {canOfficeEntry && (
+            <Link href="/maintenance/work-orders/office-entry" className="site-link" style={linkStyle}>
+              Office Entry
             </Link>
           )}
 

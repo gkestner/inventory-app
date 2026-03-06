@@ -1,6 +1,8 @@
 // prisma/seed.ts
 import { PrismaClient, Permission, Role } from "@prisma/client";
 
+const CREATE_WORK_ORDERS_FOR_OTHERS = "CREATE_WORK_ORDERS_FOR_OTHERS" as Permission;
+
 const prisma = new PrismaClient();
 
 function normName(s: string): string {
@@ -54,6 +56,7 @@ async function ensureMaintenanceBaselinePermissions() {
     Permission.VIEW_HOME,
     Permission.VIEW_WORK_ORDERS,
     Permission.CREATE_WORK_ORDERS,
+    CREATE_WORK_ORDERS_FOR_OTHERS,
     Permission.UPDATE_OWN_WORK_ORDERS,
     Permission.SUBMIT_OWN_WORK_ORDERS,
   ];

@@ -7,6 +7,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/lib/auth";
 import { Permission, Role } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { CREATE_WORK_ORDERS_FOR_OTHERS } from "@/app/lib/permission-constants";
 import { prisma } from "@/app/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -154,6 +155,7 @@ export default async function AdminNav() {
   const canUserWorkOrders = isAdmin || hasAnyPermission(perms, [
     Permission.VIEW_WORK_ORDERS,
     Permission.CREATE_WORK_ORDERS,
+    CREATE_WORK_ORDERS_FOR_OTHERS,
     Permission.UPDATE_OWN_WORK_ORDERS,
     Permission.SUBMIT_OWN_WORK_ORDERS,
   ]);

@@ -36,6 +36,7 @@ const GROUPS: Group[] = [
       "CREATE_CHECKOUT",
       "VIEW_WORK_ORDERS",
       "CREATE_WORK_ORDERS",
+      "CREATE_WORK_ORDERS_FOR_OTHERS",
       "UPDATE_OWN_WORK_ORDERS",
       "SUBMIT_OWN_WORK_ORDERS",
     ],

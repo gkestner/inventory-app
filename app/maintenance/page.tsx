@@ -5,6 +5,7 @@ import { Permission, Role } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { CREATE_WORK_ORDERS_FOR_OTHERS } from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -35,6 +36,7 @@ export default async function MaintenanceHomePage() {
     ]);
   const canTravelLog = canWorkOrders;
   const canLiveOrders = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_LIVE_ORDERS]);
+  const canOfficeEntry = perms.allowAll || hasAnyPermission(perms, [CREATE_WORK_ORDERS_FOR_OTHERS]);
 
   const border = "1px solid var(--border)";
 
@@ -94,6 +96,18 @@ export default async function MaintenanceHomePage() {
               </p>
               <Link href="/maintenance/work-orders" style={action}>
                 Open Work Orders
+              </Link>
+            </article>
+          ) : null}
+
+          {canOfficeEntry ? (
+            <article style={card}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Work Orders (Office Entry)</h2>
+              <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.5 }}>
+                Enter work orders from paper forms on behalf of a technician by selecting the target user.
+              </p>
+              <Link href="/maintenance/work-orders/office-entry" style={action}>
+                Open Office Entry
               </Link>
             </article>
           ) : null}

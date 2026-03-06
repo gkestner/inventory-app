@@ -325,6 +325,9 @@ export default async function AdminWorkOrdersPage({
       <div style={{ maxWidth: 1320, margin: "0 auto" }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
           <h1 style={{ margin: 0, fontSize: 26, fontWeight: 900 }}>Admin: Work Orders</h1>
+          <Link href="/maintenance/work-orders/office-entry" style={btn}>
+            Office Entry
+          </Link>
           <div style={{ opacity: 0.75, fontSize: 13 }}>
             {workOrders.length} shown (max 500) • Times in <b>{TZ}</b>
           </div>

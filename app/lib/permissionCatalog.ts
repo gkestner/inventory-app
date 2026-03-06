@@ -1,5 +1,6 @@
 // app/lib/permissionCatalog.ts
 import { Permission } from "@prisma/client";
+import { CREATE_WORK_ORDERS_FOR_OTHERS } from "@/app/lib/permission-constants";
 
 export type PermissionCatalogEntry = {
   permission: Permission;
@@ -20,6 +21,12 @@ export const PERMISSION_CATALOG: PermissionCatalogEntry[] = [
   // ===== Maintenance / Work Orders (non-admin) =====
   { permission: Permission.VIEW_WORK_ORDERS, module: "Maintenance", path: ["Work Orders"], label: "View Work Orders" },
   { permission: Permission.CREATE_WORK_ORDERS, module: "Maintenance", path: ["Work Orders"], label: "Create Work Orders" },
+  {
+    permission: CREATE_WORK_ORDERS_FOR_OTHERS,
+    module: "Maintenance",
+    path: ["Work Orders"],
+    label: "Create Work Orders For Others (Office Entry)",
+  },
   { permission: Permission.UPDATE_OWN_WORK_ORDERS, module: "Maintenance", path: ["Work Orders"], label: "Update Own Work Orders" },
   { permission: Permission.SUBMIT_OWN_WORK_ORDERS, module: "Maintenance", path: ["Work Orders"], label: "Submit Own Work Orders" },
 

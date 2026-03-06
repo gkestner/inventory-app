@@ -6,6 +6,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/lib/auth";
 import { Permission } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { CREATE_WORK_ORDERS_FOR_OTHERS } from "@/app/lib/permission-constants";
 import LogoutSlot from "@/app/components/LogoutSlot";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +31,7 @@ export default async function TopNav() {
   const linkStyle: CSSProperties = { whiteSpace: "nowrap" };
 
   const canWorkOrders = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
+  const canOfficeEntry = perms.allowAll || hasAnyPermission(perms, [CREATE_WORK_ORDERS_FOR_OTHERS]);
   const canCheckout = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
 
   // ✅ NEW: Live Orders board (general users)
@@ -56,6 +58,12 @@ export default async function TopNav() {
           {canWorkOrders ? (
             <Link href="/maintenance/work-orders" className="site-link" style={linkStyle}>
               Work Orders
+            </Link>
+          ) : null}
+
+          {canOfficeEntry ? (
+            <Link href="/maintenance/work-orders/office-entry" className="site-link" style={linkStyle}>
+              Office Entry
             </Link>
           ) : null}
 

@@ -5,6 +5,7 @@ import { Permission, Role } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { CREATE_WORK_ORDERS_FOR_OTHERS } from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -41,6 +42,7 @@ export default async function HomePage() {
     hasAnyPermission(perms, [
       Permission.VIEW_WORK_ORDERS,
       Permission.CREATE_WORK_ORDERS,
+      CREATE_WORK_ORDERS_FOR_OTHERS,
       Permission.UPDATE_OWN_WORK_ORDERS,
       Permission.SUBMIT_OWN_WORK_ORDERS,
       Permission.VIEW_CHECKOUT,
@@ -53,9 +55,12 @@ export default async function HomePage() {
     hasAnyPermission(perms, [
       Permission.VIEW_WORK_ORDERS,
       Permission.CREATE_WORK_ORDERS,
+      CREATE_WORK_ORDERS_FOR_OTHERS,
       Permission.UPDATE_OWN_WORK_ORDERS,
       Permission.SUBMIT_OWN_WORK_ORDERS,
     ]);
+
+  const canOfficeEntry = perms.allowAll || hasAnyPermission(perms, [CREATE_WORK_ORDERS_FOR_OTHERS]);
 
   const canCheckout = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
 
@@ -68,6 +73,7 @@ export default async function HomePage() {
 
   if (hasMaintenanceAccess) {
     if (canWorkOrders) redirect("/maintenance/work-orders");
+    if (canOfficeEntry) redirect("/maintenance/work-orders/office-entry");
     if (canCheckout) redirect("/maintenance/checkout");
     if (canLiveOrders) redirect("/employee/live-orders");
     redirect("/maintenance");
