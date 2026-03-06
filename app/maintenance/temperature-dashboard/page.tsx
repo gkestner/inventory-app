@@ -57,6 +57,13 @@ type AlertRow = {
   device: { name: string } | null;
 };
 
+type SensorReadingRow = {
+  hubId: string;
+  deviceId: string | null;
+  recordedAt: Date;
+  tempF: unknown;
+};
+
 type Db = {
   user: {
     findUnique: (args: unknown) => Promise<{ id: string; active: boolean } | null>;
@@ -134,6 +141,21 @@ function parseTempInput(raw: FormDataEntryValue | null): number | null {
   const n = Number(s);
   if (!Number.isFinite(n)) return null;
   return n;
+}
+
+function sparklinePoints(values: number[], width = 160, height = 34): string {
+  if (values.length === 0) return "";
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min;
+
+  return values
+    .map((v, i) => {
+      const x = values.length === 1 ? 0 : (i / (values.length - 1)) * width;
+      const y = range === 0 ? height / 2 : height - ((v - min) / range) * height;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
 }
 
 export default async function TemperatureDashboardPage({
@@ -486,6 +508,42 @@ export default async function TemperatureDashboardPage({
     }),
     searchParams ?? Promise.resolve({}),
   ]);
+
+  const hubIds = hubs.map((h) => h.id);
+  const sensorReadings: SensorReadingRow[] =
+    hubIds.length === 0
+      ? []
+      : await prisma.mocreoTemperatureReading.findMany({
+          where: {
+            hubId: { in: hubIds },
+            deviceId: { not: null },
+            tempF: { not: null },
+            recordedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+          },
+          orderBy: { recordedAt: "asc" },
+          take: 10000,
+          select: {
+            hubId: true,
+            deviceId: true,
+            recordedAt: true,
+            tempF: true,
+          },
+        });
+
+  const latestReadingByDevice = new Map<string, { tempF: number; recordedAt: Date }>();
+  const historyByDevice = new Map<string, number[]>();
+
+  for (const row of sensorReadings) {
+    if (!row.deviceId) continue;
+    const temp = toNumberOrNull(row.tempF);
+    if (temp === null) continue;
+    latestReadingByDevice.set(row.deviceId, { tempF: temp, recordedAt: row.recordedAt });
+
+    const hist = historyByDevice.get(row.deviceId) ?? [];
+    hist.push(temp);
+    if (hist.length > 30) hist.shift();
+    historyByDevice.set(row.deviceId, hist);
+  }
   const params = paramsRaw as SearchParams;
 
   const statusMessage = isAdmin
@@ -764,13 +822,17 @@ export default async function TemperatureDashboardPage({
                     </div>
 
                     <div style={{ marginTop: 10, overflowX: "auto" }}>
+                      <div style={{ marginBottom: 6, fontSize: 12, opacity: 0.8 }}>
+                        Live sensor table (auto-refresh) with 24h trend sparkline per sensor.
+                      </div>
                       <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
                         <thead>
                           <tr style={{ borderBottom: "1px solid var(--border)" }}>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Device</th>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Device ID</th>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Thresholds (F)</th>
-                            <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Last Temp</th>
+                            <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Current Temp</th>
+                            <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Trend (24h)</th>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Alert</th>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Battery</th>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Last Seen</th>
@@ -778,9 +840,13 @@ export default async function TemperatureDashboardPage({
                         </thead>
                         <tbody>
                           {hub.devices.map((device) => {
-                            const dTemp = toNumberOrNull(device.lastTempF);
+                            const latest = latestReadingByDevice.get(device.id);
+                            const dTemp = latest?.tempF ?? toNumberOrNull(device.lastTempF);
+                            const dSeen = latest?.recordedAt ?? device.lastReadingAt;
                             const dMin = toNumberOrNull(device.minTempF);
                             const dMax = toNumberOrNull(device.maxTempF);
+                            const trend = historyByDevice.get(device.id) ?? [];
+                            const points = sparklinePoints(trend);
                             return (
                               <tr key={device.id} style={{ borderBottom: "1px solid var(--border)" }}>
                                 <td style={{ padding: "6px 4px" }}>{device.name}</td>
@@ -790,10 +856,28 @@ export default async function TemperatureDashboardPage({
                                     ? `Hub default (${min === null ? "-" : min} to ${max === null ? "-" : max})`
                                     : `${dMin === null ? "-" : dMin} to ${dMax === null ? "-" : dMax}`}
                                 </td>
-                                <td style={{ padding: "6px 4px" }}>{dTemp === null ? "-" : `${dTemp.toFixed(1)}F`}</td>
+                                <td style={{ padding: "6px 4px", fontWeight: 800 }}>
+                                  {dTemp === null ? "No live reading" : `${dTemp.toFixed(1)}F`}
+                                </td>
+                                <td style={{ padding: "6px 4px" }}>
+                                  {trend.length < 2 ? (
+                                    <span style={{ fontSize: 12, opacity: 0.75 }}>Need more samples</span>
+                                  ) : (
+                                    <svg width="160" height="36" viewBox="0 0 160 36" role="img" aria-label={`Temp trend for ${device.name}`}>
+                                      <polyline
+                                        points={points}
+                                        fill="none"
+                                        stroke="var(--brand)"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      />
+                                    </svg>
+                                  )}
+                                </td>
                                 <td style={{ padding: "6px 4px", fontWeight: 800 }}>{device.lastAlertState ?? "UNKNOWN"}</td>
                                 <td style={{ padding: "6px 4px" }}>{device.lastBatteryPct === null ? "-" : `${device.lastBatteryPct}%`}</td>
-                                <td style={{ padding: "6px 4px", whiteSpace: "nowrap" }}>{fmtDateTime(device.lastReadingAt)}</td>
+                                <td style={{ padding: "6px 4px", whiteSpace: "nowrap" }}>{fmtDateTime(dSeen)}</td>
                               </tr>
                             );
                           })}
