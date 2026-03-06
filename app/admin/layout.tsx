@@ -84,6 +84,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     hasAnyPermission(perms, [Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS, Permission.ADMIN_VIEW_MAINTENANCE_TICKETS]);
 
   const canPreventativeMaintenance = canWorkOrders || canLocations || canTickets;
+  const canEquipmentTracking = canWorkOrders || canLocations || canTickets;
 
   const wrap: CSSProperties = {
     display: "grid",
@@ -290,6 +291,13 @@ export default async function AdminLayout({ children }: { children: ReactNode })
             <Link href="/admin/preventative-maintenance" style={linkStyle}>
               <span>Preventative Maintenance</span>
               <span style={pill}>PM</span>
+            </Link>
+          ) : null}
+
+          {canEquipmentTracking ? (
+            <Link href="/admin/equipment-tracking" style={linkStyle}>
+              <span>Equipment Tracking</span>
+              <span style={pill}>Assets</span>
             </Link>
           ) : null}
 

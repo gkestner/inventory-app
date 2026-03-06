@@ -38,6 +38,7 @@ export default async function MaintenanceHomePage() {
   const canLiveOrders = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_LIVE_ORDERS]);
   const canOfficeEntry = perms.allowAll || hasAnyPermission(perms, [CREATE_WORK_ORDERS_FOR_OTHERS]);
   const canPreventativeMaintenance = canWorkOrders || canCheckout || canOfficeEntry || canLiveOrders;
+  const canEquipmentTracking = canPreventativeMaintenance;
 
   const border = "1px solid var(--border)";
 
@@ -145,6 +146,18 @@ export default async function MaintenanceHomePage() {
               </p>
               <Link href="/maintenance/preventative-maintenance" style={action}>
                 Open PM List
+              </Link>
+            </article>
+          ) : null}
+
+          {canEquipmentTracking ? (
+            <article style={card}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Equipment Tracking</h2>
+              <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.5 }}>
+                Store-by-store equipment log for HVAC, refrigeration, signs, and other installed assets.
+              </p>
+              <Link href="/maintenance/equipment-tracking" style={action}>
+                Open Equipment Log
               </Link>
             </article>
           ) : null}

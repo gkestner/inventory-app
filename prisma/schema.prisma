@@ -305,6 +305,7 @@ model Location {
   // Scheduling / counts
   pmSchedules        PmSchedule[]
   preventativeMaintenanceEntries PreventativeMaintenanceEntry[]
+  equipmentTrackingLogs EquipmentTrackingLog[]
   cycleCountSessions CycleCountSession[]
 
   @@index([active])
@@ -366,6 +367,7 @@ model User {
   pmSchedulesCreated PmSchedule[]          @relation("PmScheduleCreatedBy")
   pmSchedulesAssigned PmSchedule[]         @relation("PmScheduleDefaultUser")
   preventativeMaintenanceEntriesUpdated PreventativeMaintenanceEntry[] @relation("PreventativeMaintenanceEntryUpdatedBy")
+  equipmentTrackingLogsUpdated EquipmentTrackingLog[] @relation("EquipmentTrackingLogUpdatedBy")
   cycleCountsCreated CycleCountSession[]   @relation("CycleCountCreatedBy")
 }
 
@@ -491,6 +493,47 @@ model PreventativeMaintenanceEntry {
 
   @@unique([locationId, year])
   @@index([year])
+  @@index([updatedByUserId])
+}
+
+model EquipmentTrackingLog {
+  id String @id @default(cuid())
+
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
+
+  sectionKey String
+
+  ngOrLp            String?
+  iceCream          String?
+  greaseTrapSize    String?
+  modelNumber       String?
+  serialNumber      String?
+  manufacturer      String?
+  color             String?
+  freonType         String?
+  notes             String?
+  pepsiMachineOrBin String?
+  tanklessOrTank    String?
+  condenserUnitNumber String?
+  evaporatorUnitNumber String?
+  tonnage           String?
+  size              String?
+  freezerType       String?
+  letterSize        String?
+  signType          String?
+  amountOfHeads     String?
+  cameraCount       String?
+  lpOrNg            String?
+
+  updatedByUserId String?
+  updatedByUser   User? @relation("EquipmentTrackingLogUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([locationId, sectionKey])
+  @@index([sectionKey])
   @@index([updatedByUserId])
 }
 

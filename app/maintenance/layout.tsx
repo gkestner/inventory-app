@@ -65,6 +65,7 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
   // ✅ NEW: Live Orders board
   const canLiveOrders = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_LIVE_ORDERS]);
   const canPreventativeMaintenance = hasMaintenanceAreaAccess;
+  const canEquipmentTracking = hasMaintenanceAreaAccess;
 
   const shell: CSSProperties = {
     color: "var(--foreground)",
@@ -127,6 +128,12 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
             {canPreventativeMaintenance ? (
               <Link href="/maintenance/preventative-maintenance" className="site-link" style={pill()}>
                 Preventative Maintenance
+              </Link>
+            ) : null}
+
+            {canEquipmentTracking ? (
+              <Link href="/maintenance/equipment-tracking" className="site-link" style={pill()}>
+                Equipment Tracking
               </Link>
             ) : null}
 

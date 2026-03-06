@@ -86,6 +86,7 @@ export default async function AdminHomePage() {
     hasAnyPermissionLocal(perms, [Permission.ADMIN_VIEW_MAINTENANCE_TICKETS, Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS]);
 
   const canPreventativeMaintenance = canWorkOrders || canLocations || canTickets;
+  const canEquipmentTracking = canPreventativeMaintenance;
 
   const grid: CSSProperties = {
     display: "grid",
@@ -262,6 +263,21 @@ export default async function AdminHomePage() {
         ) : (
           <div style={card}>
             <h2 style={title}>Preventative Maintenance</h2>
+            <p style={desc}>You don’t have access to view this module.</p>
+          </div>
+        )}
+
+        {canEquipmentTracking ? (
+          <div style={card}>
+            <h2 style={title}>Equipment Tracking</h2>
+            <p style={desc}>Master equipment inventory log for each store, sectioned by hot bar, HVAC, freezers, signs, and more.</p>
+            <Link href="/admin/equipment-tracking" style={linkStyle}>
+              Open Equipment Log →
+            </Link>
+          </div>
+        ) : (
+          <div style={card}>
+            <h2 style={title}>Equipment Tracking</h2>
             <p style={desc}>You don’t have access to view this module.</p>
           </div>
         )}
