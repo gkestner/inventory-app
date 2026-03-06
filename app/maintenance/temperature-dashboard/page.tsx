@@ -11,6 +11,7 @@ import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { ADMIN_VIEW_TEMPERATURE_DASHBOARD, VIEW_TEMPERATURE_DASHBOARD } from "@/app/lib/permission-constants";
 import { loadMaintenancePrimaryAssignments } from "@/app/lib/preventative-maintenance";
 import AutoRefresh from "@/app/maintenance/temperature-dashboard/AutoRefresh";
+import CopyWebhookField from "@/app/maintenance/temperature-dashboard/CopyWebhookField";
 
 export const dynamic = "force-dynamic";
 
@@ -600,6 +601,12 @@ export default async function TemperatureDashboardPage({
   const testState = testValue ? `${testValue}${testCode ? ` (${testCode})` : ""}` : null;
   const refreshSecRaw = Array.isArray(params.refreshSec) ? params.refreshSec[0] : params.refreshSec;
   const refreshSec = Math.max(5, Math.min(300, Number.isFinite(Number(refreshSecRaw)) ? Number(refreshSecRaw) : 20));
+  const reqHeaders = await headers();
+  const host = reqHeaders.get("x-forwarded-host") ?? reqHeaders.get("host") ?? "";
+  const proto = reqHeaders.get("x-forwarded-proto") ?? "https";
+  const absoluteWebhookUrl = host
+    ? `${proto}://${host}/api/integrations/mocreo/webhook`
+    : "/api/integrations/mocreo/webhook";
 
   return (
     <main>
@@ -663,8 +670,9 @@ export default async function TemperatureDashboardPage({
             <div>
               <strong>6.</strong> In Mocreo, set webhook URL to:
               <div style={{ marginTop: 4 }}>
-                <code>/api/integrations/mocreo/webhook</code>
+                <code>{absoluteWebhookUrl}</code>
               </div>
+              <CopyWebhookField webhookUrl={absoluteWebhookUrl} />
               <div style={{ marginTop: 4, fontSize: 12, opacity: 0.85 }}>
                 If you use token security, send header <code>x-mocreo-token</code> with your <code>MOCREO_WEBHOOK_TOKEN</code> value.
               </div>
