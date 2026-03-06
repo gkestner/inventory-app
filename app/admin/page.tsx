@@ -87,6 +87,7 @@ export default async function AdminHomePage() {
 
   const canPreventativeMaintenance = canWorkOrders || canLocations || canTickets;
   const canEquipmentTracking = canPreventativeMaintenance;
+  const canCompanyVehicles = canPreventativeMaintenance;
 
   const grid: CSSProperties = {
     display: "grid",
@@ -278,6 +279,21 @@ export default async function AdminHomePage() {
         ) : (
           <div style={card}>
             <h2 style={title}>Equipment Tracking</h2>
+            <p style={desc}>You don’t have access to view this module.</p>
+          </div>
+        )}
+
+        {canCompanyVehicles ? (
+          <div style={card}>
+            <h2 style={title}>Company Vehicles</h2>
+            <p style={desc}>Manage fleet reminders by mileage or time, and track service work with maintenance-user log entries.</p>
+            <Link href="/admin/company-vehicles" style={linkStyle}>
+              Open Fleet Log →
+            </Link>
+          </div>
+        ) : (
+          <div style={card}>
+            <h2 style={title}>Company Vehicles</h2>
             <p style={desc}>You don’t have access to view this module.</p>
           </div>
         )}

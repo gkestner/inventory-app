@@ -85,6 +85,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   const canPreventativeMaintenance = canWorkOrders || canLocations || canTickets;
   const canEquipmentTracking = canWorkOrders || canLocations || canTickets;
+  const canCompanyVehicles = canWorkOrders || canLocations || canTickets;
 
   const wrap: CSSProperties = {
     display: "grid",
@@ -298,6 +299,13 @@ export default async function AdminLayout({ children }: { children: ReactNode })
             <Link href="/admin/equipment-tracking" style={linkStyle}>
               <span>Equipment Tracking</span>
               <span style={pill}>Assets</span>
+            </Link>
+          ) : null}
+
+          {canCompanyVehicles ? (
+            <Link href="/admin/company-vehicles" style={linkStyle}>
+              <span>Company Vehicles</span>
+              <span style={pill}>Fleet</span>
             </Link>
           ) : null}
 

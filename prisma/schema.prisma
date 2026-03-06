@@ -226,6 +226,16 @@ enum CycleCountSessionStatus {
   CLOSED
 }
 
+enum VehicleMileageSource {
+  MANUAL
+  WORK_ORDERS_BY_ASSIGNED_USER
+}
+
+enum VehicleReminderType {
+  TIME_BASED
+  MILEAGE_BASED
+}
+
 /**
  * Expanded enum:
  * - Includes the REQUIRED pizza-maintenance areas (used by UI)
@@ -368,6 +378,11 @@ model User {
   pmSchedulesAssigned PmSchedule[]         @relation("PmScheduleDefaultUser")
   preventativeMaintenanceEntriesUpdated PreventativeMaintenanceEntry[] @relation("PreventativeMaintenanceEntryUpdatedBy")
   equipmentTrackingLogsUpdated EquipmentTrackingLog[] @relation("EquipmentTrackingLogUpdatedBy")
+  assignedCompanyVehicles CompanyVehicle[] @relation("CompanyVehicleAssignedUser")
+  createdVehicleReminders VehicleMaintenanceReminder[] @relation("VehicleReminderCreatedBy")
+  updatedVehicleReminders VehicleMaintenanceReminder[] @relation("VehicleReminderUpdatedBy")
+  performedVehicleServices CompanyVehicleServiceLog[] @relation("VehicleServicePerformedBy")
+  createdVehicleServices CompanyVehicleServiceLog[] @relation("VehicleServiceCreatedBy")
   cycleCountsCreated CycleCountSession[]   @relation("CycleCountCreatedBy")
 }
 
@@ -535,6 +550,97 @@ model EquipmentTrackingLog {
   @@unique([locationId, sectionKey])
   @@index([sectionKey])
   @@index([updatedByUserId])
+}
+
+model CompanyVehicle {
+  id String @id @default(cuid())
+
+  name         String
+  unitNumber   String?
+  licensePlate String?
+  active       Boolean @default(true)
+
+  mileageSource VehicleMileageSource @default(MANUAL)
+  currentMileage Int?
+
+  assignedUserId String?
+  assignedUser   User? @relation("CompanyVehicleAssignedUser", fields: [assignedUserId], references: [id], onDelete: SetNull)
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reminders   VehicleMaintenanceReminder[]
+  serviceLogs CompanyVehicleServiceLog[]
+
+  @@index([active, name])
+  @@index([assignedUserId, active])
+}
+
+model VehicleMaintenanceReminder {
+  id String @id @default(cuid())
+
+  vehicleId String
+  vehicle   CompanyVehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?
+  reminderType VehicleReminderType
+
+  intervalDays  Int?
+  intervalMiles Int?
+
+  lastCompletedAt      DateTime?
+  lastCompletedMileage Int?
+
+  active Boolean @default(true)
+
+  createdByUserId String
+  createdByUser   User @relation("VehicleReminderCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  updatedByUserId String?
+  updatedByUser   User? @relation("VehicleReminderUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  serviceLogs CompanyVehicleServiceLog[]
+
+  @@index([vehicleId, active])
+  @@index([reminderType, active])
+}
+
+model CompanyVehicleServiceLog {
+  id String @id @default(cuid())
+
+  vehicleId String
+  vehicle   CompanyVehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  reminderId String?
+  reminder   VehicleMaintenanceReminder? @relation(fields: [reminderId], references: [id], onDelete: SetNull)
+
+  serviceAt DateTime
+  odometer  Int?
+
+  serviceType   String?
+  description   String
+  vendor        String?
+  cost          Decimal? @db.Decimal(10, 2)
+
+  performedByUserId String?
+  performedByUser   User? @relation("VehicleServicePerformedBy", fields: [performedByUserId], references: [id], onDelete: SetNull)
+
+  createdByUserId String
+  createdByUser   User @relation("VehicleServiceCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vehicleId, serviceAt])
+  @@index([reminderId])
+  @@index([performedByUserId, serviceAt])
+  @@index([createdByUserId, serviceAt])
 }
 
 model AuditLog {

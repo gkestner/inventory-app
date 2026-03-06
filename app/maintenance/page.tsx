@@ -39,6 +39,7 @@ export default async function MaintenanceHomePage() {
   const canOfficeEntry = perms.allowAll || hasAnyPermission(perms, [CREATE_WORK_ORDERS_FOR_OTHERS]);
   const canPreventativeMaintenance = canWorkOrders || canCheckout || canOfficeEntry || canLiveOrders;
   const canEquipmentTracking = canPreventativeMaintenance;
+  const canVehicleLog = canPreventativeMaintenance;
 
   const border = "1px solid var(--border)";
 
@@ -158,6 +159,18 @@ export default async function MaintenanceHomePage() {
               </p>
               <Link href="/maintenance/equipment-tracking" style={action}>
                 Open Equipment Log
+              </Link>
+            </article>
+          ) : null}
+
+          {canVehicleLog ? (
+            <article style={card}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Vehicle Maintenance Log</h2>
+              <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.5 }}>
+                Quick entry page for technicians to log company vehicle work and complete reminders.
+              </p>
+              <Link href="/maintenance/vehicle-log" style={action}>
+                Open Vehicle Log
               </Link>
             </article>
           ) : null}
