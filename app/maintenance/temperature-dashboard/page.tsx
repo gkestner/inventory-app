@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
@@ -15,6 +16,8 @@ type SessionShape = {
     email?: string | null;
   } | null;
 } | null;
+
+type SearchParams = Record<string, string | string[] | undefined>;
 
 type HubRow = {
   id: string;
@@ -61,7 +64,15 @@ type Db = {
     findMany: (args: unknown) => Promise<HubRow[]>;
     create: (args: unknown) => Promise<{ id: string }>;
     update: (args: unknown) => Promise<{ id: string }>;
-    findUnique: (args: unknown) => Promise<{ id: string; active: boolean } | null>;
+    findUnique: (args: unknown) => Promise<
+      | {
+          id: string;
+          active: boolean;
+          name: string;
+          externalHubId: string;
+        }
+      | null
+    >;
   };
   mocreoHubRecipient: {
     deleteMany: (args: unknown) => Promise<unknown>;
@@ -108,7 +119,11 @@ function parseTempInput(raw: FormDataEntryValue | null): number | null {
   return n;
 }
 
-export default async function TemperatureDashboardPage() {
+export default async function TemperatureDashboardPage({
+  searchParams,
+}: {
+  searchParams?: Promise<SearchParams>;
+}) {
   const session = (await getServerSession(authOptions)) as SessionShape;
   if (!session) redirect("/login");
 
@@ -246,7 +261,80 @@ export default async function TemperatureDashboardPage() {
     redirect("/maintenance/temperature-dashboard");
   }
 
-  const [users, locations, hubs, recentAlerts] = await Promise.all([
+  async function runWebhookPairingTestAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as SessionShape;
+    if (!session) redirect("/login");
+    if (!(await canAccessAdmin(session))) redirect("/");
+
+    const hubId = String(formData.get("hubId") ?? "").trim();
+    if (!hubId) {
+      redirect("/maintenance/temperature-dashboard?test=missing_hub");
+    }
+
+    const selectedHub = await db.mocreoHub.findUnique({
+      where: { id: hubId },
+      select: { id: true, name: true, externalHubId: true, active: true },
+    });
+
+    if (!selectedHub || !selectedHub.active) {
+      redirect("/maintenance/temperature-dashboard?test=invalid_hub");
+    }
+
+    const tempFInput = String(formData.get("temperatureF") ?? "").trim();
+    const batteryInput = String(formData.get("batteryPct") ?? "").trim();
+    const signalInput = String(formData.get("signalPct") ?? "").trim();
+
+    const tempF = Number.isFinite(Number(tempFInput)) ? Number(tempFInput) : 45;
+    const batteryPct = Number.isFinite(Number(batteryInput)) ? Math.trunc(Number(batteryInput)) : 88;
+    const signalPct = Number.isFinite(Number(signalInput)) ? Math.trunc(Number(signalInput)) : 90;
+
+    const payload = {
+      event: {
+        externalHubId: selectedHub.externalHubId,
+        hubName: selectedHub.name,
+        externalDeviceId: `test-device-${selectedHub.externalHubId}`,
+        deviceName: `${selectedHub.name} Test Sensor`,
+        timestamp: new Date().toISOString(),
+        temperatureF: tempF,
+        batteryPct,
+        signalPct,
+        readingId: `test-${Date.now()}`,
+      },
+    };
+
+    const h = await headers();
+    const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
+    const proto = h.get("x-forwarded-proto") ?? "http";
+
+    if (!host) {
+      redirect("/maintenance/temperature-dashboard?test=host_missing");
+    }
+
+    const webhookUrl = `${proto}://${host}/api/integrations/mocreo/webhook`;
+
+    const webhookToken = process.env.MOCREO_WEBHOOK_TOKEN?.trim();
+    const headersObj: Record<string, string> = { "content-type": "application/json" };
+    if (webhookToken) headersObj["x-mocreo-token"] = webhookToken;
+
+    const response = await fetch(webhookUrl, {
+      method: "POST",
+      headers: headersObj,
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    });
+
+    revalidatePath("/maintenance/temperature-dashboard");
+
+    if (!response.ok) {
+      redirect(`/maintenance/temperature-dashboard?test=failed&code=${response.status}`);
+    }
+
+    redirect("/maintenance/temperature-dashboard?test=ok");
+  }
+
+  const [users, locations, hubs, recentAlerts, paramsRaw] = await Promise.all([
     db.user.findMany({
       where: { active: true },
       orderBy: [{ name: "asc" }, { email: "asc" }],
@@ -311,11 +399,17 @@ export default async function TemperatureDashboardPage() {
         device: { select: { name: true } },
       },
     }),
+    searchParams ?? Promise.resolve({}),
   ]);
+  const params = paramsRaw as SearchParams;
 
   const statusMessage = isAdmin
     ? "This dashboard lets you register Mocreo hubs, assign the maintenance tech, and add extra notification recipients."
     : "This dashboard shows your assigned hubs and any alerts where you are a recipient.";
+
+  const testValue = Array.isArray(params.test) ? params.test[0] : params.test;
+  const testCode = Array.isArray(params.code) ? params.code[0] : params.code;
+  const testState = testValue ? `${testValue}${testCode ? ` (${testCode})` : ""}` : null;
 
   return (
     <main>
@@ -413,6 +507,58 @@ export default async function TemperatureDashboardPage() {
                 Save Hub Configuration
               </button>
             </form>
+          </section>
+        ) : null}
+
+        {isAdmin ? (
+          <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 14 }}>
+            <h2 style={{ margin: "0 0 10px", fontSize: 20, fontWeight: 900 }}>Webhook Pairing Test</h2>
+            <p style={{ margin: "0 0 10px", color: "var(--muted)", lineHeight: 1.4 }}>
+              Send a synthetic Mocreo reading to your webhook for one registered hub to confirm pairing, ingestion, and notification routing.
+            </p>
+
+            <form action={runWebhookPairingTestAction} style={{ display: "grid", gap: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8 }}>
+                <label style={{ display: "grid", gap: 4 }}>
+                  <span style={{ fontWeight: 800 }}>Hub</span>
+                  <select name="hubId" required style={{ padding: "9px 10px", borderRadius: 8, border: "1px solid var(--border)" }}>
+                    <option value="">Select hub</option>
+                    {hubs
+                      .filter((x) => x.active)
+                      .map((hub) => (
+                        <option key={hub.id} value={hub.id}>
+                          {hub.name} ({hub.externalHubId})
+                        </option>
+                      ))}
+                  </select>
+                </label>
+
+                <label style={{ display: "grid", gap: 4 }}>
+                  <span style={{ fontWeight: 800 }}>Temperature F (test)</span>
+                  <input name="temperatureF" type="number" step="0.1" defaultValue="45" style={{ padding: "9px 10px", borderRadius: 8, border: "1px solid var(--border)" }} />
+                </label>
+
+                <label style={{ display: "grid", gap: 4 }}>
+                  <span style={{ fontWeight: 800 }}>Battery %</span>
+                  <input name="batteryPct" type="number" defaultValue="88" style={{ padding: "9px 10px", borderRadius: 8, border: "1px solid var(--border)" }} />
+                </label>
+
+                <label style={{ display: "grid", gap: 4 }}>
+                  <span style={{ fontWeight: 800 }}>Signal %</span>
+                  <input name="signalPct" type="number" defaultValue="90" style={{ padding: "9px 10px", borderRadius: 8, border: "1px solid var(--border)" }} />
+                </label>
+              </div>
+
+              <button type="submit" style={{ width: "fit-content", padding: "10px 14px", borderRadius: 10, border: "1px solid var(--border)", cursor: "pointer", fontWeight: 900, background: "var(--surface-2)", color: "var(--foreground)" }}>
+                Run Pairing Test
+              </button>
+            </form>
+
+            {testState ? (
+              <div style={{ marginTop: 10, fontSize: 13, opacity: 0.9 }}>
+                Last test result: {testState}
+              </div>
+            ) : null}
           </section>
         ) : null}
 
