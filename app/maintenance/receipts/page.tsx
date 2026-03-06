@@ -8,6 +8,7 @@ import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 import { getCompatDb } from "@/app/lib/workflow-foundations";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { CREATE_RECEIPTS, VIEW_RECEIPTS } from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -161,7 +162,10 @@ export default async function MaintenanceReceiptPage() {
   requireSession(session);
 
   const perms = await loadUserPermissions(session);
-  if (!perms.allowAll && !hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS])) {
+  const canViewReceipts = perms.allowAll || hasAnyPermission(perms, [VIEW_RECEIPTS, CREATE_RECEIPTS]);
+  const canCreateReceipts = perms.allowAll || hasAnyPermission(perms, [CREATE_RECEIPTS]);
+
+  if (!canViewReceipts) {
     redirect("/maintenance");
   }
 
@@ -227,8 +231,9 @@ export default async function MaintenanceReceiptPage() {
     requireSession(session);
 
     const perms = await loadUserPermissions(session);
-    if (!perms.allowAll && !hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS])) {
-      redirect("/maintenance");
+    const canCreateReceipts = perms.allowAll || hasAnyPermission(perms, [CREATE_RECEIPTS]);
+    if (!canCreateReceipts) {
+      throw new Error("You do not have permission to create receipt entries.");
     }
 
     const email = String(session?.user?.email ?? "").trim().toLowerCase();
@@ -343,12 +348,12 @@ export default async function MaintenanceReceiptPage() {
           <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
             <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
               Date
-              <input type="date" name="receiptDate" defaultValue={todayNy} required style={input} />
+              <input type="date" name="receiptDate" defaultValue={todayNy} required style={input} disabled={!canCreateReceipts} />
             </label>
 
             <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
               Location
-              <select name="locationId" defaultValue={allowedLocations[0]?.id ?? ""} required style={input}>
+              <select name="locationId" defaultValue={allowedLocations[0]?.id ?? ""} required style={input} disabled={!canCreateReceipts}>
                 {allowedLocations.map((l) => (
                   <option key={l.id} value={l.id}>
                     {l.name}
@@ -360,7 +365,7 @@ export default async function MaintenanceReceiptPage() {
 
             <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
               Amount
-              <input type="number" name="amount" min="0.01" step="0.01" placeholder="0.00" required style={input} />
+              <input type="number" name="amount" min="0.01" step="0.01" placeholder="0.00" required style={input} disabled={!canCreateReceipts} />
             </label>
           </div>
 
@@ -387,7 +392,7 @@ export default async function MaintenanceReceiptPage() {
                     fontWeight: 700,
                   }}
                 >
-                  <input type="checkbox" name="areas" value={area} style={checkboxStyle} />
+                  <input type="checkbox" name="areas" value={area} style={checkboxStyle} disabled={!canCreateReceipts} />
                   {formatAreaLabel(area)}
                 </label>
               ))}
@@ -396,13 +401,18 @@ export default async function MaintenanceReceiptPage() {
 
           <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
             Notes (optional)
-            <textarea name="notes" rows={4} placeholder="Add any notes about this receipt" style={input} />
+            <textarea name="notes" rows={4} placeholder="Add any notes about this receipt" style={input} disabled={!canCreateReceipts} />
           </label>
 
           <div>
-            <button type="submit" style={btn}>
+            <button type="submit" style={btn} disabled={!canCreateReceipts}>
               Save Receipt Entry
             </button>
+            {!canCreateReceipts ? (
+              <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
+                You have view-only access. Ask an admin to grant <b>Create Receipts</b> in the permission tree.
+              </div>
+            ) : null}
           </div>
         </form>
       </section>

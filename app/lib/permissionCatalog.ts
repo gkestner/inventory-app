@@ -15,12 +15,14 @@ import {
   ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
   ADMIN_VIEW_TEMPERATURE_DASHBOARD,
   CREATE_COMPANY_VEHICLE_INFO,
+  CREATE_RECEIPTS,
   CREATE_WORK_ORDERS_FOR_OTHERS,
   EDIT_COMPANY_VEHICLE_INFO,
   VIEW_COMPANY_VEHICLE_LOG,
   VIEW_EQUIPMENT_TRACKING,
   VIEW_MAINTENANCE_REQUESTS,
   VIEW_PREVENTATIVE_MAINTENANCE,
+  VIEW_RECEIPTS,
   VIEW_TEMPERATURE_DASHBOARD,
 } from "@/app/lib/permission-constants";
 
@@ -92,6 +94,18 @@ export const PERMISSION_CATALOG: PermissionCatalogEntry[] = [
     module: "Maintenance",
     path: ["Temperature Dashboard"],
     label: "View Temperature Dashboard",
+  },
+  {
+    permission: VIEW_RECEIPTS,
+    module: "Maintenance",
+    path: ["Receipts"],
+    label: "View Receipts",
+  },
+  {
+    permission: CREATE_RECEIPTS,
+    module: "Maintenance",
+    path: ["Receipts"],
+    label: "Create Receipts",
   },
 
   // ===== Admin / Items =====

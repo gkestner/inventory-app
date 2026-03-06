@@ -6,11 +6,13 @@ import { Permission, Role } from "@prisma/client";
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import {
+  CREATE_RECEIPTS,
   CREATE_WORK_ORDERS_FOR_OTHERS,
   VIEW_COMPANY_VEHICLE_LOG,
   VIEW_EQUIPMENT_TRACKING,
   VIEW_MAINTENANCE_REQUESTS,
   VIEW_PREVENTATIVE_MAINTENANCE,
+  VIEW_RECEIPTS,
   VIEW_TEMPERATURE_DASHBOARD,
 } from "@/app/lib/permission-constants";
 
@@ -49,6 +51,7 @@ export default async function MaintenanceHomePage() {
   const canVehicleLog = perms.allowAll || hasAnyPermission(perms, [VIEW_COMPANY_VEHICLE_LOG]);
   const canMaintenanceRequests = perms.allowAll || hasAnyPermission(perms, [VIEW_MAINTENANCE_REQUESTS]);
   const canTemperatureDashboard = perms.allowAll || hasAnyPermission(perms, [VIEW_TEMPERATURE_DASHBOARD]);
+  const canReceipts = perms.allowAll || hasAnyPermission(perms, [VIEW_RECEIPTS, CREATE_RECEIPTS]);
 
   const border = "1px solid var(--border)";
 
@@ -136,7 +139,7 @@ export default async function MaintenanceHomePage() {
             </article>
           ) : null}
 
-          {canWorkOrders ? (
+          {canReceipts ? (
             <article style={card}>
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Receipt Data Entry</h2>
               <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.5 }}>

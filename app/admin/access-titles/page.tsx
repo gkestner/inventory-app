@@ -20,12 +20,14 @@ import {
   ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
   ADMIN_VIEW_TEMPERATURE_DASHBOARD,
   CREATE_COMPANY_VEHICLE_INFO,
+  CREATE_RECEIPTS,
   CREATE_WORK_ORDERS_FOR_OTHERS,
   EDIT_COMPANY_VEHICLE_INFO,
   VIEW_COMPANY_VEHICLE_LOG,
   VIEW_EQUIPMENT_TRACKING,
   VIEW_MAINTENANCE_REQUESTS,
   VIEW_PREVENTATIVE_MAINTENANCE,
+  VIEW_RECEIPTS,
   VIEW_TEMPERATURE_DASHBOARD,
 } from "@/app/lib/permission-constants";
 
@@ -168,6 +170,8 @@ const PERMS: PermMeta[] = [
   { perm: EDIT_COMPANY_VEHICLE_INFO, module: "Maintenance", group: "Company Vehicles", label: "Edit Vehicle Info" },
   { perm: VIEW_MAINTENANCE_REQUESTS, module: "Maintenance", group: "Maintenance Requests", label: "View Maintenance Requests" },
   { perm: VIEW_TEMPERATURE_DASHBOARD, module: "Maintenance", group: "Temperature Dashboard", label: "View Temperature Dashboard" },
+  { perm: VIEW_RECEIPTS, module: "Maintenance", group: "Receipts", label: "View Receipts" },
+  { perm: CREATE_RECEIPTS, module: "Maintenance", group: "Receipts", label: "Create Receipts" },
 
   {
     perm: Permission.ADMIN_VIEW_ITEMS,
