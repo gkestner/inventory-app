@@ -22,6 +22,8 @@ type SessionShape = {
 type RawSearchParams = {
   archived?: string | string[];
   resent?: string | string[];
+  updated?: string | string[];
+  error?: string | string[];
 };
 
 function firstParam(v: string | string[] | undefined): string {
@@ -55,7 +57,8 @@ type Db = {
           title: string;
           status: "OPEN" | "RESOLVED" | "ARCHIVED";
           location: { id: string; name: string };
-          requestedByUserId: string;
+          requestedByUserId?: string;
+          assignedMaintenanceUserId?: string | null;
         }
       | null
     >;
@@ -103,6 +106,8 @@ export default async function AdminMaintenanceRequestsPage({
   const sp = await Promise.resolve(searchParams);
   const archived = firstParam(sp?.archived) === "1";
   const resent = firstParam(sp?.resent) === "1";
+  const updated = firstParam(sp?.updated) === "1";
+  const errorText = firstParam(sp?.error);
 
   async function archiveAction(formData: FormData) {
     "use server";
@@ -159,14 +164,16 @@ export default async function AdminMaintenanceRequestsPage({
       },
     });
 
-    await createNotification({
-      userId: existing.requestedByUserId,
-      type: "SYSTEM",
-      title: `Maintenance request closed - ${existing.location.name}`,
-      body: `${existing.title} has been resolved and archived by admin.`,
-      href: "/maintenance-requests",
-      requiredPermission: RECEIVE_NOTIFICATION_MAINTENANCE_REQUESTS,
-    });
+    if (existing.requestedByUserId) {
+      await createNotification({
+        userId: existing.requestedByUserId,
+        type: "SYSTEM",
+        title: `Maintenance request closed - ${existing.location.name}`,
+        body: `${existing.title} has been resolved and archived by admin.`,
+        href: "/maintenance-requests",
+        requiredPermission: RECEIVE_NOTIFICATION_MAINTENANCE_REQUESTS,
+      });
+    }
 
     revalidatePath("/admin/maintenance-requests");
     revalidatePath("/maintenance-requests");
@@ -238,6 +245,92 @@ export default async function AdminMaintenanceRequestsPage({
     redirect("/admin/maintenance-requests?resent=1");
   }
 
+  async function updateAssigneeAction(formData: FormData) {
+    "use server";
+
+    const session = await requireAdmin();
+    const email = String(session.user?.email ?? "").trim().toLowerCase();
+    if (!email) redirect("/login");
+
+    const actor = await db.user.findUnique({ where: { email }, select: { id: true, active: true } });
+    if (!actor || !actor.active) redirect("/login");
+
+    const requestId = String(formData.get("requestId") ?? "").trim();
+    const selectedUserId = String(formData.get("assignedUserId") ?? "").trim();
+    if (!requestId) redirect("/admin/maintenance-requests");
+
+    const existing = await db.maintenanceRequest.findUnique({
+      where: { id: requestId },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        location: { select: { id: true, name: true } },
+        assignedMaintenanceUserId: true,
+      },
+    });
+    if (!existing) redirect("/admin/maintenance-requests");
+
+    const assignees = await loadMaintenanceRequestAssignees();
+    const validIds = new Set(assignees.filter((a) => a.locationId === existing.location.id).map((a) => a.userId));
+
+    const nextAssignedUserId = selectedUserId === "__UNASSIGNED__" ? null : selectedUserId;
+    if (nextAssignedUserId && !validIds.has(nextAssignedUserId)) {
+      redirect("/admin/maintenance-requests?error=" + encodeURIComponent("Selected assignee is not valid for this location."));
+    }
+
+    await db.maintenanceRequest.update({
+      where: { id: existing.id },
+      data: { assignedMaintenanceUserId: nextAssignedUserId },
+    });
+
+    await db.auditLog.create({
+      data: {
+        actorUserId: actor.id,
+        module: "MAINTENANCE_REQUESTS",
+        action: "ADMIN_UPDATE_REQUEST_ASSIGNEE",
+        entityType: "MaintenanceRequest",
+        entityId: existing.id,
+        message: `Admin updated assignee for maintenance request: ${existing.title}`,
+        metadata: {
+          locationId: existing.location.id,
+          locationName: existing.location.name,
+          previousAssignedUserId: existing.assignedMaintenanceUserId ?? null,
+          nextAssignedUserId,
+        },
+      },
+    });
+
+    if (nextAssignedUserId && nextAssignedUserId !== existing.assignedMaintenanceUserId) {
+      await createNotification({
+        userId: nextAssignedUserId,
+        type: "SYSTEM",
+        title: `Assigned maintenance request - ${existing.location.name}`,
+        body: `${existing.title} has been assigned to you by admin.`,
+        href: "/maintenance-requests",
+        requiredPermission: RECEIVE_NOTIFICATION_MAINTENANCE_REQUESTS,
+      });
+    }
+
+    revalidatePath("/admin/maintenance-requests");
+    revalidatePath("/maintenance-requests");
+    revalidatePath("/notifications");
+    redirect("/admin/maintenance-requests?updated=1");
+  }
+
+  const assignees = await loadMaintenanceRequestAssignees();
+  const assigneesByLocation = new Map<
+    string,
+    Array<{ userId: string; userName: string; userEmail: string }>
+  >();
+  for (const row of assignees) {
+    const arr = assigneesByLocation.get(row.locationId) ?? [];
+    if (!arr.find((x) => x.userId === row.userId)) {
+      arr.push({ userId: row.userId, userName: row.userName, userEmail: row.userEmail });
+      assigneesByLocation.set(row.locationId, arr);
+    }
+  }
+
   const rows = await db.maintenanceRequest.findMany({
     orderBy: [{ status: "asc" }, { createdAt: "desc" }],
     take: 400,
@@ -282,9 +375,19 @@ export default async function AdminMaintenanceRequestsPage({
             Request resolved and archived.
           </div>
         ) : null}
+        {updated ? (
+          <div style={{ border: "1px solid var(--border)", borderRadius: 12, background: "color-mix(in srgb, #087c3e 14%, var(--surface))", padding: 10, fontWeight: 700 }}>
+            Request assignee updated.
+          </div>
+        ) : null}
         {resent ? (
           <div style={{ border: "1px solid var(--border)", borderRadius: 12, background: "color-mix(in srgb, #087c3e 14%, var(--surface))", padding: 10, fontWeight: 700 }}>
             Notification resent to assigned users.
+          </div>
+        ) : null}
+        {errorText ? (
+          <div style={{ border: "1px solid var(--border)", borderRadius: 12, background: "color-mix(in srgb, #b00020 12%, var(--surface))", padding: 10, fontWeight: 700 }}>
+            {errorText}
           </div>
         ) : null}
 
@@ -306,6 +409,10 @@ export default async function AdminMaintenanceRequestsPage({
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                    {(() => {
+                      const locationAssignees = assigneesByLocation.get(row.location.id) ?? [];
+                      return (
+                        <>
                     <td style={{ padding: 10, fontWeight: 900 }}>{row.status}</td>
                     <td style={{ padding: 10, whiteSpace: "nowrap", fontSize: 13 }}>{fmtDateTime(row.createdAt)}</td>
                     <td style={{ padding: 10 }}>{row.location.name}</td>
@@ -319,6 +426,28 @@ export default async function AdminMaintenanceRequestsPage({
                     <td style={{ padding: 10 }}>{fmtDateTime(row.resolvedAt)}</td>
                     <td style={{ padding: 10 }}>
                       <div style={{ display: "grid", gap: 8 }}>
+                        <form action={updateAssigneeAction} style={{ display: "grid", gap: 6 }}>
+                          <input type="hidden" name="requestId" value={row.id} />
+                          <select
+                            name="assignedUserId"
+                            defaultValue={row.assignedMaintenanceUser?.id ?? "__UNASSIGNED__"}
+                            style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", background: "var(--surface)", color: "var(--foreground)", width: 220 }}
+                          >
+                            <option value="__UNASSIGNED__">Unassigned</option>
+                            {locationAssignees.map((assignee) => (
+                              <option key={`${row.id}-${assignee.userId}`} value={assignee.userId}>
+                                {assignee.userName || assignee.userEmail}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="submit"
+                            style={{ width: "fit-content", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface-2)", padding: "7px 10px", fontWeight: 800, cursor: "pointer" }}
+                          >
+                            Update Assignee
+                          </button>
+                        </form>
+
                         <form action={resendNotificationAction}>
                           <input type="hidden" name="requestId" value={row.id} />
                           <button
@@ -342,6 +471,9 @@ export default async function AdminMaintenanceRequestsPage({
                         )}
                       </div>
                     </td>
+                        </>
+                      );
+                    })()}
                   </tr>
                 ))}
               </tbody>

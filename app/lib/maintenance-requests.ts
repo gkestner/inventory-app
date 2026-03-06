@@ -1,4 +1,4 @@
-import { loadMaintenancePrimaryAssignments } from "@/app/lib/preventative-maintenance";
+import { prisma } from "@/app/lib/prisma";
 
 export type MaintenanceRequestAssignee = {
   locationId: string;
@@ -18,17 +18,76 @@ export function normalizeMaintenanceRequestStatus(raw: string | null | undefined
 }
 
 export async function loadMaintenanceRequestAssignees(): Promise<MaintenanceRequestAssignee[]> {
-  const assignments = await loadMaintenancePrimaryAssignments();
-  const out: MaintenanceRequestAssignee[] = [];
+  const maintenanceTitle = await prisma.permissionTitle.findFirst({
+    where: { name: { equals: "Maintenance", mode: "insensitive" }, active: true },
+    select: { id: true },
+  });
 
-  for (const row of assignments) {
-    out.push({
+  const userWhere = maintenanceTitle
+    ? {
+        active: true,
+        OR: [{ role: "MAINTENANCE" as const }, { permissionTitles: { some: { titleId: maintenanceTitle.id } } }],
+      }
+    : {
+        active: true,
+        role: "MAINTENANCE" as const,
+      };
+
+  const rows = await prisma.userLocation.findMany({
+    where: {
+      location: { active: true },
+      user: userWhere,
+    },
+    orderBy: [{ location: { name: "asc" } }, { isPrimary: "desc" }, { sortOrder: "asc" }, { user: { name: "asc" } }],
+    select: {
+      isPrimary: true,
+      locationId: true,
+      location: { select: { id: true, name: true } },
+      user: { select: { id: true, name: true, email: true } },
+    },
+  });
+
+  const byLocation = new Map<
+    string,
+    {
+      locationName: string;
+      primary: MaintenanceRequestAssignee[];
+      optional: MaintenanceRequestAssignee[];
+    }
+  >();
+
+  for (const row of rows) {
+    if (!row.location || !row.user) continue;
+
+    const record: MaintenanceRequestAssignee = {
       locationId: row.locationId,
-      locationName: row.locationName,
-      userId: row.userId,
-      userName: row.userName,
-      userEmail: row.userEmail,
-    });
+      locationName: row.location.name,
+      userId: row.user.id,
+      userName: (row.user.name ?? "").trim() || (row.user.email ?? "").trim() || "Unknown",
+      userEmail: (row.user.email ?? "").trim().toLowerCase(),
+    };
+
+    const group =
+      byLocation.get(row.locationId) ??
+      {
+        locationName: row.location.name,
+        primary: [],
+        optional: [],
+      };
+
+    if (row.isPrimary) group.primary.push(record);
+    else group.optional.push(record);
+
+    byLocation.set(row.locationId, group);
+  }
+
+  const out: MaintenanceRequestAssignee[] = [];
+  for (const [locationId, group] of byLocation.entries()) {
+    const chosen = group.primary.length > 0 ? group.primary : group.optional;
+    const deduped = Array.from(new Map(chosen.map((x) => [x.userId, x] as const)).values());
+    for (const row of deduped) {
+      out.push({ ...row, locationId, locationName: group.locationName });
+    }
   }
 
   return out.sort((a, b) => {
