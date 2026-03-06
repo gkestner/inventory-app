@@ -99,9 +99,8 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
     display: "flex",
     gap: 10,
     alignItems: "center",
-    flexWrap: "nowrap",
+    flexWrap: "wrap",
     minWidth: 0,
-    overflowX: "auto",
   };
 
   const pill = (): CSSProperties => ({
