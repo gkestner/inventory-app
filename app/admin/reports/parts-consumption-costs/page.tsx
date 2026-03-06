@@ -63,6 +63,9 @@ export default async function PartsConsumptionCostsReportPage({
   const from = parseDateStart(sp.from) ?? defaultFrom;
   const to = parseDateEnd(sp.to) ?? now;
   const includeVoided = boolParam(sp.includeVoided);
+  const exportHref = `/api/admin/reports/parts-consumption-costs/export?from=${encodeURIComponent(
+    from.toISOString().slice(0, 10)
+  )}&to=${encodeURIComponent(to.toISOString().slice(0, 10))}&includeVoided=${includeVoided ? "1" : "0"}`;
 
   const rows = await prisma.partsCheckoutTicket.findMany({
     where: {
@@ -128,6 +131,9 @@ export default async function PartsConsumptionCostsReportPage({
             <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900 }}>Parts Consumption + Cost</h1>
             <Link href="/admin/reports" style={{ textDecoration: "none", fontWeight: 800 }}>
               Back to Reports
+            </Link>
+            <Link href={exportHref} style={{ textDecoration: "none", fontWeight: 800 }}>
+              Export CSV
             </Link>
           </div>
           <p style={{ margin: "8px 0 0", color: "var(--muted)" }}>

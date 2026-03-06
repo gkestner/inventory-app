@@ -93,6 +93,7 @@ export default async function PmComplianceReportPage({
 
   const sp = (await searchParams) ?? {};
   const year = parseYear(sp.year);
+  const exportHref = `/api/admin/reports/pm-compliance/export?year=${encodeURIComponent(String(year))}`;
 
   const rows = await db.preventativeMaintenanceEntry.findMany({
     where: { year },
@@ -167,6 +168,9 @@ export default async function PmComplianceReportPage({
             <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900 }}>PM Compliance Scorecard</h1>
             <Link href="/admin/reports" style={{ textDecoration: "none", fontWeight: 800 }}>
               Back to Reports
+            </Link>
+            <Link href={exportHref} style={{ textDecoration: "none", fontWeight: 800 }}>
+              Export CSV
             </Link>
           </div>
           <p style={{ margin: "8px 0 0", color: "var(--muted)" }}>

@@ -52,6 +52,7 @@ async function requireReportAccess() {
 
 export default async function PermissionCoverageReportPage() {
   await requireReportAccess();
+  const exportHref = "/api/admin/reports/permission-coverage/export";
 
   const users = await prisma.user.findMany({
     where: { active: true },
@@ -141,6 +142,9 @@ export default async function PermissionCoverageReportPage() {
             <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900 }}>Permission Coverage</h1>
             <Link href="/admin/reports" style={{ textDecoration: "none", fontWeight: 800 }}>
               Back to Reports
+            </Link>
+            <Link href={exportHref} style={{ textDecoration: "none", fontWeight: 800 }}>
+              Export CSV
             </Link>
           </div>
           <p style={{ margin: "8px 0 0", color: "var(--muted)" }}>

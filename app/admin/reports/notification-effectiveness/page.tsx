@@ -48,6 +48,7 @@ export default async function NotificationEffectivenessReportPage({
 
   const sp = (await searchParams) ?? {};
   const days = Math.min(365, parseNum(sp.days, 30));
+  const exportHref = `/api/admin/reports/notification-effectiveness/export?days=${encodeURIComponent(String(days))}`;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   const rows = await prisma.notification.findMany({
@@ -111,6 +112,9 @@ export default async function NotificationEffectivenessReportPage({
             <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900 }}>Notification Effectiveness</h1>
             <Link href="/admin/reports" style={{ textDecoration: "none", fontWeight: 800 }}>
               Back to Reports
+            </Link>
+            <Link href={exportHref} style={{ textDecoration: "none", fontWeight: 800 }}>
+              Export CSV
             </Link>
           </div>
           <p style={{ margin: "8px 0 0", color: "var(--muted)" }}>
