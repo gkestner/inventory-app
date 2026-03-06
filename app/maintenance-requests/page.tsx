@@ -676,63 +676,89 @@ export default async function MaintenanceRequestsPage({
           {requests.length === 0 ? (
             <div style={{ padding: 14, opacity: 0.8 }}>No requests found.</div>
           ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
-                <thead>
-                  <tr style={{ borderBottom: headerBorder, background: "var(--surface-2)" }}>
-                    <th style={{ textAlign: "left", padding: 10, fontSize: 12 }}>Status</th>
-                    <th style={{ textAlign: "left", padding: 10, fontSize: 12 }}>Requested</th>
-                    <th style={{ textAlign: "left", padding: 10, fontSize: 12 }}>Store</th>
-                    <th style={{ textAlign: "left", padding: 10, fontSize: 12 }}>Title / Details</th>
-                    <th style={{ textAlign: "left", padding: 10, fontSize: 12 }}>Requested By</th>
-                    <th style={{ textAlign: "left", padding: 10, fontSize: 12 }}>Assigned Tech</th>
-                    <th style={{ textAlign: "left", padding: 10, fontSize: 12 }}>Resolved</th>
-                    <th style={{ textAlign: "left", padding: 10, fontSize: 12 }}>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {requests.map((row) => {
-                    const canResolve = row.status === "OPEN" && (isAdmin || row.assignedMaintenanceUser?.id === me.id);
-                    return (
-                      <tr key={row.id} style={{ borderBottom: headerBorder }}>
-                        <td style={{ padding: 10 }}>
-                          <span style={statusBadgeStyle[row.status]}>{row.status}</span>
-                        </td>
-                        <td style={{ padding: 10, whiteSpace: "nowrap", fontSize: 13 }}>{fmtDateTime(row.createdAt)}</td>
-                        <td style={{ padding: 10 }}>{row.location.name}</td>
-                        <td style={{ padding: 10 }}>
-                          <div style={{ fontWeight: 900 }}>{row.title}</div>
-                          <div style={{ marginTop: 4, opacity: 0.9, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{row.description}</div>
-                          {row.resolutionNotes ? (
-                            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>
-                              Resolution: {row.resolutionNotes}
-                            </div>
-                          ) : null}
-                        </td>
-                        <td style={{ padding: 10 }}>{personLabel(row.requestedByUser)}</td>
-                        <td style={{ padding: 10 }}>{personLabel(row.assignedMaintenanceUser)}</td>
-                        <td style={{ padding: 10, fontSize: 13 }}>
-                          <div>{fmtDateTime(row.resolvedAt)}</div>
-                          {row.resolvedByUser ? <div style={{ opacity: 0.8 }}>by {personLabel(row.resolvedByUser)}</div> : null}
-                        </td>
-                        <td style={{ padding: 10 }}>
-                          {canResolve ? (
-                            <form action={resolveAndArchiveAction} style={{ display: "grid", gap: 6 }}>
-                              <input type="hidden" name="requestId" value={row.id} />
-                              <input name="resolutionNotes" placeholder="Resolution notes (optional)" style={{ padding: "8px 10px", borderRadius: 8, border: headerBorder, width: 220 }} />
-                              <button type="submit" style={{ width: "fit-content", padding: "7px 10px", borderRadius: 8, border: headerBorder, background: "var(--surface-2)", fontWeight: 800, cursor: "pointer" }}>
-                                Resolve & Archive
-                              </button>
-                            </form>
-                          ) : (
-                            <span style={{ opacity: 0.7, fontSize: 12 }}>No action</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div style={{ display: "grid", gap: 10, padding: 12 }}>
+              {requests.map((row) => {
+                const canResolve = row.status === "OPEN" && (isAdmin || row.assignedMaintenanceUser?.id === me.id);
+                return (
+                  <article
+                    key={row.id}
+                    style={{
+                      border: headerBorder,
+                      borderRadius: 12,
+                      background: "var(--surface)",
+                      padding: 12,
+                      display: "grid",
+                      gap: 10,
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                      <span style={statusBadgeStyle[row.status]}>{row.status}</span>
+                      <div style={{ fontSize: 13, opacity: 0.8 }}>Requested: {fmtDateTime(row.createdAt)}</div>
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 900, opacity: 0.75 }}>Store</div>
+                        <div>{row.location.name}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 900, opacity: 0.75 }}>Requested By</div>
+                        <div>{personLabel(row.requestedByUser)}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 900, opacity: 0.75 }}>Assigned Tech</div>
+                        <div>{personLabel(row.assignedMaintenanceUser)}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 900, opacity: 0.75 }}>Resolved</div>
+                        <div>{fmtDateTime(row.resolvedAt)}</div>
+                        {row.resolvedByUser ? <div style={{ opacity: 0.8 }}>by {personLabel(row.resolvedByUser)}</div> : null}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={{ fontWeight: 900 }}>{row.title}</div>
+                      <div style={{ marginTop: 4, opacity: 0.9, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                        {row.description}
+                      </div>
+                      {row.resolutionNotes ? (
+                        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                          Resolution: {row.resolutionNotes}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div>
+                      {canResolve ? (
+                        <form action={resolveAndArchiveAction} style={{ display: "grid", gap: 6, maxWidth: 460 }}>
+                          <input type="hidden" name="requestId" value={row.id} />
+                          <input
+                            name="resolutionNotes"
+                            placeholder="Resolution notes (optional)"
+                            style={{ padding: "8px 10px", borderRadius: 8, border: headerBorder, width: "100%" }}
+                          />
+                          <button
+                            type="submit"
+                            style={{
+                              width: "fit-content",
+                              padding: "7px 10px",
+                              borderRadius: 8,
+                              border: headerBorder,
+                              background: "var(--surface-2)",
+                              fontWeight: 800,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Resolve & Archive
+                          </button>
+                        </form>
+                      ) : (
+                        <span style={{ opacity: 0.7, fontSize: 12 }}>No action</span>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           )}
         </section>
