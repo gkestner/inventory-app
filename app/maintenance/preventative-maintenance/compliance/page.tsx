@@ -164,6 +164,19 @@ export default async function MaintenancePreventativeMaintenanceCompliancePage({
     alignItems: "center",
   };
 
+  const sectionHeaderStyle: CSSProperties = {
+    margin: 0,
+    fontSize: 20,
+    fontWeight: 950,
+  };
+
+  const tableHeaderStyle: CSSProperties = {
+    textAlign: "left",
+    padding: "10px 8px",
+    borderBottom: "1px solid var(--border)",
+    fontWeight: 900,
+  };
+
   return (
     <main style={{ display: "grid", gap: 14 }}>
       <section
@@ -207,24 +220,24 @@ export default async function MaintenancePreventativeMaintenanceCompliancePage({
       ) : (
         <>
         <section style={card}>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Grease Trap</h2>
+          <h2 style={sectionHeaderStyle}>Grease Trap</h2>
           <div style={{ overflowX: "auto", marginTop: 10 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
               <thead>
                 <tr>
-                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 180 }}>
+                  <th style={{ ...tableHeaderStyle, minWidth: 180 }}>
                     Location
                   </th>
-                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>
+                  <th style={{ ...tableHeaderStyle, minWidth: 170 }}>
                     Grease Trap Pumped Date
                   </th>
-                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>
+                  <th style={{ ...tableHeaderStyle, minWidth: 170 }}>
                     Company Who Pumped
                   </th>
-                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>
+                  <th style={{ ...tableHeaderStyle, minWidth: 170 }}>
                     Grease Trap Size
                   </th>
-                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>
+                  <th style={{ ...tableHeaderStyle, minWidth: 170 }}>
                     Cost to Pump
                   </th>
                 </tr>
@@ -248,15 +261,15 @@ export default async function MaintenancePreventativeMaintenanceCompliancePage({
         </section>
 
         <section style={card}>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Backflow Test</h2>
+          <h2 style={sectionHeaderStyle}>Backflow Test</h2>
           <div style={{ overflowX: "auto", marginTop: 10 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
               <thead>
                 <tr>
-                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 180 }}>Location</th>
-                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Date Inspected</th>
-                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Cost</th>
-                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Company</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 180 }}>Location</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Date Inspected</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Cost</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Company</th>
                 </tr>
               </thead>
               <tbody>
@@ -277,15 +290,15 @@ export default async function MaintenancePreventativeMaintenanceCompliancePage({
         </section>
 
         <section style={card}>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Boiler Inspection</h2>
+          <h2 style={sectionHeaderStyle}>Boiler Inspection</h2>
           <div style={{ overflowX: "auto", marginTop: 10 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
               <thead>
                 <tr>
-                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 180 }}>Location</th>
-                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Date Inspected</th>
-                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Cost</th>
-                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Company</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 180 }}>Location</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Date Inspected</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Cost</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Company</th>
                 </tr>
               </thead>
               <tbody>
