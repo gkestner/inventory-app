@@ -165,16 +165,23 @@ export default async function MaintenancePreventativeMaintenanceCompliancePage({
   };
 
   const sectionHeaderStyle: CSSProperties = {
-    margin: 0,
+    margin: "0 0 8px",
     fontSize: 20,
     fontWeight: 950,
+    letterSpacing: "0.02em",
+    padding: "8px 12px",
+    borderRadius: 10,
+    border: "1px solid var(--border)",
+    background: "linear-gradient(90deg, color-mix(in srgb, var(--brand) 24%, var(--surface-2)) 0%, var(--surface-2) 100%)",
+    display: "inline-block",
   };
 
   const tableHeaderStyle: CSSProperties = {
     textAlign: "left",
     padding: "10px 8px",
     borderBottom: "1px solid var(--border)",
-    fontWeight: 900,
+    fontWeight: 950,
+    background: "color-mix(in srgb, var(--brand) 18%, var(--surface-2))",
   };
 
   return (

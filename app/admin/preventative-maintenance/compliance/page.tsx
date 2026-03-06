@@ -191,6 +191,26 @@ export default async function AdminPreventativeMaintenanceCompliancePage({
     color: "var(--foreground)",
   };
 
+  const sectionHeaderStyle: CSSProperties = {
+    margin: "0 0 8px",
+    fontSize: 18,
+    fontWeight: 950,
+    letterSpacing: "0.02em",
+    padding: "7px 11px",
+    borderRadius: 10,
+    border: "1px solid var(--border)",
+    background: "linear-gradient(90deg, color-mix(in srgb, var(--brand) 24%, var(--surface-2)) 0%, var(--surface-2) 100%)",
+    display: "inline-block",
+  };
+
+  const tableHeaderStyle: CSSProperties = {
+    textAlign: "left",
+    padding: "8px 6px",
+    borderBottom: "1px solid var(--border)",
+    fontWeight: 950,
+    background: "color-mix(in srgb, var(--brand) 18%, var(--surface-2))",
+  };
+
   return (
     <main style={{ display: "grid", gap: 14 }}>
       <section
@@ -230,16 +250,16 @@ export default async function AdminPreventativeMaintenanceCompliancePage({
       <form action={saveCompliance} style={card}>
         <input type="hidden" name="year" value={year} />
         <section>
-          <h2 style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 900 }}>Grease Trap</h2>
+          <h2 style={sectionHeaderStyle}>Grease Trap</h2>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr>
-                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Location</th>
-                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 140 }}>Pumped Date</th>
-                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Company Who Pumped</th>
-                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 140 }}>Grease Trap Size</th>
-                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 120 }}>Cost to Pump</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Location</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 140 }}>Pumped Date</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Company Who Pumped</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 140 }}>Grease Trap Size</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 120 }}>Cost to Pump</th>
                 </tr>
               </thead>
               <tbody>
@@ -261,15 +281,15 @@ export default async function AdminPreventativeMaintenanceCompliancePage({
         </section>
 
         <section style={{ marginTop: 14 }}>
-          <h2 style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 900 }}>Backflow Test</h2>
+          <h2 style={sectionHeaderStyle}>Backflow Test</h2>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr>
-                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Location</th>
-                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 140 }}>Date Inspected</th>
-                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 120 }}>Cost</th>
-                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Company</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Location</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 140 }}>Date Inspected</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 120 }}>Cost</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Company</th>
                 </tr>
               </thead>
               <tbody>
@@ -290,15 +310,15 @@ export default async function AdminPreventativeMaintenanceCompliancePage({
         </section>
 
         <section style={{ marginTop: 14 }}>
-          <h2 style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 900 }}>Boiler Inspection</h2>
+          <h2 style={sectionHeaderStyle}>Boiler Inspection</h2>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr>
-                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Location</th>
-                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 140 }}>Date Inspected</th>
-                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 120 }}>Cost</th>
-                  <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>Company</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Location</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 140 }}>Date Inspected</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 120 }}>Cost</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Company</th>
                 </tr>
               </thead>
               <tbody>
