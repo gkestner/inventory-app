@@ -10,7 +10,8 @@ import { canAccessAdmin } from "@/app/lib/admin-access";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { ADMIN_VIEW_PREVENTATIVE_MAINTENANCE } from "@/app/lib/permission-constants";
 import {
-  PREVENTATIVE_MAINTENANCE_SECTIONS,
+  PREVENTATIVE_MAINTENANCE_MAIN_SECTIONS,
+  PREVENTATIVE_MAINTENANCE_COMPLIANCE_SECTIONS,
   type PreventativeMaintenanceValues,
   loadMaintenancePrimaryAssignments,
   normalizePmYear,
@@ -58,7 +59,7 @@ function parseText(v: FormDataEntryValue | null): string {
 
 function getSubmittedValues(formData: FormData): Partial<PreventativeMaintenanceValues> {
   const values: Partial<PreventativeMaintenanceValues> = {};
-  for (const section of PREVENTATIVE_MAINTENANCE_SECTIONS) {
+  for (const section of PREVENTATIVE_MAINTENANCE_MAIN_SECTIONS) {
     for (const field of section.fields) {
       if (!formData.has(field.key)) continue;
       values[field.key] = parseText(formData.get(field.key));
@@ -225,7 +226,7 @@ export default async function AdminPreventativeMaintenancePage({
       >
         <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900 }}>Admin: Preventative Maintenance</h1>
         <p style={{ margin: "8px 0 0", color: "var(--muted)", lineHeight: 1.45 }}>
-          Same annual PM matrix for every location, grouped by technician assignment from primary locations under title
+          Main PM checklist for every location, grouped by technician assignment from primary locations under title
           <b> Maintenance</b>.
         </p>
         <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
@@ -247,6 +248,12 @@ export default async function AdminPreventativeMaintenancePage({
           >
             PM Audit / Reports
           </Link>
+          <Link
+            href={`/admin/preventative-maintenance/compliance?year=${year}`}
+            style={{ ...saveBtn, textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+          >
+            Backflow / Grease Trap / Boiler
+          </Link>
         </div>
       </section>
 
@@ -254,7 +261,7 @@ export default async function AdminPreventativeMaintenancePage({
         <section key={group.label} style={card}>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>{group.label}</h2>
           <div style={{ display: "grid", gap: 12, marginTop: 10 }}>
-            {PREVENTATIVE_MAINTENANCE_SECTIONS.map((section) => (
+            {PREVENTATIVE_MAINTENANCE_MAIN_SECTIONS.map((section) => (
               <div key={`${group.label}-${section.id}`}>
                 <h3 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 900 }}>{section.title}</h3>
                 <div style={{ overflowX: "auto" }}>
@@ -321,6 +328,23 @@ export default async function AdminPreventativeMaintenancePage({
           </div>
         </section>
       ))}
+
+      {PREVENTATIVE_MAINTENANCE_COMPLIANCE_SECTIONS.length > 0 ? (
+        <section style={card}>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Compliance & Testing Dashboard</h2>
+          <p style={{ margin: "8px 0 0", color: "var(--muted)", lineHeight: 1.45 }}>
+            Enter all Backflow, Grease Trap, and Boiler details on the dedicated admin compliance screen.
+          </p>
+          <div style={{ marginTop: 10 }}>
+            <Link
+              href={`/admin/preventative-maintenance/compliance?year=${year}`}
+              style={{ ...saveBtn, textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+            >
+              Open Admin Compliance Dashboard
+            </Link>
+          </div>
+        </section>
+      ) : null}
     </main>
   );
 }

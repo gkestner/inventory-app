@@ -57,6 +57,14 @@ export const PREVENTATIVE_MAINTENANCE_SECTIONS: Array<{
   { id: "boiler", title: "Boiler Inspection Tracking", fields: BOILER_TRACKING_FIELDS },
 ];
 
+export const PREVENTATIVE_MAINTENANCE_MAIN_SECTIONS = PREVENTATIVE_MAINTENANCE_SECTIONS.filter(
+  (s) => s.id === "checklist"
+);
+
+export const PREVENTATIVE_MAINTENANCE_COMPLIANCE_SECTIONS = PREVENTATIVE_MAINTENANCE_SECTIONS.filter(
+  (s) => s.id === "grease-trap" || s.id === "backflow" || s.id === "boiler"
+);
+
 const ALL_FIELDS = PREVENTATIVE_MAINTENANCE_SECTIONS.flatMap((s) => s.fields);
 
 export const PREVENTATIVE_MAINTENANCE_FIELD_LABELS: Record<PreventativeMaintenanceFieldKey, string> =

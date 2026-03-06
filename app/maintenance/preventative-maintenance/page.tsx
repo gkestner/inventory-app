@@ -10,7 +10,8 @@ import { prisma } from "@/app/lib/prisma";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { VIEW_PREVENTATIVE_MAINTENANCE } from "@/app/lib/permission-constants";
 import {
-  PREVENTATIVE_MAINTENANCE_SECTIONS,
+  PREVENTATIVE_MAINTENANCE_MAIN_SECTIONS,
+  PREVENTATIVE_MAINTENANCE_COMPLIANCE_SECTIONS,
   type PreventativeMaintenanceValues,
   loadMaintenancePrimaryAssignments,
   normalizePmYear,
@@ -59,7 +60,7 @@ function parseText(v: FormDataEntryValue | null): string {
 
 function getSubmittedValues(formData: FormData): Partial<PreventativeMaintenanceValues> {
   const values: Partial<PreventativeMaintenanceValues> = {};
-  for (const section of PREVENTATIVE_MAINTENANCE_SECTIONS) {
+  for (const section of PREVENTATIVE_MAINTENANCE_MAIN_SECTIONS) {
     for (const field of section.fields) {
       if (!formData.has(field.key)) continue;
       values[field.key] = parseText(formData.get(field.key));
@@ -238,6 +239,12 @@ export default async function MaintenancePreventativeMaintenancePage({
           <Link href="/maintenance" style={{ ...saveBtn, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
             Back to Maintenance Hub
           </Link>
+          <Link
+            href={`/maintenance/preventative-maintenance/compliance?year=${year}`}
+            style={{ ...saveBtn, textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+          >
+            Backflow / Grease Trap / Boiler
+          </Link>
         </div>
       </section>
 
@@ -248,7 +255,7 @@ export default async function MaintenancePreventativeMaintenancePage({
           </p>
         </section>
       ) : (
-        PREVENTATIVE_MAINTENANCE_SECTIONS.map((section) => (
+        PREVENTATIVE_MAINTENANCE_MAIN_SECTIONS.map((section) => (
           <section key={section.id} style={card}>
             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>{section.title}</h2>
             <div style={{ overflowX: "auto", marginTop: 10 }}>
@@ -309,6 +316,23 @@ export default async function MaintenancePreventativeMaintenancePage({
           </section>
         ))
       )}
+
+      {PREVENTATIVE_MAINTENANCE_COMPLIANCE_SECTIONS.length > 0 ? (
+        <section style={card}>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Compliance & Testing</h2>
+          <p style={{ margin: "8px 0 0", color: "var(--muted)", lineHeight: 1.45 }}>
+            Backflow testing, grease trap pumping, and boiler inspections are now on their own screen.
+          </p>
+          <div style={{ marginTop: 10 }}>
+            <Link
+              href={`/maintenance/preventative-maintenance/compliance?year=${year}`}
+              style={{ ...saveBtn, textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+            >
+              Open Compliance Screen
+            </Link>
+          </div>
+        </section>
+      ) : null}
     </main>
   );
 }
