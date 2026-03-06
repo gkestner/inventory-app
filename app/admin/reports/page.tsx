@@ -23,7 +23,7 @@ async function requireReportsView() {
   if (!session) redirect("/login");
 
   const perms = await loadUserPermissions(session);
-  if (perms.allowAll) return;
+  if (perms.allowAll) return perms;
 
   // Keep consistent with Orders module (reuses Items Admin perms)
   const ok = hasAnyPermission(perms, [
