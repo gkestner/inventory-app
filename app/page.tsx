@@ -5,7 +5,16 @@ import { Permission, Role } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import { CREATE_WORK_ORDERS_FOR_OTHERS } from "@/app/lib/permission-constants";
+import {
+  CREATE_RECEIPTS,
+  CREATE_WORK_ORDERS_FOR_OTHERS,
+  VIEW_COMPANY_VEHICLE_LOG,
+  VIEW_EQUIPMENT_TRACKING,
+  VIEW_MAINTENANCE_REQUESTS,
+  VIEW_PREVENTATIVE_MAINTENANCE,
+  VIEW_RECEIPTS,
+  VIEW_TEMPERATURE_DASHBOARD,
+} from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -54,6 +63,7 @@ export default async function HomePage() {
   const hasMaintenanceAccess =
     perms.allowAll ||
     hasAnyPermission(perms, [
+      Permission.VIEW_HOME,
       Permission.VIEW_WORK_ORDERS,
       Permission.CREATE_WORK_ORDERS,
       CREATE_WORK_ORDERS_FOR_OTHERS,
@@ -62,6 +72,13 @@ export default async function HomePage() {
       Permission.VIEW_CHECKOUT,
       Permission.CREATE_CHECKOUT,
       Permission.VIEW_LIVE_ORDERS,
+      VIEW_PREVENTATIVE_MAINTENANCE,
+      VIEW_EQUIPMENT_TRACKING,
+      VIEW_COMPANY_VEHICLE_LOG,
+      VIEW_MAINTENANCE_REQUESTS,
+      VIEW_TEMPERATURE_DASHBOARD,
+      VIEW_RECEIPTS,
+      CREATE_RECEIPTS,
     ]);
 
   const canWorkOrders =
@@ -93,5 +110,5 @@ export default async function HomePage() {
     redirect("/maintenance");
   }
 
-  redirect("/login");
+  redirect("/dashboard");
 }
