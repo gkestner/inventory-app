@@ -8,6 +8,7 @@ import { Prisma, WorkOrderStatus } from "@prisma/client";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { canAccessAdmin } from "@/app/lib/admin-access";
+import { createAuditLog, getCompatDb } from "@/app/lib/workflow-foundations";
 import PingAutoRefresh from "./PingAutoRefresh";
 import WorkOrderSelectionWiring from "./WorkOrderSelectionWiring";
 
@@ -29,6 +30,13 @@ type AdminSession = {
     role?: unknown;
   } | null;
 } | null;
+
+type SavedViewRow = {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  query: unknown;
+};
 
 async function requireAdmin(session: AdminSession) {
   if (!session) redirect("/login");
@@ -107,6 +115,20 @@ function buildQS(params: Record<string, string | undefined>) {
   return qs ? `?${qs}` : "";
 }
 
+function asSavedFilterQuery(v: unknown): Record<string, string | undefined> {
+  if (!v || typeof v !== "object") return {};
+  const src = v as Record<string, unknown>;
+  const out: Record<string, string | undefined> = {};
+  for (const k of ["q", "from", "to", "userId", "status"]) {
+    const raw = src[k];
+    if (typeof raw !== "string") continue;
+    const t = raw.trim();
+    if (!t) continue;
+    out[k] = t;
+  }
+  return out;
+}
+
 export default async function AdminWorkOrdersPage({
   searchParams,
 }: {
@@ -114,6 +136,105 @@ export default async function AdminWorkOrdersPage({
 }) {
   const session = (await getServerSession(authOptions)) as AdminSession;
   await requireAdmin(session);
+
+  const actorEmail = String(session?.user?.email ?? "").trim().toLowerCase();
+  const actor = actorEmail
+    ? await prisma.user.findUnique({ where: { email: actorEmail }, select: { id: true } })
+    : null;
+
+  async function saveViewAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as AdminSession;
+    await requireAdmin(session);
+
+    const email = String(session?.user?.email ?? "").trim().toLowerCase();
+    const actor = email ? await prisma.user.findUnique({ where: { email }, select: { id: true } }) : null;
+    if (!actor?.id) throw new Error("Unable to resolve current user.");
+
+    const name = String(formData.get("viewName") ?? "").trim();
+    if (!name) throw new Error("View name is required.");
+
+    const query = {
+      q: String(formData.get("q") ?? "").trim() || undefined,
+      from: String(formData.get("from") ?? "").trim() || undefined,
+      to: String(formData.get("to") ?? "").trim() || undefined,
+      userId: String(formData.get("userId") ?? "").trim() || undefined,
+      status: String(formData.get("status") ?? "").trim() || undefined,
+    };
+
+    const db = getCompatDb() as any;
+    if (!db.savedView?.create || !db.savedView?.findMany || !db.savedView?.delete) {
+      throw new Error("Saved views table not available. Run latest migrations.");
+    }
+
+    const existing = await db.savedView.findMany({
+      where: { userId: actor.id, module: "admin-work-orders", name },
+      select: { id: true },
+      take: 1,
+    });
+    if (existing.length > 0) {
+      await db.savedView.delete({ where: { id: existing[0].id } });
+    }
+
+    await db.savedView.create({
+      data: {
+        userId: actor.id,
+        module: "admin-work-orders",
+        name,
+        query,
+      },
+    });
+
+    await createAuditLog({
+      actorUserId: actor.id,
+      module: "work-orders",
+      action: "saved-view-create",
+      entityType: "SavedView",
+      message: `Saved filter view: ${name}`,
+      metadata: query,
+    });
+
+    redirect(`/admin/work-orders${buildQS(asSavedFilterQuery(query))}`);
+  }
+
+  async function deleteViewAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as AdminSession;
+    await requireAdmin(session);
+
+    const email = String(session?.user?.email ?? "").trim().toLowerCase();
+    const actor = email ? await prisma.user.findUnique({ where: { email }, select: { id: true } }) : null;
+    if (!actor?.id) throw new Error("Unable to resolve current user.");
+
+    const viewId = String(formData.get("viewId") ?? "").trim();
+    if (!viewId) throw new Error("Missing saved view id.");
+
+    const db = getCompatDb() as any;
+    if (!db.savedView?.findMany || !db.savedView?.delete) {
+      throw new Error("Saved views table not available. Run latest migrations.");
+    }
+
+    const existing = await db.savedView.findMany({
+      where: { id: viewId, userId: actor.id, module: "admin-work-orders" },
+      select: { id: true, name: true },
+      take: 1,
+    });
+    if (existing.length > 0) {
+      await db.savedView.delete({ where: { id: existing[0].id } });
+      await createAuditLog({
+        actorUserId: actor.id,
+        module: "work-orders",
+        action: "saved-view-delete",
+        entityType: "SavedView",
+        entityId: existing[0].id,
+        message: `Deleted filter view: ${existing[0].name}`,
+      });
+    }
+
+    redirect("/admin/work-orders");
+  }
 
   async function purgeWorkOrderAction(formData: FormData) {
     "use server";
@@ -199,6 +320,15 @@ export default async function AdminWorkOrdersPage({
 
   const userIds = new Set(users.map((u) => u.id));
   const userId = userIdRaw === "ALL" || userIds.has(userIdRaw) ? userIdRaw : "ALL";
+
+  const compat = getCompatDb() as any;
+  const savedViews: SavedViewRow[] = actor?.id && compat.savedView?.findMany
+    ? await compat.savedView.findMany({
+        where: { userId: actor.id, module: "admin-work-orders" },
+        orderBy: [{ isDefault: "desc" }, { updatedAt: "desc" }],
+        select: { id: true, name: true, isDefault: true, query: true },
+      })
+    : [];
 
   const where: Prisma.WorkOrderWhereInput = {
     ...(statusFilter !== "ALL" ? { status: statusFilter as WorkOrderStatus } : {}),
@@ -368,6 +498,18 @@ export default async function AdminWorkOrdersPage({
           <Link href="/maintenance/work-orders/office-entry" style={btn}>
             Office Entry
           </Link>
+          <Link href="/admin/work-orders/schedules" style={btn}>
+            PM Scheduler
+          </Link>
+          <Link href="/admin/audit" style={btn}>
+            Audit
+          </Link>
+          <Link href="/admin/cycle-counts" style={btn}>
+            Cycle Counts
+          </Link>
+          <Link href="/admin/reports/work-order-costs" style={btn}>
+            Cost Rollup
+          </Link>
           <div style={{ opacity: 0.75, fontSize: 13 }}>
             {workOrders.length} shown (max 500) • Times in <b>{TZ}</b>
           </div>
@@ -439,6 +581,39 @@ export default async function AdminWorkOrdersPage({
               </a>
             </div>
           </form>
+
+          <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+            <form action={saveViewAction} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <input name="viewName" placeholder="Save current filters as..." style={{ ...filterInput, minWidth: 240, maxWidth: 360 }} />
+              <input type="hidden" name="q" value={q} />
+              <input type="hidden" name="from" value={fromParam?.raw ?? ""} />
+              <input type="hidden" name="to" value={toParam?.raw ?? ""} />
+              <input type="hidden" name="userId" value={userId} />
+              <input type="hidden" name="status" value={statusFilter} />
+              <button type="submit" style={btn}>Save View</button>
+            </form>
+
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, opacity: 0.85, fontWeight: 900 }}>Saved Views:</span>
+              {savedViews.map((v) => {
+                const qs = buildQS(asSavedFilterQuery(v.query));
+                return (
+                  <div key={v.id} style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                    <Link href={`/admin/work-orders${qs}`} style={btn}>
+                      {v.name}
+                    </Link>
+                    <form action={deleteViewAction}>
+                      <input type="hidden" name="viewId" value={v.id} />
+                      <button type="submit" style={{ ...btnDanger, padding: "6px 8px" }} title={`Delete ${v.name}`}>
+                        X
+                      </button>
+                    </form>
+                  </div>
+                );
+              })}
+              {savedViews.length === 0 ? <span style={{ fontSize: 12, opacity: 0.7 }}>No saved views yet.</span> : null}
+            </div>
+          </div>
 
           <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
             Batch print/export uses the exact filters above. Use row-level Print for a single work order.

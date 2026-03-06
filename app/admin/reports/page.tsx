@@ -147,6 +147,30 @@ export default async function AdminReportsIndexPage() {
             </p>
             <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
           </Link>
+
+          <Link href="/admin/reports/work-order-costs" style={cardStyle}>
+            <h2 style={titleStyle}>Work Order Cost Rollup</h2>
+            <p style={descStyle}>
+              Summarized labor and mileage cost by work order to support budgeting and accounting reconciliation.
+            </p>
+            <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
+          </Link>
+
+          <Link href="/admin/audit" style={cardStyle}>
+            <h2 style={titleStyle}>Audit Trail</h2>
+            <p style={descStyle}>
+              Searchable activity stream of administrative and workflow events for traceability and diagnostics.
+            </p>
+            <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
+          </Link>
+
+          <Link href="/admin/permission-diagnostics" style={cardStyle}>
+            <h2 style={titleStyle}>Permission Diagnostics</h2>
+            <p style={descStyle}>
+              Validate effective permission coverage by user and quickly identify missing access grants.
+            </p>
+            <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
+          </Link>
         </div>
 
         <div style={{ marginTop: 12, fontSize: 12, opacity: 0.8, lineHeight: 1.5 }}>

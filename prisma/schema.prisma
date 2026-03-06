@@ -214,6 +214,18 @@ enum WorkOrderPingEvent {
   EDITED
 }
 
+enum NotificationType {
+  WORK_ORDER
+  SCHEDULER
+  CYCLE_COUNT
+  SYSTEM
+}
+
+enum CycleCountSessionStatus {
+  OPEN
+  CLOSED
+}
+
 /**
  * Expanded enum:
  * - Includes the REQUIRED pizza-maintenance areas (used by UI)
@@ -290,6 +302,10 @@ model Location {
   // Admin-only work order activity pings
   workOrderPings WorkOrderPing[]
 
+  // Scheduling / counts
+  pmSchedules        PmSchedule[]
+  cycleCountSessions CycleCountSession[]
+
   @@index([active])
 }
 
@@ -340,6 +356,15 @@ model User {
 
   // Invoices created/issued by admins
   invoicesCreated Invoice[] @relation("InvoiceCreatedBy")
+
+  // Reporting / workflow additions
+  notifications      Notification[]
+  savedViews         SavedView[]
+  auditLogs          AuditLog[]
+  attachmentsAdded   WorkOrderAttachment[] @relation("WorkOrderAttachmentAddedBy")
+  pmSchedulesCreated PmSchedule[]          @relation("PmScheduleCreatedBy")
+  pmSchedulesAssigned PmSchedule[]         @relation("PmScheduleDefaultUser")
+  cycleCountsCreated CycleCountSession[]   @relation("CycleCountCreatedBy")
 }
 
 model UserPermission {
@@ -398,10 +423,156 @@ model WorkOrder {
 
   equipmentAreas WorkOrderEquipmentArea[]
   pings          WorkOrderPing[]
+  attachments    WorkOrderAttachment[]
+  auditLogs      AuditLog[]
 
   @@index([status, createdAt])
   @@index([locationId, createdAt])
   @@index([createdByUserId, createdAt])
+}
+
+model PmSchedule {
+  id String @id @default(cuid())
+
+  title          String
+  description    String?
+  locationId     String
+  location       Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  defaultUserId  String?
+  defaultUser    User?    @relation("PmScheduleDefaultUser", fields: [defaultUserId], references: [id], onDelete: SetNull)
+  intervalDays   Int
+  active         Boolean  @default(true)
+  lastGeneratedAt DateTime?
+  nextDueAt      DateTime
+
+  createdByUserId String
+  createdByUser   User @relation("PmScheduleCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, nextDueAt])
+  @@index([locationId, active])
+}
+
+model AuditLog {
+  id String @id @default(cuid())
+
+  actorUserId String?
+  actorUser   User? @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  module      String
+  action      String
+  entityType  String
+  entityId    String?
+  message     String?
+  metadata    Json?
+
+  workOrderId String?
+  workOrder   WorkOrder? @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([module, createdAt])
+  @@index([entityType, entityId])
+  @@index([actorUserId, createdAt])
+  @@index([workOrderId, createdAt])
+}
+
+model SavedView {
+  id String @id @default(cuid())
+
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  module   String
+  name     String
+  query    Json
+  isDefault Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, module, name])
+  @@index([userId, module])
+}
+
+model Notification {
+  id String @id @default(cuid())
+
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type    NotificationType @default(SYSTEM)
+  title   String
+  body    String?
+  href    String?
+  readAt  DateTime?
+  emailedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+}
+
+model WorkOrderAttachment {
+  id String @id @default(cuid())
+
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  addedByUserId String?
+  addedByUser   User? @relation("WorkOrderAttachmentAddedBy", fields: [addedByUserId], references: [id], onDelete: SetNull)
+
+  fileName    String
+  contentType String?
+  byteSize    Int?
+  storageKey  String?
+  url         String
+
+  createdAt DateTime @default(now())
+
+  @@index([workOrderId, createdAt])
+}
+
+model CycleCountSession {
+  id String @id @default(cuid())
+
+  name        String
+  locationId  String
+  location    Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  status      CycleCountSessionStatus @default(OPEN)
+  notes       String?
+
+  createdByUserId String
+  createdByUser   User @relation("CycleCountCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  closedAt  DateTime?
+
+  items CycleCountItem[]
+
+  @@index([locationId, status, createdAt])
+}
+
+model CycleCountItem {
+  id String @id @default(cuid())
+
+  sessionId String
+  session   CycleCountSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  itemId String
+  item   Item @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  expectedQty Int
+  countedQty  Int
+  varianceQty Int
+  notes       String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([sessionId, itemId])
+  @@index([sessionId, varianceQty])
 }
 
 model WorkOrderPing {

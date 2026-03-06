@@ -308,6 +308,10 @@ export default async function AdminNav() {
             </Link>
           ) : null}
 
+          <Link href="/notifications" style={topLinkStyle}>
+            Notifications
+          </Link>
+
           {/* Admin */}
           {showAdmin ? (
             <details data-admin-dropdown style={detailsStyle}>
@@ -342,6 +346,11 @@ export default async function AdminNav() {
                     Work Orders
                   </Link>
                 ) : null}
+                {canAdminWorkOrders ? (
+                  <Link href="/admin/work-orders/schedules" style={menuItemStyle}>
+                    PM Scheduler
+                  </Link>
+                ) : null}
                 {canAdminTravelLogs ? (
                   <Link href="/admin/travel-log" style={menuItemStyle}>
                     Travel Logs
@@ -349,6 +358,21 @@ export default async function AdminNav() {
                 ) : (
                   <span style={menuItemDisabled}>Travel Logs</span>
                 )}
+                {canAdminWorkOrders ? (
+                  <Link href="/admin/cycle-counts" style={menuItemStyle}>
+                    Cycle Counts
+                  </Link>
+                ) : null}
+                {canAdminUsers ? (
+                  <Link href="/admin/permission-diagnostics" style={menuItemStyle}>
+                    Permission Diagnostics
+                  </Link>
+                ) : null}
+                {canAdminUsers ? (
+                  <Link href="/admin/audit" style={menuItemStyle}>
+                    Audit Trail
+                  </Link>
+                ) : null}
                 {canUserWorkOrders ? (
                   <Link href="/maintenance/work-orders" style={menuItemStyle}>
                     Work Orders (User)

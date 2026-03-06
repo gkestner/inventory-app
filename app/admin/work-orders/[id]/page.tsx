@@ -9,6 +9,7 @@ import { headers } from "next/headers";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { canAccessAdmin } from "@/app/lib/admin-access";
+import { createAuditLog, getCompatDb, getGcsConfig } from "@/app/lib/workflow-foundations";
 
 export const dynamic = "force-dynamic";
 
@@ -98,6 +99,17 @@ type WorkOrderRow = {
   updatedByUser?: { name: string; email: string } | null;
 
   equipmentAreas: WorkOrderEquipmentAreaRow[];
+};
+
+type WorkOrderAttachmentRow = {
+  id: string;
+  fileName: string;
+  contentType: string | null;
+  byteSize: number | null;
+  storageKey: string | null;
+  url: string;
+  createdAt: Date;
+  addedByUser: { name: string | null; email: string } | null;
 };
 
 /**
@@ -289,6 +301,30 @@ function statusLabel(s: WorkOrderStatus): string {
   return s;
 }
 
+function formatBytes(v: number | null): string {
+  if (!v || v <= 0) return "-";
+  if (v < 1024) return `${v} B`;
+  if (v < 1024 * 1024) return `${(v / 1024).toFixed(1)} KB`;
+  return `${(v / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function getActorUserId(session: AdminSession): Promise<string | null> {
+  const email = session?.user?.email?.trim().toLowerCase();
+  if (!email) return null;
+  const actor = await (getCompatDb() as any).user.findUnique({ where: { email }, select: { id: true } });
+  return actor?.id ?? null;
+}
+
+function isValidAttachmentUrl(v: string): boolean {
+  if (v.startsWith("gs://")) return true;
+  try {
+    const u = new URL(v);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function safeReturnToPathFromReferer(referer: string | null, fallback: string) {
   if (!referer) return fallback;
   try {
@@ -324,6 +360,18 @@ export default async function AdminWorkOrderDetailPage({
   ]);
 
   if (!workOrder) notFound();
+
+  const compat = getCompatDb() as any;
+  const attachments: WorkOrderAttachmentRow[] = compat.workOrderAttachment?.findMany
+    ? await compat.workOrderAttachment.findMany({
+        where: { workOrderId: id },
+        orderBy: { createdAt: "desc" },
+        include: {
+          addedByUser: { select: { name: true, email: true } },
+        },
+      })
+    : [];
+  const gcs = getGcsConfig();
 
   const border = "1px solid rgba(128,128,128,0.25)";
   const surface = "var(--background)";
@@ -374,12 +422,24 @@ export default async function AdminWorkOrderDetailPage({
     "use server";
     const session = (await getServerSession(authOptions)) as AdminSession;
     await requireAdmin(session);
+    const actorUserId = await getActorUserId(session);
 
     await db.workOrder.update({
       where: { id },
       data: {
         startTime: new Date(),
+        updatedByUserId: actorUserId,
       },
+    });
+
+    await createAuditLog({
+      actorUserId,
+      module: "work-orders",
+      action: "start-now",
+      entityType: "WorkOrder",
+      entityId: id,
+      workOrderId: id,
+      message: "Start time set to now.",
     });
 
     revalidatePath(`/admin/work-orders/${id}`);
@@ -391,12 +451,24 @@ export default async function AdminWorkOrderDetailPage({
     "use server";
     const session = (await getServerSession(authOptions)) as AdminSession;
     await requireAdmin(session);
+    const actorUserId = await getActorUserId(session);
 
     await db.workOrder.update({
       where: { id },
       data: {
         endTime: new Date(),
+        updatedByUserId: actorUserId,
       },
+    });
+
+    await createAuditLog({
+      actorUserId,
+      module: "work-orders",
+      action: "end-now",
+      entityType: "WorkOrder",
+      entityId: id,
+      workOrderId: id,
+      message: "End time set to now.",
     });
 
     revalidatePath(`/admin/work-orders/${id}`);
@@ -408,6 +480,7 @@ export default async function AdminWorkOrderDetailPage({
     "use server";
     const session = (await getServerSession(authOptions)) as AdminSession;
     await requireAdmin(session);
+    const actorUserId = await getActorUserId(session);
 
     const locationId = String(formData.get("locationId") ?? "").trim();
     if (!locationId) throw new Error("Location is required");
@@ -438,6 +511,7 @@ export default async function AdminWorkOrderDetailPage({
           endTime,
           startingMileage,
           endingMileage,
+          updatedByUserId: actorUserId,
         },
       });
 
@@ -447,6 +521,17 @@ export default async function AdminWorkOrderDetailPage({
           data: areas.map((area) => ({ workOrderId: id, area })),
         });
       }
+    });
+
+    await createAuditLog({
+      actorUserId,
+      module: "work-orders",
+      action: "save",
+      entityType: "WorkOrder",
+      entityId: id,
+      workOrderId: id,
+      message: "Updated work order details.",
+      metadata: { locationId, status, areasCount: areas.length },
     });
 
     revalidatePath(`/admin/work-orders/${id}`);
@@ -460,9 +545,20 @@ export default async function AdminWorkOrderDetailPage({
     "use server";
     const session = (await getServerSession(authOptions)) as AdminSession;
     await requireAdmin(session);
+    const actorUserId = await getActorUserId(session);
 
     const confirmText = String(formData.get("confirm") ?? "").trim().toUpperCase();
     if (confirmText !== "DELETE") throw new Error('Type "DELETE" to confirm deletion.');
+
+    await createAuditLog({
+      actorUserId,
+      module: "work-orders",
+      action: "delete",
+      entityType: "WorkOrder",
+      entityId: id,
+      workOrderId: id,
+      message: "Deleted work order.",
+    });
 
     await db.$transaction(async (tx) => {
       await tx.workOrderEquipmentArea.deleteMany({ where: { workOrderId: id } });
@@ -471,6 +567,55 @@ export default async function AdminWorkOrderDetailPage({
 
     revalidatePath(`/admin/work-orders`);
     redirect(`/admin/work-orders`);
+  }
+
+  async function addAttachmentAction(formData: FormData) {
+    "use server";
+    const session = (await getServerSession(authOptions)) as AdminSession;
+    await requireAdmin(session);
+
+    const fileName = String(formData.get("fileName") ?? "").trim();
+    const url = String(formData.get("url") ?? "").trim();
+    const contentTypeRaw = String(formData.get("contentType") ?? "").trim();
+    const storageKeyRaw = String(formData.get("storageKey") ?? "").trim();
+    const byteSize = parseOptionalInt(formData.get("byteSize"));
+    const actorUserId = await getActorUserId(session);
+
+    if (!fileName) throw new Error("File name is required.");
+    if (!url || !isValidAttachmentUrl(url)) {
+      throw new Error("Attachment URL must start with https://, http://, or gs://.");
+    }
+
+    const dbCompat = getCompatDb() as any;
+    if (!dbCompat.workOrderAttachment?.create) {
+      throw new Error("Work order attachments table not available. Run latest migrations.");
+    }
+
+    await dbCompat.workOrderAttachment.create({
+      data: {
+        workOrderId: id,
+        addedByUserId: actorUserId,
+        fileName,
+        contentType: contentTypeRaw || null,
+        byteSize,
+        storageKey: storageKeyRaw || null,
+        url,
+      },
+    });
+
+    await createAuditLog({
+      actorUserId,
+      module: "work-orders",
+      action: "attachment-add",
+      entityType: "WorkOrderAttachment",
+      entityId: null,
+      workOrderId: id,
+      message: `Added attachment ${fileName}`,
+      metadata: { url, byteSize },
+    });
+
+    revalidatePath(`/admin/work-orders/${id}`);
+    redirect(`/admin/work-orders/${id}`);
   }
 
   return (
@@ -638,6 +783,98 @@ export default async function AdminWorkOrderDetailPage({
               Save Changes
             </button>
           </form>
+        </div>
+
+        <div style={{ ...card, marginTop: 12 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 900, marginTop: 0 }}>Attachments</h2>
+          <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 8 }}>
+            GCS base path: <code>{gcs.basePath}</code>
+            {gcs.bucket ? (
+              <>
+                {" "}
+                bucket: <code>{gcs.bucket}</code>
+              </>
+            ) : null}
+          </div>
+
+          <form action={addAttachmentAction} style={{ display: "grid", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <label style={label}>
+                File Name
+                <input name="fileName" required placeholder="invoice-photo.jpg" style={input} />
+              </label>
+              <label style={label}>
+                URL
+                <input name="url" required placeholder="https://... or gs://..." style={input} />
+              </label>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+              <label style={label}>
+                Content Type
+                <input name="contentType" placeholder="image/jpeg" style={input} />
+              </label>
+              <label style={label}>
+                Byte Size
+                <input name="byteSize" type="number" min={0} placeholder="12345" style={input} />
+              </label>
+              <label style={label}>
+                Storage Key
+                <input name="storageKey" placeholder="work-order-attachments/..." style={input} />
+              </label>
+            </div>
+            <button type="submit" style={{ ...btn, width: 180 }}>
+              Add Attachment
+            </button>
+          </form>
+
+          <div style={{ marginTop: 12, border, borderRadius: 12, overflow: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
+              <thead>
+                <tr>
+                  {["Added", "By", "File", "Type", "Size", "Storage Key", "Open"].map((h) => (
+                    <th key={h} style={{ textAlign: "left", padding: 8, borderBottom: border, fontSize: 12, opacity: 0.9 }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {attachments.map((a) => (
+                  <tr key={a.id}>
+                    <td style={{ padding: 8, borderBottom: border, whiteSpace: "nowrap" }}>{fmtLocal(a.createdAt)}</td>
+                    <td style={{ padding: 8, borderBottom: border }}>
+                      {a.addedByUser ? `${a.addedByUser.name ?? "(no name)"} (${a.addedByUser.email})` : "-"}
+                    </td>
+                    <td style={{ padding: 8, borderBottom: border }}>{a.fileName}</td>
+                    <td style={{ padding: 8, borderBottom: border }}>{a.contentType ?? "-"}</td>
+                    <td style={{ padding: 8, borderBottom: border }}>{formatBytes(a.byteSize)}</td>
+                    <td
+                      style={{
+                        padding: 8,
+                        borderBottom: border,
+                        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+                        fontSize: 12,
+                      }}
+                    >
+                      {a.storageKey ?? "-"}
+                    </td>
+                    <td style={{ padding: 8, borderBottom: border, whiteSpace: "nowrap" }}>
+                      <a href={a.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+                        Open
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+                {attachments.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ padding: 10, fontSize: 12, opacity: 0.75 }}>
+                      No attachments yet.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {/* DELETE */}
