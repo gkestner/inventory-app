@@ -64,6 +64,11 @@ type SensorReadingRow = {
   tempF: unknown;
 };
 
+type SensorPoint = {
+  ts: number;
+  temp: number;
+};
+
 type Db = {
   user: {
     findUnique: (args: unknown) => Promise<{ id: string; active: boolean } | null>;
@@ -154,6 +159,31 @@ function sparklinePoints(values: number[], width = 160, height = 34): string {
       const x = values.length === 1 ? 0 : (i / (values.length - 1)) * width;
       const y = range === 0 ? height / 2 : height - ((v - min) / range) * height;
       return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+}
+
+function linePointsForTimedSeries(args: {
+  points: SensorPoint[];
+  width: number;
+  height: number;
+  minTemp: number;
+  maxTemp: number;
+  startTs: number;
+  endTs: number;
+}): string {
+  const { points, width, height, minTemp, maxTemp, startTs, endTs } = args;
+  if (points.length === 0) return "";
+
+  const tempRange = Math.max(0.001, maxTemp - minTemp);
+  const timeRange = Math.max(1, endTs - startTs);
+
+  return points
+    .map((p) => {
+      const clampedTs = Math.max(startTs, Math.min(endTs, p.ts));
+      const x = ((clampedTs - startTs) / timeRange) * width;
+      const y = height - ((p.temp - minTemp) / tempRange) * height;
+      return `${x.toFixed(1)},${Math.max(0, Math.min(height, y)).toFixed(1)}`;
     })
     .join(" ");
 }
@@ -531,7 +561,7 @@ export default async function TemperatureDashboardPage({
         });
 
   const latestReadingByDevice = new Map<string, { tempF: number; recordedAt: Date }>();
-  const historyByDevice = new Map<string, number[]>();
+  const historyByDevice = new Map<string, SensorPoint[]>();
 
   for (const row of sensorReadings) {
     if (!row.deviceId) continue;
@@ -540,8 +570,8 @@ export default async function TemperatureDashboardPage({
     latestReadingByDevice.set(row.deviceId, { tempF: temp, recordedAt: row.recordedAt });
 
     const hist = historyByDevice.get(row.deviceId) ?? [];
-    hist.push(temp);
-    if (hist.length > 30) hist.shift();
+    hist.push({ ts: row.recordedAt.getTime(), temp });
+    if (hist.length > 120) hist.shift();
     historyByDevice.set(row.deviceId, hist);
   }
   const params = paramsRaw as SearchParams;
@@ -778,6 +808,34 @@ export default async function TemperatureDashboardPage({
                 const min = toNumberOrNull(hub.minTempF);
                 const max = toNumberOrNull(hub.maxTempF);
                 const lastTemp = toNumberOrNull(hub.lastTempF);
+                const nowTs = Date.now();
+                const startTs = nowTs - 24 * 60 * 60 * 1000;
+                const chartWidth = 920;
+                const chartHeight = 180;
+                const seriesPalette = [
+                  "#38bdf8",
+                  "#22c55e",
+                  "#f59e0b",
+                  "#f97316",
+                  "#e879f9",
+                  "#a78bfa",
+                  "#fb7185",
+                  "#2dd4bf",
+                ];
+
+                const series = hub.devices
+                  .map((d, idx) => ({
+                    device: d,
+                    color: seriesPalette[idx % seriesPalette.length],
+                    points: (historyByDevice.get(d.id) ?? []).filter((p) => p.ts >= startTs),
+                  }))
+                  .filter((s) => s.points.length > 1);
+
+                const allTemps = series.flatMap((s) => s.points.map((p) => p.temp));
+                const chartMinTemp = allTemps.length > 0 ? Math.min(...allTemps) : 0;
+                const chartMaxTemp = allTemps.length > 0 ? Math.max(...allTemps) : 100;
+                const paddedMin = chartMinTemp - 2;
+                const paddedMax = chartMaxTemp + 2;
 
                 return (
                   <article key={hub.id} style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 12, background: "var(--surface-2)" }}>
@@ -821,6 +879,72 @@ export default async function TemperatureDashboardPage({
                       </div>
                     </div>
 
+                    <div style={{ marginTop: 10, border: "1px solid var(--border)", borderRadius: 10, padding: 10, background: "var(--surface)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <div style={{ fontWeight: 800, fontSize: 13 }}>Sensor Temperature Overlay (Last 24h)</div>
+                        <div style={{ fontSize: 12, opacity: 0.75 }}>Live chart updates with auto-refresh</div>
+                      </div>
+
+                      {series.length === 0 ? (
+                        <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75 }}>Need at least two readings per sensor to draw overlay lines.</div>
+                      ) : (
+                        <>
+                          <div style={{ marginTop: 8, overflowX: "auto" }}>
+                            <svg width={chartWidth} height={chartHeight + 28} viewBox={`0 0 ${chartWidth} ${chartHeight + 28}`} role="img" aria-label={`24 hour sensor overlay for ${hub.name}`}>
+                              <line x1="0" y1={chartHeight} x2={chartWidth} y2={chartHeight} stroke="var(--border)" strokeWidth="1" />
+                              <line x1="0" y1="0" x2="0" y2={chartHeight} stroke="var(--border)" strokeWidth="1" />
+
+                              {series.map((s) => {
+                                const pts = linePointsForTimedSeries({
+                                  points: s.points,
+                                  width: chartWidth,
+                                  height: chartHeight,
+                                  minTemp: paddedMin,
+                                  maxTemp: paddedMax,
+                                  startTs,
+                                  endTs: nowTs,
+                                });
+
+                                return (
+                                  <polyline
+                                    key={`overlay-${s.device.id}`}
+                                    points={pts}
+                                    fill="none"
+                                    stroke={s.color}
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                );
+                              })}
+
+                              <text x="0" y={chartHeight + 18} fill="var(--muted)" fontSize="11">
+                                24h ago
+                              </text>
+                              <text x={chartWidth - 28} y={chartHeight + 18} fill="var(--muted)" fontSize="11">
+                                now
+                              </text>
+                              <text x="4" y="12" fill="var(--muted)" fontSize="11">
+                                {paddedMax.toFixed(1)}F
+                              </text>
+                              <text x="4" y={chartHeight - 4} fill="var(--muted)" fontSize="11">
+                                {paddedMin.toFixed(1)}F
+                              </text>
+                            </svg>
+                          </div>
+
+                          <div style={{ marginTop: 6, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                            {series.map((s) => (
+                              <div key={`legend-${s.device.id}`} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+                                <span style={{ width: 12, height: 3, background: s.color, borderRadius: 2, display: "inline-block" }} />
+                                <span>{s.device.name}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+
                     <div style={{ marginTop: 10, overflowX: "auto" }}>
                       <div style={{ marginBottom: 6, fontSize: 12, opacity: 0.8 }}>
                         Live sensor table (auto-refresh) with 24h trend sparkline per sensor.
@@ -846,7 +970,7 @@ export default async function TemperatureDashboardPage({
                             const dMin = toNumberOrNull(device.minTempF);
                             const dMax = toNumberOrNull(device.maxTempF);
                             const trend = historyByDevice.get(device.id) ?? [];
-                            const points = sparklinePoints(trend);
+                            const points = sparklinePoints(trend.map((t) => t.temp));
                             return (
                               <tr key={device.id} style={{ borderBottom: "1px solid var(--border)" }}>
                                 <td style={{ padding: "6px 4px" }}>{device.name}</td>
@@ -883,7 +1007,7 @@ export default async function TemperatureDashboardPage({
                           })}
                           {hub.devices.length === 0 ? (
                             <tr>
-                              <td colSpan={7} style={{ padding: "8px 4px", opacity: 0.8 }}>
+                              <td colSpan={8} style={{ padding: "8px 4px", opacity: 0.8 }}>
                                 No readings have been received yet for this hub.
                               </td>
                             </tr>
