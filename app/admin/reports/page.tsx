@@ -136,36 +136,40 @@ export default async function AdminReportsIndexPage({
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <h1 style={{ fontSize: 30, fontWeight: 900, margin: 0 }}>Reports Hub</h1>
 
-          <Link
-            href="/admin/items"
-            style={{
-              padding: "10px 14px",
-              borderRadius: 12,
-              border,
-              background: "var(--surface-2)",
-              color: fg,
-              textDecoration: "none",
-              fontWeight: 900,
-            }}
-          >
-            ← Items
-          </Link>
+          {canItemsReports ? (
+            <Link
+              href="/admin/items"
+              style={{
+                padding: "10px 14px",
+                borderRadius: 12,
+                border,
+                background: "var(--surface-2)",
+                color: fg,
+                textDecoration: "none",
+                fontWeight: 900,
+              }}
+            >
+              ← Items
+            </Link>
+          ) : null}
 
-          <Link
-            href="/admin/inventory-orders"
-            style={{
-              padding: "10px 14px",
-              borderRadius: 12,
-              border,
-              background: "var(--surface-2)",
-              color: fg,
-              textDecoration: "none",
-              fontWeight: 900,
-              opacity: 0.92,
-            }}
-          >
-            Order History →
-          </Link>
+          {canItemsReports ? (
+            <Link
+              href="/admin/inventory-orders"
+              style={{
+                padding: "10px 14px",
+                borderRadius: 12,
+                border,
+                background: "var(--surface-2)",
+                color: fg,
+                textDecoration: "none",
+                fontWeight: 900,
+                opacity: 0.92,
+              }}
+            >
+              Order History →
+            </Link>
+          ) : null}
         </div>
         <p style={{ margin: "10px 0 0", color: "var(--muted)", maxWidth: 900, lineHeight: 1.5 }}>
           Centralized analytics and operational reporting for checkout history, reorder pressure, and cost movement.
@@ -222,7 +226,7 @@ export default async function AdminReportsIndexPage({
         </section>
 
         <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
-          {matchesQuery(query, "checkout orders tickets") ? (
+          {canItemsReports && matchesQuery(query, "checkout orders tickets") ? (
           <Link href="/admin/reports/checkout-orders" style={cardStyle}>
             <h2 style={titleStyle}>Checkout Orders</h2>
             <p style={descStyle}>
@@ -233,7 +237,7 @@ export default async function AdminReportsIndexPage({
           </Link>
           ) : null}
 
-          {matchesQuery(query, "items needing order reorder queue") ? (
+          {canItemsReports && matchesQuery(query, "items needing order reorder queue") ? (
           <Link href="/admin/reports/needs-ordering" style={cardStyle}>
             <h2 style={titleStyle}>Items Needing Order</h2>
             <p style={descStyle}>
@@ -244,7 +248,7 @@ export default async function AdminReportsIndexPage({
           </Link>
           ) : null}
 
-          {matchesQuery(query, "item cost history pricing") ? (
+          {canItemsReports && matchesQuery(query, "item cost history pricing") ? (
           <Link href="/admin/reports/item-cost-history" style={cardStyle}>
             <h2 style={titleStyle}>Item Cost History</h2>
             <p style={descStyle}>
@@ -255,7 +259,7 @@ export default async function AdminReportsIndexPage({
           </Link>
           ) : null}
 
-          {matchesQuery(query, "order history inventory orders") ? (
+          {canItemsReports && matchesQuery(query, "order history inventory orders") ? (
           <Link href="/admin/inventory-orders" style={cardStyle}>
             <h2 style={titleStyle}>Order History</h2>
             <p style={descStyle}>
@@ -266,7 +270,7 @@ export default async function AdminReportsIndexPage({
           </Link>
           ) : null}
 
-          {matchesQuery(query, "orders received processing inventory receiving") ? (
+          {canItemsReports && matchesQuery(query, "orders received processing inventory receiving") ? (
           <Link href="/admin/inventory-receiving" style={cardStyle}>
             <h2 style={titleStyle}>Orders Received / Processing</h2>
             <p style={descStyle}>
@@ -276,7 +280,7 @@ export default async function AdminReportsIndexPage({
           </Link>
           ) : null}
 
-          {matchesQuery(query, "work order cost rollup labor mileage") ? (
+          {canWorkOrderReports && matchesQuery(query, "work order cost rollup labor mileage") ? (
           <Link href="/admin/reports/work-order-costs" style={cardStyle}>
             <h2 style={titleStyle}>Work Order Cost Rollup</h2>
             <p style={descStyle}>
@@ -391,7 +395,7 @@ export default async function AdminReportsIndexPage({
             </Link>
           ) : null}
 
-          {matchesQuery(query, "audit trail activity stream") ? (
+          {canSecurityReports && matchesQuery(query, "audit trail activity stream") ? (
           <Link href="/admin/audit" style={cardStyle}>
             <h2 style={titleStyle}>Audit Trail</h2>
             <p style={descStyle}>
@@ -401,7 +405,7 @@ export default async function AdminReportsIndexPage({
           </Link>
           ) : null}
 
-          {matchesQuery(query, "permission diagnostics") ? (
+          {canSecurityReports && matchesQuery(query, "permission diagnostics") ? (
           <Link href="/admin/permission-diagnostics" style={cardStyle}>
             <h2 style={titleStyle}>Permission Diagnostics</h2>
             <p style={descStyle}>
