@@ -61,6 +61,7 @@ export default async function UserNav() {
   const canTravelLog = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
 
   const canCheckout = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
+  const canMaintenanceRequests = !!session;
 
   const homeHref = canWorkOrders || canOfficeEntry || canCheckout ? "/maintenance" : "/";
 
@@ -95,6 +96,12 @@ export default async function UserNav() {
           {canCheckout && (
             <Link href="/maintenance/checkout" className="site-link" style={linkStyle}>
               Checkout
+            </Link>
+          )}
+
+          {canMaintenanceRequests && (
+            <Link href="/maintenance-requests" className="site-link" style={linkStyle}>
+              Maintenance Requests
             </Link>
           )}
         </div>

@@ -236,6 +236,12 @@ enum VehicleReminderType {
   MILEAGE_BASED
 }
 
+enum MaintenanceRequestStatus {
+  OPEN
+  RESOLVED
+  ARCHIVED
+}
+
 /**
  * Expanded enum:
  * - Includes the REQUIRED pizza-maintenance areas (used by UI)
@@ -317,6 +323,7 @@ model Location {
   preventativeMaintenanceEntries PreventativeMaintenanceEntry[]
   equipmentTrackingLogs EquipmentTrackingLog[]
   cycleCountSessions CycleCountSession[]
+  maintenanceRequests MaintenanceRequest[]
 
   @@index([active])
 }
@@ -384,6 +391,9 @@ model User {
   performedVehicleServices CompanyVehicleServiceLog[] @relation("VehicleServicePerformedBy")
   createdVehicleServices CompanyVehicleServiceLog[] @relation("VehicleServiceCreatedBy")
   cycleCountsCreated CycleCountSession[]   @relation("CycleCountCreatedBy")
+  maintenanceRequestsCreated MaintenanceRequest[] @relation("MaintenanceRequestCreatedBy")
+  maintenanceRequestsAssigned MaintenanceRequest[] @relation("MaintenanceRequestAssignedTo")
+  maintenanceRequestsResolved MaintenanceRequest[] @relation("MaintenanceRequestResolvedBy")
 }
 
 model UserPermission {
@@ -641,6 +651,40 @@ model CompanyVehicleServiceLog {
   @@index([reminderId])
   @@index([performedByUserId, serviceAt])
   @@index([createdByUserId, serviceAt])
+}
+
+model MaintenanceRequest {
+  id String @id @default(cuid())
+
+  status MaintenanceRequestStatus @default(OPEN)
+
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
+
+  title       String
+  description String
+
+  requestedByUserId String
+  requestedByUser   User @relation("MaintenanceRequestCreatedBy", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+
+  assignedMaintenanceUserId String?
+  assignedMaintenanceUser   User? @relation("MaintenanceRequestAssignedTo", fields: [assignedMaintenanceUserId], references: [id], onDelete: SetNull)
+
+  resolutionNotes String?
+  resolvedAt      DateTime?
+
+  resolvedByUserId String?
+  resolvedByUser   User? @relation("MaintenanceRequestResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  archivedAt DateTime?
+
+  @@index([status, createdAt])
+  @@index([locationId, status])
+  @@index([requestedByUserId, createdAt])
+  @@index([assignedMaintenanceUserId, status])
+  @@index([resolvedByUserId, resolvedAt])
 }
 
 model AuditLog {

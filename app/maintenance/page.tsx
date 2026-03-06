@@ -40,6 +40,7 @@ export default async function MaintenanceHomePage() {
   const canPreventativeMaintenance = canWorkOrders || canCheckout || canOfficeEntry || canLiveOrders;
   const canEquipmentTracking = canPreventativeMaintenance;
   const canVehicleLog = canPreventativeMaintenance;
+  const canMaintenanceRequests = canPreventativeMaintenance;
 
   const border = "1px solid var(--border)";
 
@@ -171,6 +172,18 @@ export default async function MaintenanceHomePage() {
               </p>
               <Link href="/maintenance/vehicle-log" style={action}>
                 Open Vehicle Log
+              </Link>
+            </article>
+          ) : null}
+
+          {canMaintenanceRequests ? (
+            <article style={card}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Maintenance Requests</h2>
+              <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.5 }}>
+                Submit and track store maintenance requests with automatic routing to the assigned maintenance technician.
+              </p>
+              <Link href="/maintenance-requests" style={action}>
+                Open Requests
               </Link>
             </article>
           ) : null}

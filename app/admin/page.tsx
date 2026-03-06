@@ -88,6 +88,7 @@ export default async function AdminHomePage() {
   const canPreventativeMaintenance = canWorkOrders || canLocations || canTickets;
   const canEquipmentTracking = canPreventativeMaintenance;
   const canCompanyVehicles = canPreventativeMaintenance;
+  const canMaintenanceRequests = canPreventativeMaintenance;
 
   const grid: CSSProperties = {
     display: "grid",
@@ -294,6 +295,21 @@ export default async function AdminHomePage() {
         ) : (
           <div style={card}>
             <h2 style={title}>Company Vehicles</h2>
+            <p style={desc}>You don’t have access to view this module.</p>
+          </div>
+        )}
+
+        {canMaintenanceRequests ? (
+          <div style={card}>
+            <h2 style={title}>Maintenance Requests</h2>
+            <p style={desc}>Running log of store requests with assigned maintenance tech routing, resolution, and archive workflow.</p>
+            <Link href="/admin/maintenance-requests" style={linkStyle}>
+              Open Request Queue →
+            </Link>
+          </div>
+        ) : (
+          <div style={card}>
+            <h2 style={title}>Maintenance Requests</h2>
             <p style={desc}>You don’t have access to view this module.</p>
           </div>
         )}
