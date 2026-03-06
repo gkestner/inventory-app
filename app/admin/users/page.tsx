@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import Link from "next/link";
+import Script from "next/script";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -716,6 +717,59 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
   return (
     <div style={pageWrap}>
+      <Script id="admin-users-location-select-controls" strategy="afterInteractive">{`
+(function () {
+  function getName(kind) {
+    return kind === 'optional' ? 'optionalLocationIds' : 'primaryLocationIds';
+  }
+
+  function setCheckedForKind(form, kind, checked) {
+    var name = getName(kind);
+    var boxes = form.querySelectorAll('input[type="checkbox"][name="' + name + '"]');
+    for (var i = 0; i < boxes.length; i++) boxes[i].checked = checked;
+  }
+
+  function clearOverlap(form, selectedKind) {
+    var selectedName = getName(selectedKind);
+    var otherName = getName(selectedKind === 'primary' ? 'optional' : 'primary');
+
+    var selected = form.querySelectorAll('input[type="checkbox"][name="' + selectedName + '"]');
+    var selectedValues = Object.create(null);
+    for (var i = 0; i < selected.length; i++) {
+      if (selected[i].checked) selectedValues[selected[i].value] = true;
+    }
+
+    var other = form.querySelectorAll('input[type="checkbox"][name="' + otherName + '"]');
+    for (var j = 0; j < other.length; j++) {
+      if (other[j].checked && selectedValues[other[j].value]) other[j].checked = false;
+    }
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t || !t.closest) return;
+
+    var btn = t.closest('[data-location-select-action]');
+    if (!btn) return;
+
+    var form = btn.closest('form[data-location-assignment-form]');
+    if (!form) return;
+
+    var kind = btn.getAttribute('data-location-select-kind');
+    var action = btn.getAttribute('data-location-select-action');
+    if (!kind || !action) return;
+
+    if (action === 'all') {
+      setCheckedForKind(form, kind, true);
+      clearOverlap(form, kind);
+      return;
+    }
+
+    if (action === 'clear') setCheckedForKind(form, kind, false);
+  }, true);
+})();
+      `}</Script>
+
       <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 900, marginBottom: 6 }}>Admin Users</h1>
@@ -764,7 +818,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside", fontSize: 16 }}>Create User</summary>
 
         <div style={{ marginTop: 10 }}>
-          <form action={createUserAction} style={{ display: "grid", gap: 12 }}>
+          <form action={createUserAction} style={{ display: "grid", gap: 12 }} data-location-assignment-form>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <label style={label}>
                 <span style={{ fontWeight: 800 }}>Name</span>
@@ -802,6 +856,14 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
                 <div style={{ fontWeight: 900, marginBottom: 6 }}>Primary Locations (active preferred)</div>
+                <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                  <button type="button" style={btn} data-location-select-kind="primary" data-location-select-action="all">
+                    Select All Primary
+                  </button>
+                  <button type="button" style={btn} data-location-select-kind="primary" data-location-select-action="clear">
+                    Clear Primary
+                  </button>
+                </div>
                 <div style={{ display: "grid", gap: 6, maxHeight: 240, overflow: "auto", paddingRight: 6 }}>
                   {locationChoicesForCreate.map((l) => (
                     <label
@@ -825,6 +887,14 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
               <div>
                 <div style={{ fontWeight: 900, marginBottom: 6 }}>Optional Locations (active preferred)</div>
+                <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                  <button type="button" style={btn} data-location-select-kind="optional" data-location-select-action="all">
+                    Select All Optional
+                  </button>
+                  <button type="button" style={btn} data-location-select-kind="optional" data-location-select-action="clear">
+                    Clear Optional
+                  </button>
+                </div>
                 <div style={{ display: "grid", gap: 6, maxHeight: 240, overflow: "auto", paddingRight: 6 }}>
                   {locationChoicesForCreate.map((l) => (
                     <label
@@ -1112,12 +1182,20 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                   <summary style={{ cursor: "pointer", fontWeight: 900 }}>Assign Locations</summary>
 
                   <div style={{ marginTop: 10 }}>
-                    <form action={assignLocationsAction} style={{ display: "grid", gap: 12 }}>
+                    <form action={assignLocationsAction} style={{ display: "grid", gap: 12 }} data-location-assignment-form>
                       <input type="hidden" name="userId" value={u.id} />
 
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                         <div>
                           <div style={{ fontWeight: 900, marginBottom: 6 }}>Primary Locations</div>
+                          <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                            <button type="button" style={btn} data-location-select-kind="primary" data-location-select-action="all">
+                              Select All Primary
+                            </button>
+                            <button type="button" style={btn} data-location-select-kind="primary" data-location-select-action="clear">
+                              Clear Primary
+                            </button>
+                          </div>
                           <div style={{ display: "grid", gap: 6, maxHeight: 210, overflow: "auto", paddingRight: 6 }}>
                             {primaryChoices.map((l) => {
                               const checked = checkedPrimary.has(l.id);
@@ -1145,6 +1223,14 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
                         <div>
                           <div style={{ fontWeight: 900, marginBottom: 6 }}>Optional Locations</div>
+                          <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                            <button type="button" style={btn} data-location-select-kind="optional" data-location-select-action="all">
+                              Select All Optional
+                            </button>
+                            <button type="button" style={btn} data-location-select-kind="optional" data-location-select-action="clear">
+                              Clear Optional
+                            </button>
+                          </div>
                           <div style={{ display: "grid", gap: 6, maxHeight: 210, overflow: "auto", paddingRight: 6 }}>
                             {optionalChoices.map((l) => {
                               const checked = checkedOptional.has(l.id);
