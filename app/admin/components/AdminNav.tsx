@@ -429,6 +429,11 @@ export default async function AdminNav() {
                     Preventative Maintenance
                   </Link>
                 ) : null}
+                {canPreventativeMaintenance ? (
+                  <Link href="/admin/preventative-maintenance/compliance" style={menuItemStyle}>
+                    Backflow / Grease Trap / Boiler
+                  </Link>
+                ) : null}
                 {canEquipmentTracking ? (
                   <Link href="/admin/equipment-tracking" style={menuItemStyle}>
                     Equipment Tracking
