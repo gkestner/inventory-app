@@ -775,6 +775,9 @@ model MocreoDevice {
   name             String
   externalDeviceId String
 
+  minTempF Decimal? @db.Decimal(6, 2)
+  maxTempF Decimal? @db.Decimal(6, 2)
+
   lastSeenAt      DateTime?
   lastReadingAt   DateTime?
   lastTempF       Decimal? @db.Decimal(6, 2)

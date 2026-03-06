@@ -38,6 +38,8 @@ type HubRow = {
     id: string;
     name: string;
     externalDeviceId: string;
+    minTempF: unknown;
+    maxTempF: unknown;
     lastReadingAt: Date | null;
     lastTempF: unknown;
     lastAlertState: "NORMAL" | "HIGH" | "LOW" | "UNKNOWN" | null;
@@ -79,6 +81,18 @@ type Db = {
   mocreoHubRecipient: {
     deleteMany: (args: unknown) => Promise<unknown>;
     createMany: (args: unknown) => Promise<unknown>;
+  };
+  mocreoDevice: {
+    findUnique: (args: unknown) => Promise<
+      | {
+          id: string;
+          hubId: string;
+          name: string;
+          externalDeviceId: string;
+        }
+      | null
+    >;
+    update: (args: unknown) => Promise<{ id: string }>;
   };
   mocreoTemperatureReading: {
     findMany: (args: unknown) => Promise<AlertRow[]>;
@@ -269,6 +283,66 @@ export default async function TemperatureDashboardPage({
     redirect("/maintenance/temperature-dashboard");
   }
 
+  async function saveDeviceThresholdAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as SessionShape;
+    if (!session) redirect("/login");
+    if (!(await canAccessAdmin(session))) redirect("/");
+
+    const email = String(session.user?.email ?? "").trim().toLowerCase();
+    if (!email) redirect("/login");
+    const actor = await db.user.findUnique({ where: { email }, select: { id: true, active: true } });
+    if (!actor || !actor.active) redirect("/login");
+
+    const deviceId = String(formData.get("deviceId") ?? "").trim();
+    const hubId = String(formData.get("hubId") ?? "").trim();
+    const minTempF = parseTempInput(formData.get("deviceMinTempF"));
+    const maxTempF = parseTempInput(formData.get("deviceMaxTempF"));
+
+    if (!deviceId || !hubId) {
+      redirect("/maintenance/temperature-dashboard?error=missing_device");
+    }
+
+    if (minTempF !== null && maxTempF !== null && minTempF >= maxTempF) {
+      redirect("/maintenance/temperature-dashboard?error=device_range");
+    }
+
+    const device = await db.mocreoDevice.findUnique({
+      where: { id: deviceId },
+      select: { id: true, hubId: true, name: true, externalDeviceId: true },
+    });
+    if (!device || device.hubId !== hubId) {
+      redirect("/maintenance/temperature-dashboard?error=invalid_device");
+    }
+
+    await db.mocreoDevice.update({
+      where: { id: device.id },
+      data: { minTempF, maxTempF },
+      select: { id: true },
+    });
+
+    await db.auditLog.create({
+      data: {
+        actorUserId: actor.id,
+        module: "MOCREO_TEMPERATURE",
+        action: "UPDATE_DEVICE_THRESHOLDS",
+        entityType: "MocreoDevice",
+        entityId: device.id,
+        message: `Updated thresholds for sensor ${device.name}.`,
+        metadata: {
+          hubId,
+          externalDeviceId: device.externalDeviceId,
+          minTempF,
+          maxTempF,
+        },
+      },
+    });
+
+    revalidatePath("/maintenance/temperature-dashboard");
+    redirect("/maintenance/temperature-dashboard?savedDevice=1");
+  }
+
   async function runWebhookPairingTestAction(formData: FormData) {
     "use server";
 
@@ -379,6 +453,8 @@ export default async function TemperatureDashboardPage({
             id: true,
             name: true,
             externalDeviceId: true,
+            minTempF: true,
+            maxTempF: true,
             lastReadingAt: true,
             lastTempF: true,
             lastAlertState: true,
@@ -470,6 +546,9 @@ export default async function TemperatureDashboardPage({
             <div>
               <strong>4.</strong> Set <strong>Min Temp</strong> and <strong>Max Temp</strong> in F.
               Alerts trigger when a reading is below min or above max.
+            </div>
+            <div>
+              <strong>4a.</strong> Optional: set Min/Max on each sensor to override hub defaults.
             </div>
             <div>
               <strong>5.</strong> Click <strong>Save Hub Configuration</strong>.
@@ -624,6 +703,9 @@ export default async function TemperatureDashboardPage({
         <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", overflow: "hidden" }}>
           <div style={{ padding: 14, borderBottom: "1px solid var(--border)" }}>
             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Hub Dashboard</h2>
+            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>
+              Sensor-level thresholds override hub thresholds when set.
+            </div>
           </div>
           {hubs.length === 0 ? (
             <div style={{ padding: 14, opacity: 0.8 }}>No hubs configured yet.</div>
@@ -683,6 +765,7 @@ export default async function TemperatureDashboardPage({
                           <tr style={{ borderBottom: "1px solid var(--border)" }}>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Device</th>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Device ID</th>
+                            <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Thresholds (F)</th>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Last Temp</th>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Alert</th>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Battery</th>
@@ -692,10 +775,17 @@ export default async function TemperatureDashboardPage({
                         <tbody>
                           {hub.devices.map((device) => {
                             const dTemp = toNumberOrNull(device.lastTempF);
+                            const dMin = toNumberOrNull(device.minTempF);
+                            const dMax = toNumberOrNull(device.maxTempF);
                             return (
                               <tr key={device.id} style={{ borderBottom: "1px solid var(--border)" }}>
                                 <td style={{ padding: "6px 4px" }}>{device.name}</td>
                                 <td style={{ padding: "6px 4px", fontFamily: "monospace", fontSize: 12 }}>{device.externalDeviceId}</td>
+                                <td style={{ padding: "6px 4px" }}>
+                                  {dMin === null && dMax === null
+                                    ? `Hub default (${min === null ? "-" : min} to ${max === null ? "-" : max})`
+                                    : `${dMin === null ? "-" : dMin} to ${dMax === null ? "-" : dMax}`}
+                                </td>
                                 <td style={{ padding: "6px 4px" }}>{dTemp === null ? "-" : `${dTemp.toFixed(1)}F`}</td>
                                 <td style={{ padding: "6px 4px", fontWeight: 800 }}>{device.lastAlertState ?? "UNKNOWN"}</td>
                                 <td style={{ padding: "6px 4px" }}>{device.lastBatteryPct === null ? "-" : `${device.lastBatteryPct}%`}</td>
@@ -705,7 +795,7 @@ export default async function TemperatureDashboardPage({
                           })}
                           {hub.devices.length === 0 ? (
                             <tr>
-                              <td colSpan={6} style={{ padding: "8px 4px", opacity: 0.8 }}>
+                              <td colSpan={7} style={{ padding: "8px 4px", opacity: 0.8 }}>
                                 No readings have been received yet for this hub.
                               </td>
                             </tr>
@@ -713,6 +803,69 @@ export default async function TemperatureDashboardPage({
                         </tbody>
                       </table>
                     </div>
+
+                    {isAdmin && hub.devices.length > 0 ? (
+                      <details style={{ marginTop: 10 }}>
+                        <summary style={{ cursor: "pointer", fontWeight: 800 }}>Edit Sensor Thresholds</summary>
+                        <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                          {hub.devices.map((device) => (
+                            <form
+                              key={`threshold-${device.id}`}
+                              action={saveDeviceThresholdAction}
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "minmax(180px, 2fr) repeat(2, minmax(120px, 1fr)) auto",
+                                gap: 8,
+                                alignItems: "end",
+                                border: "1px solid var(--border)",
+                                borderRadius: 8,
+                                padding: 8,
+                                background: "var(--surface)",
+                              }}
+                            >
+                              <input type="hidden" name="hubId" value={hub.id} />
+                              <input type="hidden" name="deviceId" value={device.id} />
+
+                              <label style={{ display: "grid", gap: 2 }}>
+                                <span style={{ fontWeight: 700, fontSize: 12 }}>{device.name}</span>
+                                <span style={{ opacity: 0.75, fontSize: 11, fontFamily: "monospace" }}>{device.externalDeviceId}</span>
+                              </label>
+
+                              <label style={{ display: "grid", gap: 2 }}>
+                                <span style={{ fontSize: 12, fontWeight: 700 }}>Min F</span>
+                                <input
+                                  name="deviceMinTempF"
+                                  type="number"
+                                  step="0.1"
+                                  defaultValue={toNumberOrNull(device.minTempF) ?? ""}
+                                  placeholder={toNumberOrNull(hub.minTempF) === null ? "Hub default" : String(toNumberOrNull(hub.minTempF))}
+                                  style={{ padding: "7px 8px", borderRadius: 8, border: "1px solid var(--border)" }}
+                                />
+                              </label>
+
+                              <label style={{ display: "grid", gap: 2 }}>
+                                <span style={{ fontSize: 12, fontWeight: 700 }}>Max F</span>
+                                <input
+                                  name="deviceMaxTempF"
+                                  type="number"
+                                  step="0.1"
+                                  defaultValue={toNumberOrNull(device.maxTempF) ?? ""}
+                                  placeholder={toNumberOrNull(hub.maxTempF) === null ? "Hub default" : String(toNumberOrNull(hub.maxTempF))}
+                                  style={{ padding: "7px 8px", borderRadius: 8, border: "1px solid var(--border)" }}
+                                />
+                              </label>
+
+                              <button
+                                type="submit"
+                                style={{ padding: "8px 10px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface-2)", fontWeight: 800, cursor: "pointer" }}
+                              >
+                                Save Sensor
+                              </button>
+                            </form>
+                          ))}
+                        </div>
+                      </details>
+                    ) : null}
 
                     {isAdmin ? (
                       <details style={{ marginTop: 10 }}>

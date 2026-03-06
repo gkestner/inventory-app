@@ -29,6 +29,14 @@ type Db = {
     update: (args: unknown) => Promise<unknown>;
   };
   mocreoDevice: {
+    findUnique: (args: unknown) => Promise<
+      | {
+          id: string;
+          minTempF: unknown;
+          maxTempF: unknown;
+        }
+      | null
+    >;
     upsert: (args: unknown) => Promise<{ id: string }>;
   };
   mocreoTemperatureReading: {
@@ -91,9 +99,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, ignored: true, reason: "hub_inactive" }, { status: 202 });
   }
 
-  const minTempF = decimalToNumber(hub.minTempF);
-  const maxTempF = decimalToNumber(hub.maxTempF);
-  const alertState = evaluateTemperatureAlertState(parsed.temperatureF, { minTempF, maxTempF });
+  const hubMinTempF = decimalToNumber(hub.minTempF);
+  const hubMaxTempF = decimalToNumber(hub.maxTempF);
+
+  const existingDevice = await db.mocreoDevice.findUnique({
+    where: {
+      hubId_externalDeviceId: {
+        hubId: hub.id,
+        externalDeviceId: parsed.externalDeviceId,
+      },
+    },
+    select: { id: true, minTempF: true, maxTempF: true },
+  });
+
+  const deviceMinTempF = decimalToNumber(existingDevice?.minTempF);
+  const deviceMaxTempF = decimalToNumber(existingDevice?.maxTempF);
+
+  const alertState = evaluateTemperatureAlertState(parsed.temperatureF, {
+    minTempF: deviceMinTempF ?? hubMinTempF,
+    maxTempF: deviceMaxTempF ?? hubMaxTempF,
+  });
 
   const device = await db.mocreoDevice.upsert({
     where: {
@@ -181,6 +206,14 @@ export async function POST(req: NextRequest) {
         recordedAt: parsed.recordedAt.toISOString(),
         temperatureF: parsed.temperatureF,
         alertState,
+        thresholds: {
+          hub: { minTempF: hubMinTempF, maxTempF: hubMaxTempF },
+          device: { minTempF: deviceMinTempF, maxTempF: deviceMaxTempF },
+          effective: {
+            minTempF: deviceMinTempF ?? hubMinTempF,
+            maxTempF: deviceMaxTempF ?? hubMaxTempF,
+          },
+        },
       },
     },
   });
