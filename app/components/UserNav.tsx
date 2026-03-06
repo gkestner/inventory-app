@@ -32,21 +32,54 @@ export default async function UserNav() {
     display: "flex",
     gap: 10,
     alignItems: "center",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
+    minWidth: 0,
+    overflowX: "auto",
   };
 
   const brand: CSSProperties = {};
 
-  const linkStyle: CSSProperties = {
+  const linkStyle: CSSProperties = { whiteSpace: "nowrap" };
+
+  const summaryStyle: CSSProperties = {
+    listStyle: "none",
+    padding: "6px 10px",
+    borderRadius: 10,
+    border: "1px solid var(--border)",
+    color: "var(--foreground)",
+    fontWeight: 900,
+    opacity: 0.92,
     whiteSpace: "nowrap",
+    cursor: "pointer",
+    userSelect: "none",
   };
 
-  const groupLabel: CSSProperties = {
-    fontSize: 12,
-    opacity: 0.7,
-    fontWeight: 900,
-    marginLeft: 6,
-    marginRight: -2,
+  const detailsStyle: CSSProperties = {
+    position: "relative",
+    display: "inline-block",
+  };
+
+  const menuStyle: CSSProperties = {
+    position: "absolute",
+    top: "calc(100% + 8px)",
+    left: 0,
+    zIndex: 3000,
+    minWidth: 220,
+    padding: 8,
+    borderRadius: 12,
+    border: "1px solid var(--border)",
+    background: "var(--background)",
+    color: "var(--foreground)",
+    boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
+  };
+
+  const menuItemStyle: CSSProperties = {
+    display: "block",
+    padding: "8px 10px",
+    borderRadius: 10,
+    textDecoration: "none",
+    color: "var(--foreground)",
+    fontWeight: 800,
     whiteSpace: "nowrap",
   };
 
@@ -74,46 +107,54 @@ export default async function UserNav() {
     <div className="site-nav-shell" style={shell}>
       <div className="site-nav-inner" style={inner}>
         <div style={left}>
+          <style>{`
+            details > summary::-webkit-details-marker { display: none; }
+            details[data-user-dropdown][open] { z-index: 4000; }
+          `}</style>
+
           <Link href={homeHref} className="site-brand" style={brand}>
             Maintenance
           </Link>
 
-          <span style={groupLabel}>Work</span>
-
-          {canWorkOrders && (
+          {canWorkOrders ? (
             <Link href="/maintenance/work-orders" className="site-link" style={linkStyle}>
               Work Orders
             </Link>
-          )}
+          ) : null}
 
-          {canOfficeEntry && (
-            <Link href="/maintenance/work-orders/office-entry" className="site-link" style={linkStyle}>
-              Office Entry
-            </Link>
-          )}
-
-          {canTravelLog && (
-            <Link href="/maintenance/travel-log" className="site-link" style={linkStyle}>
-              Travel Log
-            </Link>
-          )}
-
-          {canCheckout && (
+          {canCheckout ? (
             <Link href="/maintenance/checkout" className="site-link" style={linkStyle}>
               Checkout
             </Link>
-          )}
+          ) : null}
 
-          {canMaintenanceRequests && (
+          {canMaintenanceRequests ? (
             <Link href="/maintenance-requests" className="site-link" style={linkStyle}>
-              Maintenance Requests
+              Requests
             </Link>
-          )}
+          ) : null}
 
-          {canTemperatureDashboard && (
-            <Link href="/maintenance/temperature-dashboard" className="site-link" style={linkStyle}>
-              Temperature Dashboard
-            </Link>
+          {(canOfficeEntry || canTravelLog || canTemperatureDashboard) && (
+            <details data-user-dropdown style={detailsStyle}>
+              <summary style={summaryStyle}>More</summary>
+              <div style={menuStyle}>
+                {canOfficeEntry ? (
+                  <Link href="/maintenance/work-orders/office-entry" style={menuItemStyle}>
+                    Office Entry
+                  </Link>
+                ) : null}
+                {canTravelLog ? (
+                  <Link href="/maintenance/travel-log" style={menuItemStyle}>
+                    Travel Log
+                  </Link>
+                ) : null}
+                {canTemperatureDashboard ? (
+                  <Link href="/maintenance/temperature-dashboard" style={menuItemStyle}>
+                    Temperature Dashboard
+                  </Link>
+                ) : null}
+              </div>
+            </details>
           )}
         </div>
 

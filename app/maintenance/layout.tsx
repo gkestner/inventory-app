@@ -99,73 +99,80 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
     display: "flex",
     gap: 10,
     alignItems: "center",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
+    minWidth: 0,
+    overflowX: "auto",
   };
 
   const pill = (): CSSProperties => ({
     whiteSpace: "nowrap",
   });
 
+  const summaryStyle: CSSProperties = {
+    listStyle: "none",
+    padding: "6px 10px",
+    borderRadius: 10,
+    border: "1px solid var(--border)",
+    color: "var(--foreground)",
+    fontWeight: 900,
+    opacity: 0.92,
+    whiteSpace: "nowrap",
+    cursor: "pointer",
+    userSelect: "none",
+  };
+
+  const detailsStyle: CSSProperties = {
+    position: "relative",
+    display: "inline-block",
+  };
+
+  const menuStyle: CSSProperties = {
+    position: "absolute",
+    top: "calc(100% + 8px)",
+    left: 0,
+    zIndex: 3000,
+    minWidth: 240,
+    padding: 8,
+    borderRadius: 12,
+    border: "1px solid var(--border)",
+    background: "var(--background)",
+    color: "var(--foreground)",
+    boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
+  };
+
+  const menuItemStyle: CSSProperties = {
+    display: "block",
+    padding: "8px 10px",
+    borderRadius: 10,
+    textDecoration: "none",
+    color: "var(--foreground)",
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  };
+
   return (
     <div>
       <nav className="site-nav-shell" style={shell}>
         <div className="site-nav-inner" style={inner}>
           <div style={left}>
+            <style>{`
+              details > summary::-webkit-details-marker { display: none; }
+              details[data-maintenance-dropdown][open] { z-index: 4000; }
+            `}</style>
+
             <Link href="/maintenance" className="site-brand" style={pill()}>
               Maintenance
             </Link>
 
-            {/* ✅ Only show Work Orders + Travel Log if permitted */}
-            {canWorkOrders || canOfficeEntry ? (
-              <>
-                {canWorkOrders ? (
-                  <Link href="/maintenance/work-orders" className="site-link" style={pill()}>
-                    Work Orders
-                  </Link>
-                ) : null}
-
-                {canOfficeEntry ? (
-                  <Link href="/maintenance/work-orders/office-entry" className="site-link" style={pill()}>
-                    Office Entry
-                  </Link>
-                ) : null}
-
-                {canTravelLog ? (
-                  <Link href="/maintenance/travel-log" className="site-link" style={pill()}>
-                    Travel Log
-                  </Link>
-                ) : null}
-
-                {canReceipts ? (
-                  <Link href="/maintenance/receipts" className="site-link" style={pill()}>
-                    Receipts
-                  </Link>
-                ) : null}
-              </>
+            {canWorkOrders ? (
+              <Link href="/maintenance/work-orders" className="site-link" style={pill()}>
+                Work Orders
+              </Link>
             ) : null}
 
-            {/* ✅ Only show Checkout if permitted */}
             {canCheckout ? (
               <Link href="/maintenance/checkout" className="site-link" style={pill()}>
                 Checkout
-              </Link>
-            ) : null}
-
-            {canPreventativeMaintenance ? (
-              <Link href="/maintenance/preventative-maintenance" className="site-link" style={pill()}>
-                Preventative Maintenance
-              </Link>
-            ) : null}
-
-            {canEquipmentTracking ? (
-              <Link href="/maintenance/equipment-tracking" className="site-link" style={pill()}>
-                Equipment Tracking
-              </Link>
-            ) : null}
-
-            {canVehicleLog ? (
-              <Link href="/maintenance/vehicle-log" className="site-link" style={pill()}>
-                Vehicle Log
               </Link>
             ) : null}
 
@@ -175,18 +182,61 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
               </Link>
             ) : null}
 
-            {canTemperatureDashboard ? (
-              <Link href="/maintenance/temperature-dashboard" className="site-link" style={pill()}>
-                Temperature Dashboard
-              </Link>
-            ) : null}
+            {(canOfficeEntry || canTravelLog || canReceipts || canLiveOrders) && (
+              <details data-maintenance-dropdown style={detailsStyle}>
+                <summary style={summaryStyle}>Operations</summary>
+                <div style={menuStyle}>
+                  {canOfficeEntry ? (
+                    <Link href="/maintenance/work-orders/office-entry" style={menuItemStyle}>
+                      Office Entry
+                    </Link>
+                  ) : null}
+                  {canTravelLog ? (
+                    <Link href="/maintenance/travel-log" style={menuItemStyle}>
+                      Travel Log
+                    </Link>
+                  ) : null}
+                  {canReceipts ? (
+                    <Link href="/maintenance/receipts" style={menuItemStyle}>
+                      Receipts
+                    </Link>
+                  ) : null}
+                  {canLiveOrders ? (
+                    <Link href="/employee/live-orders" style={menuItemStyle}>
+                      Live Orders
+                    </Link>
+                  ) : null}
+                </div>
+              </details>
+            )}
 
-            {/* ✅ NEW: Live Orders board (permission-based) */}
-            {canLiveOrders ? (
-              <Link href="/employee/live-orders" className="site-link" style={pill()}>
-                Live Orders
-              </Link>
-            ) : null}
+            {(canPreventativeMaintenance || canEquipmentTracking || canVehicleLog || canTemperatureDashboard) && (
+              <details data-maintenance-dropdown style={detailsStyle}>
+                <summary style={summaryStyle}>Monitoring</summary>
+                <div style={menuStyle}>
+                  {canPreventativeMaintenance ? (
+                    <Link href="/maintenance/preventative-maintenance" style={menuItemStyle}>
+                      Preventative Maintenance
+                    </Link>
+                  ) : null}
+                  {canEquipmentTracking ? (
+                    <Link href="/maintenance/equipment-tracking" style={menuItemStyle}>
+                      Equipment Tracking
+                    </Link>
+                  ) : null}
+                  {canVehicleLog ? (
+                    <Link href="/maintenance/vehicle-log" style={menuItemStyle}>
+                      Vehicle Log
+                    </Link>
+                  ) : null}
+                  {canTemperatureDashboard ? (
+                    <Link href="/maintenance/temperature-dashboard" style={menuItemStyle}>
+                      Temperature Dashboard
+                    </Link>
+                  ) : null}
+                </div>
+              </details>
+            )}
           </div>
 
           {/* right-side items (logout button etc.) can stay where you already render them elsewhere */}
