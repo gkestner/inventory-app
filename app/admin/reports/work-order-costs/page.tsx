@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { Permission } from "@prisma/client";
+import { PartsCheckoutStatus, Permission } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
@@ -83,7 +83,40 @@ export default async function WorkOrderCostReportPage({ searchParams }: { search
     },
   });
 
-  const byLocation = new Map<string, { hours: number; miles: number; labor: number; mileageCost: number; total: number; count: number }>();
+  const checkoutRows = await prisma.partsCheckoutTicket.findMany({
+    where: {
+      status: { not: PartsCheckoutStatus.VOIDED },
+      ...(from || to
+        ? {
+            createdAt: {
+              ...(from ? { gte: from } : {}),
+              ...(to ? { lt: new Date(to.getTime() + 24 * 60 * 60 * 1000) } : {}),
+            },
+          }
+        : {}),
+    },
+    select: {
+      storeName: true,
+      quantity: true,
+      costSnapshot: true,
+    },
+    take: 6000,
+  });
+
+  const byLocation = new Map<
+    string,
+    {
+      hours: number;
+      miles: number;
+      labor: number;
+      mileageCost: number;
+      checkoutLines: number;
+      checkoutQty: number;
+      checkoutCost: number;
+      total: number;
+      count: number;
+    }
+  >();
 
   function hoursBetween(a: Date | null, b: Date | null): number {
     if (!a || !b) return 0;
@@ -103,7 +136,17 @@ export default async function WorkOrderCostReportPage({ searchParams }: { search
     const mileageCost = miles * mileageRate;
     const total = labor + mileageCost;
 
-    const cur = byLocation.get(location) ?? { hours: 0, miles: 0, labor: 0, mileageCost: 0, total: 0, count: 0 };
+    const cur = byLocation.get(location) ?? {
+      hours: 0,
+      miles: 0,
+      labor: 0,
+      mileageCost: 0,
+      checkoutLines: 0,
+      checkoutQty: 0,
+      checkoutCost: 0,
+      total: 0,
+      count: 0,
+    };
     cur.hours += hrs;
     cur.miles += miles;
     cur.labor += labor;
@@ -113,7 +156,53 @@ export default async function WorkOrderCostReportPage({ searchParams }: { search
     byLocation.set(location, cur);
   }
 
+  for (const c of checkoutRows) {
+    const location = c.storeName || "Unknown";
+    const checkoutCost = Number(c.costSnapshot ?? 0) * c.quantity;
+    const cur = byLocation.get(location) ?? {
+      hours: 0,
+      miles: 0,
+      labor: 0,
+      mileageCost: 0,
+      checkoutLines: 0,
+      checkoutQty: 0,
+      checkoutCost: 0,
+      total: 0,
+      count: 0,
+    };
+    cur.checkoutLines += 1;
+    cur.checkoutQty += c.quantity;
+    cur.checkoutCost += checkoutCost;
+    cur.total += checkoutCost;
+    byLocation.set(location, cur);
+  }
+
   const locRows = Array.from(byLocation.entries()).sort((a, b) => b[1].total - a[1].total);
+  const summary = locRows.reduce(
+    (acc, [, row]) => {
+      acc.orders += row.count;
+      acc.hours += row.hours;
+      acc.miles += row.miles;
+      acc.labor += row.labor;
+      acc.mileageCost += row.mileageCost;
+      acc.checkoutLines += row.checkoutLines;
+      acc.checkoutQty += row.checkoutQty;
+      acc.checkoutCost += row.checkoutCost;
+      acc.total += row.total;
+      return acc;
+    },
+    {
+      orders: 0,
+      hours: 0,
+      miles: 0,
+      labor: 0,
+      mileageCost: 0,
+      checkoutLines: 0,
+      checkoutQty: 0,
+      checkoutCost: 0,
+      total: 0,
+    }
+  );
 
   return (
     <main style={{ padding: 16 }}>
@@ -123,6 +212,13 @@ export default async function WorkOrderCostReportPage({ searchParams }: { search
           <Link href="/admin/reports" style={{ textDecoration: "none", fontWeight: 800 }}>
             Back to Reports
           </Link>
+        </div>
+
+        <div style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 12, background: "var(--surface)" }}>
+          <div style={{ fontWeight: 800, marginBottom: 4 }}>Now includes item checkout spend</div>
+          <div style={{ fontSize: 13, opacity: 0.85 }}>
+            Checkout values use non-voided tickets and estimate spend as quantity x checkout cost snapshot.
+          </div>
         </div>
 
         <form method="get" style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 12, background: "var(--surface)", display: "grid", gap: 10 }}>
@@ -139,7 +235,18 @@ export default async function WorkOrderCostReportPage({ searchParams }: { search
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                {["Location", "Orders", "Hours", "Miles", "Labor Cost", "Mileage Cost", "Total Cost"].map((h) => (
+                {[
+                  "Location",
+                  "Orders",
+                  "Hours",
+                  "Miles",
+                  "Labor Cost",
+                  "Mileage Cost",
+                  "Checkout Lines",
+                  "Checkout Qty",
+                  "Checkout Cost",
+                  "Total Cost",
+                ].map((h) => (
                   <th key={h} style={{ textAlign: "left", padding: 10, borderBottom: "1px solid var(--border)" }}>{h}</th>
                 ))}
               </tr>
@@ -153,12 +260,29 @@ export default async function WorkOrderCostReportPage({ searchParams }: { search
                   <td style={{ padding: 10, borderBottom: "1px solid var(--border)" }}>{v.miles.toFixed(2)}</td>
                   <td style={{ padding: 10, borderBottom: "1px solid var(--border)" }}>${v.labor.toFixed(2)}</td>
                   <td style={{ padding: 10, borderBottom: "1px solid var(--border)" }}>${v.mileageCost.toFixed(2)}</td>
+                  <td style={{ padding: 10, borderBottom: "1px solid var(--border)" }}>{v.checkoutLines}</td>
+                  <td style={{ padding: 10, borderBottom: "1px solid var(--border)" }}>{v.checkoutQty}</td>
+                  <td style={{ padding: 10, borderBottom: "1px solid var(--border)" }}>${v.checkoutCost.toFixed(2)}</td>
                   <td style={{ padding: 10, borderBottom: "1px solid var(--border)", fontWeight: 900 }}>${v.total.toFixed(2)}</td>
                 </tr>
               ))}
+              {locRows.length > 0 ? (
+                <tr style={{ background: "var(--surface-2)" }}>
+                  <td style={{ padding: 10, borderTop: "1px solid var(--border)", fontWeight: 900 }}>Grand Total</td>
+                  <td style={{ padding: 10, borderTop: "1px solid var(--border)", fontWeight: 900 }}>{summary.orders}</td>
+                  <td style={{ padding: 10, borderTop: "1px solid var(--border)", fontWeight: 900 }}>{summary.hours.toFixed(2)}</td>
+                  <td style={{ padding: 10, borderTop: "1px solid var(--border)", fontWeight: 900 }}>{summary.miles.toFixed(2)}</td>
+                  <td style={{ padding: 10, borderTop: "1px solid var(--border)", fontWeight: 900 }}>${summary.labor.toFixed(2)}</td>
+                  <td style={{ padding: 10, borderTop: "1px solid var(--border)", fontWeight: 900 }}>${summary.mileageCost.toFixed(2)}</td>
+                  <td style={{ padding: 10, borderTop: "1px solid var(--border)", fontWeight: 900 }}>{summary.checkoutLines}</td>
+                  <td style={{ padding: 10, borderTop: "1px solid var(--border)", fontWeight: 900 }}>{summary.checkoutQty}</td>
+                  <td style={{ padding: 10, borderTop: "1px solid var(--border)", fontWeight: 900 }}>${summary.checkoutCost.toFixed(2)}</td>
+                  <td style={{ padding: 10, borderTop: "1px solid var(--border)", fontWeight: 900 }}>${summary.total.toFixed(2)}</td>
+                </tr>
+              ) : null}
               {locRows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ padding: 12, opacity: 0.8 }}>No matching work orders.</td>
+                  <td colSpan={10} style={{ padding: 12, opacity: 0.8 }}>No matching work orders or checkout tickets.</td>
                 </tr>
               ) : null}
             </tbody>
