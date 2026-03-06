@@ -8,7 +8,8 @@ import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 import { canAccessAdmin } from "@/app/lib/admin-access";
 import {
-  PREVENTATIVE_MAINTENANCE_FIELDS,
+  PREVENTATIVE_MAINTENANCE_SECTIONS,
+  type PreventativeMaintenanceValues,
   loadMaintenancePrimaryAssignments,
   normalizePmYear,
   savePreventativeMaintenanceEntryWithAudit,
@@ -28,6 +29,16 @@ type PmEntry = {
   tanklessWaterHeater: string | null;
   iceMaker: string | null;
   greaseTrapGallons: string | null;
+  greaseTrapTankSize: string | null;
+  greaseTrapDatePumped: string | null;
+  greaseTrapCompany: string | null;
+  greaseTrapCost: string | null;
+  backflowDateChecked: string | null;
+  backflowCompany: string | null;
+  backflowAmount: string | null;
+  boilerInspectionDatePrimary: string | null;
+  boilerInspectionCompany: string | null;
+  boilerInspectionDateSecondary: string | null;
 };
 
 type PmDb = {
@@ -41,6 +52,17 @@ const pmDb = prisma as unknown as PmDb;
 function parseText(v: FormDataEntryValue | null): string {
   if (typeof v !== "string") return "";
   return v.trim();
+}
+
+function getSubmittedValues(formData: FormData): Partial<PreventativeMaintenanceValues> {
+  const values: Partial<PreventativeMaintenanceValues> = {};
+  for (const section of PREVENTATIVE_MAINTENANCE_SECTIONS) {
+    for (const field of section.fields) {
+      if (!formData.has(field.key)) continue;
+      values[field.key] = parseText(formData.get(field.key));
+    }
+  }
+  return values;
 }
 
 async function requireAdminAccess(session: unknown) {
@@ -82,24 +104,14 @@ export default async function AdminPreventativeMaintenancePage({
     if (!locationId) throw new Error("Location is required.");
     if (!Number.isFinite(year)) throw new Error("Year is required.");
 
-    const ovenCleaning = parseText(formData.get("ovenCleaning"));
-    const exhaustFanMotor = parseText(formData.get("exhaustFanMotor"));
-    const tanklessWaterHeater = parseText(formData.get("tanklessWaterHeater"));
-    const iceMaker = parseText(formData.get("iceMaker"));
-    const greaseTrapGallons = parseText(formData.get("greaseTrapGallons"));
+    const values = getSubmittedValues(formData);
 
     await savePreventativeMaintenanceEntryWithAudit({
       locationId,
       year,
       actorUserId: actor.id,
       source: "ADMIN",
-      values: {
-        ovenCleaning,
-        exhaustFanMotor,
-        tanklessWaterHeater,
-        iceMaker,
-        greaseTrapGallons,
-      },
+      values,
     });
 
     revalidatePath("/admin/preventative-maintenance");
@@ -122,6 +134,16 @@ export default async function AdminPreventativeMaintenancePage({
         tanklessWaterHeater: true,
         iceMaker: true,
         greaseTrapGallons: true,
+        greaseTrapTankSize: true,
+        greaseTrapDatePumped: true,
+        greaseTrapCompany: true,
+        greaseTrapCost: true,
+        backflowDateChecked: true,
+        backflowCompany: true,
+        backflowAmount: true,
+        boilerInspectionDatePrimary: true,
+        boilerInspectionCompany: true,
+        boilerInspectionDateSecondary: true,
       },
     }),
     loadMaintenancePrimaryAssignments(),
@@ -228,46 +250,71 @@ export default async function AdminPreventativeMaintenancePage({
       {groups.map((group) => (
         <section key={group.label} style={card}>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>{group.label}</h2>
-          <div style={{ overflowX: "auto", marginTop: 10 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
-              <thead>
-                <tr>
-                  <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>Location</th>
-                  {PREVENTATIVE_MAINTENANCE_FIELDS.map((field) => (
-                    <th key={field.key} style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}>
-                      {field.label}
-                    </th>
-                  ))}
-                  <th style={{ textAlign: "right", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 120 }}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {group.locations.map((location) => {
-                  const row = entryByLocation.get(location.id);
-                  return (
-                    <tr key={`${group.label}-${location.id}`}>
-                      <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>{location.name}</td>
-                      <td colSpan={6} style={{ padding: 0, borderBottom: "1px solid var(--border)" }}>
-                        <form action={savePmRowAsAdminAction} style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(170px, 1fr)) 120px", gap: 8, padding: 8, alignItems: "center" }}>
-                          <input type="hidden" name="locationId" value={location.id} />
-                          <input type="hidden" name="year" value={year} />
+          <div style={{ display: "grid", gap: 12, marginTop: 10 }}>
+            {PREVENTATIVE_MAINTENANCE_SECTIONS.map((section) => (
+              <div key={`${group.label}-${section.id}`}>
+                <h3 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 900 }}>{section.title}</h3>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+                    <thead>
+                      <tr>
+                        <th
+                          style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 180 }}
+                        >
+                          Location
+                        </th>
+                        {section.fields.map((field) => (
+                          <th
+                            key={`${group.label}-${section.id}-head-${field.key}`}
+                            style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 170 }}
+                          >
+                            {field.label}
+                          </th>
+                        ))}
+                        <th style={{ textAlign: "right", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 120 }}>
+                          Action
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {group.locations.map((location) => {
+                        const row = entryByLocation.get(location.id);
+                        const cols = `repeat(${section.fields.length}, minmax(170px, 1fr)) 120px`;
+                        return (
+                          <tr key={`${group.label}-${section.id}-${location.id}`}>
+                            <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>
+                              {location.name}
+                            </td>
+                            <td colSpan={section.fields.length + 1} style={{ padding: 0, borderBottom: "1px solid var(--border)" }}>
+                              <form
+                                action={savePmRowAsAdminAction}
+                                style={{ display: "grid", gridTemplateColumns: cols, gap: 8, padding: 8, alignItems: "center" }}
+                              >
+                                <input type="hidden" name="locationId" value={location.id} />
+                                <input type="hidden" name="year" value={year} />
 
-                          <input name="ovenCleaning" defaultValue={row?.ovenCleaning ?? ""} style={input} />
-                          <input name="exhaustFanMotor" defaultValue={row?.exhaustFanMotor ?? ""} style={input} />
-                          <input name="tanklessWaterHeater" defaultValue={row?.tanklessWaterHeater ?? ""} style={input} />
-                          <input name="iceMaker" defaultValue={row?.iceMaker ?? ""} style={input} />
-                          <input name="greaseTrapGallons" defaultValue={row?.greaseTrapGallons ?? ""} style={input} />
+                                {section.fields.map((field) => (
+                                  <input
+                                    key={`${group.label}-${section.id}-${location.id}-${field.key}`}
+                                    name={field.key}
+                                    defaultValue={String(row?.[field.key] ?? "")}
+                                    style={input}
+                                  />
+                                ))}
 
-                          <button type="submit" style={{ ...saveBtn, width: "100%" }}>
-                            Save
-                          </button>
-                        </form>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                                <button type="submit" style={{ ...saveBtn, width: "100%" }}>
+                                  Save
+                                </button>
+                              </form>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
           </div>
         </section>
       ))}

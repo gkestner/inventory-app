@@ -6,7 +6,7 @@ import { Permission, Role } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import { normalizePmYear } from "@/app/lib/preventative-maintenance";
+import { PREVENTATIVE_MAINTENANCE_FIELD_LABELS, normalizePmYear } from "@/app/lib/preventative-maintenance";
 import { prisma } from "@/app/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -253,7 +253,9 @@ export default async function PreventativeMaintenanceReportPage({
             <tbody>
               {rows.map((row) => {
                 const md = parseAuditMetadata(row.metadata);
-                const changed = Object.keys(md.changes ?? {});
+                const changed = Object.keys(md.changes ?? {}).map(
+                  (k) => PREVENTATIVE_MAINTENANCE_FIELD_LABELS[k as keyof typeof PREVENTATIVE_MAINTENANCE_FIELD_LABELS] ?? k
+                );
                 const userName = (row.actorUser?.name ?? "").trim() || (row.actorUser?.email ?? "").trim() || "Unknown";
                 return (
                   <tr key={row.id}>

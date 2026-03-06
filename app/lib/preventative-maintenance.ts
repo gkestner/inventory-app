@@ -5,15 +5,68 @@ export type PreventativeMaintenanceFieldKey =
   | "exhaustFanMotor"
   | "tanklessWaterHeater"
   | "iceMaker"
-  | "greaseTrapGallons";
+  | "greaseTrapGallons"
+  | "greaseTrapTankSize"
+  | "greaseTrapDatePumped"
+  | "greaseTrapCompany"
+  | "greaseTrapCost"
+  | "backflowDateChecked"
+  | "backflowCompany"
+  | "backflowAmount"
+  | "boilerInspectionDatePrimary"
+  | "boilerInspectionCompany"
+  | "boilerInspectionDateSecondary";
 
-export const PREVENTATIVE_MAINTENANCE_FIELDS: Array<{ key: PreventativeMaintenanceFieldKey; label: string }> = [
+export const PM_CHECKLIST_FIELDS: Array<{ key: PreventativeMaintenanceFieldKey; label: string }> = [
   { key: "ovenCleaning", label: "Oven Cleaning" },
   { key: "exhaustFanMotor", label: "Exhaust Fan Motor" },
   { key: "tanklessWaterHeater", label: "Tankless Water Heater" },
   { key: "iceMaker", label: "Ice Maker" },
   { key: "greaseTrapGallons", label: "(Gallons) Grease Trap" },
 ];
+
+export const GREASE_TRAP_TRACKING_FIELDS: Array<{ key: PreventativeMaintenanceFieldKey; label: string }> = [
+  { key: "greaseTrapTankSize", label: "Gal. Tank" },
+  { key: "greaseTrapDatePumped", label: "Date Pumped" },
+  { key: "greaseTrapCompany", label: "Company" },
+  { key: "greaseTrapCost", label: "Cost" },
+];
+
+export const BACKFLOW_TRACKING_FIELDS: Array<{ key: PreventativeMaintenanceFieldKey; label: string }> = [
+  { key: "backflowDateChecked", label: "Date Checked" },
+  { key: "backflowCompany", label: "Company" },
+  { key: "backflowAmount", label: "Amount" },
+];
+
+export const BOILER_TRACKING_FIELDS: Array<{ key: PreventativeMaintenanceFieldKey; label: string }> = [
+  { key: "boilerInspectionDatePrimary", label: "Date Inspected" },
+  { key: "boilerInspectionCompany", label: "Company" },
+  { key: "boilerInspectionDateSecondary", label: "Date Inspected (2)" },
+];
+
+export const PREVENTATIVE_MAINTENANCE_FIELDS = PM_CHECKLIST_FIELDS;
+
+export const PREVENTATIVE_MAINTENANCE_SECTIONS: Array<{
+  id: "checklist" | "grease-trap" | "backflow" | "boiler";
+  title: string;
+  fields: Array<{ key: PreventativeMaintenanceFieldKey; label: string }>;
+}> = [
+  { id: "checklist", title: "General PM Checklist", fields: PM_CHECKLIST_FIELDS },
+  { id: "grease-trap", title: "Grease Trap Tracking", fields: GREASE_TRAP_TRACKING_FIELDS },
+  { id: "backflow", title: "Backflow Preventer Testing", fields: BACKFLOW_TRACKING_FIELDS },
+  { id: "boiler", title: "Boiler Inspection Tracking", fields: BOILER_TRACKING_FIELDS },
+];
+
+const ALL_FIELDS = PREVENTATIVE_MAINTENANCE_SECTIONS.flatMap((s) => s.fields);
+
+export const PREVENTATIVE_MAINTENANCE_FIELD_LABELS: Record<PreventativeMaintenanceFieldKey, string> =
+  ALL_FIELDS.reduce(
+    (acc, field) => {
+      acc[field.key] = field.label;
+      return acc;
+    },
+    {} as Record<PreventativeMaintenanceFieldKey, string>
+  );
 
 export type PreventativeMaintenanceAssignment = {
   locationId: string;
@@ -29,6 +82,16 @@ export type PreventativeMaintenanceValues = {
   tanklessWaterHeater: string;
   iceMaker: string;
   greaseTrapGallons: string;
+  greaseTrapTankSize: string;
+  greaseTrapDatePumped: string;
+  greaseTrapCompany: string;
+  greaseTrapCost: string;
+  backflowDateChecked: string;
+  backflowCompany: string;
+  backflowAmount: string;
+  boilerInspectionDatePrimary: string;
+  boilerInspectionCompany: string;
+  boilerInspectionDateSecondary: string;
 };
 
 type PreventativeMaintenancePersistedValues = {
@@ -37,6 +100,34 @@ type PreventativeMaintenancePersistedValues = {
   tanklessWaterHeater: string | null;
   iceMaker: string | null;
   greaseTrapGallons: string | null;
+  greaseTrapTankSize: string | null;
+  greaseTrapDatePumped: string | null;
+  greaseTrapCompany: string | null;
+  greaseTrapCost: string | null;
+  backflowDateChecked: string | null;
+  backflowCompany: string | null;
+  backflowAmount: string | null;
+  boilerInspectionDatePrimary: string | null;
+  boilerInspectionCompany: string | null;
+  boilerInspectionDateSecondary: string | null;
+};
+
+const EMPTY_VALUES: PreventativeMaintenanceValues = {
+  ovenCleaning: "",
+  exhaustFanMotor: "",
+  tanklessWaterHeater: "",
+  iceMaker: "",
+  greaseTrapGallons: "",
+  greaseTrapTankSize: "",
+  greaseTrapDatePumped: "",
+  greaseTrapCompany: "",
+  greaseTrapCost: "",
+  backflowDateChecked: "",
+  backflowCompany: "",
+  backflowAmount: "",
+  boilerInspectionDatePrimary: "",
+  boilerInspectionCompany: "",
+  boilerInspectionDateSecondary: "",
 };
 
 type Db = {
@@ -141,7 +232,7 @@ function collectChanges(
   after: PreventativeMaintenanceValues
 ): Record<string, { from: string; to: string }> {
   const changes: Record<string, { from: string; to: string }> = {};
-  for (const field of PREVENTATIVE_MAINTENANCE_FIELDS) {
+  for (const field of ALL_FIELDS) {
     const key = field.key;
     const from = normalizePersisted(before?.[key]);
     const to = normalizePersisted(after[key]);
@@ -151,10 +242,27 @@ function collectChanges(
   return changes;
 }
 
+function mergeIncomingValues(
+  before: PreventativeMaintenancePersistedValues | null,
+  incoming: Partial<PreventativeMaintenanceValues>
+): PreventativeMaintenanceValues {
+  const merged: PreventativeMaintenanceValues = { ...EMPTY_VALUES };
+  for (const field of ALL_FIELDS) {
+    const key = field.key;
+    const next = incoming[key];
+    if (typeof next === "string") {
+      merged[key] = next.trim();
+      continue;
+    }
+    merged[key] = normalizePersisted(before?.[key]);
+  }
+  return merged;
+}
+
 export async function savePreventativeMaintenanceEntryWithAudit(args: {
   locationId: string;
   year: number;
-  values: PreventativeMaintenanceValues;
+  values: Partial<PreventativeMaintenanceValues>;
   actorUserId: string;
   source: "MAINTENANCE" | "ADMIN";
 }) {
@@ -175,22 +283,33 @@ export async function savePreventativeMaintenanceEntryWithAudit(args: {
       tanklessWaterHeater: true,
       iceMaker: true,
       greaseTrapGallons: true,
+      greaseTrapTankSize: true,
+      greaseTrapDatePumped: true,
+      greaseTrapCompany: true,
+      greaseTrapCost: true,
+      backflowDateChecked: true,
+      backflowCompany: true,
+      backflowAmount: true,
+      boilerInspectionDatePrimary: true,
+      boilerInspectionCompany: true,
+      boilerInspectionDateSecondary: true,
     },
   });
 
-  const changes = collectChanges(existing, args.values);
+  const mergedValues = mergeIncomingValues(existing, args.values);
+  const changes = collectChanges(existing, mergedValues);
   const hadChanges = Object.keys(changes).length > 0 || !existing;
 
   const saved = await db.preventativeMaintenanceEntry.upsert({
     where: { locationId_year: { locationId: args.locationId, year: args.year } },
     update: {
-      ...args.values,
+      ...mergedValues,
       updatedByUserId: args.actorUserId,
     },
     create: {
       locationId: args.locationId,
       year: args.year,
-      ...args.values,
+      ...mergedValues,
       updatedByUserId: args.actorUserId,
     },
     select: {
@@ -200,6 +319,16 @@ export async function savePreventativeMaintenanceEntryWithAudit(args: {
       tanklessWaterHeater: true,
       iceMaker: true,
       greaseTrapGallons: true,
+      greaseTrapTankSize: true,
+      greaseTrapDatePumped: true,
+      greaseTrapCompany: true,
+      greaseTrapCost: true,
+      backflowDateChecked: true,
+      backflowCompany: true,
+      backflowAmount: true,
+      boilerInspectionDatePrimary: true,
+      boilerInspectionCompany: true,
+      boilerInspectionDateSecondary: true,
     },
   });
 
@@ -225,6 +354,16 @@ export async function savePreventativeMaintenanceEntryWithAudit(args: {
             tanklessWaterHeater: saved.tanklessWaterHeater,
             iceMaker: saved.iceMaker,
             greaseTrapGallons: saved.greaseTrapGallons,
+            greaseTrapTankSize: saved.greaseTrapTankSize,
+            greaseTrapDatePumped: saved.greaseTrapDatePumped,
+            greaseTrapCompany: saved.greaseTrapCompany,
+            greaseTrapCost: saved.greaseTrapCost,
+            backflowDateChecked: saved.backflowDateChecked,
+            backflowCompany: saved.backflowCompany,
+            backflowAmount: saved.backflowAmount,
+            boilerInspectionDatePrimary: saved.boilerInspectionDatePrimary,
+            boilerInspectionCompany: saved.boilerInspectionCompany,
+            boilerInspectionDateSecondary: saved.boilerInspectionDateSecondary,
           },
         },
       },

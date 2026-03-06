@@ -470,6 +470,19 @@ model PreventativeMaintenanceEntry {
   iceMaker           String?
   greaseTrapGallons  String?
 
+  greaseTrapTankSize String?
+  greaseTrapDatePumped String?
+  greaseTrapCompany  String?
+  greaseTrapCost     String?
+
+  backflowDateChecked String?
+  backflowCompany    String?
+  backflowAmount     String?
+
+  boilerInspectionDatePrimary String?
+  boilerInspectionCompany String?
+  boilerInspectionDateSecondary String?
+
   updatedByUserId String?
   updatedByUser   User? @relation("PreventativeMaintenanceEntryUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
