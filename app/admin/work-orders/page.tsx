@@ -9,6 +9,7 @@ import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { canAccessAdmin } from "@/app/lib/admin-access";
 import PingAutoRefresh from "./PingAutoRefresh";
+import WorkOrderSelectionWiring from "./WorkOrderSelectionWiring";
 
 export const dynamic = "force-dynamic";
 
@@ -123,7 +124,7 @@ export default async function AdminWorkOrdersPage({
     const id = String(formData.get("id") ?? "").trim();
     if (!id) throw new Error("Missing work order id");
 
-    const confirmText = String(formData.get("confirm") ?? "").trim().toUpperCase();
+    const confirmText = String(formData.get(`confirm_${id}`) ?? "").trim().toUpperCase();
     if (confirmText !== "DELETE") {
       throw new Error('Type "DELETE" to confirm purge.');
     }
@@ -137,6 +138,44 @@ export default async function AdminWorkOrdersPage({
     revalidatePath(`/admin/work-orders/${id}`);
     revalidatePath("/maintenance/work-orders");
     redirect("/admin/work-orders");
+  }
+
+  async function printSelectedAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as AdminSession;
+    await requireAdmin(session);
+
+    const ids = formData
+      .getAll("ids")
+      .map((v) => String(v).trim())
+      .filter(Boolean)
+      .slice(0, 500);
+
+    if (ids.length === 0) {
+      redirect("/admin/work-orders");
+    }
+
+    redirect(`/admin/work-orders/print?ids=${encodeURIComponent(ids.join(","))}`);
+  }
+
+  async function exportSelectedAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as AdminSession;
+    await requireAdmin(session);
+
+    const ids = formData
+      .getAll("ids")
+      .map((v) => String(v).trim())
+      .filter(Boolean)
+      .slice(0, 500);
+
+    if (ids.length === 0) {
+      redirect("/admin/work-orders");
+    }
+
+    redirect(`/admin/work-orders/export?ids=${encodeURIComponent(ids.join(","))}`);
   }
 
   const sp = (await searchParams) ?? {};
@@ -309,7 +348,8 @@ export default async function AdminWorkOrdersPage({
     whiteSpace: "nowrap",
   };
 
-  const colId = "12%";
+  const colSelect = "4%";
+  const colId = "10%";
   const colLoc = "9%";
   const colStatus = "8%";
   const colStart = "9%";
@@ -318,7 +358,7 @@ export default async function AdminWorkOrdersPage({
   const colUpdated = "9%";
   const colBy = "12%";
   const colNotes = "10%";
-  const colActions = "13%";
+  const colActions = "20%";
 
   return (
     <main style={{ padding: 16 }}>
@@ -473,118 +513,142 @@ export default async function AdminWorkOrdersPage({
 
         <div style={{ ...card, marginTop: 12, padding: 0 }}>
           <div style={{ padding: 14 }}>
-            <div style={tableWrap}>
-              <table style={table}>
-                <colgroup>
-                  <col style={{ width: colId }} />
-                  <col style={{ width: colLoc }} />
-                  <col style={{ width: colStatus }} />
-                  <col style={{ width: colStart }} />
-                  <col style={{ width: colEnd }} />
-                  <col style={{ width: colCreated }} />
-                  <col style={{ width: colUpdated }} />
-                  <col style={{ width: colBy }} />
-                  <col style={{ width: colNotes }} />
-                  <col style={{ width: colActions }} />
-                </colgroup>
+            <form id="work-order-selection-form">
+              <WorkOrderSelectionWiring
+                formId="work-order-selection-form"
+                toggleId="toggle-work-order-selection"
+                countId="selected-work-order-count"
+              />
 
-                <thead>
-                  <tr style={{ background: "rgba(255,255,255,0.03)" }}>
-                    {["ID", "Location", "Status", "Start", "End", "Created", "Updated", "Created By", "Notes", "Actions"].map(
-                      (h) => (
-                        <th key={h} style={th}>
-                          {h}
-                        </th>
-                      )
-                    )}
-                  </tr>
-                </thead>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+                <button id="toggle-work-order-selection" type="button" style={btn}>
+                  Select all
+                </button>
+                <span id="selected-work-order-count" style={{ fontSize: 12, opacity: 0.8 }}>
+                  0 selected
+                </span>
+                <button formAction={printSelectedAction} style={btn}>
+                  Print Selected
+                </button>
+                <button formAction={exportSelectedAction} style={btn}>
+                  Export Selected
+                </button>
+              </div>
 
-                <tbody>
-                  {workOrders.map((wo) => {
-                    const createdByLabel = wo.createdByUser
-                      ? `${wo.createdByUser.name} (${wo.createdByUser.email})`
-                      : wo.createdByUserId;
+              <div style={tableWrap}>
+                <table style={table}>
+                  <colgroup>
+                    <col style={{ width: colSelect }} />
+                    <col style={{ width: colId }} />
+                    <col style={{ width: colLoc }} />
+                    <col style={{ width: colStatus }} />
+                    <col style={{ width: colStart }} />
+                    <col style={{ width: colEnd }} />
+                    <col style={{ width: colCreated }} />
+                    <col style={{ width: colUpdated }} />
+                    <col style={{ width: colBy }} />
+                    <col style={{ width: colNotes }} />
+                    <col style={{ width: colActions }} />
+                  </colgroup>
 
-                    return (
-                      <tr key={wo.id} style={{ borderTop: "1px solid rgba(128,128,128,0.18)" }}>
-                        <td style={{ ...td, fontWeight: 900 }}>
-                          <div style={ellipsis}>{wo.id.slice(0, 10)}...</div>
-                          <div style={{ fontSize: 12, opacity: 0.75, ...ellipsis }}>id: {wo.id}</div>
-                        </td>
+                  <thead>
+                    <tr style={{ background: "rgba(255,255,255,0.03)" }}>
+                      {["Sel", "ID", "Location", "Status", "Start", "End", "Created", "Updated", "Created By", "Notes", "Actions"].map(
+                        (h) => (
+                          <th key={h} style={th}>
+                            {h}
+                          </th>
+                        )
+                      )}
+                    </tr>
+                  </thead>
 
-                        <td style={td}>
-                          <div style={ellipsis}>{wo.location?.name ?? "-"}</div>
-                        </td>
+                  <tbody>
+                    {workOrders.map((wo) => {
+                      const createdByLabel = wo.createdByUser
+                        ? `${wo.createdByUser.name} (${wo.createdByUser.email})`
+                        : wo.createdByUserId;
 
-                        <td style={{ ...td, fontWeight: 900 }}>
-                          <div style={ellipsis}>{String(wo.status ?? "-")}</div>
-                        </td>
+                      return (
+                        <tr key={wo.id} style={{ borderTop: "1px solid rgba(128,128,128,0.18)" }}>
+                          <td style={td}>
+                            <input type="checkbox" name="ids" value={wo.id} aria-label={`Select ${wo.id}`} />
+                          </td>
 
-                        <td style={td}>
-                          <div style={ellipsis}>{fmtLocal(wo.startTime)}</div>
-                        </td>
+                          <td style={{ ...td, fontWeight: 900 }}>
+                            <div style={ellipsis}>{wo.id.slice(0, 10)}...</div>
+                            <div style={{ fontSize: 12, opacity: 0.75, ...ellipsis }}>id: {wo.id}</div>
+                          </td>
 
-                        <td style={td}>
-                          <div style={ellipsis}>{fmtLocal(wo.endTime)}</div>
-                        </td>
+                          <td style={td}>
+                            <div style={ellipsis}>{wo.location?.name ?? "-"}</div>
+                          </td>
 
-                        <td style={td}>
-                          <div style={ellipsis}>{fmtLocal(wo.createdAt)}</div>
-                        </td>
+                          <td style={{ ...td, fontWeight: 900 }}>
+                            <div style={ellipsis}>{String(wo.status ?? "-")}</div>
+                          </td>
 
-                        <td style={td}>
-                          <div style={ellipsis}>{fmtLocal(wo.updatedAt)}</div>
-                        </td>
+                          <td style={td}>
+                            <div style={ellipsis}>{fmtLocal(wo.startTime)}</div>
+                          </td>
 
-                        <td style={td}>
-                          <div style={ellipsis}>{createdByLabel ?? "-"}</div>
-                        </td>
+                          <td style={td}>
+                            <div style={ellipsis}>{fmtLocal(wo.endTime)}</div>
+                          </td>
 
-                        <td style={td}>
-                          <div style={ellipsis}>{wo.notes ?? "-"}</div>
-                        </td>
+                          <td style={td}>
+                            <div style={ellipsis}>{fmtLocal(wo.createdAt)}</div>
+                          </td>
 
-                        <td style={td}>
-                          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                            <Link href={`/admin/work-orders/${wo.id}`} style={btn}>
-                              Edit / View
-                            </Link>
+                          <td style={td}>
+                            <div style={ellipsis}>{fmtLocal(wo.updatedAt)}</div>
+                          </td>
 
-                            <a href={`/admin/work-orders/print?ids=${encodeURIComponent(wo.id)}`} target="_blank" rel="noreferrer" style={btn}>
-                              Print
-                            </a>
+                          <td style={td}>
+                            <div style={ellipsis}>{createdByLabel ?? "-"}</div>
+                          </td>
 
-                            <form
-                              action={purgeWorkOrderAction}
-                              style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
-                            >
-                              <input type="hidden" name="id" value={wo.id} />
-                              <input name="confirm" placeholder="DELETE" style={input} />
-                              <button type="submit" style={btnDanger}>
-                                Purge
-                              </button>
-                            </form>
-                          </div>
+                          <td style={td}>
+                            <div style={ellipsis}>{wo.notes ?? "-"}</div>
+                          </td>
 
-                          <div style={{ marginTop: 6, fontSize: 11, opacity: 0.7 }}>
-                            To purge, type <code>DELETE</code>.
-                          </div>
+                          <td style={td}>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                              <Link href={`/admin/work-orders/${wo.id}`} style={btn}>
+                                Edit / View
+                              </Link>
+
+                              <a href={`/admin/work-orders/print?ids=${encodeURIComponent(wo.id)}`} target="_blank" rel="noreferrer" style={btn}>
+                                Print
+                              </a>
+
+                              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                                <input name={`confirm_${wo.id}`} placeholder="DELETE" style={input} />
+                                <button type="submit" name="id" value={wo.id} formAction={purgeWorkOrderAction} style={btnDanger}>
+                                  Purge
+                                </button>
+                              </div>
+                            </div>
+
+                            <div style={{ marginTop: 6, fontSize: 11, opacity: 0.7 }}>
+                              To purge, type <code>DELETE</code>.
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+
+                    {workOrders.length === 0 ? (
+                      <tr>
+                        <td colSpan={11} style={{ padding: 14, opacity: 0.85 }}>
+                          No work orders found.
                         </td>
                       </tr>
-                    );
-                  })}
-
-                  {workOrders.length === 0 ? (
-                    <tr>
-                      <td colSpan={10} style={{ padding: 14, opacity: 0.85 }}>
-                        No work orders found.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </form>
           </div>
         </div>
       </div>
