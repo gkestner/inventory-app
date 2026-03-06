@@ -526,7 +526,9 @@ export default async function TemperatureDashboardPage({
                     ))}
                   </select>
                 </label>
+              </div>
 
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8 }}>
                 <label style={{ display: "grid", gap: 4 }}>
                   <span style={{ fontWeight: 800 }}>Min Temp (F)</span>
                   <input name="minTempF" type="number" step="0.1" placeholder="34" style={{ padding: "9px 10px", borderRadius: 8, border: "1px solid var(--border)" }} />
@@ -762,7 +764,9 @@ export default async function TemperatureDashboardPage({
                                 ))}
                               </select>
                             </label>
+                          </div>
 
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8 }}>
                             <label style={{ display: "grid", gap: 4 }}>
                               <span style={{ fontWeight: 700 }}>Min Temp (F)</span>
                               <input
