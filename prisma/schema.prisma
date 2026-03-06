@@ -219,6 +219,14 @@ enum NotificationType {
   SCHEDULER
   CYCLE_COUNT
   SYSTEM
+  TEMPERATURE_ALERT
+}
+
+enum TemperatureAlertState {
+  NORMAL
+  HIGH
+  LOW
+  UNKNOWN
 }
 
 enum CycleCountSessionStatus {
@@ -324,6 +332,7 @@ model Location {
   equipmentTrackingLogs EquipmentTrackingLog[]
   cycleCountSessions CycleCountSession[]
   maintenanceRequests MaintenanceRequest[]
+  mocreoHubs MocreoHub[]
 
   @@index([active])
 }
@@ -394,6 +403,8 @@ model User {
   maintenanceRequestsCreated MaintenanceRequest[] @relation("MaintenanceRequestCreatedBy")
   maintenanceRequestsAssigned MaintenanceRequest[] @relation("MaintenanceRequestAssignedTo")
   maintenanceRequestsResolved MaintenanceRequest[] @relation("MaintenanceRequestResolvedBy")
+  assignedMocreoHubs MocreoHub[] @relation("MocreoHubAssignedMaintenanceUser")
+  mocreoHubRecipients MocreoHubRecipient[]
 }
 
 model UserPermission {
@@ -685,6 +696,106 @@ model MaintenanceRequest {
   @@index([requestedByUserId, createdAt])
   @@index([assignedMaintenanceUserId, status])
   @@index([resolvedByUserId, resolvedAt])
+}
+
+model MocreoHub {
+  id String @id @default(cuid())
+
+  name          String
+  externalHubId String @unique
+  active        Boolean @default(true)
+
+  locationId String?
+  location   Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+
+  assignedMaintenanceUserId String?
+  assignedMaintenanceUser   User? @relation("MocreoHubAssignedMaintenanceUser", fields: [assignedMaintenanceUserId], references: [id], onDelete: SetNull)
+
+  minTempF Decimal? @db.Decimal(6, 2)
+  maxTempF Decimal? @db.Decimal(6, 2)
+
+  lastReadingAt DateTime?
+  lastTempF     Decimal? @db.Decimal(6, 2)
+
+  lastAlertState TemperatureAlertState?
+  lastAlertAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  recipients MocreoHubRecipient[]
+  devices    MocreoDevice[]
+  readings   MocreoTemperatureReading[]
+
+  @@index([active, name])
+  @@index([locationId, active])
+  @@index([assignedMaintenanceUserId, active])
+}
+
+model MocreoHubRecipient {
+  hubId  String
+  userId String
+
+  hub  MocreoHub @relation(fields: [hubId], references: [id], onDelete: Cascade)
+  user User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  addedAt DateTime @default(now())
+
+  @@id([hubId, userId])
+  @@index([userId])
+}
+
+model MocreoDevice {
+  id String @id @default(cuid())
+
+  hubId String
+  hub   MocreoHub @relation(fields: [hubId], references: [id], onDelete: Cascade)
+
+  name             String
+  externalDeviceId String
+
+  lastSeenAt      DateTime?
+  lastReadingAt   DateTime?
+  lastTempF       Decimal? @db.Decimal(6, 2)
+  lastBatteryPct  Int?
+  lastSignalPct   Int?
+  lastAlertState  TemperatureAlertState?
+  lastRawPayload  Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  readings MocreoTemperatureReading[]
+
+  @@unique([hubId, externalDeviceId])
+  @@index([hubId, name])
+}
+
+model MocreoTemperatureReading {
+  id String @id @default(cuid())
+
+  hubId String
+  hub   MocreoHub @relation(fields: [hubId], references: [id], onDelete: Cascade)
+
+  deviceId String?
+  device   MocreoDevice? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  externalReadingId String?
+  recordedAt        DateTime
+  tempF             Decimal? @db.Decimal(6, 2)
+  batteryPct        Int?
+  signalPct         Int?
+  alertState        TemperatureAlertState @default(UNKNOWN)
+  rawPayload        Json?
+
+  notificationSentAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([hubId, recordedAt])
+  @@index([deviceId, recordedAt])
+  @@index([alertState, recordedAt])
+  @@index([externalReadingId])
 }
 
 model AuditLog {

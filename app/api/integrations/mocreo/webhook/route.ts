@@ -1,0 +1,189 @@
+import { NextRequest, NextResponse } from "next/server";
+
+import { prisma } from "@/app/lib/prisma";
+import {
+  evaluateTemperatureAlertState,
+  notifyTemperatureAlert,
+  parseMocreoWebhookPayload,
+  shouldSendAlert,
+} from "@/app/lib/mocreo";
+
+export const dynamic = "force-dynamic";
+
+type Db = {
+  mocreoHub: {
+    findUnique: (args: unknown) => Promise<
+      | {
+          id: string;
+          name: string;
+          active: boolean;
+          minTempF: unknown;
+          maxTempF: unknown;
+          lastAlertAt: Date | null;
+          location: { name: string } | null;
+          assignedMaintenanceUserId: string | null;
+          recipients: Array<{ userId: string }>;
+        }
+      | null
+    >;
+    update: (args: unknown) => Promise<unknown>;
+  };
+  mocreoDevice: {
+    upsert: (args: unknown) => Promise<{ id: string }>;
+  };
+  mocreoTemperatureReading: {
+    create: (args: unknown) => Promise<unknown>;
+  };
+  auditLog: {
+    create: (args: unknown) => Promise<unknown>;
+  };
+};
+
+const db = prisma as unknown as Db;
+
+function decimalToNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+export async function POST(req: NextRequest) {
+  const webhookToken = process.env.MOCREO_WEBHOOK_TOKEN?.trim();
+  if (webhookToken) {
+    const incoming = req.headers.get("x-mocreo-token")?.trim() ?? "";
+    if (!incoming || incoming !== webhookToken) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    }
+  }
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const parsed = parseMocreoWebhookPayload(body);
+  if (!parsed) {
+    return NextResponse.json({ ok: false, error: "Unsupported Mocreo payload shape" }, { status: 400 });
+  }
+
+  const hub = await db.mocreoHub.findUnique({
+    where: { externalHubId: parsed.externalHubId },
+    select: {
+      id: true,
+      name: true,
+      active: true,
+      minTempF: true,
+      maxTempF: true,
+      lastAlertAt: true,
+      location: { select: { name: true } },
+      assignedMaintenanceUserId: true,
+      recipients: { select: { userId: true } },
+    },
+  });
+
+  if (!hub) {
+    return NextResponse.json({ ok: true, ignored: true, reason: "hub_not_registered" }, { status: 202 });
+  }
+
+  if (!hub.active) {
+    return NextResponse.json({ ok: true, ignored: true, reason: "hub_inactive" }, { status: 202 });
+  }
+
+  const minTempF = decimalToNumber(hub.minTempF);
+  const maxTempF = decimalToNumber(hub.maxTempF);
+  const alertState = evaluateTemperatureAlertState(parsed.temperatureF, { minTempF, maxTempF });
+
+  const device = await db.mocreoDevice.upsert({
+    where: {
+      hubId_externalDeviceId: {
+        hubId: hub.id,
+        externalDeviceId: parsed.externalDeviceId,
+      },
+    },
+    update: {
+      name: parsed.deviceName,
+      lastSeenAt: parsed.recordedAt,
+      lastReadingAt: parsed.recordedAt,
+      lastTempF: parsed.temperatureF,
+      lastBatteryPct: parsed.batteryPct,
+      lastSignalPct: parsed.signalPct,
+      lastAlertState: alertState,
+      lastRawPayload: parsed.rawPayload,
+    },
+    create: {
+      hubId: hub.id,
+      externalDeviceId: parsed.externalDeviceId,
+      name: parsed.deviceName,
+      lastSeenAt: parsed.recordedAt,
+      lastReadingAt: parsed.recordedAt,
+      lastTempF: parsed.temperatureF,
+      lastBatteryPct: parsed.batteryPct,
+      lastSignalPct: parsed.signalPct,
+      lastAlertState: alertState,
+      lastRawPayload: parsed.rawPayload,
+    },
+    select: { id: true },
+  });
+
+  await db.mocreoTemperatureReading.create({
+    data: {
+      hubId: hub.id,
+      deviceId: device.id,
+      externalReadingId: parsed.externalReadingId,
+      recordedAt: parsed.recordedAt,
+      tempF: parsed.temperatureF,
+      batteryPct: parsed.batteryPct,
+      signalPct: parsed.signalPct,
+      alertState,
+      rawPayload: parsed.rawPayload,
+    },
+  });
+
+  const sendAlert = shouldSendAlert(alertState, hub.lastAlertAt);
+
+  await db.mocreoHub.update({
+    where: { id: hub.id },
+    data: {
+      lastReadingAt: parsed.recordedAt,
+      lastTempF: parsed.temperatureF,
+      lastAlertState: alertState,
+      lastAlertAt: sendAlert ? new Date() : hub.lastAlertAt,
+    },
+  });
+
+  if (sendAlert) {
+    const recipients = new Set<string>();
+    if (hub.assignedMaintenanceUserId) recipients.add(hub.assignedMaintenanceUserId);
+    for (const row of hub.recipients) recipients.add(row.userId);
+
+    await notifyTemperatureAlert({
+      userIds: Array.from(recipients),
+      hubName: hub.name,
+      locationName: hub.location?.name ?? null,
+      temperatureF: parsed.temperatureF,
+      alertState,
+      href: "/maintenance/temperature-dashboard",
+    });
+  }
+
+  await db.auditLog.create({
+    data: {
+      module: "MOCREO_TEMPERATURE",
+      action: "WEBHOOK_READING_INGESTED",
+      entityType: "MocreoHub",
+      entityId: hub.id,
+      message: `Ingested Mocreo reading for hub ${hub.name}.`,
+      metadata: {
+        externalHubId: parsed.externalHubId,
+        externalDeviceId: parsed.externalDeviceId,
+        recordedAt: parsed.recordedAt.toISOString(),
+        temperatureF: parsed.temperatureF,
+        alertState,
+      },
+    },
+  });
+
+  return NextResponse.json({ ok: true, alertState, alerted: sendAlert });
+}

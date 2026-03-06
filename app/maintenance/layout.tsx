@@ -68,6 +68,7 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
   const canEquipmentTracking = hasMaintenanceAreaAccess;
   const canVehicleLog = hasMaintenanceAreaAccess;
   const canMaintenanceRequests = hasMaintenanceAreaAccess;
+  const canTemperatureDashboard = hasMaintenanceAreaAccess;
 
   const shell: CSSProperties = {
     color: "var(--foreground)",
@@ -148,6 +149,12 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
             {canMaintenanceRequests ? (
               <Link href="/maintenance-requests" className="site-link" style={pill()}>
                 Requests
+              </Link>
+            ) : null}
+
+            {canTemperatureDashboard ? (
+              <Link href="/maintenance/temperature-dashboard" className="site-link" style={pill()}>
+                Temperature Dashboard
               </Link>
             ) : null}
 

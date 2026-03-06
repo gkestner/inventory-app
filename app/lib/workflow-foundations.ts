@@ -74,7 +74,7 @@ export async function createNotification(args: {
   title: string;
   body?: string;
   href?: string;
-  type?: "WORK_ORDER" | "SCHEDULER" | "CYCLE_COUNT" | "SYSTEM";
+  type?: "WORK_ORDER" | "SCHEDULER" | "CYCLE_COUNT" | "SYSTEM" | "TEMPERATURE_ALERT";
 }) {
   const db = getCompatDb();
   if (!db.notification?.create) return;

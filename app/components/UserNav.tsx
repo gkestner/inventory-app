@@ -62,6 +62,7 @@ export default async function UserNav() {
 
   const canCheckout = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
   const canMaintenanceRequests = !!session;
+  const canTemperatureDashboard = canWorkOrders || canCheckout || canOfficeEntry;
 
   const homeHref = canWorkOrders || canOfficeEntry || canCheckout ? "/maintenance" : "/";
 
@@ -102,6 +103,12 @@ export default async function UserNav() {
           {canMaintenanceRequests && (
             <Link href="/maintenance-requests" className="site-link" style={linkStyle}>
               Maintenance Requests
+            </Link>
+          )}
+
+          {canTemperatureDashboard && (
+            <Link href="/maintenance/temperature-dashboard" className="site-link" style={linkStyle}>
+              Temperature Dashboard
             </Link>
           )}
         </div>

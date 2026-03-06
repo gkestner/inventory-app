@@ -87,6 +87,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   const canEquipmentTracking = canWorkOrders || canLocations || canTickets;
   const canCompanyVehicles = canWorkOrders || canLocations || canTickets;
   const canMaintenanceRequests = canWorkOrders || canLocations || canTickets;
+  const canTemperatureDashboard = canWorkOrders || canLocations || canTickets;
 
   const wrap: CSSProperties = {
     display: "grid",
@@ -314,6 +315,13 @@ export default async function AdminLayout({ children }: { children: ReactNode })
             <Link href="/admin/maintenance-requests" style={linkStyle}>
               <span>Maintenance Requests</span>
               <span style={pill}>Queue</span>
+            </Link>
+          ) : null}
+
+          {canTemperatureDashboard ? (
+            <Link href="/maintenance/temperature-dashboard" style={linkStyle}>
+              <span>Temperature Dashboard</span>
+              <span style={pill}>Mocreo</span>
             </Link>
           ) : null}
 

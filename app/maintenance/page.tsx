@@ -41,6 +41,7 @@ export default async function MaintenanceHomePage() {
   const canEquipmentTracking = canPreventativeMaintenance;
   const canVehicleLog = canPreventativeMaintenance;
   const canMaintenanceRequests = canPreventativeMaintenance;
+  const canTemperatureDashboard = canPreventativeMaintenance;
 
   const border = "1px solid var(--border)";
 
@@ -184,6 +185,18 @@ export default async function MaintenanceHomePage() {
               </p>
               <Link href="/maintenance-requests" style={action}>
                 Open Requests
+              </Link>
+            </article>
+          ) : null}
+
+          {canTemperatureDashboard ? (
+            <article style={card}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Temperature Dashboard</h2>
+              <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.5 }}>
+                Monitor Mocreo hub temperatures and route alerts to the assigned maintenance tech and selected recipients.
+              </p>
+              <Link href="/maintenance/temperature-dashboard" style={action}>
+                Open Temperature Dashboard
               </Link>
             </article>
           ) : null}

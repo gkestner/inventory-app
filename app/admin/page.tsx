@@ -89,6 +89,7 @@ export default async function AdminHomePage() {
   const canEquipmentTracking = canPreventativeMaintenance;
   const canCompanyVehicles = canPreventativeMaintenance;
   const canMaintenanceRequests = canPreventativeMaintenance;
+  const canTemperatureDashboard = canPreventativeMaintenance;
 
   const grid: CSSProperties = {
     display: "grid",
@@ -310,6 +311,21 @@ export default async function AdminHomePage() {
         ) : (
           <div style={card}>
             <h2 style={title}>Maintenance Requests</h2>
+            <p style={desc}>You don’t have access to view this module.</p>
+          </div>
+        )}
+
+        {canTemperatureDashboard ? (
+          <div style={card}>
+            <h2 style={title}>Temperature Dashboard</h2>
+            <p style={desc}>Configure Mocreo hubs and alert routing to assigned maintenance staff and extra recipients.</p>
+            <Link href="/maintenance/temperature-dashboard" style={linkStyle}>
+              Open Temperature Dashboard →
+            </Link>
+          </div>
+        ) : (
+          <div style={card}>
+            <h2 style={title}>Temperature Dashboard</h2>
             <p style={desc}>You don’t have access to view this module.</p>
           </div>
         )}
