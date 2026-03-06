@@ -480,6 +480,14 @@ export default async function AdminWorkOrderDetailPage({
           <Link href="/admin/work-orders" style={{ ...btn, textDecoration: "none", display: "inline-block" }}>
             ← Back
           </Link>
+          <a
+            href={`/admin/work-orders/print?ids=${encodeURIComponent(workOrder.id)}`}
+            target="_blank"
+            rel="noreferrer"
+            style={{ ...btn, textDecoration: "none", display: "inline-block" }}
+          >
+            Print
+          </a>
           <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>Work Order</h1>
           <div style={{ opacity: 0.8, fontSize: 12 }}>id: {workOrder.id}</div>
         </div>
