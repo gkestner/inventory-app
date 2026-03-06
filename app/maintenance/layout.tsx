@@ -212,7 +212,7 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
 
             {(canPreventativeMaintenance || canEquipmentTracking || canVehicleLog || canTemperatureDashboard) && (
               <details data-maintenance-dropdown style={detailsStyle}>
-                <summary style={summaryStyle}>Monitoring</summary>
+                <summary style={summaryStyle}>PM List</summary>
                 <div style={menuStyle}>
                   {canPreventativeMaintenance ? (
                     <Link href="/maintenance/preventative-maintenance" style={menuItemStyle}>
