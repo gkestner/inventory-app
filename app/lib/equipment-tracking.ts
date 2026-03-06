@@ -1,7 +1,5 @@
 import { prisma } from "@/app/lib/prisma";
 
-import { loadMaintenancePrimaryAssignments } from "@/app/lib/preventative-maintenance";
-
 export type EquipmentTrackingFieldKey =
   | "ngOrLp"
   | "iceCream"
@@ -351,6 +349,20 @@ type Db = {
   location: {
     findUnique: (args: unknown) => Promise<{ id: string; name: string } | null>;
   };
+  user: {
+    findUnique: (args: unknown) => Promise<
+      | {
+          locationId: string | null;
+          location: { id: string; name: string; active: boolean } | null;
+          allowedLocations: Array<{
+            locationId: string;
+            isPrimary: boolean;
+            location: { id: string; name: string; active: boolean } | null;
+          }>;
+        }
+      | null
+    >;
+  };
   equipmentTrackingLog: {
     findUnique: (args: unknown) => Promise<EquipmentPersisted | null>;
     upsert: (args: unknown) => Promise<EquipmentPersisted>;
@@ -401,13 +413,37 @@ export function parseEquipmentTrackingValues(formData: FormData): Partial<Equipm
 }
 
 export async function getMaintenanceEquipmentLocationsForUser(userId: string) {
-  const assignments = await loadMaintenancePrimaryAssignments();
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: {
+      locationId: true,
+      location: { select: { id: true, name: true, active: true } },
+      allowedLocations: {
+        where: { location: { active: true } },
+        orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
+        select: {
+          locationId: true,
+          isPrimary: true,
+          location: { select: { id: true, name: true, active: true } },
+        },
+      },
+    },
+  });
+
   const unique = new Map<string, { id: string; name: string }>();
-  for (const a of assignments) {
-    if (a.userId !== userId) continue;
-    if (unique.has(a.locationId)) continue;
-    unique.set(a.locationId, { id: a.locationId, name: a.locationName });
+
+  // Legacy single-location support.
+  if (user?.location && user.location.active) {
+    unique.set(user.location.id, { id: user.location.id, name: user.location.name });
   }
+
+  // Preferred multi-location assignments (primary first in source ordering).
+  for (const a of user?.allowedLocations ?? []) {
+    if (!a.location || !a.location.active) continue;
+    if (unique.has(a.locationId)) continue;
+    unique.set(a.locationId, { id: a.locationId, name: a.location.name });
+  }
+
   return Array.from(unique.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
