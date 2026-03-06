@@ -31,6 +31,18 @@ type AdminSession = {
   } | null;
 } | null;
 
+type ReportsSearchParams = {
+  q?: string;
+};
+
+function matchesQuery(query: string, ...parts: string[]) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const haystack = parts.join(" ").toLowerCase();
+  const tokens = q.split(/\s+/).filter(Boolean);
+  return tokens.every((t) => haystack.includes(t));
+}
+
 async function requireReportsView() {
   const session = (await getServerSession(authOptions)) as AdminSession;
   if (!session) redirect("/login");
@@ -58,8 +70,14 @@ async function requireReportsView() {
   return perms;
 }
 
-export default async function AdminReportsIndexPage() {
+export default async function AdminReportsIndexPage({
+  searchParams,
+}: {
+  searchParams?: Promise<ReportsSearchParams>;
+}) {
   const perms = await requireReportsView();
+  const sp = (await searchParams) ?? {};
+  const query = String(sp.q ?? "").trim();
 
   const canPmReports = perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_PREVENTATIVE_MAINTENANCE]);
   const canRequestReports = perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_MAINTENANCE_REQUESTS]);
@@ -152,9 +170,59 @@ export default async function AdminReportsIndexPage() {
         <p style={{ margin: "10px 0 0", color: "var(--muted)", maxWidth: 900, lineHeight: 1.5 }}>
           Centralized analytics and operational reporting for checkout history, reorder pressure, and cost movement.
         </p>
+
+        <form method="get" style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <input
+            type="search"
+            name="q"
+            defaultValue={query}
+            placeholder="Search reports by name or keyword"
+            aria-label="Search reports"
+            style={{
+              minWidth: 260,
+              flex: "1 1 320px",
+              padding: "10px 12px",
+              borderRadius: 12,
+              border,
+              background: "var(--surface-2)",
+              color: fg,
+            }}
+          />
+          <button
+            type="submit"
+            style={{
+              padding: "10px 14px",
+              borderRadius: 12,
+              border,
+              background: "var(--surface-2)",
+              color: fg,
+              fontWeight: 900,
+              cursor: "pointer",
+            }}
+          >
+            Search
+          </button>
+          {query ? (
+            <Link
+              href="/admin/reports"
+              style={{
+                padding: "10px 14px",
+                borderRadius: 12,
+                border,
+                background: "var(--surface-2)",
+                color: fg,
+                textDecoration: "none",
+                fontWeight: 900,
+              }}
+            >
+              Clear
+            </Link>
+          ) : null}
+        </form>
         </section>
 
         <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
+          {matchesQuery(query, "checkout orders tickets") ? (
           <Link href="/admin/reports/checkout-orders" style={cardStyle}>
             <h2 style={titleStyle}>Checkout Orders</h2>
             <p style={descStyle}>
@@ -163,7 +231,9 @@ export default async function AdminReportsIndexPage() {
             </p>
             <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
           </Link>
+          ) : null}
 
+          {matchesQuery(query, "items needing order reorder queue") ? (
           <Link href="/admin/reports/needs-ordering" style={cardStyle}>
             <h2 style={titleStyle}>Items Needing Order</h2>
             <p style={descStyle}>
@@ -172,7 +242,9 @@ export default async function AdminReportsIndexPage() {
             </p>
             <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
           </Link>
+          ) : null}
 
+          {matchesQuery(query, "item cost history pricing") ? (
           <Link href="/admin/reports/item-cost-history" style={cardStyle}>
             <h2 style={titleStyle}>Item Cost History</h2>
             <p style={descStyle}>
@@ -181,7 +253,9 @@ export default async function AdminReportsIndexPage() {
             </p>
             <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
           </Link>
+          ) : null}
 
+          {matchesQuery(query, "order history inventory orders") ? (
           <Link href="/admin/inventory-orders" style={cardStyle}>
             <h2 style={titleStyle}>Order History</h2>
             <p style={descStyle}>
@@ -190,7 +264,9 @@ export default async function AdminReportsIndexPage() {
             </p>
             <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
           </Link>
+          ) : null}
 
+          {matchesQuery(query, "orders received processing inventory receiving") ? (
           <Link href="/admin/inventory-receiving" style={cardStyle}>
             <h2 style={titleStyle}>Orders Received / Processing</h2>
             <p style={descStyle}>
@@ -198,7 +274,9 @@ export default async function AdminReportsIndexPage() {
             </p>
             <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
           </Link>
+          ) : null}
 
+          {matchesQuery(query, "work order cost rollup labor mileage") ? (
           <Link href="/admin/reports/work-order-costs" style={cardStyle}>
             <h2 style={titleStyle}>Work Order Cost Rollup</h2>
             <p style={descStyle}>
@@ -206,8 +284,9 @@ export default async function AdminReportsIndexPage() {
             </p>
             <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
           </Link>
+          ) : null}
 
-          {canPmReports ? (
+          {canPmReports && matchesQuery(query, "pm audit activity preventative maintenance") ? (
             <Link href="/admin/reports/preventative-maintenance" style={cardStyle}>
               <h2 style={titleStyle}>PM Audit & Activity</h2>
               <p style={descStyle}>
@@ -217,7 +296,7 @@ export default async function AdminReportsIndexPage() {
             </Link>
           ) : null}
 
-          {canRequestReports ? (
+          {canRequestReports && matchesQuery(query, "maintenance request reports assignment closeout") ? (
             <Link href="/admin/reports/maintenance-requests" style={cardStyle}>
               <h2 style={titleStyle}>Maintenance Request Reports</h2>
               <p style={descStyle}>
@@ -227,7 +306,7 @@ export default async function AdminReportsIndexPage() {
             </Link>
           ) : null}
 
-          {canSlaBreachReport ? (
+          {canSlaBreachReport && matchesQuery(query, "sla breach response close") ? (
             <Link href="/admin/reports/sla-breaches" style={cardStyle}>
               <h2 style={titleStyle}>SLA Breach Monitor</h2>
               <p style={descStyle}>
@@ -237,7 +316,8 @@ export default async function AdminReportsIndexPage() {
             </Link>
           ) : null}
 
-          {canTechnicianWorkloadReport || canRequestReports || canWorkOrderReports ? (
+          {(canTechnicianWorkloadReport || canRequestReports || canWorkOrderReports) &&
+          matchesQuery(query, "technician workload throughput open closed") ? (
             <Link href="/admin/reports/technician-workload" style={cardStyle}>
               <h2 style={titleStyle}>Technician Workload</h2>
               <p style={descStyle}>
@@ -247,7 +327,8 @@ export default async function AdminReportsIndexPage() {
             </Link>
           ) : null}
 
-          {canTemperatureIncidentsReport || canTemperatureReports ? (
+          {(canTemperatureIncidentsReport || canTemperatureReports) &&
+          matchesQuery(query, "temperature incident timeline mocreo hub device") ? (
             <Link href="/admin/reports/temperature-incidents" style={cardStyle}>
               <h2 style={titleStyle}>Temperature Incident Timeline</h2>
               <p style={descStyle}>
@@ -257,7 +338,7 @@ export default async function AdminReportsIndexPage() {
             </Link>
           ) : null}
 
-          {canPmComplianceReport || canPmReports ? (
+          {(canPmComplianceReport || canPmReports) && matchesQuery(query, "pm compliance scorecard") ? (
             <Link href="/admin/reports/pm-compliance" style={cardStyle}>
               <h2 style={titleStyle}>PM Compliance Scorecard</h2>
               <p style={descStyle}>
@@ -267,7 +348,8 @@ export default async function AdminReportsIndexPage() {
             </Link>
           ) : null}
 
-          {canPartsConsumptionReport || canItemsReports ? (
+          {(canPartsConsumptionReport || canItemsReports) &&
+          matchesQuery(query, "parts consumption cost checkout spend") ? (
             <Link href="/admin/reports/parts-consumption-costs" style={cardStyle}>
               <h2 style={titleStyle}>Parts Consumption + Cost</h2>
               <p style={descStyle}>
@@ -277,7 +359,7 @@ export default async function AdminReportsIndexPage() {
             </Link>
           ) : null}
 
-          {canFleetTcoReport || canFleetReports ? (
+          {(canFleetTcoReport || canFleetReports) && matchesQuery(query, "fleet tco vehicles cost per mile") ? (
             <Link href="/admin/reports/fleet-tco" style={cardStyle}>
               <h2 style={titleStyle}>Fleet TCO</h2>
               <p style={descStyle}>
@@ -287,7 +369,8 @@ export default async function AdminReportsIndexPage() {
             </Link>
           ) : null}
 
-          {canPermissionCoverageReport || canSecurityReports ? (
+          {(canPermissionCoverageReport || canSecurityReports) &&
+          matchesQuery(query, "permission coverage access matrix role title") ? (
             <Link href="/admin/reports/permission-coverage" style={cardStyle}>
               <h2 style={titleStyle}>Permission Coverage</h2>
               <p style={descStyle}>
@@ -297,7 +380,8 @@ export default async function AdminReportsIndexPage() {
             </Link>
           ) : null}
 
-          {canNotificationEffectivenessReport || canSecurityReports ? (
+          {(canNotificationEffectivenessReport || canSecurityReports) &&
+          matchesQuery(query, "notification effectiveness delivery read time") ? (
             <Link href="/admin/reports/notification-effectiveness" style={cardStyle}>
               <h2 style={titleStyle}>Notification Effectiveness</h2>
               <p style={descStyle}>
@@ -307,6 +391,7 @@ export default async function AdminReportsIndexPage() {
             </Link>
           ) : null}
 
+          {matchesQuery(query, "audit trail activity stream") ? (
           <Link href="/admin/audit" style={cardStyle}>
             <h2 style={titleStyle}>Audit Trail</h2>
             <p style={descStyle}>
@@ -314,7 +399,9 @@ export default async function AdminReportsIndexPage() {
             </p>
             <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
           </Link>
+          ) : null}
 
+          {matchesQuery(query, "permission diagnostics") ? (
           <Link href="/admin/permission-diagnostics" style={cardStyle}>
             <h2 style={titleStyle}>Permission Diagnostics</h2>
             <p style={descStyle}>
@@ -322,6 +409,7 @@ export default async function AdminReportsIndexPage() {
             </p>
             <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
           </Link>
+          ) : null}
         </div>
 
         <div style={{ marginTop: 12, fontSize: 12, opacity: 0.8, lineHeight: 1.5 }}>
