@@ -577,7 +577,7 @@ model CompanyVehicle {
   id String @id @default(cuid())
 
   name         String
-  unitNumber   String?
+  vinNumber    String?
   licensePlate String?
   active       Boolean @default(true)
 

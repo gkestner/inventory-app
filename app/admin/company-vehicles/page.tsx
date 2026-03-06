@@ -31,7 +31,7 @@ type ServiceRow = {
   description: string;
   vendor: string | null;
   cost: unknown;
-  vehicle: { id: string; name: string; unitNumber: string | null };
+  vehicle: { id: string; name: string; vinNumber: string | null };
   performedByUser: { name: string | null; email: string | null } | null;
 };
 
@@ -98,7 +98,7 @@ export default async function AdminCompanyVehiclesPage() {
     if (!actor || !actor.active) redirect("/login");
 
     const name = String(formData.get("name") ?? "").trim();
-    const unitNumber = String(formData.get("unitNumber") ?? "").trim() || null;
+    const vinNumber = String(formData.get("vinNumber") ?? "").trim() || null;
     const licensePlate = String(formData.get("licensePlate") ?? "").trim() || null;
     const assignedUserId = String(formData.get("assignedUserId") ?? "").trim() || null;
     const mileageSource = String(formData.get("mileageSource") ?? "MANUAL").trim();
@@ -113,7 +113,7 @@ export default async function AdminCompanyVehiclesPage() {
     const created = await db.companyVehicle.create({
       data: {
         name,
-        unitNumber,
+        vinNumber,
         licensePlate,
         assignedUserId,
         mileageSource,
@@ -276,7 +276,7 @@ export default async function AdminCompanyVehiclesPage() {
       select: {
         id: true,
         name: true,
-        unitNumber: true,
+        vinNumber: true,
         licensePlate: true,
         active: true,
         mileageSource: true,
@@ -313,7 +313,7 @@ export default async function AdminCompanyVehiclesPage() {
         description: true,
         vendor: true,
         cost: true,
-        vehicle: { select: { id: true, name: true, unitNumber: true } },
+        vehicle: { select: { id: true, name: true, vinNumber: true } },
         performedByUser: { select: { name: true, email: true } },
       },
     }),
@@ -322,7 +322,7 @@ export default async function AdminCompanyVehiclesPage() {
   const vehicles: CompanyVehicleLite[] = vehiclesRaw.map((v) => ({
     id: v.id,
     name: v.name,
-    unitNumber: v.unitNumber,
+    vinNumber: v.vinNumber,
     licensePlate: v.licensePlate,
     active: v.active,
     mileageSource: v.mileageSource as "MANUAL" | "WORK_ORDERS_BY_ASSIGNED_USER",
@@ -413,7 +413,7 @@ export default async function AdminCompanyVehiclesPage() {
         <form action={createVehicleAction} style={{ marginTop: 10, display: "grid", gap: 10 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
             <input name="name" placeholder="Vehicle name" style={input} required />
-            <input name="unitNumber" placeholder="Unit number" style={input} />
+            <input name="vinNumber" placeholder="VIN number" style={input} />
             <input name="licensePlate" placeholder="License plate" style={input} />
             <select name="assignedUserId" style={input}>
               <option value="">Assigned user (optional)</option>
@@ -446,7 +446,7 @@ export default async function AdminCompanyVehiclesPage() {
               <option value="">Select vehicle</option>
               {vehiclesRaw.map((v) => (
                 <option key={v.id} value={v.id}>
-                  {v.name}{v.unitNumber ? ` (${v.unitNumber})` : ""}
+                  {v.name}{v.vinNumber ? ` (VIN: ${v.vinNumber})` : ""}
                 </option>
               ))}
             </select>
@@ -475,7 +475,7 @@ export default async function AdminCompanyVehiclesPage() {
               <option value="">Select vehicle</option>
               {vehiclesRaw.map((v) => (
                 <option key={v.id} value={v.id}>
-                  {v.name}{v.unitNumber ? ` (${v.unitNumber})` : ""}
+                  {v.name}{v.vinNumber ? ` (VIN: ${v.vinNumber})` : ""}
                 </option>
               ))}
             </select>
@@ -571,7 +571,7 @@ export default async function AdminCompanyVehiclesPage() {
               {recentLogs.map((r) => (
                 <tr key={r.id}>
                   <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{fmtLocal(r.serviceAt)}</td>
-                  <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{r.vehicle.name}{r.vehicle.unitNumber ? ` (${r.vehicle.unitNumber})` : ""}</td>
+                  <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{r.vehicle.name}{r.vehicle.vinNumber ? ` (VIN: ${r.vehicle.vinNumber})` : ""}</td>
                   <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{r.serviceType ?? "General"}</td>
                   <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{r.odometer ?? "-"}</td>
                   <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{r.vendor ?? "-"}</td>

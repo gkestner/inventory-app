@@ -6,7 +6,7 @@ export type VehicleReminderType = "TIME_BASED" | "MILEAGE_BASED";
 export type CompanyVehicleLite = {
   id: string;
   name: string;
-  unitNumber: string | null;
+  vinNumber: string | null;
   licensePlate: string | null;
   active: boolean;
   mileageSource: VehicleMileageSource;

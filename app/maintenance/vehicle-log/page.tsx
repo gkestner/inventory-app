@@ -18,7 +18,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-type Vehicle = { id: string; name: string; unitNumber: string | null; active: boolean };
+type Vehicle = { id: string; name: string; vinNumber: string | null; active: boolean };
 type Reminder = { id: string; vehicleId: string; title: string; active: boolean };
 type ServiceRow = {
   id: string;
@@ -26,7 +26,7 @@ type ServiceRow = {
   odometer: number | null;
   serviceType: string | null;
   description: string;
-  vehicle: { name: string; unitNumber: string | null };
+  vehicle: { name: string; vinNumber: string | null };
 };
 
 type Db = {
@@ -170,7 +170,7 @@ export default async function MaintenanceVehicleLogPage() {
     db.companyVehicle.findMany({
       where: { active: true, NOT: [{ name: "Office" }, { name: "office" }] },
       orderBy: { name: "asc" },
-      select: { id: true, name: true, unitNumber: true, active: true },
+      select: { id: true, name: true, vinNumber: true, active: true },
     }),
     db.vehicleMaintenanceReminder.findMany({
       where: { active: true },
@@ -187,7 +187,7 @@ export default async function MaintenanceVehicleLogPage() {
         odometer: true,
         serviceType: true,
         description: true,
-        vehicle: { select: { name: true, unitNumber: true } },
+        vehicle: { select: { name: true, vinNumber: true } },
       },
     }),
   ]);
@@ -252,7 +252,7 @@ export default async function MaintenanceVehicleLogPage() {
                 <option value="">Select vehicle</option>
                 {vehicles.map((v) => (
                   <option key={v.id} value={v.id}>
-                    {v.name}{v.unitNumber ? ` (${v.unitNumber})` : ""}
+                    {v.name}{v.vinNumber ? ` (VIN: ${v.vinNumber})` : ""}
                   </option>
                 ))}
               </select>
@@ -342,7 +342,7 @@ export default async function MaintenanceVehicleLogPage() {
                 <tr key={r.id}>
                   <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{fmtLocal(r.serviceAt)}</td>
                   <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>
-                    {r.vehicle.name}{r.vehicle.unitNumber ? ` (${r.vehicle.unitNumber})` : ""}
+                    {r.vehicle.name}{r.vehicle.vinNumber ? ` (VIN: ${r.vehicle.vinNumber})` : ""}
                   </td>
                   <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{r.serviceType ?? "General"}</td>
                   <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{r.odometer ?? "-"}</td>
