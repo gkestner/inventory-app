@@ -700,6 +700,7 @@ model Item {
   versions  ItemVersion[]
   alerts    InventoryAlert[]
   checkouts PartsCheckoutTicket[]
+  cycleCountItems CycleCountItem[]
 
   inventoryOrders InventoryOrder[]
 
