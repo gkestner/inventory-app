@@ -294,6 +294,8 @@ export type EquipmentTrackingValues = Record<EquipmentTrackingFieldKey, string>;
 
 const ALL_FIELDS = EQUIPMENT_SECTIONS.flatMap((s) => s.fields).map((f) => f.key);
 
+export const EQUIPMENT_TRACKING_FIELD_KEYS = Array.from(new Set(ALL_FIELDS)) as EquipmentTrackingFieldKey[];
+
 const EMPTY_VALUES: EquipmentTrackingValues = {
   ngOrLp: "",
   iceCream: "",
