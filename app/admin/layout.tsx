@@ -14,6 +14,8 @@ import {
   ADMIN_VIEW_MAINTENANCE_REQUESTS,
   ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
   ADMIN_VIEW_TEMPERATURE_DASHBOARD,
+  CREATE_COMPANY_VEHICLE_INFO,
+  EDIT_COMPANY_VEHICLE_INFO,
 } from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +48,8 @@ async function requireAdmin() {
       ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
       ADMIN_VIEW_EQUIPMENT_TRACKING,
       ADMIN_VIEW_COMPANY_VEHICLES,
+      CREATE_COMPANY_VEHICLE_INFO,
+      EDIT_COMPANY_VEHICLE_INFO,
       ADMIN_VIEW_MAINTENANCE_REQUESTS,
       ADMIN_VIEW_TEMPERATURE_DASHBOARD,
     ]);
@@ -98,7 +102,8 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   const canPreventativeMaintenance =
     allowAll || hasAnyPermission(perms, [ADMIN_VIEW_PREVENTATIVE_MAINTENANCE]);
   const canEquipmentTracking = allowAll || hasAnyPermission(perms, [ADMIN_VIEW_EQUIPMENT_TRACKING]);
-  const canCompanyVehicles = allowAll || hasAnyPermission(perms, [ADMIN_VIEW_COMPANY_VEHICLES]);
+  const canCompanyVehicles =
+    allowAll || hasAnyPermission(perms, [ADMIN_VIEW_COMPANY_VEHICLES, CREATE_COMPANY_VEHICLE_INFO, EDIT_COMPANY_VEHICLE_INFO]);
   const canMaintenanceRequests = allowAll || hasAnyPermission(perms, [ADMIN_VIEW_MAINTENANCE_REQUESTS]);
   const canTemperatureDashboard = allowAll || hasAnyPermission(perms, [ADMIN_VIEW_TEMPERATURE_DASHBOARD]);
 

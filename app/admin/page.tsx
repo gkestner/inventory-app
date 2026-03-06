@@ -13,6 +13,8 @@ import {
   ADMIN_VIEW_MAINTENANCE_REQUESTS,
   ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
   ADMIN_VIEW_TEMPERATURE_DASHBOARD,
+  CREATE_COMPANY_VEHICLE_INFO,
+  EDIT_COMPANY_VEHICLE_INFO,
 } from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +52,8 @@ async function requireAdmin() {
       ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
       ADMIN_VIEW_EQUIPMENT_TRACKING,
       ADMIN_VIEW_COMPANY_VEHICLES,
+      CREATE_COMPANY_VEHICLE_INFO,
+      EDIT_COMPANY_VEHICLE_INFO,
       ADMIN_VIEW_MAINTENANCE_REQUESTS,
       ADMIN_VIEW_TEMPERATURE_DASHBOARD,
     ]);
@@ -99,7 +103,8 @@ export default async function AdminHomePage() {
 
   const canPreventativeMaintenance = perms.allowAll || hasAnyPermissionLocal(perms, [ADMIN_VIEW_PREVENTATIVE_MAINTENANCE]);
   const canEquipmentTracking = perms.allowAll || hasAnyPermissionLocal(perms, [ADMIN_VIEW_EQUIPMENT_TRACKING]);
-  const canCompanyVehicles = perms.allowAll || hasAnyPermissionLocal(perms, [ADMIN_VIEW_COMPANY_VEHICLES]);
+  const canCompanyVehicles =
+    perms.allowAll || hasAnyPermissionLocal(perms, [ADMIN_VIEW_COMPANY_VEHICLES, CREATE_COMPANY_VEHICLE_INFO, EDIT_COMPANY_VEHICLE_INFO]);
   const canMaintenanceRequests = perms.allowAll || hasAnyPermissionLocal(perms, [ADMIN_VIEW_MAINTENANCE_REQUESTS]);
   const canTemperatureDashboard = perms.allowAll || hasAnyPermissionLocal(perms, [ADMIN_VIEW_TEMPERATURE_DASHBOARD]);
 

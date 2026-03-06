@@ -14,7 +14,9 @@ import {
   ADMIN_VIEW_MAINTENANCE_REQUESTS,
   ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
   ADMIN_VIEW_TEMPERATURE_DASHBOARD,
+  CREATE_COMPANY_VEHICLE_INFO,
   CREATE_WORK_ORDERS_FOR_OTHERS,
+  EDIT_COMPANY_VEHICLE_INFO,
   VIEW_COMPANY_VEHICLE_LOG,
   VIEW_EQUIPMENT_TRACKING,
   VIEW_MAINTENANCE_REQUESTS,
@@ -66,6 +68,18 @@ export const PERMISSION_CATALOG: PermissionCatalogEntry[] = [
     module: "Maintenance",
     path: ["Company Vehicles"],
     label: "View Vehicle Log",
+  },
+  {
+    permission: CREATE_COMPANY_VEHICLE_INFO,
+    module: "Maintenance",
+    path: ["Company Vehicles"],
+    label: "Create Vehicle Info",
+  },
+  {
+    permission: EDIT_COMPANY_VEHICLE_INFO,
+    module: "Maintenance",
+    path: ["Company Vehicles"],
+    label: "Edit Vehicle Info",
   },
   {
     permission: VIEW_MAINTENANCE_REQUESTS,

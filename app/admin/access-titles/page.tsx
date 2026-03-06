@@ -19,7 +19,9 @@ import {
   ADMIN_VIEW_MAINTENANCE_REQUESTS,
   ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
   ADMIN_VIEW_TEMPERATURE_DASHBOARD,
+  CREATE_COMPANY_VEHICLE_INFO,
   CREATE_WORK_ORDERS_FOR_OTHERS,
+  EDIT_COMPANY_VEHICLE_INFO,
   VIEW_COMPANY_VEHICLE_LOG,
   VIEW_EQUIPMENT_TRACKING,
   VIEW_MAINTENANCE_REQUESTS,
@@ -162,6 +164,8 @@ const PERMS: PermMeta[] = [
   { perm: VIEW_PREVENTATIVE_MAINTENANCE, module: "Maintenance", group: "Preventative Maintenance", label: "View Preventative Maintenance" },
   { perm: VIEW_EQUIPMENT_TRACKING, module: "Maintenance", group: "Equipment Tracking", label: "View Equipment Tracking" },
   { perm: VIEW_COMPANY_VEHICLE_LOG, module: "Maintenance", group: "Company Vehicles", label: "View Vehicle Log" },
+  { perm: CREATE_COMPANY_VEHICLE_INFO, module: "Maintenance", group: "Company Vehicles", label: "Create Vehicle Info" },
+  { perm: EDIT_COMPANY_VEHICLE_INFO, module: "Maintenance", group: "Company Vehicles", label: "Edit Vehicle Info" },
   { perm: VIEW_MAINTENANCE_REQUESTS, module: "Maintenance", group: "Maintenance Requests", label: "View Maintenance Requests" },
   { perm: VIEW_TEMPERATURE_DASHBOARD, module: "Maintenance", group: "Temperature Dashboard", label: "View Temperature Dashboard" },
 

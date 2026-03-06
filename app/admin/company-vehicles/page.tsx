@@ -6,9 +6,12 @@ import { revalidatePath } from "next/cache";
 
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
-import { canAccessAdmin } from "@/app/lib/admin-access";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import { ADMIN_VIEW_COMPANY_VEHICLES } from "@/app/lib/permission-constants";
+import {
+  ADMIN_VIEW_COMPANY_VEHICLES,
+  CREATE_COMPANY_VEHICLE_INFO,
+  EDIT_COMPANY_VEHICLE_INFO,
+} from "@/app/lib/permission-constants";
 import {
   evaluateVehicleReminder,
   fmtDateTimeLocalInput,
@@ -23,7 +26,7 @@ import {
 export const dynamic = "force-dynamic";
 
 type UserLite = { id: string; name: string | null; email: string | null; role: string };
-type VehicleRow = CompanyVehicleLite & { assignedUser: { id: string; name: string | null; email: string | null } | null };
+type VehicleRow = CompanyVehicleLite & { notes: string | null; assignedUser: { id: string; name: string | null; email: string | null } | null };
 type ReminderRow = VehicleReminderLite & { vehicle: { id: string; name: string } };
 type ServiceRow = {
   id: string;
@@ -41,7 +44,9 @@ type Db = {
   user: { findUnique: (args: unknown) => Promise<{ id: string; active: boolean } | null>; findMany: (args: unknown) => Promise<UserLite[]> };
   companyVehicle: {
     findMany: (args: unknown) => Promise<VehicleRow[]>;
+    findUnique: (args: unknown) => Promise<{ id: string; active: boolean } | null>;
     create: (args: unknown) => Promise<{ id: string }>;
+    update: (args: unknown) => Promise<{ id: string }>;
   };
   vehicleMaintenanceReminder: {
     findMany: (args: unknown) => Promise<ReminderRow[]>;
@@ -59,11 +64,23 @@ type Db = {
 
 const db = prisma as unknown as Db;
 
-async function requireAdminAccess(session: unknown) {
+function hasCompanyVehiclePageAccess(perms: Awaited<ReturnType<typeof loadUserPermissions>>): boolean {
+  return perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_COMPANY_VEHICLES, CREATE_COMPANY_VEHICLE_INFO, EDIT_COMPANY_VEHICLE_INFO]);
+}
+
+function canCreateVehicleInfo(perms: Awaited<ReturnType<typeof loadUserPermissions>>): boolean {
+  return perms.allowAll || hasAnyPermission(perms, [CREATE_COMPANY_VEHICLE_INFO, EDIT_COMPANY_VEHICLE_INFO, ADMIN_VIEW_COMPANY_VEHICLES]);
+}
+
+function canEditVehicleInfo(perms: Awaited<ReturnType<typeof loadUserPermissions>>): boolean {
+  return perms.allowAll || hasAnyPermission(perms, [EDIT_COMPANY_VEHICLE_INFO, ADMIN_VIEW_COMPANY_VEHICLES]);
+}
+
+async function requireCompanyVehicleAccess(session: unknown) {
   if (!session) redirect("/login");
-  const [allowed, perms] = await Promise.all([canAccessAdmin(session), loadUserPermissions(session)]);
-  const featureAllowed = perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_COMPANY_VEHICLES]);
-  if (!allowed || !featureAllowed) redirect("/");
+  const perms = await loadUserPermissions(session);
+  if (!hasCompanyVehiclePageAccess(perms)) redirect("/");
+  return perms;
 }
 
 function fmtLocal(d: Date): string {
@@ -86,13 +103,16 @@ function formatCost(v: unknown): string {
 
 export default async function AdminCompanyVehiclesPage() {
   const session = await getServerSession(authOptions);
-  await requireAdminAccess(session);
+  const perms = await requireCompanyVehicleAccess(session);
+  const canCreateInfo = canCreateVehicleInfo(perms);
+  const canEditInfo = canEditVehicleInfo(perms);
 
   async function createVehicleAction(formData: FormData) {
     "use server";
 
     const session = await getServerSession(authOptions);
-    await requireAdminAccess(session);
+    const perms = await requireCompanyVehicleAccess(session);
+    if (!canCreateVehicleInfo(perms)) redirect("/");
 
     const email = String((session?.user as { email?: string | null } | null)?.email ?? "").trim().toLowerCase();
     if (!email) redirect("/login");
@@ -142,11 +162,72 @@ export default async function AdminCompanyVehiclesPage() {
     revalidatePath("/maintenance/vehicle-log");
   }
 
+  async function updateVehicleAction(formData: FormData) {
+    "use server";
+
+    const session = await getServerSession(authOptions);
+    const perms = await requireCompanyVehicleAccess(session);
+    if (!canEditVehicleInfo(perms)) redirect("/");
+
+    const email = String((session?.user as { email?: string | null } | null)?.email ?? "").trim().toLowerCase();
+    if (!email) redirect("/login");
+
+    const actor = await db.user.findUnique({ where: { email }, select: { id: true, active: true } });
+    if (!actor || !actor.active) redirect("/login");
+
+    const vehicleId = String(formData.get("vehicleId") ?? "").trim();
+    const name = String(formData.get("name") ?? "").trim();
+    const vinNumber = String(formData.get("vinNumber") ?? "").trim() || null;
+    const licensePlate = String(formData.get("licensePlate") ?? "").trim() || null;
+    const assignedUserId = String(formData.get("assignedUserId") ?? "").trim() || null;
+    const mileageSource = String(formData.get("mileageSource") ?? "MANUAL").trim();
+    const currentMileage = parseOptionalInt(formData.get("currentMileage"));
+    const notes = String(formData.get("notes") ?? "").trim() || null;
+    const active = String(formData.get("active") ?? "1").trim() === "1";
+
+    if (!vehicleId || !name) throw new Error("Vehicle id and name are required.");
+    if (mileageSource !== "MANUAL" && mileageSource !== "WORK_ORDERS_BY_ASSIGNED_USER") {
+      throw new Error("Invalid mileage source.");
+    }
+
+    const existing = await db.companyVehicle.findUnique({ where: { id: vehicleId }, select: { id: true, active: true } });
+    if (!existing) throw new Error("Vehicle not found.");
+
+    await db.companyVehicle.update({
+      where: { id: vehicleId },
+      data: {
+        name,
+        vinNumber,
+        licensePlate,
+        assignedUserId,
+        mileageSource,
+        currentMileage,
+        notes,
+        active,
+      },
+      select: { id: true },
+    });
+
+    await db.auditLog.create({
+      data: {
+        actorUserId: actor.id,
+        module: "COMPANY_VEHICLES",
+        action: "UPDATE_VEHICLE",
+        entityType: "CompanyVehicle",
+        entityId: vehicleId,
+        message: `Updated company vehicle ${name}.`,
+      },
+    });
+
+    revalidatePath("/admin/company-vehicles");
+    revalidatePath("/maintenance/vehicle-log");
+  }
+
   async function createReminderAction(formData: FormData) {
     "use server";
 
     const session = await getServerSession(authOptions);
-    await requireAdminAccess(session);
+    await requireCompanyVehicleAccess(session);
 
     const email = String((session?.user as { email?: string | null } | null)?.email ?? "").trim().toLowerCase();
     if (!email) redirect("/login");
@@ -204,7 +285,7 @@ export default async function AdminCompanyVehiclesPage() {
     "use server";
 
     const session = await getServerSession(authOptions);
-    await requireAdminAccess(session);
+    await requireCompanyVehicleAccess(session);
 
     const email = String((session?.user as { email?: string | null } | null)?.email ?? "").trim().toLowerCase();
     if (!email) redirect("/login");
@@ -274,8 +355,7 @@ export default async function AdminCompanyVehiclesPage() {
       select: { id: true, name: true, email: true, role: true },
     }),
     db.companyVehicle.findMany({
-      where: { active: true },
-      orderBy: { name: "asc" },
+      orderBy: [{ active: "desc" }, { name: "asc" }],
       select: {
         id: true,
         name: true,
@@ -285,6 +365,7 @@ export default async function AdminCompanyVehiclesPage() {
         mileageSource: true,
         currentMileage: true,
         assignedUserId: true,
+        notes: true,
         assignedUser: { select: { id: true, name: true, email: true } },
       },
     }),
@@ -347,6 +428,7 @@ export default async function AdminCompanyVehiclesPage() {
   }));
 
   const mileageMap = await resolveVehicleCurrentMileageMap(vehicles);
+  const activeVehicles = vehiclesRaw.filter((v) => v.active);
   const now = new Date();
 
   const dueRows = reminderRows
@@ -411,35 +493,79 @@ export default async function AdminCompanyVehiclesPage() {
         </div>
       </section>
 
-      <section style={card}>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Create Vehicle</h2>
-        <form action={createVehicleAction} style={{ marginTop: 10, display: "grid", gap: 10 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
-            <input name="name" placeholder="Vehicle name" style={input} required />
-            <input name="vinNumber" placeholder="VIN number" style={input} />
-            <input name="licensePlate" placeholder="License plate" style={input} />
-            <select name="assignedUserId" style={input}>
-              <option value="">Assigned user (optional)</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {(u.name ?? "").trim() || (u.email ?? "").trim()}
-                </option>
-              ))}
-            </select>
-            <select name="mileageSource" style={input} defaultValue="MANUAL">
-              <option value="MANUAL">Manual Mileage</option>
-              <option value="WORK_ORDERS_BY_ASSIGNED_USER">From Assigned User Work Orders/Travel</option>
-            </select>
-            <input name="currentMileage" type="number" placeholder="Current mileage" style={input} />
+      {canCreateInfo ? (
+        <section style={card}>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Create Vehicle</h2>
+          <form action={createVehicleAction} style={{ marginTop: 10, display: "grid", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+              <input name="name" placeholder="Vehicle name" style={input} required />
+              <input name="vinNumber" placeholder="VIN number" style={input} />
+              <input name="licensePlate" placeholder="License plate" style={input} />
+              <select name="assignedUserId" style={input}>
+                <option value="">Assigned user (optional)</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {(u.name ?? "").trim() || (u.email ?? "").trim()}
+                  </option>
+                ))}
+              </select>
+              <select name="mileageSource" style={input} defaultValue="MANUAL">
+                <option value="MANUAL">Manual Mileage</option>
+                <option value="WORK_ORDERS_BY_ASSIGNED_USER">From Assigned User Work Orders/Travel</option>
+              </select>
+              <input name="currentMileage" type="number" placeholder="Current mileage" style={input} />
+            </div>
+            <textarea name="notes" placeholder="Notes (optional)" style={{ ...input, minHeight: 80 }} />
+            <div>
+              <button type="submit" style={{ ...btn, cursor: "pointer" }}>
+                Create Vehicle
+              </button>
+            </div>
+          </form>
+        </section>
+      ) : null}
+
+      {canEditInfo ? (
+        <section style={card}>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Edit Vehicle Information</h2>
+          <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+            {vehiclesRaw.map((v) => (
+              <form key={`edit-vehicle-${v.id}`} action={updateVehicleAction} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 10, display: "grid", gap: 10 }}>
+                <input type="hidden" name="vehicleId" value={v.id} />
+                <div style={{ fontWeight: 900, fontSize: 14 }}>{v.name}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+                  <input name="name" defaultValue={v.name} placeholder="Vehicle name" style={input} required />
+                  <input name="vinNumber" defaultValue={v.vinNumber ?? ""} placeholder="VIN number" style={input} />
+                  <input name="licensePlate" defaultValue={v.licensePlate ?? ""} placeholder="License plate" style={input} />
+                  <select name="assignedUserId" style={input} defaultValue={v.assignedUserId ?? ""}>
+                    <option value="">Assigned user (optional)</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {(u.name ?? "").trim() || (u.email ?? "").trim()}
+                      </option>
+                    ))}
+                  </select>
+                  <select name="mileageSource" style={input} defaultValue={v.mileageSource}>
+                    <option value="MANUAL">Manual Mileage</option>
+                    <option value="WORK_ORDERS_BY_ASSIGNED_USER">From Assigned User Work Orders/Travel</option>
+                  </select>
+                  <input name="currentMileage" type="number" defaultValue={v.currentMileage ?? ""} placeholder="Current mileage" style={input} />
+                  <select name="active" defaultValue={v.active ? "1" : "0"} style={input}>
+                    <option value="1">Active</option>
+                    <option value="0">Inactive</option>
+                  </select>
+                </div>
+                <textarea name="notes" defaultValue={v.notes ?? ""} placeholder="Notes (optional)" style={{ ...input, minHeight: 70 }} />
+                <div>
+                  <button type="submit" style={{ ...btn, cursor: "pointer" }}>
+                    Save Vehicle
+                  </button>
+                </div>
+              </form>
+            ))}
           </div>
-          <textarea name="notes" placeholder="Notes (optional)" style={{ ...input, minHeight: 80 }} />
-          <div>
-            <button type="submit" style={{ ...btn, cursor: "pointer" }}>
-              Create Vehicle
-            </button>
-          </div>
-        </form>
-      </section>
+        </section>
+      ) : null}
 
       <section style={card}>
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Create Reminder</h2>
@@ -447,7 +573,7 @@ export default async function AdminCompanyVehiclesPage() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
             <select name="vehicleId" style={input} required>
               <option value="">Select vehicle</option>
-              {vehiclesRaw.map((v) => (
+              {activeVehicles.map((v) => (
                 <option key={v.id} value={v.id}>
                   {v.name}{v.vinNumber ? ` (VIN: ${v.vinNumber})` : ""}
                 </option>
@@ -476,7 +602,7 @@ export default async function AdminCompanyVehiclesPage() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
             <select name="vehicleId" style={input} required>
               <option value="">Select vehicle</option>
-              {vehiclesRaw.map((v) => (
+              {activeVehicles.map((v) => (
                 <option key={v.id} value={v.id}>
                   {v.name}{v.vinNumber ? ` (VIN: ${v.vinNumber})` : ""}
                 </option>
