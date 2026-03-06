@@ -685,69 +685,55 @@ export default async function MaintenanceRequestsPage({
                     style={{
                       border: headerBorder,
                       borderRadius: 12,
-                      background: "var(--surface)",
+                      background: "var(--surface-2)",
                       padding: 12,
                       display: "grid",
                       gap: 10,
                     }}
                   >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
                       <span style={statusBadgeStyle[row.status]}>{row.status}</span>
-                      <div style={{ fontSize: 13, opacity: 0.8 }}>Requested: {fmtDateTime(row.createdAt)}</div>
+                      <div style={{ fontSize: 13, opacity: 0.85 }}>Requested: {fmtDateTime(row.createdAt)}</div>
                     </div>
 
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 8 }}>
                       <div>
-                        <div style={{ fontSize: 11, fontWeight: 900, opacity: 0.75 }}>Store</div>
+                        <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 800 }}>Store</div>
                         <div>{row.location.name}</div>
                       </div>
                       <div>
-                        <div style={{ fontSize: 11, fontWeight: 900, opacity: 0.75 }}>Requested By</div>
+                        <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 800 }}>Requested By</div>
                         <div>{personLabel(row.requestedByUser)}</div>
                       </div>
                       <div>
-                        <div style={{ fontSize: 11, fontWeight: 900, opacity: 0.75 }}>Assigned Tech</div>
+                        <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 800 }}>Assigned Tech</div>
                         <div>{personLabel(row.assignedMaintenanceUser)}</div>
                       </div>
                       <div>
-                        <div style={{ fontSize: 11, fontWeight: 900, opacity: 0.75 }}>Resolved</div>
+                        <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 800 }}>Resolved</div>
                         <div>{fmtDateTime(row.resolvedAt)}</div>
-                        {row.resolvedByUser ? <div style={{ opacity: 0.8 }}>by {personLabel(row.resolvedByUser)}</div> : null}
+                        {row.resolvedByUser ? <div style={{ opacity: 0.8, fontSize: 12 }}>by {personLabel(row.resolvedByUser)}</div> : null}
                       </div>
                     </div>
 
                     <div>
                       <div style={{ fontWeight: 900 }}>{row.title}</div>
-                      <div style={{ marginTop: 4, opacity: 0.9, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                        {row.description}
-                      </div>
-                      {row.resolutionNotes ? (
-                        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                          Resolution: {row.resolutionNotes}
-                        </div>
-                      ) : null}
+                      <div style={{ marginTop: 4, opacity: 0.9, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{row.description}</div>
+                      {row.resolutionNotes ? <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>Resolution: {row.resolutionNotes}</div> : null}
                     </div>
 
                     <div>
                       {canResolve ? (
-                        <form action={resolveAndArchiveAction} style={{ display: "grid", gap: 6, maxWidth: 460 }}>
+                        <form action={resolveAndArchiveAction} style={{ display: "grid", gap: 6 }}>
                           <input type="hidden" name="requestId" value={row.id} />
                           <input
                             name="resolutionNotes"
                             placeholder="Resolution notes (optional)"
-                            style={{ padding: "8px 10px", borderRadius: 8, border: headerBorder, width: "100%" }}
+                            style={{ padding: "8px 10px", borderRadius: 8, border: headerBorder, width: "100%", maxWidth: 420 }}
                           />
                           <button
                             type="submit"
-                            style={{
-                              width: "fit-content",
-                              padding: "7px 10px",
-                              borderRadius: 8,
-                              border: headerBorder,
-                              background: "var(--surface-2)",
-                              fontWeight: 800,
-                              cursor: "pointer",
-                            }}
+                            style={{ width: "fit-content", padding: "7px 10px", borderRadius: 8, border: headerBorder, background: "var(--surface)", fontWeight: 800, cursor: "pointer" }}
                           >
                             Resolve & Archive
                           </button>
