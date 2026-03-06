@@ -187,8 +187,12 @@ export default async function WorkOrderSchedulesPage() {
                 ))}
               </select>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 10 }}>
-              <input name="intervalDays" type="number" min={1} defaultValue={30} />
+            <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", gap: 10 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>
+                <span style={{ whiteSpace: "nowrap" }}>Repeat every</span>
+                <input name="intervalDays" type="number" min={1} defaultValue={30} style={{ width: 90 }} />
+                <span style={{ whiteSpace: "nowrap" }}>days</span>
+              </label>
               <input name="description" placeholder="Optional description" />
             </div>
             <button type="submit" style={{ width: 200, padding: "9px 12px", borderRadius: 10, border: "1px solid var(--border)", fontWeight: 800 }}>
