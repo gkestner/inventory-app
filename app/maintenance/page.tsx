@@ -37,6 +37,7 @@ export default async function MaintenanceHomePage() {
   const canTravelLog = canWorkOrders;
   const canLiveOrders = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_LIVE_ORDERS]);
   const canOfficeEntry = perms.allowAll || hasAnyPermission(perms, [CREATE_WORK_ORDERS_FOR_OTHERS]);
+  const canPreventativeMaintenance = canWorkOrders || canCheckout || canOfficeEntry || canLiveOrders;
 
   const border = "1px solid var(--border)";
 
@@ -132,6 +133,18 @@ export default async function MaintenanceHomePage() {
               </p>
               <Link href="/maintenance/checkout" style={action}>
                 Open Checkout
+              </Link>
+            </article>
+          ) : null}
+
+          {canPreventativeMaintenance ? (
+            <article style={card}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Preventative Maintenance</h2>
+              <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.5 }}>
+                Manage the annual PM checklist by location. Assignments follow your primary stores under the Maintenance title.
+              </p>
+              <Link href="/maintenance/preventative-maintenance" style={action}>
+                Open PM List
               </Link>
             </article>
           ) : null}

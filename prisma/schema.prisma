@@ -304,6 +304,7 @@ model Location {
 
   // Scheduling / counts
   pmSchedules        PmSchedule[]
+  preventativeMaintenanceEntries PreventativeMaintenanceEntry[]
   cycleCountSessions CycleCountSession[]
 
   @@index([active])
@@ -364,6 +365,7 @@ model User {
   attachmentsAdded   WorkOrderAttachment[] @relation("WorkOrderAttachmentAddedBy")
   pmSchedulesCreated PmSchedule[]          @relation("PmScheduleCreatedBy")
   pmSchedulesAssigned PmSchedule[]         @relation("PmScheduleDefaultUser")
+  preventativeMaintenanceEntriesUpdated PreventativeMaintenanceEntry[] @relation("PreventativeMaintenanceEntryUpdatedBy")
   cycleCountsCreated CycleCountSession[]   @relation("CycleCountCreatedBy")
 }
 
@@ -453,6 +455,30 @@ model PmSchedule {
 
   @@index([active, nextDueAt])
   @@index([locationId, active])
+}
+
+model PreventativeMaintenanceEntry {
+  id String @id @default(cuid())
+
+  year       Int
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
+
+  ovenCleaning       String?
+  exhaustFanMotor    String?
+  tanklessWaterHeater String?
+  iceMaker           String?
+  greaseTrapGallons  String?
+
+  updatedByUserId String?
+  updatedByUser   User? @relation("PreventativeMaintenanceEntryUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([locationId, year])
+  @@index([year])
+  @@index([updatedByUserId])
 }
 
 model AuditLog {

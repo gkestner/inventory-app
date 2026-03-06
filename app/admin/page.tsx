@@ -85,6 +85,8 @@ export default async function AdminHomePage() {
     perms.allowAll ||
     hasAnyPermissionLocal(perms, [Permission.ADMIN_VIEW_MAINTENANCE_TICKETS, Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS]);
 
+  const canPreventativeMaintenance = canWorkOrders || canLocations || canTickets;
+
   const grid: CSSProperties = {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
@@ -245,6 +247,21 @@ export default async function AdminHomePage() {
         ) : (
           <div style={card}>
             <h2 style={title}>Work Orders</h2>
+            <p style={desc}>You don’t have access to view this module.</p>
+          </div>
+        )}
+
+        {canPreventativeMaintenance ? (
+          <div style={card}>
+            <h2 style={title}>Preventative Maintenance</h2>
+            <p style={desc}>Annual PM matrix by location with technician grouping based on primary Maintenance assignments.</p>
+            <Link href="/admin/preventative-maintenance" style={linkStyle}>
+              Open PM List →
+            </Link>
+          </div>
+        ) : (
+          <div style={card}>
+            <h2 style={title}>Preventative Maintenance</h2>
             <p style={desc}>You don’t have access to view this module.</p>
           </div>
         )}
