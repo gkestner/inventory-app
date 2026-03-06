@@ -11,6 +11,7 @@ import {
   PREVENTATIVE_MAINTENANCE_FIELDS,
   loadMaintenancePrimaryAssignments,
   normalizePmYear,
+  savePreventativeMaintenanceEntryWithAudit,
 } from "@/app/lib/preventative-maintenance";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +33,6 @@ type PmEntry = {
 type PmDb = {
   preventativeMaintenanceEntry: {
     findMany: (args: unknown) => Promise<PmEntry[]>;
-    upsert: (args: unknown) => Promise<unknown>;
   };
 };
 
@@ -88,25 +88,17 @@ export default async function AdminPreventativeMaintenancePage({
     const iceMaker = parseText(formData.get("iceMaker"));
     const greaseTrapGallons = parseText(formData.get("greaseTrapGallons"));
 
-    await pmDb.preventativeMaintenanceEntry.upsert({
-      where: { locationId_year: { locationId, year } },
-      update: {
+    await savePreventativeMaintenanceEntryWithAudit({
+      locationId,
+      year,
+      actorUserId: actor.id,
+      source: "ADMIN",
+      values: {
         ovenCleaning,
         exhaustFanMotor,
         tanklessWaterHeater,
         iceMaker,
         greaseTrapGallons,
-        updatedByUserId: actor.id,
-      },
-      create: {
-        locationId,
-        year,
-        ovenCleaning,
-        exhaustFanMotor,
-        tanklessWaterHeater,
-        iceMaker,
-        greaseTrapGallons,
-        updatedByUserId: actor.id,
       },
     });
 
@@ -223,6 +215,12 @@ export default async function AdminPreventativeMaintenancePage({
           </form>
           <Link href="/admin" style={{ ...saveBtn, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
             Back to Admin Hub
+          </Link>
+          <Link
+            href={`/admin/reports/preventative-maintenance?year=${year}`}
+            style={{ ...saveBtn, textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+          >
+            PM Audit / Reports
           </Link>
         </div>
       </section>

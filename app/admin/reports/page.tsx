@@ -156,6 +156,14 @@ export default async function AdminReportsIndexPage() {
             <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
           </Link>
 
+          <Link href="/admin/reports/preventative-maintenance" style={cardStyle}>
+            <h2 style={titleStyle}>PM Audit & Activity</h2>
+            <p style={descStyle}>
+              View preventative maintenance history with who updated each PM row, when they did it, and which columns changed.
+            </p>
+            <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
+          </Link>
+
           <Link href="/admin/audit" style={cardStyle}>
             <h2 style={titleStyle}>Audit Trail</h2>
             <p style={descStyle}>
