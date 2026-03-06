@@ -391,96 +391,111 @@ export default async function AdminMaintenanceRequestsPage({
           </div>
         ) : null}
 
-        <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", overflow: "hidden" }}>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
-              <thead>
-                <tr style={{ borderBottom: "1px solid var(--border)", background: "var(--surface-2)" }}>
-                  <th style={{ textAlign: "left", padding: 10 }}>Status</th>
-                  <th style={{ textAlign: "left", padding: 10 }}>Requested</th>
-                  <th style={{ textAlign: "left", padding: 10 }}>Store</th>
-                  <th style={{ textAlign: "left", padding: 10 }}>Issue</th>
-                  <th style={{ textAlign: "left", padding: 10 }}>Requester</th>
-                  <th style={{ textAlign: "left", padding: 10 }}>Assigned Tech</th>
-                  <th style={{ textAlign: "left", padding: 10 }}>Resolved</th>
-                  <th style={{ textAlign: "left", padding: 10 }}>Admin Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr key={row.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                    {(() => {
-                      const locationAssignees = assigneesByLocation.get(row.location.id) ?? [];
-                      return (
-                        <>
-                    <td style={{ padding: 10, fontWeight: 900 }}>{row.status}</td>
-                    <td style={{ padding: 10, whiteSpace: "nowrap", fontSize: 13 }}>{fmtDateTime(row.createdAt)}</td>
-                    <td style={{ padding: 10 }}>{row.location.name}</td>
-                    <td style={{ padding: 10 }}>
-                      <div style={{ fontWeight: 800 }}>{row.title}</div>
-                      <div style={{ marginTop: 4, opacity: 0.9 }}>{row.description}</div>
-                      {row.resolutionNotes ? <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>Resolution: {row.resolutionNotes}</div> : null}
-                    </td>
-                    <td style={{ padding: 10 }}>{personLabel(row.requestedByUser)}</td>
-                    <td style={{ padding: 10 }}>{personLabel(row.assignedMaintenanceUser)}</td>
-                    <td style={{ padding: 10 }}>{fmtDateTime(row.resolvedAt)}</td>
-                    <td style={{ padding: 10 }}>
-                      <div style={{ display: "grid", gap: 8 }}>
-                        <form action={updateAssigneeAction} style={{ display: "grid", gap: 6 }}>
-                          <input type="hidden" name="requestId" value={row.id} />
-                          <select
-                            name="assignedUserId"
-                            defaultValue={row.assignedMaintenanceUser?.id ?? "__UNASSIGNED__"}
-                            style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", background: "var(--surface)", color: "var(--foreground)", width: 220 }}
-                          >
-                            <option value="__UNASSIGNED__">Unassigned</option>
-                            {locationAssignees.map((assignee) => (
-                              <option key={`${row.id}-${assignee.userId}`} value={assignee.userId}>
-                                {assignee.userName || assignee.userEmail}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            type="submit"
-                            style={{ width: "fit-content", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface-2)", padding: "7px 10px", fontWeight: 800, cursor: "pointer" }}
-                          >
-                            Update Assignee
-                          </button>
-                        </form>
-
-                        <form action={resendNotificationAction}>
-                          <input type="hidden" name="requestId" value={row.id} />
-                          <button
-                            type="submit"
-                            style={{ width: "fit-content", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface-2)", padding: "7px 10px", fontWeight: 800, cursor: "pointer" }}
-                          >
-                            Resend Notification
-                          </button>
-                        </form>
-
-                        {row.status === "OPEN" ? (
-                          <form action={archiveAction} style={{ display: "grid", gap: 6 }}>
-                            <input type="hidden" name="requestId" value={row.id} />
-                            <input name="resolutionNotes" placeholder="Resolution notes" style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", width: 220 }} />
-                            <button type="submit" style={{ width: "fit-content", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface-2)", padding: "7px 10px", fontWeight: 800, cursor: "pointer" }}>
-                              Resolve & Archive
-                            </button>
-                          </form>
-                        ) : (
-                          <span style={{ opacity: 0.7, fontSize: 12 }}>Closed</span>
-                        )}
-                      </div>
-                    </td>
-                        </>
-                      );
-                    })()}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
+        <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 12, display: "grid", gap: 10 }}>
           {rows.length === 0 ? <div style={{ padding: 14, opacity: 0.8 }}>No requests yet.</div> : null}
+
+          {rows.map((row) => {
+            const locationAssignees = assigneesByLocation.get(row.location.id) ?? [];
+            return (
+              <article
+                key={row.id}
+                style={{
+                  border: "1px solid var(--border)",
+                  borderRadius: 12,
+                  background: "color-mix(in srgb, var(--surface-2) 35%, transparent)",
+                  padding: 12,
+                  display: "grid",
+                  gap: 10,
+                }}
+              >
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                    gap: 10,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 700 }}>Status</div>
+                    <div style={{ fontWeight: 900 }}>{row.status}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 700 }}>Requested</div>
+                    <div>{fmtDateTime(row.createdAt)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 700 }}>Store</div>
+                    <div style={{ fontWeight: 800 }}>{row.location.name}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 700 }}>Requester</div>
+                    <div>{personLabel(row.requestedByUser)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 700 }}>Assigned Tech</div>
+                    <div>{personLabel(row.assignedMaintenanceUser)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 700 }}>Resolved</div>
+                    <div>{fmtDateTime(row.resolvedAt)}</div>
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 700 }}>Issue</div>
+                  <div style={{ marginTop: 2, fontWeight: 800 }}>{row.title}</div>
+                  <div style={{ marginTop: 4, opacity: 0.9 }}>{row.description}</div>
+                  {row.resolutionNotes ? <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>Resolution: {row.resolutionNotes}</div> : null}
+                </div>
+
+                <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", alignItems: "start" }}>
+                  <form action={updateAssigneeAction} style={{ display: "grid", gap: 6 }}>
+                    <input type="hidden" name="requestId" value={row.id} />
+                    <select
+                      name="assignedUserId"
+                      defaultValue={row.assignedMaintenanceUser?.id ?? "__UNASSIGNED__"}
+                      style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", background: "var(--surface)", color: "var(--foreground)", width: "100%" }}
+                    >
+                      <option value="__UNASSIGNED__">Unassigned</option>
+                      {locationAssignees.map((assignee) => (
+                        <option key={`${row.id}-${assignee.userId}`} value={assignee.userId}>
+                          {assignee.userName || assignee.userEmail}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="submit"
+                      style={{ width: "100%", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface-2)", padding: "8px 10px", fontWeight: 800, cursor: "pointer" }}
+                    >
+                      Update Assignee
+                    </button>
+                  </form>
+
+                  <form action={resendNotificationAction} style={{ alignSelf: "end" }}>
+                    <input type="hidden" name="requestId" value={row.id} />
+                    <button
+                      type="submit"
+                      style={{ width: "100%", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface-2)", padding: "8px 10px", fontWeight: 800, cursor: "pointer" }}
+                    >
+                      Resend Notification
+                    </button>
+                  </form>
+
+                  {row.status === "OPEN" ? (
+                    <form action={archiveAction} style={{ display: "grid", gap: 6 }}>
+                      <input type="hidden" name="requestId" value={row.id} />
+                      <input name="resolutionNotes" placeholder="Resolution notes" style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", width: "100%" }} />
+                      <button type="submit" style={{ width: "100%", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface-2)", padding: "8px 10px", fontWeight: 800, cursor: "pointer" }}>
+                        Resolve & Archive
+                      </button>
+                    </form>
+                  ) : (
+                    <div style={{ alignSelf: "end", opacity: 0.7, fontSize: 12 }}>Closed</div>
+                  )}
+                </div>
+              </article>
+            );
+          })}
         </section>
       </div>
     </main>
