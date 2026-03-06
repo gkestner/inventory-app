@@ -10,6 +10,7 @@ import { canAccessAdmin } from "@/app/lib/admin-access";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { ADMIN_VIEW_TEMPERATURE_DASHBOARD, VIEW_TEMPERATURE_DASHBOARD } from "@/app/lib/permission-constants";
 import { loadMaintenancePrimaryAssignments } from "@/app/lib/preventative-maintenance";
+import AutoRefresh from "@/app/maintenance/temperature-dashboard/AutoRefresh";
 
 export const dynamic = "force-dynamic";
 
@@ -494,6 +495,8 @@ export default async function TemperatureDashboardPage({
   const testValue = Array.isArray(params.test) ? params.test[0] : params.test;
   const testCode = Array.isArray(params.code) ? params.code[0] : params.code;
   const testState = testValue ? `${testValue}${testCode ? ` (${testCode})` : ""}` : null;
+  const refreshSecRaw = Array.isArray(params.refreshSec) ? params.refreshSec[0] : params.refreshSec;
+  const refreshSec = Math.max(5, Math.min(300, Number.isFinite(Number(refreshSecRaw)) ? Number(refreshSecRaw) : 20));
 
   return (
     <main>
@@ -515,6 +518,7 @@ export default async function TemperatureDashboardPage({
             <span style={{ fontSize: 12, opacity: 0.8 }}>
               Optional security header: <code>x-mocreo-token</code> = <code>MOCREO_WEBHOOK_TOKEN</code>
             </span>
+            <AutoRefresh seconds={refreshSec} />
             <Link href="/notifications" style={{ textDecoration: "none", fontWeight: 800 }}>
               {"Notifications ->"}
             </Link>
