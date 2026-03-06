@@ -9,6 +9,15 @@ import "./globals.css";
 import AdminNav from "@/app/admin/components/AdminNav";
 import UserNav from "@/app/components/UserNav";
 import type { LoadedPermissions } from "@/app/lib/permissions";
+import {
+  CREATE_RECEIPTS,
+  VIEW_COMPANY_VEHICLE_LOG,
+  VIEW_EQUIPMENT_TRACKING,
+  VIEW_MAINTENANCE_REQUESTS,
+  VIEW_PREVENTATIVE_MAINTENANCE,
+  VIEW_RECEIPTS,
+  VIEW_TEMPERATURE_DASHBOARD,
+} from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
 
@@ -198,6 +207,13 @@ export default async function RootLayout({
       Permission.VIEW_CHECKOUT,
       Permission.VIEW_WORK_ORDERS,
       Permission.VIEW_LIVE_ORDERS,
+      VIEW_PREVENTATIVE_MAINTENANCE,
+      VIEW_EQUIPMENT_TRACKING,
+      VIEW_COMPANY_VEHICLE_LOG,
+      VIEW_MAINTENANCE_REQUESTS,
+      VIEW_TEMPERATURE_DASHBOARD,
+      VIEW_RECEIPTS,
+      CREATE_RECEIPTS,
     ]);
 
   const shouldRenderUserNav = showUserNav && hasAnyUserNavPermission;

@@ -7,8 +7,13 @@ import { authOptions } from "@/app/lib/auth";
 import { Permission } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import {
+  CREATE_RECEIPTS,
   CREATE_WORK_ORDERS_FOR_OTHERS,
+  VIEW_COMPANY_VEHICLE_LOG,
+  VIEW_EQUIPMENT_TRACKING,
   VIEW_MAINTENANCE_REQUESTS,
+  VIEW_PREVENTATIVE_MAINTENANCE,
+  VIEW_RECEIPTS,
   VIEW_TEMPERATURE_DASHBOARD,
 } from "@/app/lib/permission-constants";
 import SignOutButton from "@/app/components/SignOutButton";
@@ -99,8 +104,25 @@ export default async function UserNav() {
   const canCheckout = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
   const canMaintenanceRequests = perms.allowAll || hasAnyPermission(perms, [VIEW_MAINTENANCE_REQUESTS]);
   const canTemperatureDashboard = perms.allowAll || hasAnyPermission(perms, [VIEW_TEMPERATURE_DASHBOARD]);
+  const canReceipts = perms.allowAll || hasAnyPermission(perms, [VIEW_RECEIPTS, CREATE_RECEIPTS]);
+  const canPreventativeMaintenance = perms.allowAll || hasAnyPermission(perms, [VIEW_PREVENTATIVE_MAINTENANCE]);
+  const canEquipmentTracking = perms.allowAll || hasAnyPermission(perms, [VIEW_EQUIPMENT_TRACKING]);
+  const canVehicleLog = perms.allowAll || hasAnyPermission(perms, [VIEW_COMPANY_VEHICLE_LOG]);
+  const canLiveOrders = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_LIVE_ORDERS]);
 
-  const homeHref = canWorkOrders || canOfficeEntry || canCheckout || canMaintenanceRequests || canTemperatureDashboard ? "/maintenance" : "/";
+  const homeHref =
+    canWorkOrders ||
+    canOfficeEntry ||
+    canCheckout ||
+    canMaintenanceRequests ||
+    canTemperatureDashboard ||
+    canReceipts ||
+    canPreventativeMaintenance ||
+    canEquipmentTracking ||
+    canVehicleLog ||
+    canLiveOrders
+      ? "/maintenance"
+      : "/";
 
   return (
     <div className="site-nav-shell" style={shell}>
@@ -133,7 +155,7 @@ export default async function UserNav() {
             </Link>
           ) : null}
 
-          {(canOfficeEntry || canTravelLog || canTemperatureDashboard) && (
+          {(canOfficeEntry || canTravelLog || canTemperatureDashboard || canReceipts || canLiveOrders) && (
             <details data-user-dropdown style={detailsStyle}>
               <summary style={summaryStyle}>More</summary>
               <div style={menuStyle}>
@@ -150,6 +172,39 @@ export default async function UserNav() {
                 {canTemperatureDashboard ? (
                   <Link href="/maintenance/temperature-dashboard" style={menuItemStyle}>
                     Temperature Dashboard
+                  </Link>
+                ) : null}
+                {canReceipts ? (
+                  <Link href="/maintenance/receipts" style={menuItemStyle}>
+                    Receipts
+                  </Link>
+                ) : null}
+                {canLiveOrders ? (
+                  <Link href="/employee/live-orders" style={menuItemStyle}>
+                    Live Orders
+                  </Link>
+                ) : null}
+              </div>
+            </details>
+          )}
+
+          {(canPreventativeMaintenance || canEquipmentTracking || canVehicleLog) && (
+            <details data-user-dropdown style={detailsStyle}>
+              <summary style={summaryStyle}>PM List</summary>
+              <div style={menuStyle}>
+                {canPreventativeMaintenance ? (
+                  <Link href="/maintenance/preventative-maintenance" style={menuItemStyle}>
+                    Preventative Maintenance
+                  </Link>
+                ) : null}
+                {canEquipmentTracking ? (
+                  <Link href="/maintenance/equipment-tracking" style={menuItemStyle}>
+                    Equipment Tracking
+                  </Link>
+                ) : null}
+                {canVehicleLog ? (
+                  <Link href="/maintenance/vehicle-log" style={menuItemStyle}>
+                    Vehicle Log
                   </Link>
                 ) : null}
               </div>
