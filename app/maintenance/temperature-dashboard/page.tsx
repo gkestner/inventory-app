@@ -10,6 +10,11 @@ import { canAccessAdmin } from "@/app/lib/admin-access";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { ADMIN_VIEW_TEMPERATURE_DASHBOARD, VIEW_TEMPERATURE_DASHBOARD } from "@/app/lib/permission-constants";
 import { loadMaintenancePrimaryAssignments } from "@/app/lib/preventative-maintenance";
+import {
+  evaluateTemperatureAlertState,
+  notifyTemperatureAlert,
+  shouldSendAlert,
+} from "@/app/lib/mocreo";
 import AutoRefresh from "@/app/maintenance/temperature-dashboard/AutoRefresh";
 import CopyWebhookField from "@/app/maintenance/temperature-dashboard/CopyWebhookField";
 
@@ -148,6 +153,14 @@ function parseTempInput(raw: FormDataEntryValue | null): number | null {
   const n = Number(s);
   if (!Number.isFinite(n)) return null;
   return n;
+}
+
+function parseOptionalDateTime(raw: FormDataEntryValue | null): Date | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
 }
 
 function sparklinePoints(values: number[], width = 160, height = 34): string {
@@ -484,6 +497,160 @@ export default async function TemperatureDashboardPage({
     redirect("/maintenance/temperature-dashboard?test=ok");
   }
 
+  async function ingestManualReadingAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as SessionShape;
+    if (!session) redirect("/login");
+    if (!(await canAccessAdmin(session))) redirect("/");
+
+    const email = String(session.user?.email ?? "").trim().toLowerCase();
+    if (!email) redirect("/login");
+    const actor = await db.user.findUnique({ where: { email }, select: { id: true, active: true } });
+    if (!actor || !actor.active) redirect("/login");
+
+    const hubId = String(formData.get("hubId") ?? "").trim();
+    const externalDeviceId = String(formData.get("externalDeviceId") ?? "").trim();
+    const deviceName = String(formData.get("deviceName") ?? "").trim() || `Device ${externalDeviceId}`;
+    const tempF = parseTempInput(formData.get("temperatureF"));
+    const batteryPct = parseTempInput(formData.get("batteryPct"));
+    const signalPct = parseTempInput(formData.get("signalPct"));
+    const recordedAt = parseOptionalDateTime(formData.get("recordedAt")) ?? new Date();
+
+    if (!hubId || !externalDeviceId || tempF === null) {
+      redirect("/maintenance/temperature-dashboard?manual=missing");
+    }
+
+    const hub = await (prisma as any).mocreoHub.findUnique({
+      where: { id: hubId },
+      select: {
+        id: true,
+        name: true,
+        active: true,
+        minTempF: true,
+        maxTempF: true,
+        lastAlertAt: true,
+        location: { select: { name: true } },
+        assignedMaintenanceUserId: true,
+        recipients: { select: { userId: true } },
+      },
+    });
+
+    if (!hub || !hub.active) {
+      redirect("/maintenance/temperature-dashboard?manual=invalid_hub");
+    }
+
+    const existingDevice = await (prisma as any).mocreoDevice.findUnique({
+      where: {
+        hubId_externalDeviceId: {
+          hubId: hub.id,
+          externalDeviceId,
+        },
+      },
+      select: { id: true, minTempF: true, maxTempF: true },
+    });
+
+    const hubMinTempF = toNumberOrNull(hub.minTempF);
+    const hubMaxTempF = toNumberOrNull(hub.maxTempF);
+    const deviceMinTempF = toNumberOrNull(existingDevice?.minTempF);
+    const deviceMaxTempF = toNumberOrNull(existingDevice?.maxTempF);
+
+    const alertState = evaluateTemperatureAlertState(tempF, {
+      minTempF: deviceMinTempF ?? hubMinTempF,
+      maxTempF: deviceMaxTempF ?? hubMaxTempF,
+    });
+
+    const device = await (prisma as any).mocreoDevice.upsert({
+      where: {
+        hubId_externalDeviceId: {
+          hubId: hub.id,
+          externalDeviceId,
+        },
+      },
+      update: {
+        name: deviceName,
+        lastSeenAt: recordedAt,
+        lastReadingAt: recordedAt,
+        lastTempF: tempF,
+        lastBatteryPct: batteryPct === null ? null : Math.trunc(batteryPct),
+        lastSignalPct: signalPct === null ? null : Math.trunc(signalPct),
+        lastAlertState: alertState,
+      },
+      create: {
+        hubId: hub.id,
+        externalDeviceId,
+        name: deviceName,
+        lastSeenAt: recordedAt,
+        lastReadingAt: recordedAt,
+        lastTempF: tempF,
+        lastBatteryPct: batteryPct === null ? null : Math.trunc(batteryPct),
+        lastSignalPct: signalPct === null ? null : Math.trunc(signalPct),
+        lastAlertState: alertState,
+      },
+      select: { id: true },
+    });
+
+    await (prisma as any).mocreoTemperatureReading.create({
+      data: {
+        hubId: hub.id,
+        deviceId: device.id,
+        externalReadingId: `manual-${Date.now()}`,
+        recordedAt,
+        tempF,
+        batteryPct: batteryPct === null ? null : Math.trunc(batteryPct),
+        signalPct: signalPct === null ? null : Math.trunc(signalPct),
+        alertState,
+        rawPayload: {
+          source: "manual-dashboard-entry",
+          externalDeviceId,
+          deviceName,
+          recordedAt: recordedAt.toISOString(),
+        },
+      },
+    });
+
+    const sendAlert = shouldSendAlert(alertState, hub.lastAlertAt);
+    await (prisma as any).mocreoHub.update({
+      where: { id: hub.id },
+      data: {
+        lastReadingAt: recordedAt,
+        lastTempF: tempF,
+        lastAlertState: alertState,
+        lastAlertAt: sendAlert ? new Date() : hub.lastAlertAt,
+      },
+    });
+
+    if (sendAlert) {
+      const recipients = new Set<string>();
+      if (hub.assignedMaintenanceUserId) recipients.add(hub.assignedMaintenanceUserId);
+      for (const row of hub.recipients as Array<{ userId: string }>) recipients.add(row.userId);
+
+      await notifyTemperatureAlert({
+        userIds: Array.from(recipients),
+        hubName: hub.name,
+        locationName: hub.location?.name ?? null,
+        temperatureF: tempF,
+        alertState,
+        href: "/maintenance/temperature-dashboard",
+      });
+    }
+
+    await db.auditLog.create({
+      data: {
+        actorUserId: actor.id,
+        module: "MOCREO_TEMPERATURE",
+        action: "MANUAL_READING_INGESTED",
+        entityType: "MocreoHub",
+        entityId: hub.id,
+        message: `Manual reading entered for hub ${hub.name}.`,
+        metadata: { externalDeviceId, deviceName, temperatureF: tempF, recordedAt: recordedAt.toISOString() },
+      },
+    });
+
+    revalidatePath("/maintenance/temperature-dashboard");
+    redirect("/maintenance/temperature-dashboard?manual=ok");
+  }
+
   const [users, locations, hubs, recentAlerts, paramsRaw] = await Promise.all([
     db.user.findMany({
       where: { active: true },
@@ -758,6 +925,65 @@ export default async function TemperatureDashboardPage({
 
               <button type="submit" style={{ width: "fit-content", padding: "10px 14px", borderRadius: 10, border: "1px solid var(--border)", cursor: "pointer", fontWeight: 900, background: "linear-gradient(160deg, var(--brand-2) 0%, var(--brand) 100%)", color: "var(--brand-contrast)" }}>
                 Save Hub Configuration
+              </button>
+            </form>
+          </section>
+        ) : null}
+
+        {isAdmin ? (
+          <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 14 }}>
+            <h2 style={{ margin: "0 0 10px", fontSize: 20, fontWeight: 900 }}>Manual Reading Fallback</h2>
+            <p style={{ margin: "0 0 10px", color: "var(--muted)", lineHeight: 1.4 }}>
+              Use this temporary workaround when Mocreo webhook configuration is unavailable. Enter the reading shown in the Mocreo app and this dashboard will update sensor status and alerts.
+            </p>
+
+            <form action={ingestManualReadingAction} style={{ display: "grid", gap: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8 }}>
+                <label style={{ display: "grid", gap: 4 }}>
+                  <span style={{ fontWeight: 800 }}>Hub</span>
+                  <select name="hubId" required style={{ padding: "9px 10px", borderRadius: 8, border: "1px solid var(--border)" }}>
+                    <option value="">Select hub</option>
+                    {hubs.map((hub) => (
+                      <option key={`manual-${hub.id}`} value={hub.id}>
+                        {hub.name} ({hub.externalHubId})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label style={{ display: "grid", gap: 4 }}>
+                  <span style={{ fontWeight: 800 }}>Device ID</span>
+                  <input name="externalDeviceId" required placeholder="ex: sensor serial" style={{ padding: "9px 10px", borderRadius: 8, border: "1px solid var(--border)" }} />
+                </label>
+
+                <label style={{ display: "grid", gap: 4 }}>
+                  <span style={{ fontWeight: 800 }}>Device Name</span>
+                  <input name="deviceName" placeholder="Optional friendly name" style={{ padding: "9px 10px", borderRadius: 8, border: "1px solid var(--border)" }} />
+                </label>
+
+                <label style={{ display: "grid", gap: 4 }}>
+                  <span style={{ fontWeight: 800 }}>Temperature F</span>
+                  <input name="temperatureF" type="number" step="0.1" required placeholder="39.1" style={{ padding: "9px 10px", borderRadius: 8, border: "1px solid var(--border)" }} />
+                </label>
+
+                <label style={{ display: "grid", gap: 4 }}>
+                  <span style={{ fontWeight: 800 }}>Battery %</span>
+                  <input name="batteryPct" type="number" placeholder="88" style={{ padding: "9px 10px", borderRadius: 8, border: "1px solid var(--border)" }} />
+                </label>
+
+                <label style={{ display: "grid", gap: 4 }}>
+                  <span style={{ fontWeight: 800 }}>Signal %</span>
+                  <input name="signalPct" type="number" placeholder="90" style={{ padding: "9px 10px", borderRadius: 8, border: "1px solid var(--border)" }} />
+                </label>
+
+                <label style={{ display: "grid", gap: 4 }}>
+                  <span style={{ fontWeight: 800 }}>Recorded At (optional)</span>
+                  <input name="recordedAt" type="datetime-local" style={{ padding: "9px 10px", borderRadius: 8, border: "1px solid var(--border)" }} />
+                </label>
+              </div>
+
+              <button type="submit" style={{ width: "fit-content", padding: "10px 14px", borderRadius: 10, border: "1px solid var(--border)", cursor: "pointer", fontWeight: 900, background: "var(--surface-2)", color: "var(--foreground)" }}>
+                Save Manual Reading
               </button>
             </form>
           </section>
