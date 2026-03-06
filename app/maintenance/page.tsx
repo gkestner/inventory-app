@@ -136,6 +136,18 @@ export default async function MaintenanceHomePage() {
             </article>
           ) : null}
 
+          {canWorkOrders ? (
+            <article style={card}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Receipt Data Entry</h2>
+              <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.5 }}>
+                Enter receipt details with date, store, amount, areas, and optional notes.
+              </p>
+              <Link href="/maintenance/receipts" style={action}>
+                Open Receipt Entry
+              </Link>
+            </article>
+          ) : null}
+
           {canCheckout ? (
             <article style={card}>
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Checkout</h2>

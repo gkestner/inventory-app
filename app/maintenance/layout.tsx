@@ -130,6 +130,12 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
                     Travel Log
                   </Link>
                 ) : null}
+
+                {canWorkOrders ? (
+                  <Link href="/maintenance/receipts" className="site-link" style={pill()}>
+                    Receipts
+                  </Link>
+                ) : null}
               </>
             ) : null}
 

@@ -356,6 +356,7 @@ model Location {
   cycleCountSessions CycleCountSession[]
   maintenanceRequests MaintenanceRequest[]
   mocreoHubs MocreoHub[]
+  receiptEntries ReceiptEntry[]
 
   @@index([active])
 }
@@ -428,6 +429,7 @@ model User {
   maintenanceRequestsResolved MaintenanceRequest[] @relation("MaintenanceRequestResolvedBy")
   assignedMocreoHubs MocreoHub[] @relation("MocreoHubAssignedMaintenanceUser")
   mocreoHubRecipients MocreoHubRecipient[]
+  receiptEntriesCreated ReceiptEntry[] @relation("ReceiptEntryCreatedBy")
 }
 
 model UserPermission {
@@ -974,6 +976,39 @@ model WorkOrderEquipmentArea {
   workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
 
   @@id([workOrderId, area])
+}
+
+model ReceiptEntry {
+  id String @id @default(cuid())
+
+  receiptDate DateTime
+
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
+
+  amountCents Int
+  notes       String?
+
+  createdByUserId String
+  createdByUser   User @relation("ReceiptEntryCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  areas ReceiptEntryArea[]
+
+  @@index([receiptDate, createdAt])
+  @@index([locationId, receiptDate])
+  @@index([createdByUserId, createdAt])
+}
+
+model ReceiptEntryArea {
+  receiptEntryId String
+  area           EquipmentArea
+
+  receiptEntry ReceiptEntry @relation(fields: [receiptEntryId], references: [id], onDelete: Cascade)
+
+  @@id([receiptEntryId, area])
 }
 
 /**
