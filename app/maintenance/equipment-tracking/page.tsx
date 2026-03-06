@@ -182,6 +182,31 @@ export default async function MaintenanceEquipmentTrackingPage() {
     whiteSpace: "nowrap",
   };
 
+  const sectionHeaderStyle: CSSProperties = {
+    margin: "0 0 8px",
+    fontSize: 20,
+    fontWeight: 950,
+    letterSpacing: "0.02em",
+    padding: "8px 12px",
+    borderRadius: 10,
+    border: "1px solid var(--border)",
+    background: "linear-gradient(90deg, color-mix(in srgb, var(--brand) 24%, var(--surface-2)) 0%, var(--surface-2) 100%)",
+    display: "inline-block",
+  };
+
+  const tableHeaderStyle: CSSProperties = {
+    textAlign: "left",
+    padding: "10px 8px",
+    borderBottom: "1px solid var(--border)",
+    background: "color-mix(in srgb, var(--brand) 18%, var(--surface-2))",
+    fontWeight: 950,
+  };
+
+  const tableHeaderActionStyle: CSSProperties = {
+    ...tableHeaderStyle,
+    textAlign: "right",
+  };
+
   return (
     <main style={{ display: "grid", gap: 14 }}>
       <section
@@ -211,23 +236,23 @@ export default async function MaintenanceEquipmentTrackingPage() {
       ) : (
         EQUIPMENT_SECTIONS.map((section) => (
           <section key={section.key} style={card}>
-            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>{section.title}</h2>
+            <h2 style={sectionHeaderStyle}>{section.title}</h2>
             <div style={{ overflowX: "auto", marginTop: 10 }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
                 <thead>
                   <tr>
-                    <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 180 }}>
+                    <th style={{ ...tableHeaderStyle, minWidth: 180 }}>
                       Store
                     </th>
                     {section.fields.map((field) => (
                       <th
                         key={`${section.key}-head-${field.key}`}
-                        style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 160 }}
+                        style={{ ...tableHeaderStyle, minWidth: 160 }}
                       >
                         {field.label}
                       </th>
                     ))}
-                    <th style={{ textAlign: "right", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 120 }}>
+                    <th style={{ ...tableHeaderActionStyle, minWidth: 120 }}>
                       Action
                     </th>
                   </tr>

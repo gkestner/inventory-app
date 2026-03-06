@@ -448,6 +448,43 @@ export default async function AdminEquipmentTrackingPage({ searchParams }: { sea
     whiteSpace: "nowrap",
   };
 
+  const groupHeaderStyle: CSSProperties = {
+    margin: "0 0 8px",
+    fontSize: 20,
+    fontWeight: 950,
+    letterSpacing: "0.02em",
+    padding: "8px 12px",
+    borderRadius: 10,
+    border: "1px solid var(--border)",
+    background: "linear-gradient(90deg, color-mix(in srgb, var(--brand) 24%, var(--surface-2)) 0%, var(--surface-2) 100%)",
+    display: "inline-block",
+  };
+
+  const sectionHeaderStyle: CSSProperties = {
+    margin: "0 0 8px",
+    fontSize: 16,
+    fontWeight: 950,
+    letterSpacing: "0.02em",
+    padding: "7px 11px",
+    borderRadius: 10,
+    border: "1px solid var(--border)",
+    background: "color-mix(in srgb, var(--brand) 16%, var(--surface-2))",
+    display: "inline-block",
+  };
+
+  const tableHeaderStyle: CSSProperties = {
+    textAlign: "left",
+    padding: "10px 8px",
+    borderBottom: "1px solid var(--border)",
+    background: "color-mix(in srgb, var(--brand) 18%, var(--surface-2))",
+    fontWeight: 950,
+  };
+
+  const tableHeaderActionStyle: CSSProperties = {
+    ...tableHeaderStyle,
+    textAlign: "right",
+  };
+
   return (
     <main style={{ display: "grid", gap: 14 }}>
       <section
@@ -491,29 +528,29 @@ export default async function AdminEquipmentTrackingPage({ searchParams }: { sea
 
       {groups.map((group) => (
         <section key={group.label} style={card}>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>{group.label}</h2>
+          <h2 style={groupHeaderStyle}>{group.label}</h2>
 
           <div style={{ display: "grid", gap: 12, marginTop: 10 }}>
             {EQUIPMENT_SECTIONS.map((section) => (
               <div key={`${group.label}-${section.key}`}>
-                <h3 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 900 }}>{section.title}</h3>
+                <h3 style={sectionHeaderStyle}>{section.title}</h3>
 
                 <div style={{ overflowX: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
                     <thead>
                       <tr>
-                        <th style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 180 }}>
+                        <th style={{ ...tableHeaderStyle, minWidth: 180 }}>
                           Store
                         </th>
                         {section.fields.map((field) => (
                           <th
                             key={`${group.label}-${section.key}-head-${field.key}`}
-                            style={{ textAlign: "left", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 160 }}
+                            style={{ ...tableHeaderStyle, minWidth: 160 }}
                           >
                             {field.label}
                           </th>
                         ))}
-                        <th style={{ textAlign: "right", padding: "10px 8px", borderBottom: "1px solid var(--border)", minWidth: 120 }}>
+                        <th style={{ ...tableHeaderActionStyle, minWidth: 120 }}>
                           Action
                         </th>
                       </tr>
