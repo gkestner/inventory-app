@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import Link from "next/link";
 import { InventoryAlertType, Permission, Prisma, Role } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import SelectionButtons from "@/app/admin/inventory-alerts/SelectionButtons";
 
 export const dynamic = "force-dynamic";
 
@@ -428,6 +429,7 @@ export default async function InventoryAlertsPage({ searchParams }: { searchPara
         <span style={{ opacity: 0.85, fontSize: 12 }}>
           Bulk resolve selected open alerts. Note is required when any selected alert is <code>TECH_REQUEST_ORDER</code>.
         </span>
+        <SelectionButtons />
         <form
           id={bulkResolveFormId}
           action={bulkResolveAlertsAction}
