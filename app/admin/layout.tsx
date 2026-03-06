@@ -8,6 +8,13 @@ import { Role, Permission } from "@prisma/client";
 import { authOptions } from "@/app/lib/auth";
 import { loadUserPermissions, hasAnyPermission, type LoadedPermissions } from "@/app/lib/permissions";
 import SignOutButton from "@/app/components/SignOutButton";
+import {
+  ADMIN_VIEW_COMPANY_VEHICLES,
+  ADMIN_VIEW_EQUIPMENT_TRACKING,
+  ADMIN_VIEW_MAINTENANCE_REQUESTS,
+  ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
+  ADMIN_VIEW_TEMPERATURE_DASHBOARD,
+} from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -36,6 +43,11 @@ async function requireAdmin() {
       Permission.ADMIN_VIEW_LOCATIONS,
       Permission.ADMIN_VIEW_WORK_ORDERS,
       Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
+      ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
+      ADMIN_VIEW_EQUIPMENT_TRACKING,
+      ADMIN_VIEW_COMPANY_VEHICLES,
+      ADMIN_VIEW_MAINTENANCE_REQUESTS,
+      ADMIN_VIEW_TEMPERATURE_DASHBOARD,
     ]);
 
   if (!hasAdminAccess) redirect("/");
@@ -83,11 +95,12 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     allowAll ||
     hasAnyPermission(perms, [Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS, Permission.ADMIN_VIEW_MAINTENANCE_TICKETS]);
 
-  const canPreventativeMaintenance = canWorkOrders || canLocations || canTickets;
-  const canEquipmentTracking = canWorkOrders || canLocations || canTickets;
-  const canCompanyVehicles = canWorkOrders || canLocations || canTickets;
-  const canMaintenanceRequests = canWorkOrders || canLocations || canTickets;
-  const canTemperatureDashboard = canWorkOrders || canLocations || canTickets;
+  const canPreventativeMaintenance =
+    allowAll || hasAnyPermission(perms, [ADMIN_VIEW_PREVENTATIVE_MAINTENANCE]);
+  const canEquipmentTracking = allowAll || hasAnyPermission(perms, [ADMIN_VIEW_EQUIPMENT_TRACKING]);
+  const canCompanyVehicles = allowAll || hasAnyPermission(perms, [ADMIN_VIEW_COMPANY_VEHICLES]);
+  const canMaintenanceRequests = allowAll || hasAnyPermission(perms, [ADMIN_VIEW_MAINTENANCE_REQUESTS]);
+  const canTemperatureDashboard = allowAll || hasAnyPermission(perms, [ADMIN_VIEW_TEMPERATURE_DASHBOARD]);
 
   const wrap: CSSProperties = {
     display: "grid",

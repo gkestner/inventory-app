@@ -7,6 +7,7 @@ import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { prisma } from "@/app/lib/prisma";
 import { computeAverageResolutionHours } from "@/app/lib/maintenance-requests";
+import { ADMIN_VIEW_MAINTENANCE_REQUESTS } from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
 
@@ -56,7 +57,7 @@ async function requireReportsView() {
   const perms = await loadUserPermissions(session);
   if (perms.allowAll) return;
 
-  const ok = hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
+  const ok = hasAnyPermission(perms, [ADMIN_VIEW_MAINTENANCE_REQUESTS]);
   if (!ok) redirect("/");
 }
 

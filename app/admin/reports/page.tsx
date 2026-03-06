@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { Permission, Role } from "@prisma/client";
+import { ADMIN_VIEW_MAINTENANCE_REQUESTS, ADMIN_VIEW_PREVENTATIVE_MAINTENANCE } from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
 
@@ -25,12 +26,22 @@ async function requireReportsView() {
   if (perms.allowAll) return;
 
   // Keep consistent with Orders module (reuses Items Admin perms)
-  const ok = hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
+  const ok = hasAnyPermission(perms, [
+    Permission.ADMIN_VIEW_ITEMS,
+    Permission.ADMIN_EDIT_ITEMS,
+    ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
+    ADMIN_VIEW_MAINTENANCE_REQUESTS,
+  ]);
   if (!ok) redirect("/");
+
+  return perms;
 }
 
 export default async function AdminReportsIndexPage() {
-  await requireReportsView();
+  const perms = await requireReportsView();
+
+  const canPmReports = perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_PREVENTATIVE_MAINTENANCE]);
+  const canRequestReports = perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_MAINTENANCE_REQUESTS]);
 
   const border = "1px solid var(--border)";
   const surface = "var(--surface)";
@@ -156,21 +167,25 @@ export default async function AdminReportsIndexPage() {
             <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
           </Link>
 
-          <Link href="/admin/reports/preventative-maintenance" style={cardStyle}>
-            <h2 style={titleStyle}>PM Audit & Activity</h2>
-            <p style={descStyle}>
-              View preventative maintenance history with who updated each PM row, when they did it, and which columns changed.
-            </p>
-            <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-          </Link>
+          {canPmReports ? (
+            <Link href="/admin/reports/preventative-maintenance" style={cardStyle}>
+              <h2 style={titleStyle}>PM Audit & Activity</h2>
+              <p style={descStyle}>
+                View preventative maintenance history with who updated each PM row, when they did it, and which columns changed.
+              </p>
+              <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
+            </Link>
+          ) : null}
 
-          <Link href="/admin/reports/maintenance-requests" style={cardStyle}>
-            <h2 style={titleStyle}>Maintenance Request Reports</h2>
-            <p style={descStyle}>
-              Analyze maintenance issue request volume, assignment load by technician, closeout pace, and request audit events. Separate from parts checkout ticket reports.
-            </p>
-            <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-          </Link>
+          {canRequestReports ? (
+            <Link href="/admin/reports/maintenance-requests" style={cardStyle}>
+              <h2 style={titleStyle}>Maintenance Request Reports</h2>
+              <p style={descStyle}>
+                Analyze maintenance issue request volume, assignment load by technician, closeout pace, and request audit events. Separate from parts checkout ticket reports.
+              </p>
+              <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
+            </Link>
+          ) : null}
 
           <Link href="/admin/audit" style={cardStyle}>
             <h2 style={titleStyle}>Audit Trail</h2>

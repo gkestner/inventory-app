@@ -8,6 +8,7 @@ import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { PREVENTATIVE_MAINTENANCE_FIELD_LABELS, normalizePmYear } from "@/app/lib/preventative-maintenance";
 import { prisma } from "@/app/lib/prisma";
+import { ADMIN_VIEW_PREVENTATIVE_MAINTENANCE } from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
 
@@ -83,7 +84,7 @@ async function requireReportsView() {
   const perms = await loadUserPermissions(session);
   if (perms.allowAll) return;
 
-  const ok = hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
+  const ok = hasAnyPermission(perms, [ADMIN_VIEW_PREVENTATIVE_MAINTENANCE]);
   if (!ok) redirect("/");
 }
 

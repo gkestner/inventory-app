@@ -7,6 +7,8 @@ import { revalidatePath } from "next/cache";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 import { canAccessAdmin } from "@/app/lib/admin-access";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { ADMIN_VIEW_PREVENTATIVE_MAINTENANCE } from "@/app/lib/permission-constants";
 import {
   PREVENTATIVE_MAINTENANCE_SECTIONS,
   type PreventativeMaintenanceValues,
@@ -67,8 +69,9 @@ function getSubmittedValues(formData: FormData): Partial<PreventativeMaintenance
 
 async function requireAdminAccess(session: unknown) {
   if (!session) redirect("/login");
-  const allowed = await canAccessAdmin(session);
-  if (!allowed) redirect("/");
+  const [allowed, perms] = await Promise.all([canAccessAdmin(session), loadUserPermissions(session)]);
+  const featureAllowed = perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_PREVENTATIVE_MAINTENANCE]);
+  if (!allowed || !featureAllowed) redirect("/");
 }
 
 export default async function AdminPreventativeMaintenancePage({

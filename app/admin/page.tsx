@@ -7,6 +7,13 @@ import { Role, Permission } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
 import { loadUserPermissions } from "@/app/lib/permissions";
+import {
+  ADMIN_VIEW_COMPANY_VEHICLES,
+  ADMIN_VIEW_EQUIPMENT_TRACKING,
+  ADMIN_VIEW_MAINTENANCE_REQUESTS,
+  ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
+  ADMIN_VIEW_TEMPERATURE_DASHBOARD,
+} from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -40,6 +47,11 @@ async function requireAdmin() {
       Permission.ADMIN_VIEW_LOCATIONS,
       Permission.ADMIN_VIEW_WORK_ORDERS,
       Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
+      ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
+      ADMIN_VIEW_EQUIPMENT_TRACKING,
+      ADMIN_VIEW_COMPANY_VEHICLES,
+      ADMIN_VIEW_MAINTENANCE_REQUESTS,
+      ADMIN_VIEW_TEMPERATURE_DASHBOARD,
     ]);
 
   if (!hasAdminAccess) redirect("/");
@@ -85,11 +97,11 @@ export default async function AdminHomePage() {
     perms.allowAll ||
     hasAnyPermissionLocal(perms, [Permission.ADMIN_VIEW_MAINTENANCE_TICKETS, Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS]);
 
-  const canPreventativeMaintenance = canWorkOrders || canLocations || canTickets;
-  const canEquipmentTracking = canPreventativeMaintenance;
-  const canCompanyVehicles = canPreventativeMaintenance;
-  const canMaintenanceRequests = canPreventativeMaintenance;
-  const canTemperatureDashboard = canPreventativeMaintenance;
+  const canPreventativeMaintenance = perms.allowAll || hasAnyPermissionLocal(perms, [ADMIN_VIEW_PREVENTATIVE_MAINTENANCE]);
+  const canEquipmentTracking = perms.allowAll || hasAnyPermissionLocal(perms, [ADMIN_VIEW_EQUIPMENT_TRACKING]);
+  const canCompanyVehicles = perms.allowAll || hasAnyPermissionLocal(perms, [ADMIN_VIEW_COMPANY_VEHICLES]);
+  const canMaintenanceRequests = perms.allowAll || hasAnyPermissionLocal(perms, [ADMIN_VIEW_MAINTENANCE_REQUESTS]);
+  const canTemperatureDashboard = perms.allowAll || hasAnyPermissionLocal(perms, [ADMIN_VIEW_TEMPERATURE_DASHBOARD]);
 
   const grid: CSSProperties = {
     display: "grid",

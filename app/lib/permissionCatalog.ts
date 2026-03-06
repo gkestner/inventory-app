@@ -1,6 +1,18 @@
 // app/lib/permissionCatalog.ts
 import { Permission } from "@prisma/client";
-import { CREATE_WORK_ORDERS_FOR_OTHERS } from "@/app/lib/permission-constants";
+import {
+  ADMIN_VIEW_COMPANY_VEHICLES,
+  ADMIN_VIEW_EQUIPMENT_TRACKING,
+  ADMIN_VIEW_MAINTENANCE_REQUESTS,
+  ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
+  ADMIN_VIEW_TEMPERATURE_DASHBOARD,
+  CREATE_WORK_ORDERS_FOR_OTHERS,
+  VIEW_COMPANY_VEHICLE_LOG,
+  VIEW_EQUIPMENT_TRACKING,
+  VIEW_MAINTENANCE_REQUESTS,
+  VIEW_PREVENTATIVE_MAINTENANCE,
+  VIEW_TEMPERATURE_DASHBOARD,
+} from "@/app/lib/permission-constants";
 
 export type PermissionCatalogEntry = {
   permission: Permission;
@@ -29,6 +41,36 @@ export const PERMISSION_CATALOG: PermissionCatalogEntry[] = [
   },
   { permission: Permission.UPDATE_OWN_WORK_ORDERS, module: "Maintenance", path: ["Work Orders"], label: "Update Own Work Orders" },
   { permission: Permission.SUBMIT_OWN_WORK_ORDERS, module: "Maintenance", path: ["Work Orders"], label: "Submit Own Work Orders" },
+  {
+    permission: VIEW_PREVENTATIVE_MAINTENANCE,
+    module: "Maintenance",
+    path: ["Preventative Maintenance"],
+    label: "View Preventative Maintenance",
+  },
+  {
+    permission: VIEW_EQUIPMENT_TRACKING,
+    module: "Maintenance",
+    path: ["Equipment Tracking"],
+    label: "View Equipment Tracking",
+  },
+  {
+    permission: VIEW_COMPANY_VEHICLE_LOG,
+    module: "Maintenance",
+    path: ["Company Vehicles"],
+    label: "View Vehicle Log",
+  },
+  {
+    permission: VIEW_MAINTENANCE_REQUESTS,
+    module: "Maintenance",
+    path: ["Maintenance Requests"],
+    label: "View Maintenance Requests",
+  },
+  {
+    permission: VIEW_TEMPERATURE_DASHBOARD,
+    module: "Maintenance",
+    path: ["Temperature Dashboard"],
+    label: "View Temperature Dashboard",
+  },
 
   // ===== Admin / Items =====
   {
@@ -67,6 +109,36 @@ export const PERMISSION_CATALOG: PermissionCatalogEntry[] = [
   // ===== Admin / Maintenance Tickets =====
   { permission: Permission.ADMIN_VIEW_MAINTENANCE_TICKETS, module: "Admin", path: ["Maintenance Tickets"], label: "View Maintenance Tickets" },
   { permission: Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS, module: "Admin", path: ["Maintenance Tickets"], label: "Export Maintenance Tickets" },
+  {
+    permission: ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
+    module: "Admin",
+    path: ["Preventative Maintenance"],
+    label: "View Preventative Maintenance",
+  },
+  {
+    permission: ADMIN_VIEW_EQUIPMENT_TRACKING,
+    module: "Admin",
+    path: ["Equipment Tracking"],
+    label: "View Equipment Tracking",
+  },
+  {
+    permission: ADMIN_VIEW_COMPANY_VEHICLES,
+    module: "Admin",
+    path: ["Company Vehicles"],
+    label: "View Company Vehicles",
+  },
+  {
+    permission: ADMIN_VIEW_MAINTENANCE_REQUESTS,
+    module: "Admin",
+    path: ["Maintenance Requests"],
+    label: "View Maintenance Requests",
+  },
+  {
+    permission: ADMIN_VIEW_TEMPERATURE_DASHBOARD,
+    module: "Admin",
+    path: ["Temperature Dashboard"],
+    label: "View Temperature Dashboard",
+  },
 ];
 
 // ✅ export exists (matches your import)

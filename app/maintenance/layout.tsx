@@ -7,7 +7,14 @@ import { Permission } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import { CREATE_WORK_ORDERS_FOR_OTHERS } from "@/app/lib/permission-constants";
+import {
+  CREATE_WORK_ORDERS_FOR_OTHERS,
+  VIEW_COMPANY_VEHICLE_LOG,
+  VIEW_EQUIPMENT_TRACKING,
+  VIEW_MAINTENANCE_REQUESTS,
+  VIEW_PREVENTATIVE_MAINTENANCE,
+  VIEW_TEMPERATURE_DASHBOARD,
+} from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -39,6 +46,11 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
       Permission.UPDATE_OWN_WORK_ORDERS,
       Permission.SUBMIT_OWN_WORK_ORDERS,
       Permission.VIEW_LIVE_ORDERS,
+      VIEW_PREVENTATIVE_MAINTENANCE,
+      VIEW_EQUIPMENT_TRACKING,
+      VIEW_COMPANY_VEHICLE_LOG,
+      VIEW_MAINTENANCE_REQUESTS,
+      VIEW_TEMPERATURE_DASHBOARD,
     ]);
 
   if (!hasMaintenanceAreaAccess) redirect("/");
@@ -64,11 +76,11 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
 
   // ✅ NEW: Live Orders board
   const canLiveOrders = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_LIVE_ORDERS]);
-  const canPreventativeMaintenance = hasMaintenanceAreaAccess;
-  const canEquipmentTracking = hasMaintenanceAreaAccess;
-  const canVehicleLog = hasMaintenanceAreaAccess;
-  const canMaintenanceRequests = hasMaintenanceAreaAccess;
-  const canTemperatureDashboard = hasMaintenanceAreaAccess;
+  const canPreventativeMaintenance = perms.allowAll || hasAnyPermission(perms, [VIEW_PREVENTATIVE_MAINTENANCE]);
+  const canEquipmentTracking = perms.allowAll || hasAnyPermission(perms, [VIEW_EQUIPMENT_TRACKING]);
+  const canVehicleLog = perms.allowAll || hasAnyPermission(perms, [VIEW_COMPANY_VEHICLE_LOG]);
+  const canMaintenanceRequests = perms.allowAll || hasAnyPermission(perms, [VIEW_MAINTENANCE_REQUESTS]);
+  const canTemperatureDashboard = perms.allowAll || hasAnyPermission(perms, [VIEW_TEMPERATURE_DASHBOARD]);
 
   const shell: CSSProperties = {
     color: "var(--foreground)",

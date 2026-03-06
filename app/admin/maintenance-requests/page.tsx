@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache";
 import { authOptions } from "@/app/lib/auth";
 import { canAccessAdmin } from "@/app/lib/admin-access";
 import { prisma } from "@/app/lib/prisma";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { ADMIN_VIEW_MAINTENANCE_REQUESTS } from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
 
@@ -77,7 +79,9 @@ function personLabel(person: { name: string | null; email: string | null } | nul
 async function requireAdmin() {
   const session = (await getServerSession(authOptions)) as SessionShape;
   if (!session) redirect("/login");
-  if (!(await canAccessAdmin(session))) redirect("/");
+  const [hasAdminAccess, perms] = await Promise.all([canAccessAdmin(session), loadUserPermissions(session)]);
+  const canViewQueue = perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_MAINTENANCE_REQUESTS]);
+  if (!hasAdminAccess || !canViewQueue) redirect("/");
   return session;
 }
 

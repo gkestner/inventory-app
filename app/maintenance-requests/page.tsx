@@ -7,11 +7,13 @@ import { revalidatePath } from "next/cache";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 import { canAccessAdmin } from "@/app/lib/admin-access";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import {
   loadMaintenanceRequestAssignees,
   normalizeMaintenanceRequestStatus,
   type MaintenanceRequestStatusValue,
 } from "@/app/lib/maintenance-requests";
+import { ADMIN_VIEW_MAINTENANCE_REQUESTS, VIEW_MAINTENANCE_REQUESTS } from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
 
@@ -219,6 +221,10 @@ export default async function MaintenanceRequestsPage({
   if (!me || !me.active) redirect("/login");
 
   const isAdmin = await canAccessAdmin(session);
+  const perms = await loadUserPermissions(session);
+  const canUseRequests =
+    perms.allowAll || hasAnyPermission(perms, [VIEW_MAINTENANCE_REQUESTS, ADMIN_VIEW_MAINTENANCE_REQUESTS]) || isAdmin;
+  if (!canUseRequests) redirect("/");
 
   async function createRequestAction(formData: FormData) {
     "use server";
@@ -243,6 +249,10 @@ export default async function MaintenanceRequestsPage({
     if (!me || !me.active) redirect("/login");
 
     const isAdmin = await canAccessAdmin(session);
+    const perms = await loadUserPermissions(session);
+    const canUseRequests =
+      perms.allowAll || hasAnyPermission(perms, [VIEW_MAINTENANCE_REQUESTS, ADMIN_VIEW_MAINTENANCE_REQUESTS]) || isAdmin;
+    if (!canUseRequests) redirect("/");
     const locationOptions = mergeLocationOptions(me);
     const locationIds = new Set(locationOptions.map((l) => l.id));
 
@@ -343,6 +353,10 @@ export default async function MaintenanceRequestsPage({
     if (!actor || !actor.active) redirect("/login");
 
     const isAdmin = await canAccessAdmin(session);
+    const perms = await loadUserPermissions(session);
+    const canUseRequests =
+      perms.allowAll || hasAnyPermission(perms, [VIEW_MAINTENANCE_REQUESTS, ADMIN_VIEW_MAINTENANCE_REQUESTS]) || isAdmin;
+    if (!canUseRequests) redirect("/");
 
     const requestId = String(formData.get("requestId") ?? "").trim();
     const resolutionNotes = String(formData.get("resolutionNotes") ?? "").trim() || null;

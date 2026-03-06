@@ -6,7 +6,11 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/lib/auth";
 import { Permission } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import { CREATE_WORK_ORDERS_FOR_OTHERS } from "@/app/lib/permission-constants";
+import {
+  CREATE_WORK_ORDERS_FOR_OTHERS,
+  VIEW_MAINTENANCE_REQUESTS,
+  VIEW_TEMPERATURE_DASHBOARD,
+} from "@/app/lib/permission-constants";
 import SignOutButton from "@/app/components/SignOutButton";
 
 export const dynamic = "force-dynamic";
@@ -61,10 +65,10 @@ export default async function UserNav() {
   const canTravelLog = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
 
   const canCheckout = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
-  const canMaintenanceRequests = !!session;
-  const canTemperatureDashboard = canWorkOrders || canCheckout || canOfficeEntry;
+  const canMaintenanceRequests = perms.allowAll || hasAnyPermission(perms, [VIEW_MAINTENANCE_REQUESTS]);
+  const canTemperatureDashboard = perms.allowAll || hasAnyPermission(perms, [VIEW_TEMPERATURE_DASHBOARD]);
 
-  const homeHref = canWorkOrders || canOfficeEntry || canCheckout ? "/maintenance" : "/";
+  const homeHref = canWorkOrders || canOfficeEntry || canCheckout || canMaintenanceRequests || canTemperatureDashboard ? "/maintenance" : "/";
 
   return (
     <div className="site-nav-shell" style={shell}>

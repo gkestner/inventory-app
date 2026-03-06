@@ -7,6 +7,8 @@ import { revalidatePath } from "next/cache";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 import { canAccessAdmin } from "@/app/lib/admin-access";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { ADMIN_VIEW_COMPANY_VEHICLES } from "@/app/lib/permission-constants";
 import {
   evaluateVehicleReminder,
   fmtDateTimeLocalInput,
@@ -59,8 +61,9 @@ const db = prisma as unknown as Db;
 
 async function requireAdminAccess(session: unknown) {
   if (!session) redirect("/login");
-  const allowed = await canAccessAdmin(session);
-  if (!allowed) redirect("/");
+  const [allowed, perms] = await Promise.all([canAccessAdmin(session), loadUserPermissions(session)]);
+  const featureAllowed = perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_COMPANY_VEHICLES]);
+  if (!allowed || !featureAllowed) redirect("/");
 }
 
 function fmtLocal(d: Date): string {

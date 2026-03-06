@@ -7,6 +7,8 @@ import { headers } from "next/headers";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 import { canAccessAdmin } from "@/app/lib/admin-access";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { ADMIN_VIEW_TEMPERATURE_DASHBOARD, VIEW_TEMPERATURE_DASHBOARD } from "@/app/lib/permission-constants";
 import { loadMaintenancePrimaryAssignments } from "@/app/lib/preventative-maintenance";
 
 export const dynamic = "force-dynamic";
@@ -134,6 +136,12 @@ export default async function TemperatureDashboardPage({
   if (!me || !me.active) redirect("/login");
 
   const isAdmin = await canAccessAdmin(session);
+  const perms = await loadUserPermissions(session);
+  const canView =
+    perms.allowAll ||
+    hasAnyPermission(perms, [VIEW_TEMPERATURE_DASHBOARD, ADMIN_VIEW_TEMPERATURE_DASHBOARD]) ||
+    isAdmin;
+  if (!canView) redirect("/");
 
   async function saveHubAction(formData: FormData) {
     "use server";

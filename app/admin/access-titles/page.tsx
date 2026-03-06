@@ -5,7 +5,19 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { Permission } from "@prisma/client";
-import { CREATE_WORK_ORDERS_FOR_OTHERS } from "@/app/lib/permission-constants";
+import {
+  ADMIN_VIEW_COMPANY_VEHICLES,
+  ADMIN_VIEW_EQUIPMENT_TRACKING,
+  ADMIN_VIEW_MAINTENANCE_REQUESTS,
+  ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
+  ADMIN_VIEW_TEMPERATURE_DASHBOARD,
+  CREATE_WORK_ORDERS_FOR_OTHERS,
+  VIEW_COMPANY_VEHICLE_LOG,
+  VIEW_EQUIPMENT_TRACKING,
+  VIEW_MAINTENANCE_REQUESTS,
+  VIEW_PREVENTATIVE_MAINTENANCE,
+  VIEW_TEMPERATURE_DASHBOARD,
+} from "@/app/lib/permission-constants";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
@@ -139,6 +151,11 @@ const PERMS: PermMeta[] = [
   },
   { perm: Permission.UPDATE_OWN_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "Update Own Work Orders" },
   { perm: Permission.SUBMIT_OWN_WORK_ORDERS, module: "Maintenance", group: "Work Orders", label: "Submit Own Work Orders" },
+  { perm: VIEW_PREVENTATIVE_MAINTENANCE, module: "Maintenance", group: "Preventative Maintenance", label: "View Preventative Maintenance" },
+  { perm: VIEW_EQUIPMENT_TRACKING, module: "Maintenance", group: "Equipment Tracking", label: "View Equipment Tracking" },
+  { perm: VIEW_COMPANY_VEHICLE_LOG, module: "Maintenance", group: "Company Vehicles", label: "View Vehicle Log" },
+  { perm: VIEW_MAINTENANCE_REQUESTS, module: "Maintenance", group: "Maintenance Requests", label: "View Maintenance Requests" },
+  { perm: VIEW_TEMPERATURE_DASHBOARD, module: "Maintenance", group: "Temperature Dashboard", label: "View Temperature Dashboard" },
 
   {
     perm: Permission.ADMIN_VIEW_ITEMS,
@@ -166,6 +183,11 @@ const PERMS: PermMeta[] = [
 
   { perm: Permission.ADMIN_VIEW_MAINTENANCE_TICKETS, module: "Admin", group: "Maintenance Tickets", label: "View Maintenance Tickets" },
   { perm: Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS, module: "Admin", group: "Maintenance Tickets", label: "Export Maintenance Tickets" },
+  { perm: ADMIN_VIEW_PREVENTATIVE_MAINTENANCE, module: "Admin", group: "Preventative Maintenance", label: "View Preventative Maintenance" },
+  { perm: ADMIN_VIEW_EQUIPMENT_TRACKING, module: "Admin", group: "Equipment Tracking", label: "View Equipment Tracking" },
+  { perm: ADMIN_VIEW_COMPANY_VEHICLES, module: "Admin", group: "Company Vehicles", label: "View Company Vehicles" },
+  { perm: ADMIN_VIEW_MAINTENANCE_REQUESTS, module: "Admin", group: "Maintenance Requests", label: "View Maintenance Requests" },
+  { perm: ADMIN_VIEW_TEMPERATURE_DASHBOARD, module: "Admin", group: "Temperature Dashboard", label: "View Temperature Dashboard" },
 ];
 
 const MODULES: PermMeta["module"][] = ["Admin", "Inventory", "Maintenance", "Navigation"];

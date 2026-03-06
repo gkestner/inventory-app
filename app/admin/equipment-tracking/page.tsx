@@ -7,6 +7,8 @@ import { revalidatePath } from "next/cache";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 import { canAccessAdmin } from "@/app/lib/admin-access";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { ADMIN_VIEW_EQUIPMENT_TRACKING } from "@/app/lib/permission-constants";
 import {
   EQUIPMENT_SECTIONS,
   type EquipmentSectionKey,
@@ -56,8 +58,9 @@ const VALID_SECTION_KEYS = new Set<string>(EQUIPMENT_SECTIONS.map((s) => s.key))
 
 async function requireAdminAccess(session: unknown) {
   if (!session) redirect("/login");
-  const allowed = await canAccessAdmin(session);
-  if (!allowed) redirect("/");
+  const [allowed, perms] = await Promise.all([canAccessAdmin(session), loadUserPermissions(session)]);
+  const featureAllowed = perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_EQUIPMENT_TRACKING]);
+  if (!allowed || !featureAllowed) redirect("/");
 }
 
 export default async function AdminEquipmentTrackingPage() {

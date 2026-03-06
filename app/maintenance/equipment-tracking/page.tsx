@@ -8,7 +8,7 @@ import { Permission } from "@prisma/client";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import { CREATE_WORK_ORDERS_FOR_OTHERS } from "@/app/lib/permission-constants";
+import { VIEW_EQUIPMENT_TRACKING } from "@/app/lib/permission-constants";
 import {
   EQUIPMENT_SECTIONS,
   type EquipmentSectionKey,
@@ -60,18 +60,7 @@ async function requireMaintenanceAreaAccess(session: unknown) {
   if (!session) redirect("/login");
 
   const perms = await loadUserPermissions(session);
-  const ok =
-    perms.allowAll ||
-    hasAnyPermission(perms, [
-      Permission.VIEW_CHECKOUT,
-      Permission.CREATE_CHECKOUT,
-      Permission.VIEW_WORK_ORDERS,
-      Permission.CREATE_WORK_ORDERS,
-      CREATE_WORK_ORDERS_FOR_OTHERS,
-      Permission.UPDATE_OWN_WORK_ORDERS,
-      Permission.SUBMIT_OWN_WORK_ORDERS,
-      Permission.VIEW_LIVE_ORDERS,
-    ]);
+  const ok = perms.allowAll || hasAnyPermission(perms, [VIEW_EQUIPMENT_TRACKING]);
 
   if (!ok) redirect("/");
 }
