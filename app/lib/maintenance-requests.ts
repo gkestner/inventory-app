@@ -19,11 +19,10 @@ export function normalizeMaintenanceRequestStatus(raw: string | null | undefined
 
 export async function loadMaintenanceRequestAssignees(): Promise<MaintenanceRequestAssignee[]> {
   const assignments = await loadMaintenancePrimaryAssignments();
-  const firstByLocation = new Map<string, MaintenanceRequestAssignee>();
+  const out: MaintenanceRequestAssignee[] = [];
 
   for (const row of assignments) {
-    if (firstByLocation.has(row.locationId)) continue;
-    firstByLocation.set(row.locationId, {
+    out.push({
       locationId: row.locationId,
       locationName: row.locationName,
       userId: row.userId,
@@ -32,7 +31,11 @@ export async function loadMaintenanceRequestAssignees(): Promise<MaintenanceRequ
     });
   }
 
-  return Array.from(firstByLocation.values()).sort((a, b) => a.locationName.localeCompare(b.locationName));
+  return out.sort((a, b) => {
+    if (a.locationName !== b.locationName) return a.locationName.localeCompare(b.locationName);
+    if (a.userName !== b.userName) return a.userName.localeCompare(b.userName);
+    return a.userEmail.localeCompare(b.userEmail);
+  });
 }
 
 export function computeAverageResolutionHours(

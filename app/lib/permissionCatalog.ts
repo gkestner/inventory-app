@@ -18,6 +18,10 @@ import {
   CREATE_RECEIPTS,
   CREATE_WORK_ORDERS_FOR_OTHERS,
   EDIT_COMPANY_VEHICLE_INFO,
+  RECEIVE_NOTIFICATION_CYCLE_COUNTS,
+  RECEIVE_NOTIFICATION_MAINTENANCE_REQUESTS,
+  RECEIVE_NOTIFICATION_TEMPERATURE_ALERTS,
+  RECEIVE_NOTIFICATION_WORK_ORDER_SCHEDULES,
   VIEW_COMPANY_VEHICLE_LOG,
   VIEW_EQUIPMENT_TRACKING,
   VIEW_MAINTENANCE_REQUESTS,
@@ -224,6 +228,32 @@ export const PERMISSION_CATALOG: PermissionCatalogEntry[] = [
     module: "Admin",
     path: ["Reports"],
     label: "View Report: Notification Effectiveness",
+  },
+
+  // ===== Notifications / Routing =====
+  {
+    permission: RECEIVE_NOTIFICATION_MAINTENANCE_REQUESTS,
+    module: "Notifications",
+    path: ["Routing"],
+    label: "Receive Maintenance Request Notifications",
+  },
+  {
+    permission: RECEIVE_NOTIFICATION_TEMPERATURE_ALERTS,
+    module: "Notifications",
+    path: ["Routing"],
+    label: "Receive Temperature Alert Notifications",
+  },
+  {
+    permission: RECEIVE_NOTIFICATION_WORK_ORDER_SCHEDULES,
+    module: "Notifications",
+    path: ["Routing"],
+    label: "Receive PM Schedule Work Order Notifications",
+  },
+  {
+    permission: RECEIVE_NOTIFICATION_CYCLE_COUNTS,
+    module: "Notifications",
+    path: ["Routing"],
+    label: "Receive Cycle Count Variance Notifications",
   },
 ];
 

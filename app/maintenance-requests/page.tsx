@@ -8,12 +8,17 @@ import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 import { canAccessAdmin } from "@/app/lib/admin-access";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { createNotification, createNotificationForUsers } from "@/app/lib/workflow-foundations";
 import {
   loadMaintenanceRequestAssignees,
   normalizeMaintenanceRequestStatus,
   type MaintenanceRequestStatusValue,
 } from "@/app/lib/maintenance-requests";
-import { ADMIN_VIEW_MAINTENANCE_REQUESTS, VIEW_MAINTENANCE_REQUESTS } from "@/app/lib/permission-constants";
+import {
+  ADMIN_VIEW_MAINTENANCE_REQUESTS,
+  RECEIVE_NOTIFICATION_MAINTENANCE_REQUESTS,
+  VIEW_MAINTENANCE_REQUESTS,
+} from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
 
@@ -106,9 +111,6 @@ type Db = {
     >;
     findMany: (args: unknown) => Promise<RequestRow[]>;
     update: (args: unknown) => Promise<{ id: string }>;
-  };
-  notification: {
-    create: (args: unknown) => Promise<unknown>;
   };
   auditLog: {
     create: (args: unknown) => Promise<unknown>;
@@ -296,7 +298,8 @@ export default async function MaintenanceRequestsPage({
     }
 
     const assignees = await loadMaintenanceRequestAssignees();
-    const assigned = assignees.find((a) => a.locationId === locationId) ?? null;
+    const assigneesForLocation = assignees.filter((a) => a.locationId === locationId);
+    const assigned = assigneesForLocation[0] ?? null;
 
     const created = await db.maintenanceRequest.create({
       data: {
@@ -322,21 +325,20 @@ export default async function MaintenanceRequestsPage({
           locationName: location.name,
           assignedMaintenanceUserId: assigned?.userId ?? null,
           assignedMaintenanceUserName: assigned?.userName ?? null,
+          notificationRecipientIds: Array.from(new Set(assigneesForLocation.map((a) => a.userId))),
         },
       },
     });
 
-    if (assigned?.userId && assigned.userId !== me.id) {
-      await db.notification.create({
-        data: {
-          userId: assigned.userId,
-          type: "SYSTEM",
-          title: `New maintenance request - ${location.name}`,
-          body: `${personLabel(me)} requested: ${title}`,
-          href: "/maintenance-requests",
-        },
-      });
-    }
+    const recipientIds = Array.from(new Set(assigneesForLocation.map((a) => a.userId))).filter((id) => id !== me.id);
+    await createNotificationForUsers({
+      userIds: recipientIds,
+      type: "SYSTEM",
+      title: `New maintenance request - ${location.name}`,
+      body: `${personLabel(me)} requested: ${title}`,
+      href: "/maintenance-requests",
+      requiredPermission: RECEIVE_NOTIFICATION_MAINTENANCE_REQUESTS,
+    });
 
     revalidatePath("/maintenance-requests");
     revalidatePath("/admin/maintenance-requests");
@@ -432,14 +434,13 @@ export default async function MaintenanceRequestsPage({
     });
 
     if (existing.requestedByUserId !== actor.id) {
-      await db.notification.create({
-        data: {
-          userId: existing.requestedByUserId,
-          type: "SYSTEM",
-          title: `Maintenance request resolved - ${existing.location.name}`,
-          body: `${existing.title} has been resolved and archived.`,
-          href: "/maintenance-requests",
-        },
+      await createNotification({
+        userId: existing.requestedByUserId,
+        type: "SYSTEM",
+        title: `Maintenance request resolved - ${existing.location.name}`,
+        body: `${existing.title} has been resolved and archived.`,
+        href: "/maintenance-requests",
+        requiredPermission: RECEIVE_NOTIFICATION_MAINTENANCE_REQUESTS,
       });
     }
 
@@ -565,7 +566,7 @@ export default async function MaintenanceRequestsPage({
 
   return (
     <main>
-      <div style={{ maxWidth: 1220, margin: "0 auto", display: "grid", gap: 12 }}>
+      <div style={{ maxWidth: 1220, margin: "0 auto", display: "grid", gap: 12, width: "100%", overflowX: "hidden", paddingInline: 12 }}>
         <section
           style={{
             border: headerBorder,
@@ -577,7 +578,7 @@ export default async function MaintenanceRequestsPage({
         >
           <h1 style={{ margin: 0, fontSize: 28, fontWeight: 950 }}>Maintenance Requests</h1>
           <p style={{ margin: "8px 0 0", color: "var(--muted)", lineHeight: 1.5 }}>
-            Submit maintenance requests by store. Requests auto-route to the maintenance technician assigned to that store as their primary location.
+            Submit maintenance requests by store. Requests auto-route to the assigned maintenance technician and notify all primary technicians for that store.
           </p>
           <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
             {isAdmin ? (
@@ -676,7 +677,7 @@ export default async function MaintenanceRequestsPage({
             <div style={{ padding: 14, opacity: 0.8 }}>No requests found.</div>
           ) : (
             <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 980 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
                 <thead>
                   <tr style={{ borderBottom: headerBorder, background: "var(--surface-2)" }}>
                     <th style={{ textAlign: "left", padding: 10, fontSize: 12 }}>Status</th>
@@ -701,7 +702,7 @@ export default async function MaintenanceRequestsPage({
                         <td style={{ padding: 10 }}>{row.location.name}</td>
                         <td style={{ padding: 10 }}>
                           <div style={{ fontWeight: 900 }}>{row.title}</div>
-                          <div style={{ marginTop: 4, opacity: 0.9 }}>{row.description}</div>
+                          <div style={{ marginTop: 4, opacity: 0.9, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{row.description}</div>
                           {row.resolutionNotes ? (
                             <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>
                               Resolution: {row.resolutionNotes}

@@ -1,4 +1,5 @@
 import { createAuditLog, createNotification } from "@/app/lib/workflow-foundations";
+import { RECEIVE_NOTIFICATION_TEMPERATURE_ALERTS } from "@/app/lib/permission-constants";
 
 export type MocreoAlertState = "NORMAL" | "HIGH" | "LOW" | "UNKNOWN";
 
@@ -212,6 +213,7 @@ export async function notifyTemperatureAlert(args: {
       title: `Temperature Alert: ${args.hubName}`,
       body: `${stateText} reading ${tempLabel}${locationText}.`,
       href: args.href ?? "/maintenance/temperature-dashboard",
+      requiredPermission: RECEIVE_NOTIFICATION_TEMPERATURE_ALERTS,
     });
   }
 

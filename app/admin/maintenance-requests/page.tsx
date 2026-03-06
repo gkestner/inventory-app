@@ -7,7 +7,8 @@ import { authOptions } from "@/app/lib/auth";
 import { canAccessAdmin } from "@/app/lib/admin-access";
 import { prisma } from "@/app/lib/prisma";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import { ADMIN_VIEW_MAINTENANCE_REQUESTS } from "@/app/lib/permission-constants";
+import { createNotification } from "@/app/lib/workflow-foundations";
+import { ADMIN_VIEW_MAINTENANCE_REQUESTS, RECEIVE_NOTIFICATION_MAINTENANCE_REQUESTS } from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
 
@@ -48,9 +49,6 @@ type Db = {
       | null
     >;
     update: (args: unknown) => Promise<unknown>;
-  };
-  notification: {
-    create: (args: unknown) => Promise<unknown>;
   };
   auditLog: {
     create: (args: unknown) => Promise<unknown>;
@@ -143,14 +141,13 @@ export default async function AdminMaintenanceRequestsPage() {
       },
     });
 
-    await db.notification.create({
-      data: {
-        userId: existing.requestedByUserId,
-        type: "SYSTEM",
-        title: `Maintenance request closed - ${existing.location.name}`,
-        body: `${existing.title} has been resolved and archived by admin.`,
-        href: "/maintenance-requests",
-      },
+    await createNotification({
+      userId: existing.requestedByUserId,
+      type: "SYSTEM",
+      title: `Maintenance request closed - ${existing.location.name}`,
+      body: `${existing.title} has been resolved and archived by admin.`,
+      href: "/maintenance-requests",
+      requiredPermission: RECEIVE_NOTIFICATION_MAINTENANCE_REQUESTS,
     });
 
     revalidatePath("/admin/maintenance-requests");

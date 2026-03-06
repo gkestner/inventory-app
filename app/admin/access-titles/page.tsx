@@ -23,6 +23,10 @@ import {
   CREATE_RECEIPTS,
   CREATE_WORK_ORDERS_FOR_OTHERS,
   EDIT_COMPANY_VEHICLE_INFO,
+  RECEIVE_NOTIFICATION_CYCLE_COUNTS,
+  RECEIVE_NOTIFICATION_MAINTENANCE_REQUESTS,
+  RECEIVE_NOTIFICATION_TEMPERATURE_ALERTS,
+  RECEIVE_NOTIFICATION_WORK_ORDER_SCHEDULES,
   VIEW_COMPANY_VEHICLE_LOG,
   VIEW_EQUIPMENT_TRACKING,
   VIEW_MAINTENANCE_REQUESTS,
@@ -139,7 +143,7 @@ function hr(): CSSProperties {
 
 type PermMeta = {
   perm: Permission;
-  module: "Admin" | "Inventory" | "Maintenance" | "Navigation";
+  module: "Admin" | "Inventory" | "Maintenance" | "Navigation" | "Notifications";
   group: string;
   label: string;
 };
@@ -238,9 +242,14 @@ const PERMS: PermMeta[] = [
     group: "Reports",
     label: "View Report: Notification Effectiveness",
   },
+
+  { perm: RECEIVE_NOTIFICATION_MAINTENANCE_REQUESTS, module: "Notifications", group: "Routing", label: "Receive Maintenance Request Notifications" },
+  { perm: RECEIVE_NOTIFICATION_TEMPERATURE_ALERTS, module: "Notifications", group: "Routing", label: "Receive Temperature Alert Notifications" },
+  { perm: RECEIVE_NOTIFICATION_WORK_ORDER_SCHEDULES, module: "Notifications", group: "Routing", label: "Receive PM Schedule Work Order Notifications" },
+  { perm: RECEIVE_NOTIFICATION_CYCLE_COUNTS, module: "Notifications", group: "Routing", label: "Receive Cycle Count Variance Notifications" },
 ];
 
-const MODULES: PermMeta["module"][] = ["Admin", "Inventory", "Maintenance", "Navigation"];
+const MODULES: PermMeta["module"][] = ["Admin", "Inventory", "Maintenance", "Navigation", "Notifications"];
 type ModuleFilter = PermMeta["module"] | "All";
 
 function normalizeQuery(q: string) {

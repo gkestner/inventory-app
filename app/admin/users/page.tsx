@@ -7,7 +7,7 @@ import Script from "next/script";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { Permission, Role } from "@prisma/client";
+import { Permission, Prisma, Role } from "@prisma/client";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
@@ -76,6 +76,11 @@ function toPositiveIntOrNull(v: FormDataEntryValue | null): number | null {
 
 type OrderedPick = { id: string; order: number | null };
 
+type VacationRoutingPreference = {
+  enabled: boolean;
+  forwardToUserIds: string[];
+};
+
 function parseOrderedGroup(formData: FormData, ids: string[], orderPrefix: string): OrderedPick[] {
   return ids.map((id) => ({
     id,
@@ -85,6 +90,31 @@ function parseOrderedGroup(formData: FormData, ids: string[], orderPrefix: strin
 
 function makeTempPassword(): string {
   return crypto.randomBytes(9).toString("base64url"); // ~12 chars
+}
+
+function parseVacationRoutingPreference(value: unknown): VacationRoutingPreference {
+  const fallback: VacationRoutingPreference = { enabled: false, forwardToUserIds: [] };
+  if (!value || typeof value !== "object" || Array.isArray(value)) return fallback;
+
+  const root = value as Record<string, unknown>;
+  const notifications = root.notifications;
+  if (!notifications || typeof notifications !== "object" || Array.isArray(notifications)) return fallback;
+
+  const routingRaw = (notifications as Record<string, unknown>).vacationRouting;
+  if (!routingRaw || typeof routingRaw !== "object" || Array.isArray(routingRaw)) return fallback;
+
+  const routing = routingRaw as Record<string, unknown>;
+  const enabled = routing.enabled === true;
+  const rawUsers = Array.isArray(routing.forwardToUserIds) ? routing.forwardToUserIds : [];
+  const forwardToUserIds = Array.from(
+    new Set(
+      rawUsers
+        .map((x) => String(x ?? "").trim())
+        .filter((x) => x.length > 0)
+    )
+  );
+
+  return { enabled, forwardToUserIds };
 }
 
 function safePermissionTitleIdsFromFormData(fd: FormData): string[] {
@@ -126,6 +156,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
       active: true,
       securityQuestionsEnabled: true,
       securityQuestionPrompt: true,
+      uiPreferences: true,
       createdAt: true,
 
       locationId: true,
@@ -674,6 +705,70 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     redirect("/admin/users?ok=1");
   }
 
+  async function saveVacationRoutingAction(formData: FormData) {
+    "use server";
+    await requireAdmin();
+
+    const userId = nonEmpty(formData.get("userId"));
+    const enabled = nonEmpty(formData.get("vacationEnabled")) === "1";
+    if (!userId) redirect("/admin/users?error=" + encodeURIComponent("Missing userId"));
+
+    const rawForwardIds = safeIdsFromFormData(formData, "vacationForwardUserIds").filter((id) => id !== userId);
+
+    const validForwardUsers =
+      rawForwardIds.length > 0
+        ? await prisma.user.findMany({
+            where: { id: { in: rawForwardIds }, active: true },
+            select: { id: true },
+          })
+        : [];
+    const validForwardIds = validForwardUsers.map((u) => u.id);
+
+    if (enabled && validForwardIds.length === 0) {
+      redirect(
+        "/admin/users?error=" +
+          encodeURIComponent("Vacation mode requires at least one active forwarding user.")
+      );
+    }
+
+    try {
+      const existing = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, uiPreferences: true },
+      });
+      if (!existing) throw new Error("User not found");
+
+      const root: Record<string, unknown> =
+        existing.uiPreferences && typeof existing.uiPreferences === "object" && !Array.isArray(existing.uiPreferences)
+          ? { ...(existing.uiPreferences as Record<string, unknown>) }
+          : {};
+
+      const notifications: Record<string, unknown> =
+        root.notifications && typeof root.notifications === "object" && !Array.isArray(root.notifications)
+          ? { ...(root.notifications as Record<string, unknown>) }
+          : {};
+
+      notifications.vacationRouting = {
+        enabled,
+        forwardToUserIds: validForwardIds,
+      };
+      root.notifications = notifications;
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          uiPreferences: root as Prisma.InputJsonValue,
+        },
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Vacation routing update failed";
+      redirect("/admin/users?error=" + encodeURIComponent(msg));
+    }
+
+    revalidatePath("/admin/users");
+    redirect("/admin/users?ok=1");
+  }
+
   const pageWrap: CSSProperties = { padding: 24, maxWidth: 1200, margin: "0 auto" };
   const card: CSSProperties = {
     border: "1px solid rgba(128, 128, 128, 0.25)",
@@ -948,6 +1043,15 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
             // show active titles + any inactive already assigned (so you can remove them)
             const permissionTitles = allTitles.filter((t) => t.active || currentTitleIds.has(t.id));
+            const vacationRouting = parseVacationRoutingPreference(u.uiPreferences);
+            const vacationChecked = new Set(vacationRouting.forwardToUserIds);
+            const vacationForwardChoices = users
+              .filter((candidate) => candidate.active && candidate.id !== u.id)
+              .map((candidate) => ({
+                id: candidate.id,
+                name: candidate.name,
+                email: candidate.email,
+              }));
 
             return (
               <details
@@ -1101,6 +1205,53 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                       <button type="submit" style={btn}>
                         Save Security Question Settings
                       </button>
+                    </div>
+                  </form>
+                </details>
+
+                <details style={{ marginTop: 12 }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 900 }}>Vacation Notification Routing</summary>
+
+                  <form action={saveVacationRoutingAction} style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                    <input type="hidden" name="userId" value={u.id} />
+
+                    <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <input type="checkbox" name="vacationEnabled" value="1" defaultChecked={vacationRouting.enabled} />
+                      <span>
+                        User is on vacation. Forward their notifications to selected users.
+                      </span>
+                    </label>
+
+                    <div style={{ fontSize: 12, opacity: 0.75 }}>
+                      Forward targets ({vacationForwardChoices.length})
+                    </div>
+
+                    <div style={{ display: "grid", gap: 6, maxHeight: 220, overflow: "auto", paddingRight: 6 }}>
+                      {vacationForwardChoices.length ? (
+                        vacationForwardChoices.map((candidate) => (
+                          <label
+                            key={`vacation-forward-${u.id}-${candidate.id}`}
+                            style={{ display: "grid", gridTemplateColumns: "20px 1fr", gap: 10 }}
+                          >
+                            <input
+                              type="checkbox"
+                              name="vacationForwardUserIds"
+                              value={candidate.id}
+                              defaultChecked={vacationChecked.has(candidate.id)}
+                            />
+                            <span>
+                              <span style={{ fontWeight: 800 }}>{candidate.name || "(No name)"}</span>
+                              <span style={{ opacity: 0.75 }}> {candidate.email ? `- ${candidate.email}` : ""}</span>
+                            </span>
+                          </label>
+                        ))
+                      ) : (
+                        <div style={{ opacity: 0.75 }}>No other active users available.</div>
+                      )}
+                    </div>
+
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <button type="submit" style={btn}>Save Vacation Routing</button>
                     </div>
                   </form>
                 </details>

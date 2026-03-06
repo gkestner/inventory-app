@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Permission } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
+import { RECEIVE_NOTIFICATION_CYCLE_COUNTS } from "@/app/lib/permission-constants";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { createAuditLog, createNotification, getCompatDb } from "@/app/lib/workflow-foundations";
 
@@ -99,6 +100,7 @@ export default async function CycleCountsPage() {
         title: "Cycle count variance detected",
         body: `Variance ${varianceQty} saved for an item in active count session.`,
         href: "/admin/cycle-counts",
+        requiredPermission: RECEIVE_NOTIFICATION_CYCLE_COUNTS,
       });
     }
 

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { Permission } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
+import { RECEIVE_NOTIFICATION_WORK_ORDER_SCHEDULES } from "@/app/lib/permission-constants";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { createAuditLog, createNotification, getCompatDb } from "@/app/lib/workflow-foundations";
 
@@ -125,6 +126,7 @@ export default async function WorkOrderSchedulesPage() {
         title: `PM Work Order Generated: ${s.title}`,
         body: "A recurring PM work order was generated for your queue.",
         href: `/maintenance/work-orders/${wo.id}`,
+        requiredPermission: RECEIVE_NOTIFICATION_WORK_ORDER_SCHEDULES,
       });
     }
 
