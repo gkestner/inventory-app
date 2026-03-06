@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import { VIEW_PREVENTATIVE_MAINTENANCE } from "@/app/lib/permission-constants";
+import { ADMIN_VIEW_PREVENTATIVE_MAINTENANCE, VIEW_PREVENTATIVE_MAINTENANCE } from "@/app/lib/permission-constants";
 import { loadMaintenancePrimaryAssignments, normalizePmYear } from "@/app/lib/preventative-maintenance";
 
 export const dynamic = "force-dynamic";
@@ -34,15 +34,6 @@ type PmDb = {
 
 const pmDb = prisma as unknown as PmDb;
 
-async function requireMaintenanceAreaAccess(session: unknown) {
-  if (!session) redirect("/login");
-
-  const perms = await loadUserPermissions(session);
-  const ok = perms.allowAll || hasAnyPermission(perms, [VIEW_PREVENTATIVE_MAINTENANCE]);
-
-  if (!ok) redirect("/");
-}
-
 function valueOrDash(v: string | null | undefined) {
   const s = String(v ?? "").trim();
   return s || "-";
@@ -53,11 +44,21 @@ export default async function MaintenancePreventativeMaintenanceCompliancePage({
 }: {
   searchParams?: Promise<SearchParams>;
 }) {
-  const session = await getServerSession(authOptions);
-  await requireMaintenanceAreaAccess(session);
-
   const resolvedSearchParams = (await searchParams) ?? {};
   const year = normalizePmYear(resolvedSearchParams.year);
+
+  const session = await getServerSession(authOptions);
+  if (!session) redirect("/login");
+
+  const perms = await loadUserPermissions(session);
+  const canViewMaintenancePm = perms.allowAll || hasAnyPermission(perms, [VIEW_PREVENTATIVE_MAINTENANCE]);
+  if (!canViewMaintenancePm) redirect("/");
+
+  // If user has PM admin permission, show the full admin compliance dashboard.
+  const canManagePmCompliance = perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_PREVENTATIVE_MAINTENANCE]);
+  if (canManagePmCompliance) {
+    redirect(`/admin/preventative-maintenance/compliance?year=${year}`);
+  }
 
   const email = String((session?.user as { email?: string | null } | null)?.email ?? "")
     .trim()

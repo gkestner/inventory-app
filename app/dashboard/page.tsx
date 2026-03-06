@@ -5,6 +5,7 @@ import { Permission } from "@prisma/client";
 import type { CSSProperties } from "react";
 
 import { authOptions } from "@/app/lib/auth";
+import { ADMIN_ENTRY_PERMISSIONS } from "@/app/lib/admin-access";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import {
   CREATE_RECEIPTS,
@@ -55,14 +56,7 @@ export default async function DashboardPage() {
     ]);
 
   const canAdmin =
-    perms.allowAll ||
-    hasAnyPermission(perms, [
-      Permission.ADMIN_VIEW_ITEMS,
-      Permission.ADMIN_VIEW_USERS,
-      Permission.ADMIN_VIEW_LOCATIONS,
-      Permission.ADMIN_VIEW_WORK_ORDERS,
-      Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
-    ]);
+    perms.allowAll || hasAnyPermission(perms, ADMIN_ENTRY_PERMISSIONS);
 
   const card: CSSProperties = {
     border: "1px solid var(--border)",

@@ -8,6 +8,7 @@ import "./globals.css";
 
 import AdminNav from "@/app/admin/components/AdminNav";
 import UserNav from "@/app/components/UserNav";
+import { ADMIN_ENTRY_PERMISSIONS } from "@/app/lib/admin-access";
 import type { LoadedPermissions } from "@/app/lib/permissions";
 import {
   CREATE_RECEIPTS,
@@ -126,15 +127,7 @@ export default async function RootLayout({
     // Load per-user permissions server-side (single source of truth)
     perms = await loadUserPermissions(session);
 
-    const hasAdminPermission =
-      perms.allowAll ||
-      hasAnyPermission(perms, [
-        Permission.ADMIN_VIEW_ITEMS,
-        Permission.ADMIN_VIEW_USERS,
-        Permission.ADMIN_VIEW_LOCATIONS,
-        Permission.ADMIN_VIEW_WORK_ORDERS,
-        Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
-      ]);
+    const hasAdminPermission = perms.allowAll || hasAnyPermission(perms, ADMIN_ENTRY_PERMISSIONS);
 
     isAdmin = isRoleAdmin || hasAdminPermission;
   } catch (error) {
@@ -164,15 +157,7 @@ export default async function RootLayout({
 
       const s = await getServerSession(authOptions);
       const p = await loadUserPermissions(s);
-      const admin =
-        p.allowAll ||
-        hasAnyPermission(p, [
-          Permission.ADMIN_VIEW_ITEMS,
-          Permission.ADMIN_VIEW_USERS,
-          Permission.ADMIN_VIEW_LOCATIONS,
-          Permission.ADMIN_VIEW_WORK_ORDERS,
-          Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
-        ]);
+      const admin = p.allowAll || hasAnyPermission(p, ADMIN_ENTRY_PERMISSIONS);
       if (!admin) redirect("/");
 
       const next = String(formData.get("preview") ?? "").trim().toLowerCase();
