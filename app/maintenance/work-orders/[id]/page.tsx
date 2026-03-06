@@ -269,7 +269,7 @@ export default async function MaintenanceWorkOrderDetailPage({
       locationId: true,
       location: { select: { id: true, name: true } },
       allowedLocations: {
-        orderBy: { sortOrder: "asc" },
+        orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
         select: {
           id: true,
           locationId: true,
@@ -321,7 +321,7 @@ export default async function MaintenanceWorkOrderDetailPage({
     if (!ul.location) continue;
     if (seen.has(ul.location.id)) continue;
     seen.add(ul.location.id);
-    allowedLocations.push({ id: ul.location.id, name: ul.location.name, source: "OPTIONAL" });
+    allowedLocations.push({ id: ul.location.id, name: ul.location.name, source: ul.isPrimary ? "PRIMARY" : "OPTIONAL" });
   }
 
   const selectedAreasDb: EquipmentArea[] = workOrder.equipmentAreas.map((a) => a.area);

@@ -255,8 +255,8 @@ export default async function MaintenanceWorkOrdersPage() {
       locationId: true,
       location: { select: { id: true, name: true } },
       allowedLocations: {
-        orderBy: { sortOrder: "asc" },
-        select: { locationId: true, sortOrder: true, location: { select: { id: true, name: true } } },
+        orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
+        select: { locationId: true, isPrimary: true, sortOrder: true, location: { select: { id: true, name: true } } },
       },
     },
   });
@@ -275,7 +275,7 @@ export default async function MaintenanceWorkOrdersPage() {
     if (!ul.location) continue;
     if (seen.has(ul.location.id)) continue;
     seen.add(ul.location.id);
-    allowedLocations.push({ id: ul.location.id, name: ul.location.name, source: "OPTIONAL" });
+    allowedLocations.push({ id: ul.location.id, name: ul.location.name, source: ul.isPrimary ? "PRIMARY" : "OPTIONAL" });
   }
 
   const inProgress = await prisma.workOrder.findFirst({

@@ -66,7 +66,7 @@ type MeRow = {
   email: string | null;
   active: boolean;
   location: LocationOption | null;
-  allowedLocations: Array<{ location: LocationOption | null }>;
+  allowedLocations: Array<{ isPrimary: boolean; location: LocationOption | null }>;
 };
 
 type RequestRow = {
@@ -184,15 +184,24 @@ function buildRequestTitle(areas: EquipmentArea[]): string {
 }
 
 function mergeLocationOptions(me: MeRow): LocationOption[] {
-  const map = new Map<string, LocationOption>();
+  const primary: LocationOption[] = [];
+  const optional: LocationOption[] = [];
+  const seen = new Set<string>();
 
-  if (me.location) map.set(me.location.id, me.location);
-  for (const row of me.allowedLocations) {
-    if (!row.location) continue;
-    map.set(row.location.id, row.location);
+  if (me.location) {
+    seen.add(me.location.id);
+    primary.push(me.location);
   }
 
-  return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  for (const row of me.allowedLocations) {
+    if (!row.location) continue;
+    if (seen.has(row.location.id)) continue;
+    seen.add(row.location.id);
+    if (row.isPrimary) primary.push(row.location);
+    else optional.push(row.location);
+  }
+
+  return [...primary, ...optional];
 }
 
 export default async function MaintenanceRequestsPage({
@@ -214,7 +223,10 @@ export default async function MaintenanceRequestsPage({
       email: true,
       active: true,
       location: { select: { id: true, name: true } },
-      allowedLocations: { select: { location: { select: { id: true, name: true } } } },
+      allowedLocations: {
+        select: { isPrimary: true, location: { select: { id: true, name: true } } },
+        orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
+      },
     },
   });
 
@@ -243,7 +255,10 @@ export default async function MaintenanceRequestsPage({
         email: true,
         active: true,
         location: { select: { id: true, name: true } },
-        allowedLocations: { select: { location: { select: { id: true, name: true } } } },
+        allowedLocations: {
+          select: { isPrimary: true, location: { select: { id: true, name: true } } },
+          orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
+        },
       },
     });
     if (!me || !me.active) redirect("/login");
@@ -347,7 +362,10 @@ export default async function MaintenanceRequestsPage({
         email: true,
         active: true,
         location: { select: { id: true, name: true } },
-        allowedLocations: { select: { location: { select: { id: true, name: true } } } },
+        allowedLocations: {
+          select: { isPrimary: true, location: { select: { id: true, name: true } } },
+          orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
+        },
       },
     });
     if (!actor || !actor.active) redirect("/login");

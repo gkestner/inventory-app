@@ -79,7 +79,7 @@ export default async function MaintenanceCheckoutPage({
 
   // Resolve allowed store locations for non-admin users.
   // Admin (allowAll) can see all active locations.
-  let allowedStoreIds: Set<string> | null = null;
+  let orderedAllowedLocations: Array<{ id: string; name: string }> | null = null;
 
   if (!perms.allowAll) {
     const email =
@@ -94,21 +94,34 @@ export default async function MaintenanceCheckoutPage({
       select: {
         id: true,
         active: true,
-        locationId: true,
+        location: { select: { id: true, name: true, active: true } },
         allowedLocations: {
-          select: { locationId: true },
-          orderBy: { sortOrder: "asc" },
+          select: { isPrimary: true, location: { select: { id: true, name: true, active: true } } },
+          orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
         },
       },
     });
 
     if (!me || !me.active) redirect("/login");
 
-    const s = new Set<string>();
-    if (me.locationId) s.add(me.locationId);
-    for (const ul of me.allowedLocations) s.add(ul.locationId);
+    const primary: Array<{ id: string; name: string }> = [];
+    const optional: Array<{ id: string; name: string }> = [];
+    const seen = new Set<string>();
 
-    allowedStoreIds = s;
+    if (me.location?.active) {
+      seen.add(me.location.id);
+      primary.push({ id: me.location.id, name: me.location.name });
+    }
+
+    for (const ul of me.allowedLocations) {
+      if (!ul.location?.active) continue;
+      if (seen.has(ul.location.id)) continue;
+      seen.add(ul.location.id);
+      if (ul.isPrimary) primary.push({ id: ul.location.id, name: ul.location.name });
+      else optional.push({ id: ul.location.id, name: ul.location.name });
+    }
+
+    orderedAllowedLocations = [...primary, ...optional];
   }
 
   const [items, locationsAllActive, users] = await Promise.all([
@@ -142,10 +155,7 @@ export default async function MaintenanceCheckoutPage({
     }),
   ]);
 
-  const locations =
-    allowedStoreIds === null
-      ? locationsAllActive
-      : locationsAllActive.filter((l) => allowedStoreIds!.has(l.id));
+  const locations = orderedAllowedLocations ?? locationsAllActive;
 
   async function checkoutAction(formData: FormData) {
     "use server";
