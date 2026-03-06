@@ -17,7 +17,14 @@ type SessionShape = {
 } | null;
 
 export default async function HomePage() {
-  const session = (await getServerSession(authOptions)) as SessionShape;
+  let session: SessionShape = null;
+
+  try {
+    session = (await getServerSession(authOptions)) as SessionShape;
+  } catch (error) {
+    console.error("HomePage session load error:", error);
+    redirect("/login");
+  }
 
   // Not logged in -> go login
   if (!session) {
@@ -25,7 +32,14 @@ export default async function HomePage() {
   }
 
   const role = session.user?.role ?? null;
-  const perms = await loadUserPermissions(session);
+
+  let perms: Awaited<ReturnType<typeof loadUserPermissions>>;
+  try {
+    perms = await loadUserPermissions(session);
+  } catch (error) {
+    console.error("HomePage permission load error:", error);
+    redirect("/login");
+  }
 
   const hasAdminAccess =
     perms.allowAll ||

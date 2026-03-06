@@ -8,6 +8,7 @@ import "./globals.css";
 
 import AdminNav from "@/app/admin/components/AdminNav";
 import UserNav from "@/app/components/UserNav";
+import type { LoadedPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -78,43 +79,61 @@ export default async function RootLayout({
   const { Permission, Role } = prismaEnums;
   const { prisma } = prismaModule;
 
-  const session = await getServerSession(authOptions);
+  const fallbackPerms: LoadedPermissions = {
+    userId: null,
+    role: null,
+    isAdmin: false,
+    allowAll: false,
+    permissions: new Set() as LoadedPermissions["permissions"],
+  };
 
-  const sessionRole = (session?.user as unknown as { role?: unknown })?.role;
+  let session: { user?: { role?: unknown; email?: string | null } | null } | null = null;
+  let perms = fallbackPerms;
+  let isAdmin = false;
+  let serverPrefs = DEFAULT_USER_PREFERENCES;
 
-  const sessionEmail = (session?.user as { email?: string | null } | null)?.email?.trim().toLowerCase() ?? "";
+  try {
+    session = await getServerSession(authOptions);
 
-  const dbUser =
-    sessionEmail.length > 0
-      ? (
-          await prisma.user.findUnique({
-            where: { email: sessionEmail },
-            select: { role: true, uiPreferences: true },
-          })
-        ) ?? null
-      : null;
+    const sessionRole = (session?.user as unknown as { role?: unknown })?.role;
+    const sessionEmail = (session?.user as { email?: string | null } | null)?.email?.trim().toLowerCase() ?? "";
 
-  const dbUserRole = dbUser?.role ?? null;
-  const serverPrefs = normalizeUserPreferences(dbUser?.uiPreferences ?? DEFAULT_USER_PREFERENCES);
+    const dbUser =
+      sessionEmail.length > 0
+        ? (
+            await prisma.user.findUnique({
+              where: { email: sessionEmail },
+              select: { role: true, uiPreferences: true },
+            })
+          ) ?? null
+        : null;
+
+    const dbUserRole = dbUser?.role ?? null;
+    serverPrefs = normalizeUserPreferences(dbUser?.uiPreferences ?? DEFAULT_USER_PREFERENCES);
+
+    const effectiveRole = sessionRole ?? dbUserRole;
+    const isRoleAdmin = effectiveRole === Role.ADMIN || effectiveRole === "ADMIN";
+
+    // Load per-user permissions server-side (single source of truth)
+    perms = await loadUserPermissions(session);
+
+    const hasAdminPermission =
+      perms.allowAll ||
+      hasAnyPermission(perms, [
+        Permission.ADMIN_VIEW_ITEMS,
+        Permission.ADMIN_VIEW_USERS,
+        Permission.ADMIN_VIEW_LOCATIONS,
+        Permission.ADMIN_VIEW_WORK_ORDERS,
+        Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
+      ]);
+
+    isAdmin = isRoleAdmin || hasAdminPermission;
+  } catch (error) {
+    // Prevent auth/DB boot failures from taking down the entire app shell.
+    console.error("RootLayout bootstrap error:", error);
+  }
+
   const serverPrefsJson = JSON.stringify(serverPrefs);
-
-  const effectiveRole = sessionRole ?? dbUserRole;
-  const isRoleAdmin = effectiveRole === Role.ADMIN || effectiveRole === "ADMIN";
-
-  // ✅ Load per-user permissions server-side (single source of truth)
-  const perms = await loadUserPermissions(session);
-
-  const hasAdminPermission =
-    perms.allowAll ||
-    hasAnyPermission(perms, [
-      Permission.ADMIN_VIEW_ITEMS,
-      Permission.ADMIN_VIEW_USERS,
-      Permission.ADMIN_VIEW_LOCATIONS,
-      Permission.ADMIN_VIEW_WORK_ORDERS,
-      Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
-    ]);
-
-  const isAdmin = isRoleAdmin || hasAdminPermission;
 
   // Cookie-backed preview (Admin-only). In your Next 16 runtime, cookies()/headers() are awaited.
   const jar = await cookies();
@@ -124,42 +143,47 @@ export default async function RootLayout({
   async function setPreviewAction(formData: FormData) {
     "use server";
 
-    const [{ getServerSession }, { authOptions }, permsMod] = await Promise.all([
-      import("next-auth"),
-      import("@/app/lib/auth"),
-      import("@/app/lib/permissions"),
-    ]);
-
-    const { hasAnyPermission, loadUserPermissions } = permsMod;
-    const { Permission } = await import("@prisma/client");
-
-    const s = await getServerSession(authOptions);
-    const p = await loadUserPermissions(s);
-    const admin =
-      p.allowAll ||
-      hasAnyPermission(p, [
-        Permission.ADMIN_VIEW_ITEMS,
-        Permission.ADMIN_VIEW_USERS,
-        Permission.ADMIN_VIEW_LOCATIONS,
-        Permission.ADMIN_VIEW_WORK_ORDERS,
-        Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
+    try {
+      const [{ getServerSession }, { authOptions }, permsMod] = await Promise.all([
+        import("next-auth"),
+        import("@/app/lib/auth"),
+        import("@/app/lib/permissions"),
       ]);
-    if (!admin) redirect("/");
 
-    const next = String(formData.get("preview") ?? "").trim().toLowerCase();
+      const { hasAnyPermission, loadUserPermissions } = permsMod;
+      const { Permission } = await import("@prisma/client");
 
-    const j = await cookies();
+      const s = await getServerSession(authOptions);
+      const p = await loadUserPermissions(s);
+      const admin =
+        p.allowAll ||
+        hasAnyPermission(p, [
+          Permission.ADMIN_VIEW_ITEMS,
+          Permission.ADMIN_VIEW_USERS,
+          Permission.ADMIN_VIEW_LOCATIONS,
+          Permission.ADMIN_VIEW_WORK_ORDERS,
+          Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
+        ]);
+      if (!admin) redirect("/");
 
-    if (next === "user" || next === "employee") {
-      j.set("preview_view", "user", { path: "/", sameSite: "lax" });
-    } else if (next === "admin") {
-      j.set("preview_view", "admin", { path: "/", sameSite: "lax" });
-    } else if (next === "off" || next === "clear") {
-      j.delete("preview_view");
+      const next = String(formData.get("preview") ?? "").trim().toLowerCase();
+
+      const j = await cookies();
+
+      if (next === "user" || next === "employee") {
+        j.set("preview_view", "user", { path: "/", sameSite: "lax" });
+      } else if (next === "admin") {
+        j.set("preview_view", "admin", { path: "/", sameSite: "lax" });
+      } else if (next === "off" || next === "clear") {
+        j.delete("preview_view");
+      }
+
+      const h = await headers();
+      redirect(safeReturnToPathFromReferer(h.get("referer")));
+    } catch (error) {
+      console.error("setPreviewAction error:", error);
+      redirect("/");
     }
-
-    const h = await headers();
-    redirect(safeReturnToPathFromReferer(h.get("referer")));
   }
 
   // Preview only swaps navigation. Permissions do NOT change.
