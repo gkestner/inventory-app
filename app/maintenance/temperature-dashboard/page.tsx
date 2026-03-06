@@ -437,6 +437,55 @@ export default async function TemperatureDashboardPage({
           </div>
         </section>
 
+        <section
+          style={{
+            border: "1px solid var(--border)",
+            borderRadius: 14,
+            background: "var(--surface)",
+            boxShadow: "var(--shadow)",
+            padding: 14,
+          }}
+        >
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Step-by-Step Setup (Simple)</h2>
+          <div style={{ marginTop: 10, display: "grid", gap: 8, lineHeight: 1.5 }}>
+            <div>
+              <strong>1.</strong> In <strong>Register / Update Hub</strong>, enter <strong>Hub Name</strong> and the exact
+              <strong> Mocreo Hub ID</strong>.
+            </div>
+            <div>
+              <strong>2.</strong> Pick the <strong>Store Location</strong>. The dashboard can auto-assign the maintenance tech
+              from that store's primary location.
+            </div>
+            <div>
+              <strong>3.</strong> Add any <strong>Additional Recipients</strong> who should also get alerts.
+            </div>
+            <div>
+              <strong>4.</strong> Set <strong>Min Temp</strong> and <strong>Max Temp</strong> in F.
+              Alerts trigger when a reading is below min or above max.
+            </div>
+            <div>
+              <strong>5.</strong> Click <strong>Save Hub Configuration</strong>.
+            </div>
+            <div>
+              <strong>6.</strong> In Mocreo, set webhook URL to:
+              <div style={{ marginTop: 4 }}>
+                <code>/api/integrations/mocreo/webhook</code>
+              </div>
+              <div style={{ marginTop: 4, fontSize: 12, opacity: 0.85 }}>
+                If you use token security, send header <code>x-mocreo-token</code> with your <code>MOCREO_WEBHOOK_TOKEN</code> value.
+              </div>
+            </div>
+            <div>
+              <strong>7.</strong> Use <strong>Webhook Pairing Test</strong> on this page.
+              If test result shows <strong>ok</strong>, your hub and device pairing path is working.
+            </div>
+            <div>
+              <strong>8.</strong> Watch <strong>Hub Dashboard</strong> and <strong>Recent Alerts</strong> below.
+              Alert notifications will go to the assigned maintenance tech + selected recipients.
+            </div>
+          </div>
+        </section>
+
         {isAdmin ? (
           <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 14 }}>
             <h2 style={{ margin: "0 0 10px", fontSize: 20, fontWeight: 900 }}>Register / Update Hub</h2>
