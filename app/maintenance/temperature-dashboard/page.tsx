@@ -41,6 +41,7 @@ type HubRow = {
     externalDeviceId: string;
     minTempF: unknown;
     maxTempF: unknown;
+    lastSeenAt: Date | null;
     lastReadingAt: Date | null;
     lastTempF: unknown;
     lastAlertState: "NORMAL" | "HIGH" | "LOW" | "UNKNOWN" | null;
@@ -170,8 +171,9 @@ function getConnectionHealth(lastSeen: Date | null): {
 } {
   if (!lastSeen) return { label: "NO_DATA", minutes: null, color: "#9ca3af" };
   const mins = Math.max(0, Math.round((Date.now() - lastSeen.getTime()) / 60000));
-  if (mins <= 5) return { label: "ONLINE", minutes: mins, color: "#22c55e" };
-  if (mins <= 15) return { label: "DEGRADED", minutes: mins, color: "#f59e0b" };
+  // Mocreo reporting intervals can be longer than a few minutes; avoid false offline flags.
+  if (mins <= 30) return { label: "ONLINE", minutes: mins, color: "#22c55e" };
+  if (mins <= 120) return { label: "DEGRADED", minutes: mins, color: "#f59e0b" };
   return { label: "OFFLINE", minutes: mins, color: "#ef4444" };
 }
 
@@ -520,6 +522,7 @@ export default async function TemperatureDashboardPage({
             externalDeviceId: true,
             minTempF: true,
             maxTempF: true,
+            lastSeenAt: true,
             lastReadingAt: true,
             lastTempF: true,
             lastAlertState: true,
@@ -975,7 +978,7 @@ export default async function TemperatureDashboardPage({
                         <strong>Connection Health:</strong>
                         {hub.devices.map((device) => {
                           const latest = latestReadingByDevice.get(device.id);
-                          const dSeen = latest?.recordedAt ?? device.lastReadingAt;
+                          const dSeen = latest?.recordedAt ?? device.lastSeenAt ?? device.lastReadingAt;
                           const health = getConnectionHealth(dSeen);
                           return (
                             <span key={`health-${device.id}`} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -990,6 +993,9 @@ export default async function TemperatureDashboardPage({
                         {hub.devices.length === 0 ? <span style={{ opacity: 0.75 }}>No sensors discovered yet.</span> : null}
                       </div>
 
+                      <div style={{ marginBottom: 6, fontSize: 12, opacity: 0.8 }}>
+                        Connection status is based on webhook "last seen" timestamps.
+                      </div>
                       <div style={{ marginBottom: 6, fontSize: 12, opacity: 0.8 }}>
                         Live sensor table (auto-refresh) with 24h trend sparkline per sensor.
                       </div>
@@ -1011,7 +1017,7 @@ export default async function TemperatureDashboardPage({
                           {hub.devices.map((device) => {
                             const latest = latestReadingByDevice.get(device.id);
                             const dTemp = latest?.tempF ?? toNumberOrNull(device.lastTempF);
-                            const dSeen = latest?.recordedAt ?? device.lastReadingAt;
+                            const dSeen = latest?.recordedAt ?? device.lastSeenAt ?? device.lastReadingAt;
                             const dMin = toNumberOrNull(device.minTempF);
                             const dMax = toNumberOrNull(device.maxTempF);
                             const health = getConnectionHealth(dSeen);
