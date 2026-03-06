@@ -7,6 +7,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/lib/auth";
 import { Permission } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { prisma } from "@/app/lib/prisma";
 import {
   CREATE_RECEIPTS,
   CREATE_WORK_ORDERS_FOR_OTHERS,
@@ -29,6 +30,14 @@ export const dynamic = "force-dynamic";
 export default async function UserNav() {
   const session = await getServerSession(authOptions);
   const perms = await loadUserPermissions(session);
+  const email = String(session?.user?.email ?? "").trim().toLowerCase();
+  const me = email
+    ? await prisma.user.findUnique({ where: { email }, select: { id: true } })
+    : null;
+  const unreadCount = me?.id
+    ? await prisma.notification.count({ where: { userId: me.id, readAt: null } })
+    : 0;
+  const unreadBadgeText = unreadCount > 99 ? "99+" : String(unreadCount);
 
   const shell: CSSProperties = { color: "var(--foreground)" };
 
@@ -288,9 +297,34 @@ export default async function UserNav() {
               background: "var(--surface)",
               textDecoration: "none",
               fontWeight: 700,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
             }}
           >
             Notifications
+            {unreadCount > 0 ? (
+              <span
+                style={{
+                  minWidth: 20,
+                  height: 20,
+                  padding: "0 6px",
+                  borderRadius: 999,
+                  border: "1px solid color-mix(in srgb, var(--brand) 50%, var(--border))",
+                  background: "linear-gradient(160deg, var(--brand-2) 0%, var(--brand) 100%)",
+                  color: "var(--brand-contrast)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 11,
+                  fontWeight: 900,
+                  lineHeight: 1,
+                }}
+                aria-label={`${unreadCount} unread notifications`}
+              >
+                {unreadBadgeText}
+              </span>
+            ) : null}
           </Link>
 
           <Link

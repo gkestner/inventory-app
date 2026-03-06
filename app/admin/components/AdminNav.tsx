@@ -42,6 +42,13 @@ export default async function AdminNav() {
       )?.role ?? null
     : null;
   const isAdminByRole = session?.user?.role === Role.ADMIN || dbRole === Role.ADMIN;
+  const me = email
+    ? await prisma.user.findUnique({ where: { email }, select: { id: true } })
+    : null;
+  const unreadCount = me?.id
+    ? await prisma.notification.count({ where: { userId: me.id, readAt: null } })
+    : 0;
+  const unreadBadgeText = unreadCount > 99 ? "99+" : String(unreadCount);
   const isAdminByPermission =
     perms.allowAll ||
     hasAnyPermission(perms, [
@@ -86,7 +93,9 @@ export default async function AdminNav() {
 
   const topLinkStyle: CSSProperties = {
     ...summaryStyle,
-    display: "inline-block",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
     textDecoration: "none",
   };
 
@@ -357,6 +366,28 @@ export default async function AdminNav() {
 
           <Link href="/notifications" style={topLinkStyle}>
             Notifications
+            {unreadCount > 0 ? (
+              <span
+                style={{
+                  minWidth: 20,
+                  height: 20,
+                  padding: "0 6px",
+                  borderRadius: 999,
+                  border: "1px solid color-mix(in srgb, var(--brand) 50%, var(--border))",
+                  background: "linear-gradient(160deg, var(--brand-2) 0%, var(--brand) 100%)",
+                  color: "var(--brand-contrast)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 11,
+                  fontWeight: 900,
+                  lineHeight: 1,
+                }}
+                aria-label={`${unreadCount} unread notifications`}
+              >
+                {unreadBadgeText}
+              </span>
+            ) : null}
           </Link>
 
           {/* Admin */}
