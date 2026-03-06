@@ -72,18 +72,6 @@ export const PERMISSION_CATALOG: PermissionCatalogEntry[] = [
     label: "View Vehicle Log",
   },
   {
-    permission: CREATE_COMPANY_VEHICLE_INFO,
-    module: "Maintenance",
-    path: ["Company Vehicles"],
-    label: "Create Vehicle Info",
-  },
-  {
-    permission: EDIT_COMPANY_VEHICLE_INFO,
-    module: "Maintenance",
-    path: ["Company Vehicles"],
-    label: "Edit Vehicle Info",
-  },
-  {
     permission: VIEW_MAINTENANCE_REQUESTS,
     module: "Maintenance",
     path: ["Maintenance Requests"],
@@ -162,6 +150,18 @@ export const PERMISSION_CATALOG: PermissionCatalogEntry[] = [
     module: "Admin",
     path: ["Company Vehicles"],
     label: "View Company Vehicles",
+  },
+  {
+    permission: CREATE_COMPANY_VEHICLE_INFO,
+    module: "Admin",
+    path: ["Company Vehicles"],
+    label: "Create Company Vehicles",
+  },
+  {
+    permission: EDIT_COMPANY_VEHICLE_INFO,
+    module: "Admin",
+    path: ["Company Vehicles"],
+    label: "Edit Company Vehicles",
   },
   {
     permission: ADMIN_VIEW_MAINTENANCE_REQUESTS,

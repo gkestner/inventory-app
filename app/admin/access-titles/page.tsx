@@ -166,8 +166,6 @@ const PERMS: PermMeta[] = [
   { perm: VIEW_PREVENTATIVE_MAINTENANCE, module: "Maintenance", group: "Preventative Maintenance", label: "View Preventative Maintenance" },
   { perm: VIEW_EQUIPMENT_TRACKING, module: "Maintenance", group: "Equipment Tracking", label: "View Equipment Tracking" },
   { perm: VIEW_COMPANY_VEHICLE_LOG, module: "Maintenance", group: "Company Vehicles", label: "View Vehicle Log" },
-  { perm: CREATE_COMPANY_VEHICLE_INFO, module: "Maintenance", group: "Company Vehicles", label: "Create Vehicle Info" },
-  { perm: EDIT_COMPANY_VEHICLE_INFO, module: "Maintenance", group: "Company Vehicles", label: "Edit Vehicle Info" },
   { perm: VIEW_MAINTENANCE_REQUESTS, module: "Maintenance", group: "Maintenance Requests", label: "View Maintenance Requests" },
   { perm: VIEW_TEMPERATURE_DASHBOARD, module: "Maintenance", group: "Temperature Dashboard", label: "View Temperature Dashboard" },
   { perm: VIEW_RECEIPTS, module: "Maintenance", group: "Receipts", label: "View Receipts" },
@@ -202,6 +200,8 @@ const PERMS: PermMeta[] = [
   { perm: ADMIN_VIEW_PREVENTATIVE_MAINTENANCE, module: "Admin", group: "Preventative Maintenance", label: "View Preventative Maintenance" },
   { perm: ADMIN_VIEW_EQUIPMENT_TRACKING, module: "Admin", group: "Equipment Tracking", label: "View Equipment Tracking" },
   { perm: ADMIN_VIEW_COMPANY_VEHICLES, module: "Admin", group: "Company Vehicles", label: "View Company Vehicles" },
+  { perm: CREATE_COMPANY_VEHICLE_INFO, module: "Admin", group: "Company Vehicles", label: "Create Company Vehicles" },
+  { perm: EDIT_COMPANY_VEHICLE_INFO, module: "Admin", group: "Company Vehicles", label: "Edit Company Vehicles" },
   { perm: ADMIN_VIEW_MAINTENANCE_REQUESTS, module: "Admin", group: "Maintenance Requests", label: "View Maintenance Requests" },
   { perm: ADMIN_VIEW_TEMPERATURE_DASHBOARD, module: "Admin", group: "Temperature Dashboard", label: "View Temperature Dashboard" },
 
