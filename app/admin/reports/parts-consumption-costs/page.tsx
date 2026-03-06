@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { Permission } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { prisma } from "@/app/lib/prisma";
+import { ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS } from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +45,7 @@ async function requireReportAccess() {
   if (!session) redirect("/login");
 
   const perms = await loadUserPermissions(session);
-  if (!perms.allowAll && !hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS])) {
+  if (!perms.allowAll && !hasAnyPermission(perms, [ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS])) {
     redirect("/");
   }
 }

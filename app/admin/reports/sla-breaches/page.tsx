@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { prisma } from "@/app/lib/prisma";
-import { ADMIN_VIEW_MAINTENANCE_REQUESTS } from "@/app/lib/permission-constants";
+import { ADMIN_VIEW_REPORT_SLA_BREACHES } from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
 
@@ -56,7 +56,7 @@ async function requireReportAccess() {
   if (!session) redirect("/login");
 
   const perms = await loadUserPermissions(session);
-  if (!perms.allowAll && !hasAnyPermission(perms, [ADMIN_VIEW_MAINTENANCE_REQUESTS])) {
+  if (!perms.allowAll && !hasAnyPermission(perms, [ADMIN_VIEW_REPORT_SLA_BREACHES])) {
     redirect("/");
   }
 }

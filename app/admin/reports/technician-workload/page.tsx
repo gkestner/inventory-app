@@ -2,12 +2,10 @@ import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 
-import { Permission } from "@prisma/client";
-
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { prisma } from "@/app/lib/prisma";
-import { ADMIN_VIEW_MAINTENANCE_REQUESTS } from "@/app/lib/permission-constants";
+import { ADMIN_VIEW_REPORT_TECHNICIAN_WORKLOAD } from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
 
@@ -57,11 +55,9 @@ async function requireReportAccess() {
   if (!session) redirect("/login");
 
   const perms = await loadUserPermissions(session);
-  const canRequests = perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_MAINTENANCE_REQUESTS]);
-  const canWorkOrders =
-    perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_WORK_ORDERS, Permission.ADMIN_EDIT_WORK_ORDERS]);
-
-  if (!canRequests && !canWorkOrders) redirect("/");
+  if (!perms.allowAll && !hasAnyPermission(perms, [ADMIN_VIEW_REPORT_TECHNICIAN_WORKLOAD])) {
+    redirect("/");
+  }
 }
 
 export default async function TechnicianWorkloadReportPage({

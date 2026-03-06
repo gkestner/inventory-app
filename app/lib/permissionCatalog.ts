@@ -1,6 +1,14 @@
 // app/lib/permissionCatalog.ts
 import { Permission } from "@prisma/client";
 import {
+  ADMIN_VIEW_REPORT_FLEET_TCO,
+  ADMIN_VIEW_REPORT_NOTIFICATION_EFFECTIVENESS,
+  ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS,
+  ADMIN_VIEW_REPORT_PERMISSION_COVERAGE,
+  ADMIN_VIEW_REPORT_PM_COMPLIANCE,
+  ADMIN_VIEW_REPORT_SLA_BREACHES,
+  ADMIN_VIEW_REPORT_TECHNICIAN_WORKLOAD,
+  ADMIN_VIEW_REPORT_TEMPERATURE_INCIDENTS,
   ADMIN_VIEW_COMPANY_VEHICLES,
   ADMIN_VIEW_EQUIPMENT_TRACKING,
   ADMIN_VIEW_MAINTENANCE_REQUESTS,
@@ -138,6 +146,56 @@ export const PERMISSION_CATALOG: PermissionCatalogEntry[] = [
     module: "Admin",
     path: ["Temperature Dashboard"],
     label: "View Temperature Dashboard",
+  },
+
+  // ===== Admin / Reports =====
+  {
+    permission: ADMIN_VIEW_REPORT_SLA_BREACHES,
+    module: "Admin",
+    path: ["Reports"],
+    label: "View Report: SLA Breach Monitor",
+  },
+  {
+    permission: ADMIN_VIEW_REPORT_TECHNICIAN_WORKLOAD,
+    module: "Admin",
+    path: ["Reports"],
+    label: "View Report: Technician Workload",
+  },
+  {
+    permission: ADMIN_VIEW_REPORT_TEMPERATURE_INCIDENTS,
+    module: "Admin",
+    path: ["Reports"],
+    label: "View Report: Temperature Incident Timeline",
+  },
+  {
+    permission: ADMIN_VIEW_REPORT_PM_COMPLIANCE,
+    module: "Admin",
+    path: ["Reports"],
+    label: "View Report: PM Compliance Scorecard",
+  },
+  {
+    permission: ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS,
+    module: "Admin",
+    path: ["Reports"],
+    label: "View Report: Parts Consumption + Cost",
+  },
+  {
+    permission: ADMIN_VIEW_REPORT_FLEET_TCO,
+    module: "Admin",
+    path: ["Reports"],
+    label: "View Report: Fleet TCO",
+  },
+  {
+    permission: ADMIN_VIEW_REPORT_PERMISSION_COVERAGE,
+    module: "Admin",
+    path: ["Reports"],
+    label: "View Report: Permission Coverage",
+  },
+  {
+    permission: ADMIN_VIEW_REPORT_NOTIFICATION_EFFECTIVENESS,
+    module: "Admin",
+    path: ["Reports"],
+    label: "View Report: Notification Effectiveness",
   },
 ];
 

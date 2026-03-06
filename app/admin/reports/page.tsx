@@ -7,6 +7,14 @@ import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { Permission, Role } from "@prisma/client";
 import {
+  ADMIN_VIEW_REPORT_FLEET_TCO,
+  ADMIN_VIEW_REPORT_NOTIFICATION_EFFECTIVENESS,
+  ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS,
+  ADMIN_VIEW_REPORT_PERMISSION_COVERAGE,
+  ADMIN_VIEW_REPORT_PM_COMPLIANCE,
+  ADMIN_VIEW_REPORT_SLA_BREACHES,
+  ADMIN_VIEW_REPORT_TECHNICIAN_WORKLOAD,
+  ADMIN_VIEW_REPORT_TEMPERATURE_INCIDENTS,
   ADMIN_VIEW_COMPANY_VEHICLES,
   ADMIN_VIEW_MAINTENANCE_REQUESTS,
   ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
@@ -36,6 +44,14 @@ async function requireReportsView() {
     Permission.ADMIN_EDIT_ITEMS,
     ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
     ADMIN_VIEW_MAINTENANCE_REQUESTS,
+    ADMIN_VIEW_REPORT_SLA_BREACHES,
+    ADMIN_VIEW_REPORT_TECHNICIAN_WORKLOAD,
+    ADMIN_VIEW_REPORT_TEMPERATURE_INCIDENTS,
+    ADMIN_VIEW_REPORT_PM_COMPLIANCE,
+    ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS,
+    ADMIN_VIEW_REPORT_FLEET_TCO,
+    ADMIN_VIEW_REPORT_PERMISSION_COVERAGE,
+    ADMIN_VIEW_REPORT_NOTIFICATION_EFFECTIVENESS,
   ]);
   if (!ok) redirect("/");
 
@@ -53,6 +69,19 @@ export default async function AdminReportsIndexPage() {
     perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_WORK_ORDERS, Permission.ADMIN_EDIT_WORK_ORDERS]);
   const canItemsReports = perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
   const canSecurityReports = perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_USERS, Permission.ADMIN_EDIT_USERS]);
+  const canSlaBreachReport = perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_REPORT_SLA_BREACHES]);
+  const canTechnicianWorkloadReport =
+    perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_REPORT_TECHNICIAN_WORKLOAD]);
+  const canTemperatureIncidentsReport =
+    perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_REPORT_TEMPERATURE_INCIDENTS]);
+  const canPmComplianceReport = perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_REPORT_PM_COMPLIANCE]);
+  const canPartsConsumptionReport =
+    perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS]);
+  const canFleetTcoReport = perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_REPORT_FLEET_TCO]);
+  const canPermissionCoverageReport =
+    perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_REPORT_PERMISSION_COVERAGE]);
+  const canNotificationEffectivenessReport =
+    perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_REPORT_NOTIFICATION_EFFECTIVENESS]);
 
   const border = "1px solid var(--border)";
   const surface = "var(--surface)";
@@ -198,7 +227,7 @@ export default async function AdminReportsIndexPage() {
             </Link>
           ) : null}
 
-          {canRequestReports ? (
+          {canSlaBreachReport ? (
             <Link href="/admin/reports/sla-breaches" style={cardStyle}>
               <h2 style={titleStyle}>SLA Breach Monitor</h2>
               <p style={descStyle}>
@@ -208,7 +237,7 @@ export default async function AdminReportsIndexPage() {
             </Link>
           ) : null}
 
-          {canRequestReports || canWorkOrderReports ? (
+          {canTechnicianWorkloadReport || canRequestReports || canWorkOrderReports ? (
             <Link href="/admin/reports/technician-workload" style={cardStyle}>
               <h2 style={titleStyle}>Technician Workload</h2>
               <p style={descStyle}>
@@ -218,7 +247,7 @@ export default async function AdminReportsIndexPage() {
             </Link>
           ) : null}
 
-          {canTemperatureReports ? (
+          {canTemperatureIncidentsReport || canTemperatureReports ? (
             <Link href="/admin/reports/temperature-incidents" style={cardStyle}>
               <h2 style={titleStyle}>Temperature Incident Timeline</h2>
               <p style={descStyle}>
@@ -228,7 +257,7 @@ export default async function AdminReportsIndexPage() {
             </Link>
           ) : null}
 
-          {canPmReports ? (
+          {canPmComplianceReport || canPmReports ? (
             <Link href="/admin/reports/pm-compliance" style={cardStyle}>
               <h2 style={titleStyle}>PM Compliance Scorecard</h2>
               <p style={descStyle}>
@@ -238,7 +267,7 @@ export default async function AdminReportsIndexPage() {
             </Link>
           ) : null}
 
-          {canItemsReports ? (
+          {canPartsConsumptionReport || canItemsReports ? (
             <Link href="/admin/reports/parts-consumption-costs" style={cardStyle}>
               <h2 style={titleStyle}>Parts Consumption + Cost</h2>
               <p style={descStyle}>
@@ -248,7 +277,7 @@ export default async function AdminReportsIndexPage() {
             </Link>
           ) : null}
 
-          {canFleetReports ? (
+          {canFleetTcoReport || canFleetReports ? (
             <Link href="/admin/reports/fleet-tco" style={cardStyle}>
               <h2 style={titleStyle}>Fleet TCO</h2>
               <p style={descStyle}>
@@ -258,7 +287,7 @@ export default async function AdminReportsIndexPage() {
             </Link>
           ) : null}
 
-          {canSecurityReports ? (
+          {canPermissionCoverageReport || canSecurityReports ? (
             <Link href="/admin/reports/permission-coverage" style={cardStyle}>
               <h2 style={titleStyle}>Permission Coverage</h2>
               <p style={descStyle}>
@@ -268,7 +297,7 @@ export default async function AdminReportsIndexPage() {
             </Link>
           ) : null}
 
-          {canSecurityReports ? (
+          {canNotificationEffectivenessReport || canSecurityReports ? (
             <Link href="/admin/reports/notification-effectiveness" style={cardStyle}>
               <h2 style={titleStyle}>Notification Effectiveness</h2>
               <p style={descStyle}>

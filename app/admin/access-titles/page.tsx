@@ -6,6 +6,14 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { Permission } from "@prisma/client";
 import {
+  ADMIN_VIEW_REPORT_FLEET_TCO,
+  ADMIN_VIEW_REPORT_NOTIFICATION_EFFECTIVENESS,
+  ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS,
+  ADMIN_VIEW_REPORT_PERMISSION_COVERAGE,
+  ADMIN_VIEW_REPORT_PM_COMPLIANCE,
+  ADMIN_VIEW_REPORT_SLA_BREACHES,
+  ADMIN_VIEW_REPORT_TECHNICIAN_WORKLOAD,
+  ADMIN_VIEW_REPORT_TEMPERATURE_INCIDENTS,
   ADMIN_VIEW_COMPANY_VEHICLES,
   ADMIN_VIEW_EQUIPMENT_TRACKING,
   ADMIN_VIEW_MAINTENANCE_REQUESTS,
@@ -188,6 +196,40 @@ const PERMS: PermMeta[] = [
   { perm: ADMIN_VIEW_COMPANY_VEHICLES, module: "Admin", group: "Company Vehicles", label: "View Company Vehicles" },
   { perm: ADMIN_VIEW_MAINTENANCE_REQUESTS, module: "Admin", group: "Maintenance Requests", label: "View Maintenance Requests" },
   { perm: ADMIN_VIEW_TEMPERATURE_DASHBOARD, module: "Admin", group: "Temperature Dashboard", label: "View Temperature Dashboard" },
+
+  { perm: ADMIN_VIEW_REPORT_SLA_BREACHES, module: "Admin", group: "Reports", label: "View Report: SLA Breach Monitor" },
+  {
+    perm: ADMIN_VIEW_REPORT_TECHNICIAN_WORKLOAD,
+    module: "Admin",
+    group: "Reports",
+    label: "View Report: Technician Workload",
+  },
+  {
+    perm: ADMIN_VIEW_REPORT_TEMPERATURE_INCIDENTS,
+    module: "Admin",
+    group: "Reports",
+    label: "View Report: Temperature Incident Timeline",
+  },
+  { perm: ADMIN_VIEW_REPORT_PM_COMPLIANCE, module: "Admin", group: "Reports", label: "View Report: PM Compliance Scorecard" },
+  {
+    perm: ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS,
+    module: "Admin",
+    group: "Reports",
+    label: "View Report: Parts Consumption + Cost",
+  },
+  { perm: ADMIN_VIEW_REPORT_FLEET_TCO, module: "Admin", group: "Reports", label: "View Report: Fleet TCO" },
+  {
+    perm: ADMIN_VIEW_REPORT_PERMISSION_COVERAGE,
+    module: "Admin",
+    group: "Reports",
+    label: "View Report: Permission Coverage",
+  },
+  {
+    perm: ADMIN_VIEW_REPORT_NOTIFICATION_EFFECTIVENESS,
+    module: "Admin",
+    group: "Reports",
+    label: "View Report: Notification Effectiveness",
+  },
 ];
 
 const MODULES: PermMeta["module"][] = ["Admin", "Inventory", "Maintenance", "Navigation"];
