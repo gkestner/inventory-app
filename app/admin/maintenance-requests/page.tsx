@@ -49,6 +49,7 @@ type Db = {
         location: { id: string; name: string };
         requestedByUser: { name: string | null; email: string | null };
         assignedMaintenanceUser: { id: string; name: string | null; email: string | null } | null;
+        maintenanceAssignees: Array<{ userId: string; user: { id: string; name: string | null; email: string | null } }>;
       }>
     >;
     findUnique: (args: unknown) => Promise<
@@ -59,6 +60,7 @@ type Db = {
           location: { id: string; name: string };
           requestedByUserId?: string;
           assignedMaintenanceUserId?: string | null;
+          maintenanceAssignees?: Array<{ userId: string }>;
         }
       | null
     >;
@@ -86,6 +88,18 @@ function fmtDateTime(value: Date | null): string {
 function personLabel(person: { name: string | null; email: string | null } | null | undefined): string {
   if (!person) return "Unassigned";
   return String(person.name ?? "").trim() || String(person.email ?? "").trim() || "Unknown";
+}
+
+function uniqueStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of values) {
+    const v = String(raw ?? "").trim();
+    if (!v || seen.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+  }
+  return out;
 }
 
 async function requireAdmin() {
@@ -202,14 +216,16 @@ export default async function AdminMaintenanceRequestsPage({
         title: true,
         status: true,
         location: { select: { id: true, name: true } },
+        maintenanceAssignees: { select: { userId: true } },
       },
     });
     if (!existing) redirect("/admin/maintenance-requests");
 
+    const requestAssigneeIds = uniqueStrings((existing.maintenanceAssignees ?? []).map((a) => a.userId));
+
     const assignees = await loadMaintenanceRequestAssignees();
-    const recipientIds = Array.from(
-      new Set(assignees.filter((a) => a.locationId === existing.location.id).map((a) => a.userId))
-    );
+    const locationFallbackIds = uniqueStrings(assignees.filter((a) => a.locationId === existing.location.id).map((a) => a.userId));
+    const recipientIds = requestAssigneeIds.length > 0 ? requestAssigneeIds : locationFallbackIds;
 
     if (recipientIds.length > 0) {
       await createNotificationForUsers({
@@ -256,7 +272,7 @@ export default async function AdminMaintenanceRequestsPage({
     if (!actor || !actor.active) redirect("/login");
 
     const requestId = String(formData.get("requestId") ?? "").trim();
-    const selectedUserId = String(formData.get("assignedUserId") ?? "").trim();
+    const selectedUserIds = uniqueStrings(formData.getAll("assignedUserIds").map((x) => String(x ?? "").trim()));
     if (!requestId) redirect("/admin/maintenance-requests");
 
     const existing = await db.maintenanceRequest.findUnique({
@@ -267,6 +283,7 @@ export default async function AdminMaintenanceRequestsPage({
         status: true,
         location: { select: { id: true, name: true } },
         assignedMaintenanceUserId: true,
+        maintenanceAssignees: { select: { userId: true } },
       },
     });
     if (!existing) redirect("/admin/maintenance-requests");
@@ -274,14 +291,24 @@ export default async function AdminMaintenanceRequestsPage({
     const assignees = await loadMaintenanceRequestAssignees();
     const validIds = new Set(assignees.filter((a) => a.locationId === existing.location.id).map((a) => a.userId));
 
-    const nextAssignedUserId = selectedUserId === "__UNASSIGNED__" ? null : selectedUserId;
-    if (nextAssignedUserId && !validIds.has(nextAssignedUserId)) {
-      redirect("/admin/maintenance-requests?error=" + encodeURIComponent("Selected assignee is not valid for this location."));
+    const nextAssignedUserIds = selectedUserIds.filter((id) => validIds.has(id));
+    if (nextAssignedUserIds.length !== selectedUserIds.length) {
+      redirect("/admin/maintenance-requests?error=" + encodeURIComponent("One or more selected assignees are not valid for this location."));
     }
+
+    const nextAssignedUserId = nextAssignedUserIds[0] ?? null;
+    const previousAssignedUserIds = uniqueStrings((existing.maintenanceAssignees ?? []).map((a) => a.userId));
+    const newlyAddedUserIds = nextAssignedUserIds.filter((id) => !previousAssignedUserIds.includes(id));
 
     await db.maintenanceRequest.update({
       where: { id: existing.id },
-      data: { assignedMaintenanceUserId: nextAssignedUserId },
+      data: {
+        assignedMaintenanceUserId: nextAssignedUserId,
+        maintenanceAssignees: {
+          deleteMany: { requestId: existing.id },
+          ...(nextAssignedUserIds.length > 0 ? { createMany: { data: nextAssignedUserIds.map((userId) => ({ userId })) } } : {}),
+        },
+      },
     });
 
     await db.auditLog.create({
@@ -297,13 +324,15 @@ export default async function AdminMaintenanceRequestsPage({
           locationName: existing.location.name,
           previousAssignedUserId: existing.assignedMaintenanceUserId ?? null,
           nextAssignedUserId,
+          previousAssignedUserIds,
+          nextAssignedUserIds,
         },
       },
     });
 
-    if (nextAssignedUserId && nextAssignedUserId !== existing.assignedMaintenanceUserId) {
-      await createNotification({
-        userId: nextAssignedUserId,
+    if (newlyAddedUserIds.length > 0) {
+      await createNotificationForUsers({
+        userIds: newlyAddedUserIds,
         type: "SYSTEM",
         title: `Assigned maintenance request - ${existing.location.name}`,
         body: `${existing.title} has been assigned to you by admin.`,
@@ -346,6 +375,7 @@ export default async function AdminMaintenanceRequestsPage({
       location: { select: { id: true, name: true } },
       requestedByUser: { select: { name: true, email: true } },
       assignedMaintenanceUser: { select: { id: true, name: true, email: true } },
+      maintenanceAssignees: { select: { userId: true, user: { select: { id: true, name: true, email: true } } } },
     },
   });
 
@@ -396,6 +426,12 @@ export default async function AdminMaintenanceRequestsPage({
 
           {rows.map((row) => {
             const locationAssignees = assigneesByLocation.get(row.location.id) ?? [];
+            const assignedUsers = row.maintenanceAssignees.map((x) => x.user);
+            const assignedLabel =
+              assignedUsers.length > 0
+                ? assignedUsers.map((u) => personLabel(u)).join(", ")
+                : personLabel(row.assignedMaintenanceUser);
+            const assignedUserIdSet = new Set(row.maintenanceAssignees.map((x) => x.userId));
             return (
               <article
                 key={row.id}
@@ -433,7 +469,7 @@ export default async function AdminMaintenanceRequestsPage({
                   </div>
                   <div>
                     <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 700 }}>Assigned Tech</div>
-                    <div>{personLabel(row.assignedMaintenanceUser)}</div>
+                    <div>{assignedLabel}</div>
                   </div>
                   <div>
                     <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 700 }}>Resolved</div>
@@ -451,23 +487,29 @@ export default async function AdminMaintenanceRequestsPage({
                 <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", alignItems: "start" }}>
                   <form action={updateAssigneeAction} style={{ display: "grid", gap: 6 }}>
                     <input type="hidden" name="requestId" value={row.id} />
-                    <select
-                      name="assignedUserId"
-                      defaultValue={row.assignedMaintenanceUser?.id ?? "__UNASSIGNED__"}
-                      style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", background: "var(--surface)", color: "var(--foreground)", width: "100%" }}
-                    >
-                      <option value="__UNASSIGNED__">Unassigned</option>
-                      {locationAssignees.map((assignee) => (
-                        <option key={`${row.id}-${assignee.userId}`} value={assignee.userId}>
-                          {assignee.userName || assignee.userEmail}
-                        </option>
-                      ))}
-                    </select>
+                    <fieldset style={{ margin: 0, padding: 8, border: "1px solid var(--border)", borderRadius: 8, display: "grid", gap: 6 }}>
+                      <legend style={{ padding: "0 6px", fontSize: 12, opacity: 0.8 }}>Assign tech(s)</legend>
+                      {locationAssignees.length === 0 ? (
+                        <span style={{ fontSize: 12, opacity: 0.7 }}>No eligible techs for this location.</span>
+                      ) : (
+                        locationAssignees.map((assignee) => (
+                          <label key={`${row.id}-${assignee.userId}`} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+                            <input
+                              type="checkbox"
+                              name="assignedUserIds"
+                              value={assignee.userId}
+                              defaultChecked={assignedUserIdSet.has(assignee.userId)}
+                            />
+                            <span>{assignee.userName || assignee.userEmail}</span>
+                          </label>
+                        ))
+                      )}
+                    </fieldset>
                     <button
                       type="submit"
                       style={{ width: "100%", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface-2)", padding: "8px 10px", fontWeight: 800, cursor: "pointer" }}
                     >
-                      Update Assignee
+                      Update Assignees
                     </button>
                   </form>
 

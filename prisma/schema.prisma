@@ -434,6 +434,7 @@ model User {
   cycleCountsCreated CycleCountSession[]   @relation("CycleCountCreatedBy")
   maintenanceRequestsCreated MaintenanceRequest[] @relation("MaintenanceRequestCreatedBy")
   maintenanceRequestsAssigned MaintenanceRequest[] @relation("MaintenanceRequestAssignedTo")
+  maintenanceRequestAssignments MaintenanceRequestAssignee[]
   maintenanceRequestsResolved MaintenanceRequest[] @relation("MaintenanceRequestResolvedBy")
   assignedMocreoHubs MocreoHub[] @relation("MocreoHubAssignedMaintenanceUser")
   mocreoHubRecipients MocreoHubRecipient[]
@@ -714,6 +715,7 @@ model MaintenanceRequest {
 
   assignedMaintenanceUserId String?
   assignedMaintenanceUser   User? @relation("MaintenanceRequestAssignedTo", fields: [assignedMaintenanceUserId], references: [id], onDelete: SetNull)
+  maintenanceAssignees MaintenanceRequestAssignee[]
 
   resolutionNotes String?
   resolvedAt      DateTime?
@@ -730,6 +732,22 @@ model MaintenanceRequest {
   @@index([requestedByUserId, createdAt])
   @@index([assignedMaintenanceUserId, status])
   @@index([resolvedByUserId, resolvedAt])
+}
+
+model MaintenanceRequestAssignee {
+  id String @id @default(cuid())
+
+  requestId String
+  request   MaintenanceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([requestId, userId])
+  @@index([requestId])
+  @@index([userId])
 }
 
 model MocreoHub {

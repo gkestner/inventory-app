@@ -86,6 +86,7 @@ type RequestRow = {
   location: LocationOption;
   requestedByUser: { id: string; name: string | null; email: string | null };
   assignedMaintenanceUser: { id: string; name: string | null; email: string | null } | null;
+  maintenanceAssignees: Array<{ userId: string; user: { id: string; name: string | null; email: string | null } }>;
   resolvedByUser: { id: string; name: string | null; email: string | null } | null;
 };
 
@@ -106,6 +107,7 @@ type Db = {
           location: LocationOption;
           requestedByUserId: string;
           assignedMaintenanceUserId: string | null;
+          maintenanceAssignees: Array<{ userId: string }>;
         }
       | null
     >;
@@ -313,7 +315,8 @@ export default async function MaintenanceRequestsPage({
 
     const assignees = await loadMaintenanceRequestAssignees();
     const assigneesForLocation = assignees.filter((a) => a.locationId === locationId);
-    const assigned = assigneesForLocation[0] ?? null;
+    const assignedUserIds = Array.from(new Set(assigneesForLocation.map((a) => a.userId))).filter(Boolean);
+    const assigned = assigneesForLocation.find((a) => a.userId === assignedUserIds[0]) ?? null;
 
     const created = await db.maintenanceRequest.create({
       data: {
@@ -322,6 +325,7 @@ export default async function MaintenanceRequestsPage({
         description,
         requestedByUserId: me.id,
         assignedMaintenanceUserId: assigned?.userId ?? null,
+        ...(assignedUserIds.length > 0 ? { maintenanceAssignees: { createMany: { data: assignedUserIds.map((userId) => ({ userId })) } } } : {}),
       },
       select: { id: true },
     });
@@ -339,12 +343,13 @@ export default async function MaintenanceRequestsPage({
           locationName: location.name,
           assignedMaintenanceUserId: assigned?.userId ?? null,
           assignedMaintenanceUserName: assigned?.userName ?? null,
-          notificationRecipientIds: Array.from(new Set(assigneesForLocation.map((a) => a.userId))),
+          assignedMaintenanceUserIds: assignedUserIds,
+          notificationRecipientIds: assignedUserIds,
         },
       },
     });
 
-    const recipientIds = Array.from(new Set(assigneesForLocation.map((a) => a.userId))).filter((id) => id !== me.id);
+    const recipientIds = assignedUserIds.filter((id) => id !== me.id);
     await createNotificationForUsers({
       userIds: recipientIds,
       type: "SYSTEM",
@@ -405,12 +410,16 @@ export default async function MaintenanceRequestsPage({
         location: { select: { id: true, name: true } },
         requestedByUserId: true,
         assignedMaintenanceUserId: true,
+        maintenanceAssignees: { select: { userId: true } },
       },
     });
 
     if (!existing) redirect("/maintenance-requests?error=notfound");
 
-    const canResolve = isAdmin || (existing.assignedMaintenanceUserId && existing.assignedMaintenanceUserId === actor.id);
+    const isAssignedToRequest =
+      (existing.assignedMaintenanceUserId && existing.assignedMaintenanceUserId === actor.id) ||
+      existing.maintenanceAssignees.some((a) => a.userId === actor.id);
+    const canResolve = isAdmin || isAssignedToRequest;
     if (!canResolve) redirect("/maintenance-requests?error=forbidden");
 
     if (normalizeMaintenanceRequestStatus(existing.status) !== "OPEN") {
@@ -486,7 +495,7 @@ export default async function MaintenanceRequestsPage({
       : { status: "ARCHIVED" }
     : isMaintenanceMan
     ? {
-        OR: [{ assignedMaintenanceUserId: me.id }, { requestedByUserId: me.id }],
+        OR: [{ assignedMaintenanceUserId: me.id }, { maintenanceAssignees: { some: { userId: me.id } } }, { requestedByUserId: me.id }],
       }
     : { requestedByUserId: me.id };
 
@@ -506,6 +515,7 @@ export default async function MaintenanceRequestsPage({
       location: { select: { id: true, name: true } },
       requestedByUser: { select: { id: true, name: true, email: true } },
       assignedMaintenanceUser: { select: { id: true, name: true, email: true } },
+      maintenanceAssignees: { select: { userId: true, user: { select: { id: true, name: true, email: true } } } },
       resolvedByUser: { select: { id: true, name: true, email: true } },
     },
   });
@@ -692,7 +702,15 @@ export default async function MaintenanceRequestsPage({
           ) : (
             <div style={{ display: "grid", gap: 10, padding: 12 }}>
               {requests.map((row) => {
-                const canResolve = row.status === "OPEN" && (isAdmin || row.assignedMaintenanceUser?.id === me.id);
+                const assignedUsers = row.maintenanceAssignees.map((a) => a.user);
+                const assignedUserIds = new Set(row.maintenanceAssignees.map((a) => a.userId));
+                const assignedLabel =
+                  assignedUsers.length > 0
+                    ? assignedUsers.map((u) => personLabel(u)).join(", ")
+                    : personLabel(row.assignedMaintenanceUser);
+                const canResolve =
+                  row.status === "OPEN" &&
+                  (isAdmin || row.assignedMaintenanceUser?.id === me.id || assignedUserIds.has(me.id));
                 return (
                   <article
                     key={row.id}
@@ -721,7 +739,7 @@ export default async function MaintenanceRequestsPage({
                       </div>
                       <div>
                         <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 800 }}>Assigned Tech</div>
-                        <div>{personLabel(row.assignedMaintenanceUser)}</div>
+                        <div>{assignedLabel}</div>
                       </div>
                       <div>
                         <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 800 }}>Resolved</div>
