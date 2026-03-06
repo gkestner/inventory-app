@@ -23,6 +23,41 @@ type SessionShape = {
 
 type LocationOption = { id: string; name: string };
 
+type EquipmentArea =
+  | "DOUGH_ROLLER"
+  | "MAKETABLE"
+  | "DOUGH_COOLER"
+  | "MIXER"
+  | "OVEN"
+  | "WALK_IN"
+  | "FREEZER"
+  | "BUILDING_STRUCTURE"
+  | "LIGHTING"
+  | "PARKING_LOT"
+  | "OFFICE"
+  | "HVAC_GAME_ROOM"
+  | "HVAC_KITCHEN"
+  | "HVAC_DINING_ROOM"
+  | "OTHER";
+
+const EQUIPMENT_AREAS: EquipmentArea[] = [
+  "DOUGH_ROLLER",
+  "MAKETABLE",
+  "DOUGH_COOLER",
+  "MIXER",
+  "OVEN",
+  "WALK_IN",
+  "FREEZER",
+  "BUILDING_STRUCTURE",
+  "LIGHTING",
+  "PARKING_LOT",
+  "OFFICE",
+  "HVAC_GAME_ROOM",
+  "HVAC_KITCHEN",
+  "HVAC_DINING_ROOM",
+  "OTHER",
+];
+
 type MeRow = {
   id: string;
   name: string | null;
@@ -100,6 +135,52 @@ function fmtDateTime(value: Date | null): string {
   }).format(value);
 }
 
+function formatAreaLabel(area: string): string {
+  const parts = area.split("_").filter(Boolean);
+  const out: string[] = [];
+  for (const p of parts) {
+    const up = p.toUpperCase();
+    if (up === "HVAC") {
+      out.push("HVAC");
+      continue;
+    }
+    if (up === "DOUGH") {
+      out.push("Dough");
+      continue;
+    }
+    out.push(p.charAt(0).toUpperCase() + p.slice(1).toLowerCase());
+  }
+  return out.join(" ");
+}
+
+function parseAreas(formData: FormData): EquipmentArea[] {
+  const raw = formData.getAll("areas");
+  const allowed = new Set<string>(EQUIPMENT_AREAS);
+
+  const out: EquipmentArea[] = [];
+  for (const v of raw) {
+    const s = String(v ?? "").trim();
+    if (!s || !allowed.has(s)) continue;
+    out.push(s as EquipmentArea);
+  }
+
+  const seen = new Set<EquipmentArea>();
+  const uniq: EquipmentArea[] = [];
+  for (const a of out) {
+    if (seen.has(a)) continue;
+    seen.add(a);
+    uniq.push(a);
+  }
+  return uniq;
+}
+
+function buildRequestTitle(areas: EquipmentArea[]): string {
+  if (areas.length === 0) return "General Maintenance Request";
+  const label = areas.slice(0, 2).map((a) => formatAreaLabel(a)).join(" / ");
+  const out = `Maintenance Request: ${label}`;
+  return out.length > 140 ? out.slice(0, 140) : out;
+}
+
 function mergeLocationOptions(me: MeRow): LocationOption[] {
   const map = new Map<string, LocationOption>();
 
@@ -166,10 +247,14 @@ export default async function MaintenanceRequestsPage({
     const locationIds = new Set(locationOptions.map((l) => l.id));
 
     const locationId = String(formData.get("locationId") ?? "").trim();
-    const title = String(formData.get("title") ?? "").trim();
-    const description = String(formData.get("description") ?? "").trim();
+    const notes = String(formData.get("notes") ?? "").trim();
+    const areas = parseAreas(formData);
 
-    if (!locationId || !title || !description) {
+    const title = buildRequestTitle(areas);
+    const areaLine = areas.length > 0 ? `Equipment Areas: ${areas.map((a) => formatAreaLabel(a)).join(", ")}\n\n` : "";
+    const description = `${areaLine}${notes}`.trim();
+
+    if (!locationId || !notes) {
       redirect("/maintenance-requests?error=missing");
     }
 
@@ -382,6 +467,8 @@ export default async function MaintenanceRequestsPage({
   const alertText =
     params.error === "location"
       ? "Request was not saved. Select one of your assigned locations."
+      : params.error === "missing"
+      ? "Request was not saved. Notes are required."
       : params.error === "forbidden"
       ? "You are not allowed to resolve that request."
       : params.error === "state"
@@ -418,6 +505,30 @@ export default async function MaintenanceRequestsPage({
       fontWeight: 900,
       fontSize: 11,
     },
+  };
+
+  const checkboxStyle: CSSProperties = {
+    width: 16,
+    height: 16,
+    margin: 0,
+  };
+
+  const gridWrap: CSSProperties = {
+    marginTop: 8,
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: 8,
+  };
+
+  const gridItem: CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    border: "1px solid rgba(128,128,128,0.25)",
+    borderRadius: 10,
+    padding: "8px 10px",
+    background: "var(--surface-2)",
+    minWidth: 0,
   };
 
   return (
@@ -483,17 +594,24 @@ export default async function MaintenanceRequestsPage({
             </div>
 
             <div style={{ display: "grid", gap: 6 }}>
-              <label htmlFor="title" style={{ fontWeight: 800 }}>
-                Request Title
+              <label htmlFor="notes" style={{ fontWeight: 800 }}>
+                Notes (required)
               </label>
-              <input id="title" name="title" required maxLength={140} placeholder="Example: Walk-in cooler door gasket torn" style={{ padding: "10px 12px", borderRadius: 10, border: headerBorder }} />
+              <textarea id="notes" name="notes" required rows={4} placeholder="Describe issue, urgency, and context." style={{ padding: "10px 12px", borderRadius: 10, border: headerBorder, resize: "vertical" }} />
             </div>
 
-            <div style={{ display: "grid", gap: 6 }}>
-              <label htmlFor="description" style={{ fontWeight: 800 }}>
-                Request Details
-              </label>
-              <textarea id="description" name="description" required rows={4} placeholder="Describe issue, urgency, and context." style={{ padding: "10px 12px", borderRadius: 10, border: headerBorder, resize: "vertical" }} />
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 900, opacity: 0.95 }}>Equipment Areas (check what needs work)</div>
+              <div style={gridWrap}>
+                {EQUIPMENT_AREAS.map((area) => (
+                  <label key={`request-area-${area}`} style={gridItem}>
+                    <input type="checkbox" name="areas" value={area} style={checkboxStyle} />
+                    <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {formatAreaLabel(area)}
+                    </span>
+                  </label>
+                ))}
+              </div>
             </div>
 
             <button type="submit" style={{ width: "fit-content", padding: "10px 14px", borderRadius: 10, border: headerBorder, fontWeight: 900, background: "linear-gradient(160deg, var(--brand-2) 0%, var(--brand) 100%)", color: "var(--brand-contrast)", cursor: "pointer" }}>
