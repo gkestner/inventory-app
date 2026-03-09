@@ -39,12 +39,20 @@ export const metadata: Metadata = {
 
 type PreviewRole = "ADMIN" | "USER";
 
+const DEMO_MODE_COOKIE = "admin_demo_mode";
+
 function parsePreviewCookie(v: string | undefined | null, isAdmin: boolean): PreviewRole | null {
   if (!isAdmin) return null;
   const s = (v ?? "").trim().toLowerCase();
   if (s === "user" || s === "employee") return "USER";
   if (s === "admin") return "ADMIN";
   return null;
+}
+
+function parseDemoModeCookie(v: string | undefined | null, canUseDemo: boolean): boolean {
+  if (!canUseDemo) return false;
+  const s = (v ?? "").trim().toLowerCase();
+  return s === "1" || s === "true" || s === "yes" || s === "on";
 }
 
 function safeReturnToPathFromReferer(referer: string | null): string {
@@ -143,6 +151,7 @@ export default async function RootLayout({
   const jar = await cookies();
   const previewCookie = jar.get("preview_view")?.value ?? null;
   const preview = parsePreviewCookie(previewCookie, canUsePreview);
+  const demoMode = parseDemoModeCookie(jar.get(DEMO_MODE_COOKIE)?.value ?? null, canUsePreview);
 
   async function setPreviewAction(formData: FormData) {
     "use server";
@@ -178,6 +187,39 @@ export default async function RootLayout({
       redirect(safeReturnToPathFromReferer(h.get("referer")));
     } catch (error) {
       console.error("setPreviewAction error:", error);
+      redirect("/");
+    }
+  }
+
+  async function setDemoModeAction(formData: FormData) {
+    "use server";
+
+    try {
+      const [{ getServerSession }, { authOptions }, permsMod] = await Promise.all([
+        import("next-auth"),
+        import("@/app/lib/auth"),
+        import("@/app/lib/permissions"),
+      ]);
+
+      const { loadUserPermissions } = permsMod;
+
+      const s = await getServerSession(authOptions);
+      const p = await loadUserPermissions(s);
+      if (!p.allowAll) redirect("/");
+
+      const next = String(formData.get("demoMode") ?? "").trim().toLowerCase();
+      const j = await cookies();
+
+      if (next === "on" || next === "1" || next === "true") {
+        j.set(DEMO_MODE_COOKIE, "1", { path: "/", sameSite: "lax" });
+      } else {
+        j.delete(DEMO_MODE_COOKIE);
+      }
+
+      const h = await headers();
+      redirect(safeReturnToPathFromReferer(h.get("referer")));
+    } catch (error) {
+      console.error("setDemoModeAction error:", error);
       redirect("/");
     }
   }
@@ -275,7 +317,39 @@ export default async function RootLayout({
             </div>
             <div style={{ fontSize: 12, opacity: 0.85 }}>Permissions unchanged. This only swaps navigation.</div>
 
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 800,
+                padding: "4px 8px",
+                borderRadius: 999,
+                border,
+                background: demoMode ? "rgba(251,191,36,0.25)" : "rgba(16,185,129,0.16)",
+              }}
+            >
+              Demo Mode: {demoMode ? "ON (writes blocked)" : "OFF"}
+            </div>
+
             <div style={{ display: "flex", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
+              <form action={setDemoModeAction}>
+                <input type="hidden" name="demoMode" value={demoMode ? "off" : "on"} />
+                <button
+                  type="submit"
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 10,
+                    border,
+                    background: demoMode ? "rgba(251,191,36,0.24)" : bg,
+                    color: fg,
+                    fontWeight: 900,
+                    cursor: "pointer",
+                  }}
+                  title="Toggle safe demo mode (no database writes)"
+                >
+                  {demoMode ? "Disable Demo Mode" : "Enable Demo Mode"}
+                </button>
+              </form>
+
               <form action={setPreviewAction}>
                 <input type="hidden" name="preview" value="admin" />
                 <button
@@ -336,6 +410,25 @@ export default async function RootLayout({
                 </button>
               </form>
             </div>
+          </div>
+        ) : null}
+
+        {demoMode ? (
+          <div
+            style={{
+              position: "sticky",
+              top: canUsePreview ? 50 : 0,
+              zIndex: 55,
+              borderBottom: border,
+              background: "rgba(251,191,36,0.22)",
+              color: fg,
+              padding: "8px 12px",
+              fontSize: 13,
+              fontWeight: 800,
+            }}
+          >
+            DEMO MODE ACTIVE: Writes are simulated for this browser session. Invoices, inventory, and other records are
+            not persisted.
           </div>
         ) : null}
 
