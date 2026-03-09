@@ -936,6 +936,27 @@ export default async function TemperatureDashboardPage({
     searchParams ?? Promise.resolve({}),
   ]);
 
+  const latestSyncAudit = await (prisma as any).auditLog.findFirst({
+    where: {
+      module: "MOCREO_TEMPERATURE",
+      action: "POLL_SYNC_COMPLETED",
+    },
+    orderBy: { createdAt: "desc" },
+    select: {
+      createdAt: true,
+      metadata: true,
+    },
+  });
+
+  const latestSyncMeta =
+    latestSyncAudit && typeof latestSyncAudit.metadata === "object" && latestSyncAudit.metadata !== null
+      ? (latestSyncAudit.metadata as Record<string, unknown>)
+      : null;
+  const lastSyncNodesMatched = Number(latestSyncMeta?.sampleCandidates ?? latestSyncMeta?.nodesMatched ?? NaN);
+  const lastSyncIngested = Number(latestSyncMeta?.ingested ?? NaN);
+  const lastSyncSkippedDuplicate = Number(latestSyncMeta?.skippedDuplicate ?? NaN);
+  const lastSyncSkippedNoTemp = Number(latestSyncMeta?.skippedNoTemp ?? NaN);
+
   const hubIds = hubs.map((h) => h.id);
   const sensorReadings: SensorReadingRow[] =
     hubIds.length === 0
@@ -1086,6 +1107,15 @@ export default async function TemperatureDashboardPage({
         {syncValue && syncValue !== "ok" ? (
           <section style={{ border: "1px solid rgba(239,68,68,0.45)", borderRadius: 12, padding: 12, background: "rgba(239,68,68,0.12)" }}>
             <strong>Sync failed:</strong> {syncState}
+          </section>
+        ) : null}
+
+        {latestSyncAudit ? (
+          <section style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 12, background: "var(--surface)" }}>
+            <div style={{ fontWeight: 900 }}>Latest Poll Run</div>
+            <div style={{ marginTop: 6, fontSize: 13, opacity: 0.92 }}>
+              Ran at: {fmtDateTime(latestSyncAudit.createdAt)} | Ingested: {Number.isFinite(lastSyncIngested) ? lastSyncIngested : "-"} | Candidates/Matched: {Number.isFinite(lastSyncNodesMatched) ? lastSyncNodesMatched : "-"} | Duplicates skipped: {Number.isFinite(lastSyncSkippedDuplicate) ? lastSyncSkippedDuplicate : "-"} | No-temp skipped: {Number.isFinite(lastSyncSkippedNoTemp) ? lastSyncSkippedNoTemp : "-"}
+            </div>
           </section>
         ) : null}
 
