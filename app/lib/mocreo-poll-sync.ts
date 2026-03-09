@@ -251,6 +251,9 @@ function getDeviceSampleIdCandidates(device: MocreoDevice): string[] {
   return Array.from(
     new Set(
       [
+        String(device.thingName ?? "").trim(),
+        String(device.thing_name ?? "").trim(),
+        String(device.sn ?? "").trim(),
         String(device.nodeId ?? "").trim(),
         String(device.node_id ?? "").trim(),
         String(device.deviceId ?? "").trim(),
@@ -269,6 +272,9 @@ function getDeviceSampleIdCandidates(device: MocreoDevice): string[] {
         String(info.id ?? "").trim(),
         String(info.thingId ?? "").trim(),
         String(info.thing_id ?? "").trim(),
+        String(info.thingName ?? "").trim(),
+        String(info.thing_name ?? "").trim(),
+        String(info.sn ?? "").trim(),
       ].filter(Boolean)
     )
   );
@@ -352,59 +358,97 @@ function parseSampleTempF(sample: MocreoSample): number | null {
   return null;
 }
 
-function parseTempFFromUnknown(value: unknown, seen: WeakSet<object> = new WeakSet()): number | null {
+function parseTempFFromUnknown(value: unknown): number | null {
   if (typeof value !== "object" || value === null) return null;
-  if (seen.has(value)) return null;
-  seen.add(value);
 
-  const obj = value as Record<string, unknown>;
+  const seen = new WeakSet<object>();
+  const stack: unknown[] = [value];
+  let scanned = 0;
 
-  const directF =
-    toNumberOrNull(obj.temperatureF) ??
-    toNumberOrNull(obj.tempF) ??
-    toNumberOrNull(obj.lastTempF) ??
-    toNumberOrNull(obj.currentTempF) ??
-    toNumberOrNull(obj.fahrenheit);
-  if (directF !== null) return directF;
+  while (stack.length > 0 && scanned < 400) {
+    const current = stack.pop();
+    if (typeof current !== "object" || current === null) continue;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    scanned += 1;
 
-  const directC =
-    toNumberOrNull(obj.temperatureC) ??
-    toNumberOrNull(obj.tempC) ??
-    toNumberOrNull(obj.lastTempC) ??
-    toNumberOrNull(obj.currentTempC) ??
-    toNumberOrNull(obj.celsius);
-  if (directC !== null) return cToF(directC);
+    if (Array.isArray(current)) {
+      for (const item of current) stack.push(item);
+      continue;
+    }
 
-  const centiC = toNumberOrNull(obj.tm);
-  if (centiC !== null) return cToF(centiC / 100);
+    const obj = current as Record<string, unknown>;
 
-  for (const key of ["data", "telemetry", "reading", "lastReading", "status", "last"]) {
-    const nested = obj[key];
-    if (typeof nested !== "object" || nested === null) continue;
-    const nestedTemp = parseTempFFromUnknown(nested, seen);
-    if (nestedTemp !== null) return nestedTemp;
+    const directF =
+      toNumberOrNull(obj.temperatureF) ??
+      toNumberOrNull(obj.tempF) ??
+      toNumberOrNull(obj.lastTempF) ??
+      toNumberOrNull(obj.currentTempF) ??
+      toNumberOrNull(obj.fahrenheit);
+    if (directF !== null) return directF;
+
+    const directC =
+      toNumberOrNull(obj.temperatureC) ??
+      toNumberOrNull(obj.tempC) ??
+      toNumberOrNull(obj.lastTempC) ??
+      toNumberOrNull(obj.currentTempC) ??
+      toNumberOrNull(obj.celsius);
+    if (directC !== null) return cToF(directC);
+
+    const centiC = toNumberOrNull(obj.tm);
+    if (centiC !== null) return cToF(centiC / 100);
+
+    for (const [key, raw] of Object.entries(obj)) {
+      const k = key.toLowerCase();
+      const n = toNumberOrNull(raw);
+      if (n !== null) {
+        if (k.includes("fahrenheit") || k.endsWith("f") || k.includes("temp_f")) return n;
+        if (k.includes("celsius") || k.endsWith("c") || k.includes("temp_c")) return cToF(n);
+        if (k === "temperature" || k === "temp") return n;
+      }
+
+      if (typeof raw === "object" && raw !== null) stack.push(raw);
+    }
   }
 
   return null;
 }
 
-function parseTimestampFromUnknown(value: unknown, seen: WeakSet<object> = new WeakSet()): number | null {
+function parseTimestampFromUnknown(value: unknown): number | null {
   if (typeof value !== "object" || value === null) return null;
-  if (seen.has(value)) return null;
-  seen.add(value);
 
-  const obj = value as Record<string, unknown>;
-  const direct = [obj.time, obj.timestamp, obj.ts, obj.recordedAt, obj.createdAt, obj.lastSeenAt, obj.updatedAt];
-  for (const candidate of direct) {
-    const ts = parseTimestampSec(candidate);
-    if (ts !== null) return ts;
-  }
+  const seen = new WeakSet<object>();
+  const stack: unknown[] = [value];
+  let scanned = 0;
 
-  for (const key of ["data", "telemetry", "reading", "lastReading", "status", "last"]) {
-    const nested = obj[key];
-    if (typeof nested !== "object" || nested === null) continue;
-    const nestedTs = parseTimestampFromUnknown(nested, seen);
-    if (nestedTs !== null) return nestedTs;
+  while (stack.length > 0 && scanned < 400) {
+    const current = stack.pop();
+    if (typeof current !== "object" || current === null) continue;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    scanned += 1;
+
+    if (Array.isArray(current)) {
+      for (const item of current) stack.push(item);
+      continue;
+    }
+
+    const obj = current as Record<string, unknown>;
+    const direct = [obj.time, obj.timestamp, obj.ts, obj.recordedAt, obj.createdAt, obj.lastSeenAt, obj.updatedAt];
+    for (const candidate of direct) {
+      const ts = parseTimestampSec(candidate);
+      if (ts !== null) return ts;
+    }
+
+    for (const [key, raw] of Object.entries(obj)) {
+      const k = key.toLowerCase();
+      if (k.includes("time") || k.includes("date") || k.includes("seen") || k.includes("updated")) {
+        const ts = parseTimestampSec(raw);
+        if (ts !== null) return ts;
+      }
+
+      if (typeof raw === "object" && raw !== null) stack.push(raw);
+    }
   }
 
   return null;
