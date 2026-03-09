@@ -14,10 +14,6 @@ const MOCREO_BASE_URL = "https://api.sync-sign.com/v2";
 const MAX_POLL_MINUTES = 180;
 const SAMPLE_PAGE_SIZE = 200;
 
-type MocreoTokenResponse = {
-  accessToken?: string;
-};
-
 type MocreoNode = {
   nodeId?: string;
   thingName?: string;
@@ -25,6 +21,41 @@ type MocreoNode = {
   batteryLevel?: number | null;
   signalLevel?: number | null;
 };
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+}
+
+function toNonEmptyString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function extractAccessToken(payload: unknown): string {
+  const root = asRecord(payload);
+  const data = asRecord(root.data);
+  const token =
+    toNonEmptyString(root.accessToken) ||
+    toNonEmptyString(root.access_token) ||
+    toNonEmptyString(data.accessToken) ||
+    toNonEmptyString(data.access_token) ||
+    toNonEmptyString(root.token) ||
+    toNonEmptyString(data.token);
+  return token;
+}
+
+function extractApiErrorMessage(payload: unknown): string {
+  const root = asRecord(payload);
+  const err = asRecord(root.error);
+  const data = asRecord(root.data);
+
+  return (
+    toNonEmptyString(err.message) ||
+    toNonEmptyString(root.message) ||
+    toNonEmptyString(data.message) ||
+    toNonEmptyString(err.name) ||
+    ""
+  );
+}
 
 type MocreoSample = {
   time?: number;
@@ -103,9 +134,17 @@ async function getAccessToken(): Promise<string> {
     throw new Error(`Token request failed (${res.status}): ${text.slice(0, 300)}`);
   }
 
-  const json = (await res.json()) as MocreoTokenResponse;
-  const token = String(json.accessToken ?? "").trim();
-  if (!token) throw new Error("Mocreo token response missing accessToken");
+  const json = (await res.json()) as unknown;
+  const token = extractAccessToken(json);
+  if (!token) {
+    const msg = extractApiErrorMessage(json);
+    const raw = JSON.stringify(json).slice(0, 400);
+    throw new Error(
+      msg
+        ? `Mocreo token response missing accessToken: ${msg}`
+        : `Mocreo token response missing accessToken. Payload: ${raw}`
+    );
+  }
   return token;
 }
 
