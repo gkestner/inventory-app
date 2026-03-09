@@ -6,6 +6,7 @@ import { Permission, Role } from "@prisma/client";
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import {
+  ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
   CREATE_RECEIPTS,
   CREATE_WORK_ORDERS_FOR_OTHERS,
   VIEW_COMPANY_VEHICLE_LOG,
@@ -52,7 +53,16 @@ export default async function MaintenanceHomePage() {
   const canMaintenanceRequests = perms.allowAll || hasAnyPermission(perms, [VIEW_MAINTENANCE_REQUESTS]);
   const canTemperatureDashboard = perms.allowAll || hasAnyPermission(perms, [VIEW_TEMPERATURE_DASHBOARD]);
   const canReceipts = perms.allowAll || hasAnyPermission(perms, [VIEW_RECEIPTS, CREATE_RECEIPTS]);
-  const canRoomDiagrams = canCheckout || canPreventativeMaintenance;
+  const canRoomDiagrams =
+    perms.allowAll ||
+    hasAnyPermission(perms, [
+      Permission.VIEW_CHECKOUT,
+      Permission.CREATE_CHECKOUT,
+      VIEW_PREVENTATIVE_MAINTENANCE,
+      ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
+      Permission.ADMIN_VIEW_ITEMS,
+      Permission.ADMIN_EDIT_ITEMS,
+    ]);
 
   const border = "1px solid var(--border)";
 
