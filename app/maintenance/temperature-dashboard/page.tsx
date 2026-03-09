@@ -778,9 +778,9 @@ export default async function TemperatureDashboardPage({
   const reqHeaders = await headers();
   const host = reqHeaders.get("x-forwarded-host") ?? reqHeaders.get("host") ?? "";
   const proto = reqHeaders.get("x-forwarded-proto") ?? "https";
-  const absoluteWebhookUrl = host
-    ? `${proto}://${host}/api/integrations/mocreo/webhook`
-    : "/api/integrations/mocreo/webhook";
+  const absoluteSyncUrl = host
+    ? `${proto}://${host}/api/integrations/mocreo/sync`
+    : "/api/integrations/mocreo/sync";
 
   return (
     <main>
@@ -798,9 +798,9 @@ export default async function TemperatureDashboardPage({
           <h1 style={{ margin: 0, fontSize: 30, fontWeight: 950 }}>Mocreo Temperature Dashboard</h1>
           <p style={{ margin: "8px 0 0", color: "var(--muted)", lineHeight: 1.45 }}>{statusMessage}</p>
           <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <code>POST /api/integrations/mocreo/webhook</code>
+            <code>POST /api/integrations/mocreo/sync</code>
             <span style={{ fontSize: 12, opacity: 0.8 }}>
-              Optional security header: <code>x-mocreo-token</code> = <code>MOCREO_WEBHOOK_TOKEN</code>
+              Optional security header: <code>x-mocreo-sync-token</code> = <code>MOCREO_SYNC_TOKEN</code>
             </span>
             <AutoRefresh seconds={refreshSec} />
             <Link href="/notifications" style={{ textDecoration: "none", fontWeight: 800 }}>
@@ -818,45 +818,50 @@ export default async function TemperatureDashboardPage({
             padding: 14,
           }}
         >
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Step-by-Step Setup (Simple)</h2>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Step-by-Step Setup</h2>
           <div style={{ marginTop: 10, display: "grid", gap: 8, lineHeight: 1.5 }}>
             <div>
-              <strong>1.</strong> In <strong>Register / Update Hub</strong>, enter <strong>Hub Name</strong> and the exact
-              <strong> Mocreo Hub ID</strong>.
+              <strong>1.</strong> In <strong>Register / Update Hub</strong>, enter a <strong>Hub Name</strong> and the exact
+              <strong> Mocreo hub serial/SN</strong> as <strong>Mocreo Hub ID</strong>.
             </div>
             <div>
-              <strong>2.</strong> Pick the <strong>Store Location</strong>. The dashboard can auto-assign the maintenance tech
-              from that store's primary location.
+              <strong>2.</strong> Pick the <strong>Store Location</strong>. The dashboard can auto-assign the maintenance tech from
+              that location.
             </div>
             <div>
-              <strong>3.</strong> Add any <strong>Additional Recipients</strong> who should also get alerts.
+              <strong>3.</strong> Add <strong>Additional Recipients</strong> who should also get alerts.
             </div>
             <div>
               <strong>4.</strong> Set <strong>Min Temp</strong> and <strong>Max Temp</strong> in F.
               Alerts trigger when a reading is below min or above max.
             </div>
             <div>
-              <strong>4a.</strong> Optional: set Min/Max on each sensor to override hub defaults.
+              <strong>5.</strong> Optional: set per-sensor Min/Max to override hub defaults.
             </div>
             <div>
-              <strong>5.</strong> Click <strong>Save Hub Configuration</strong>.
+              <strong>6.</strong> Click <strong>Save Hub Configuration</strong>.
             </div>
             <div>
-              <strong>6.</strong> In Mocreo, set webhook URL to:
+              <strong>7.</strong> Configure your scheduler (Vercel Cron, Windows Task, etc.) to call:
               <div style={{ marginTop: 4 }}>
-                <code>{absoluteWebhookUrl}</code>
+                <code>POST {absoluteSyncUrl}</code>
               </div>
-              <CopyWebhookField webhookUrl={absoluteWebhookUrl} />
+              <CopyWebhookField webhookUrl={absoluteSyncUrl} />
               <div style={{ marginTop: 4, fontSize: 12, opacity: 0.85 }}>
-                If you use token security, send header <code>x-mocreo-token</code> with your <code>MOCREO_WEBHOOK_TOKEN</code> value.
+                Include header <code>x-mocreo-sync-token</code> with your <code>MOCREO_SYNC_TOKEN</code> value.
               </div>
             </div>
             <div>
-              <strong>7.</strong> Use <strong>Webhook Pairing Test</strong> on this page.
-              If test result shows <strong>ok</strong>, your hub and device pairing path is working.
+              <strong>8.</strong> Set environment variables:
+              <div style={{ marginTop: 4, fontSize: 12, opacity: 0.9 }}>
+                <code>MOCREO_API_USERNAME</code>, <code>MOCREO_API_PASSWORD</code>, <code>MOCREO_POLL_INTERVAL_MINUTES</code>, <code>MOCREO_SYNC_TOKEN</code>
+              </div>
             </div>
             <div>
-              <strong>8.</strong> Watch <strong>Hub Dashboard</strong> and <strong>Recent Alerts</strong> below.
+              <strong>9.</strong> Run one manual sync call and confirm readings appear in <strong>Hub Dashboard</strong>.
+            </div>
+            <div>
+              <strong>10.</strong> Watch <strong>Recent Alerts</strong> below.
               Alert notifications will go to the assigned maintenance tech + selected recipients.
             </div>
           </div>
