@@ -52,6 +52,7 @@ export default async function MaintenanceHomePage() {
   const canMaintenanceRequests = perms.allowAll || hasAnyPermission(perms, [VIEW_MAINTENANCE_REQUESTS]);
   const canTemperatureDashboard = perms.allowAll || hasAnyPermission(perms, [VIEW_TEMPERATURE_DASHBOARD]);
   const canReceipts = perms.allowAll || hasAnyPermission(perms, [VIEW_RECEIPTS, CREATE_RECEIPTS]);
+  const canRoomDiagrams = canCheckout || canPreventativeMaintenance;
 
   const border = "1px solid var(--border)";
 
@@ -219,6 +220,18 @@ export default async function MaintenanceHomePage() {
               </p>
               <Link href="/maintenance/temperature-dashboard" style={action}>
                 Open Temperature Dashboard
+              </Link>
+            </article>
+          ) : null}
+
+          {canRoomDiagrams ? (
+            <article style={card}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Maintenance Room Diagrams</h2>
+              <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.5 }}>
+                View room/location shelf diagrams generated from SKU Location/Shelf/Bin and run quick inventory counts.
+              </p>
+              <Link href="/maintenance/room-diagrams" style={action}>
+                Open Room Diagrams
               </Link>
             </article>
           ) : null}

@@ -87,6 +87,7 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
   const canMaintenanceRequests = perms.allowAll || hasAnyPermission(perms, [VIEW_MAINTENANCE_REQUESTS]);
   const canTemperatureDashboard = perms.allowAll || hasAnyPermission(perms, [VIEW_TEMPERATURE_DASHBOARD]);
   const canReceipts = perms.allowAll || hasAnyPermission(perms, [VIEW_RECEIPTS, CREATE_RECEIPTS]);
+  const canRoomDiagrams = canCheckout || canPreventativeMaintenance;
 
   const shell: CSSProperties = {
     color: "var(--foreground)",
@@ -271,10 +272,15 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
               </details>
             )}
 
-            {(canPreventativeMaintenance || canEquipmentTracking || canVehicleLog || canTemperatureDashboard) && (
+            {(canPreventativeMaintenance || canEquipmentTracking || canVehicleLog || canTemperatureDashboard || canRoomDiagrams) && (
               <details data-maintenance-dropdown style={detailsStyle}>
                 <summary style={summaryStyle}>PM List</summary>
                 <div style={menuStyle}>
+                  {canRoomDiagrams ? (
+                    <Link href="/maintenance/room-diagrams" style={menuItemStyle}>
+                      Room Diagrams
+                    </Link>
+                  ) : null}
                   {canPreventativeMaintenance ? (
                     <Link href="/maintenance/preventative-maintenance" style={menuItemStyle}>
                       Preventative Maintenance
