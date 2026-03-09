@@ -20,10 +20,14 @@ function normalizeKey(value: string): string {
 
 type MocreoNode = {
   nodeId?: string;
+  node_id?: string;
   thingName?: string;
+  thing_name?: string;
   name?: string;
   batteryLevel?: number | null;
+  battery_level?: number | null;
   signalLevel?: number | null;
+  signal_level?: number | null;
 };
 
 type MocreoDevice = {
@@ -80,6 +84,24 @@ function extractArrayPayload<T = unknown>(payload: unknown): T[] {
   }
 
   return [];
+}
+
+function getNodeId(node: MocreoNode): string {
+  return String(node.nodeId ?? node.node_id ?? "").trim();
+}
+
+function getNodeThingName(node: MocreoNode): string {
+  return String(node.thingName ?? node.thing_name ?? "").trim();
+}
+
+function getNodeBatteryLevel(node: MocreoNode): number | null {
+  const n = Number(node.batteryLevel ?? node.battery_level ?? NaN);
+  return Number.isFinite(n) ? n : null;
+}
+
+function getNodeSignalLevel(node: MocreoNode): number | null {
+  const n = Number(node.signalLevel ?? node.signal_level ?? NaN);
+  return Number.isFinite(n) ? n : null;
 }
 
 type MocreoSample = {
@@ -287,7 +309,7 @@ async function runSync(req: NextRequest) {
   const devices = await fetchDevices(accessToken);
 
   const availableThingNames = nodes
-    .map((node) => String(node.thingName ?? "").trim())
+    .map((node) => getNodeThingName(node))
     .filter((x) => x.length > 0);
 
   const availableDeviceThingNames = devices
@@ -303,7 +325,7 @@ async function runSync(req: NextRequest) {
     .filter((x) => x.length > 0);
 
   const targetNodes = nodes.filter((node) => {
-    const thingName = String(node.thingName ?? "").trim();
+    const thingName = getNodeThingName(node);
     return thingName && hubByExternalId.has(normalizeKey(thingName));
   });
 
@@ -313,8 +335,8 @@ async function runSync(req: NextRequest) {
   let skippedNoTemp = 0;
 
   for (const node of targetNodes) {
-    const nodeId = String(node.nodeId ?? "").trim();
-    const thingName = String(node.thingName ?? "").trim();
+    const nodeId = getNodeId(node);
+    const thingName = getNodeThingName(node);
     if (!nodeId || !thingName) continue;
 
     const hub = hubByExternalId.get(normalizeKey(thingName));
@@ -403,8 +425,8 @@ async function runSync(req: NextRequest) {
           lastSeenAt: recordedAt,
           lastReadingAt: recordedAt,
           lastTempF: tempF,
-          lastBatteryPct: toIntPercent(node.batteryLevel),
-          lastSignalPct: toIntPercent(node.signalLevel),
+          lastBatteryPct: toIntPercent(getNodeBatteryLevel(node)),
+          lastSignalPct: toIntPercent(getNodeSignalLevel(node)),
           lastAlertState: alertState,
           lastRawPayload: { source: "mocreo-public-api-poll", node, sample },
         },
@@ -415,8 +437,8 @@ async function runSync(req: NextRequest) {
           lastSeenAt: recordedAt,
           lastReadingAt: recordedAt,
           lastTempF: tempF,
-          lastBatteryPct: toIntPercent(node.batteryLevel),
-          lastSignalPct: toIntPercent(node.signalLevel),
+          lastBatteryPct: toIntPercent(getNodeBatteryLevel(node)),
+          lastSignalPct: toIntPercent(getNodeSignalLevel(node)),
           lastAlertState: alertState,
           lastRawPayload: { source: "mocreo-public-api-poll", node, sample },
         },
@@ -430,8 +452,8 @@ async function runSync(req: NextRequest) {
           externalReadingId,
           recordedAt,
           tempF,
-          batteryPct: toIntPercent(node.batteryLevel),
-          signalPct: toIntPercent(node.signalLevel),
+          batteryPct: toIntPercent(getNodeBatteryLevel(node)),
+          signalPct: toIntPercent(getNodeSignalLevel(node)),
           alertState,
           rawPayload: { source: "mocreo-public-api-poll", node, sample },
         },
