@@ -127,6 +127,8 @@ export type MocreoSyncResult = {
   sampleRequestAttempts: number;
   snapshotFallbackUsed: number;
   debugNodeKeysSample: string[];
+  debugNodeProbeKeysSample: string[];
+  debugNodeDetailKeysSample: string[];
   debugDeviceKeysSample: string[];
   debugDeviceInfoKeysSample: string[];
   skippedDuplicate: number;
@@ -212,6 +214,33 @@ function extractArrayPayload<T = unknown>(payload: unknown): T[] {
 function topLevelKeys(value: unknown): string[] {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
   return Object.keys(value as Record<string, unknown>).sort();
+}
+
+async function fetchNodeDetailCandidate(args: {
+  accessToken: string;
+  candidateId: string;
+}): Promise<unknown | null> {
+  const endpoints = [
+    `${MOCREO_BASE_URL}/nodes/${encodeURIComponent(args.candidateId)}`,
+    `${MOCREO_BASE_URL}/nodes/${encodeURIComponent(args.candidateId)}/status`,
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${args.accessToken}` },
+        cache: "no-store",
+      });
+      if (!res.ok) continue;
+      const json = (await res.json()) as unknown;
+      if (json && typeof json === "object") return json;
+    } catch {
+      // Ignore and continue to next candidate/endpoint.
+    }
+  }
+
+  return null;
 }
 
 function getNodeId(node: MocreoNode): string {
@@ -405,6 +434,16 @@ function parseTempFFromUnknown(value: unknown): number | null {
         if (k.includes("fahrenheit") || k.endsWith("f") || k.includes("temp_f")) return n;
         if (k.includes("celsius") || k.endsWith("c") || k.includes("temp_c")) return cToF(n);
         if (k === "temperature" || k === "temp") return n;
+
+        // Probe-style payloads sometimes expose generic numeric "value" with nearby type/name hints.
+        if (k === "value" || k === "val" || k === "reading" || k === "current") {
+          const hint = String(obj.type ?? obj.kind ?? obj.name ?? obj.label ?? "").toLowerCase();
+          const unit = String(obj.unit ?? obj.units ?? "").toLowerCase();
+          if (hint.includes("temp") || hint.includes("temperature")) {
+            if (unit === "c" || unit.includes("celsius")) return cToF(n);
+            return n;
+          }
+        }
       }
 
       if (typeof raw === "object" && raw !== null) stack.push(raw);
@@ -692,6 +731,8 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
   let sampleRequestAttempts = 0;
   let snapshotFallbackUsed = 0;
   let debugNodeKeysSample: string[] = [];
+  let debugNodeProbeKeysSample: string[] = [];
+  let debugNodeDetailKeysSample: string[] = [];
   let debugDeviceKeysSample: string[] = [];
   let debugDeviceInfoKeysSample: string[] = [];
   let alerted = 0;
@@ -765,12 +806,32 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
     samplesFetched += samples.length;
 
     if (samples.length === 0) {
+      let detailPayload: unknown | null = null;
+      for (const candidateId of candidateList) {
+        detailPayload = await fetchNodeDetailCandidate({
+          accessToken,
+          candidateId,
+        });
+        if (detailPayload) break;
+      }
+
+      if (detailPayload && debugNodeDetailKeysSample.length === 0) {
+        const root = asRecord(detailPayload);
+        debugNodeDetailKeysSample = topLevelKeys(root).slice(0, 40);
+        const probes = Array.isArray(root.probes) ? root.probes : Array.isArray(asRecord(root.data).probes) ? (asRecord(root.data).probes as unknown[]) : [];
+        if (probes.length > 0 && debugNodeProbeKeysSample.length === 0) {
+          debugNodeProbeKeysSample = topLevelKeys(probes[0]).slice(0, 40);
+        }
+      }
+
       const snapshotTempF =
         parseTempFFromUnknown(node) ||
+        parseTempFFromUnknown(detailPayload) ||
         deviceRowsForHub.map((row) => parseTempFFromUnknown(row)).find((v): v is number => v !== null) ||
         null;
       const snapshotTs =
         parseTimestampFromUnknown(node) ||
+        parseTimestampFromUnknown(detailPayload) ||
         deviceRowsForHub
           .map((row) => parseTimestampFromUnknown(row))
           .find((v): v is number => typeof v === "number" && Number.isFinite(v) && v > 0) ||
@@ -795,6 +856,12 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
 
       if (debugNodeKeysSample.length === 0) {
         debugNodeKeysSample = topLevelKeys(node).slice(0, 40);
+        const probes = Array.isArray((node as Record<string, unknown>).probes)
+          ? ((node as Record<string, unknown>).probes as unknown[])
+          : [];
+        if (probes.length > 0 && debugNodeProbeKeysSample.length === 0) {
+          debugNodeProbeKeysSample = topLevelKeys(probes[0]).slice(0, 40);
+        }
       }
       if (debugDeviceKeysSample.length === 0 && deviceRowsForHub.length > 0) {
         debugDeviceKeysSample = topLevelKeys(deviceRowsForHub[0]).slice(0, 40);
@@ -1004,6 +1071,8 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
     sampleRequestAttempts,
     snapshotFallbackUsed,
     debugNodeKeysSample,
+    debugNodeProbeKeysSample,
+    debugNodeDetailKeysSample,
     debugDeviceKeysSample,
     debugDeviceInfoKeysSample,
     skippedDuplicate,
