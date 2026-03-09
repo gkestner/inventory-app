@@ -25,11 +25,43 @@ type MocreoNode = {
 };
 
 type MocreoDevice = {
+  id?: string;
+  deviceId?: string;
+  device_id?: string;
+  nodeId?: string;
+  node_id?: string;
+  sensorId?: string;
+  sensor_id?: string;
+  thing_id?: string;
+  thingId?: string;
   thingName?: string;
+  thing_name?: string;
   sn?: string;
+  hubId?: string;
+  hub_id?: string;
+  gatewayId?: string;
+  gateway_id?: string;
+  parentThingName?: string;
+  parent_thing_name?: string;
   info?: {
+    id?: string;
+    deviceId?: string;
+    device_id?: string;
+    nodeId?: string;
+    node_id?: string;
+    sensorId?: string;
+    sensor_id?: string;
+    thingId?: string;
+    thing_id?: string;
     thingName?: string;
+    thing_name?: string;
     sn?: string;
+    hubId?: string;
+    hub_id?: string;
+    gatewayId?: string;
+    gateway_id?: string;
+    parentThingName?: string;
+    parent_thing_name?: string;
   };
 };
 
@@ -91,6 +123,7 @@ export type MocreoSyncResult = {
   samplesFetched: number;
   matchedNodesNoSamples: number;
   fallbackNodesQueried: number;
+  sampleIdsTried: number;
   skippedDuplicate: number;
   skippedNoTemp: number;
   skippedNoTimestamp: number;
@@ -177,6 +210,58 @@ function getNodeId(node: MocreoNode): string {
 
 function getNodeThingName(node: MocreoNode): string {
   return String(node.thingName ?? node.thing_name ?? "").trim();
+}
+
+function getDeviceHubRef(device: MocreoDevice): string {
+  const info = asRecord(device.info);
+  return (
+    String(device.hubId ?? "").trim() ||
+    String(device.hub_id ?? "").trim() ||
+    String(device.gatewayId ?? "").trim() ||
+    String(device.gateway_id ?? "").trim() ||
+    String(device.parentThingName ?? "").trim() ||
+    String(device.parent_thing_name ?? "").trim() ||
+    String(device.thingName ?? "").trim() ||
+    String(device.thing_name ?? "").trim() ||
+    String(device.sn ?? "").trim() ||
+    String(info.hubId ?? "").trim() ||
+    String(info.hub_id ?? "").trim() ||
+    String(info.gatewayId ?? "").trim() ||
+    String(info.gateway_id ?? "").trim() ||
+    String(info.parentThingName ?? "").trim() ||
+    String(info.parent_thing_name ?? "").trim() ||
+    String(info.thingName ?? "").trim() ||
+    String(info.thing_name ?? "").trim() ||
+    String(info.sn ?? "").trim()
+  );
+}
+
+function getDeviceSampleIdCandidates(device: MocreoDevice): string[] {
+  const info = asRecord(device.info);
+  return Array.from(
+    new Set(
+      [
+        String(device.nodeId ?? "").trim(),
+        String(device.node_id ?? "").trim(),
+        String(device.deviceId ?? "").trim(),
+        String(device.device_id ?? "").trim(),
+        String(device.sensorId ?? "").trim(),
+        String(device.sensor_id ?? "").trim(),
+        String(device.id ?? "").trim(),
+        String(device.thingId ?? "").trim(),
+        String(device.thing_id ?? "").trim(),
+        String(info.nodeId ?? "").trim(),
+        String(info.node_id ?? "").trim(),
+        String(info.deviceId ?? "").trim(),
+        String(info.device_id ?? "").trim(),
+        String(info.sensorId ?? "").trim(),
+        String(info.sensor_id ?? "").trim(),
+        String(info.id ?? "").trim(),
+        String(info.thingId ?? "").trim(),
+        String(info.thing_id ?? "").trim(),
+      ].filter(Boolean)
+    )
+  );
 }
 
 function getNodeBatteryLevel(node: MocreoNode): number | null {
@@ -425,6 +510,7 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
   let samplesFetched = 0;
   let matchedNodesNoSamples = 0;
   let fallbackNodesQueried = 0;
+  let sampleIdsTried = 0;
   let alerted = 0;
   let skippedDuplicate = 0;
   let skippedNoTemp = 0;
@@ -444,23 +530,47 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
     const hub = hubByExternalId.get(normalizeKey(thingName));
     if (!hub) continue;
 
-    let samples = await fetchNodeSamples({
-      accessToken,
-      nodeId,
-      beginTimeSec,
-      endTimeSec,
+    const sampleIdCandidates = new Set<string>();
+    sampleIdCandidates.add(nodeId);
+
+    const deviceRowsForHub = devices.filter((device) => {
+      const hubRef = getDeviceHubRef(device);
+      return hubRef && normalizeKey(hubRef) === normalizeKey(hub.externalHubId);
     });
+
+    for (const deviceRow of deviceRowsForHub) {
+      for (const candidate of getDeviceSampleIdCandidates(deviceRow)) sampleIdCandidates.add(candidate);
+    }
+
+    const candidateList = Array.from(sampleIdCandidates).filter(Boolean);
+    sampleIdsTried += candidateList.length;
+
+    let samples: MocreoSample[] = [];
+    let usedFallbackForThisNode = false;
+    for (const candidateId of candidateList) {
+      samples = await fetchNodeSamples({
+        accessToken,
+        nodeId: candidateId,
+        beginTimeSec,
+        endTimeSec,
+      });
+      if (samples.length > 0) break;
+    }
 
     if (samples.length === 0) {
       const fallbackBeginTimeSec = Math.max(0, endTimeSec - fallbackWindowMinutes * 60);
       if (fallbackBeginTimeSec < beginTimeSec) {
+        usedFallbackForThisNode = true;
         fallbackNodesQueried += 1;
-        samples = await fetchNodeSamples({
-          accessToken,
-          nodeId,
-          beginTimeSec: fallbackBeginTimeSec,
-          endTimeSec,
-        });
+        for (const candidateId of candidateList) {
+          samples = await fetchNodeSamples({
+            accessToken,
+            nodeId: candidateId,
+            beginTimeSec: fallbackBeginTimeSec,
+            endTimeSec,
+          });
+          if (samples.length > 0) break;
+        }
       }
     }
 
@@ -635,6 +745,8 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
           samplesFetched,
           matchedNodesNoSamples,
           fallbackNodesQueried,
+          sampleIdsTried,
+          usedFallbackForThisNode,
           ingested,
           skippedDuplicate,
           skippedNoTemp,
@@ -663,6 +775,7 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
     samplesFetched,
     matchedNodesNoSamples,
     fallbackNodesQueried,
+    sampleIdsTried,
     skippedDuplicate,
     skippedNoTemp,
     skippedNoTimestamp,
