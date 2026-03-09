@@ -675,8 +675,35 @@ export default async function TemperatureDashboardPage({
       redirect(`/maintenance/temperature-dashboard?sync=failed&code=${response.status}`);
     }
 
+    let payload: {
+      nodesMatched?: number;
+      ingested?: number;
+      skippedDuplicate?: number;
+      skippedNoTemp?: number;
+      hubsActive?: number;
+    } | null = null;
+
+    try {
+      payload = (await response.json()) as {
+        nodesMatched?: number;
+        ingested?: number;
+        skippedDuplicate?: number;
+        skippedNoTemp?: number;
+        hubsActive?: number;
+      };
+    } catch {
+      // Keep payload null and still show generic sync ok.
+    }
+
     revalidatePath("/maintenance/temperature-dashboard");
-    redirect("/maintenance/temperature-dashboard?sync=ok");
+    const sp = new URLSearchParams();
+    sp.set("sync", "ok");
+    if (typeof payload?.hubsActive === "number") sp.set("hubsActive", String(payload.hubsActive));
+    if (typeof payload?.nodesMatched === "number") sp.set("nodesMatched", String(payload.nodesMatched));
+    if (typeof payload?.ingested === "number") sp.set("ingested", String(payload.ingested));
+    if (typeof payload?.skippedDuplicate === "number") sp.set("skippedDuplicate", String(payload.skippedDuplicate));
+    if (typeof payload?.skippedNoTemp === "number") sp.set("skippedNoTemp", String(payload.skippedNoTemp));
+    redirect(`/maintenance/temperature-dashboard?${sp.toString()}`);
   }
 
   async function ingestManualReadingAction(formData: FormData) {
@@ -959,6 +986,11 @@ export default async function TemperatureDashboardPage({
   const syncValue = firstParam(params.sync);
   const syncCode = firstParam(params.code);
   const syncState = syncValue ? `${syncValue}${syncCode ? ` (${syncCode})` : ""}` : null;
+  const syncHubsActive = Number(firstParam(params.hubsActive) ?? "NaN");
+  const syncNodesMatched = Number(firstParam(params.nodesMatched) ?? "NaN");
+  const syncIngested = Number(firstParam(params.ingested) ?? "NaN");
+  const syncSkippedDuplicate = Number(firstParam(params.skippedDuplicate) ?? "NaN");
+  const syncSkippedNoTemp = Number(firstParam(params.skippedNoTemp) ?? "NaN");
   const refreshSecRaw = firstParam(params.refreshSec);
   const refreshSec = Math.max(5, Math.min(300, Number.isFinite(Number(refreshSecRaw)) ? Number(refreshSecRaw) : 20));
   const reqHeaders = await headers();
@@ -1012,6 +1044,43 @@ export default async function TemperatureDashboardPage({
                   : deletedHubOk
                     ? "Hub deleted."
                     : "Sensor deleted."}
+          </section>
+        ) : null}
+
+        {syncValue === "ok" ? (
+          <section
+            style={{
+              border:
+                Number.isFinite(syncIngested) && syncIngested > 0
+                  ? "1px solid rgba(34,197,94,0.45)"
+                  : "1px solid rgba(245,158,11,0.45)",
+              borderRadius: 12,
+              padding: 12,
+              background:
+                Number.isFinite(syncIngested) && syncIngested > 0
+                  ? "rgba(34,197,94,0.12)"
+                  : "rgba(245,158,11,0.12)",
+            }}
+          >
+            <div style={{ fontWeight: 900 }}>
+              {Number.isFinite(syncIngested) && syncIngested > 0
+                ? "Sync completed and readings were ingested."
+                : "Sync completed but no new readings were ingested."}
+            </div>
+            <div style={{ marginTop: 6, fontSize: 13, opacity: 0.95 }}>
+              Active hubs: {Number.isFinite(syncHubsActive) ? syncHubsActive : "-"} | Nodes matched: {Number.isFinite(syncNodesMatched) ? syncNodesMatched : "-"} | Ingested: {Number.isFinite(syncIngested) ? syncIngested : "-"} | Duplicates skipped: {Number.isFinite(syncSkippedDuplicate) ? syncSkippedDuplicate : "-"} | No-temp skipped: {Number.isFinite(syncSkippedNoTemp) ? syncSkippedNoTemp : "-"}
+            </div>
+            {Number.isFinite(syncIngested) && syncIngested === 0 ? (
+              <div style={{ marginTop: 6, fontSize: 13, opacity: 0.95 }}>
+                Check mapping: dashboard <b>Mocreo Hub ID</b> must exactly equal Mocreo hub serial/SN (<code>thingName</code>), and confirm Mocreo API credentials are set.
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        {syncValue && syncValue !== "ok" ? (
+          <section style={{ border: "1px solid rgba(239,68,68,0.45)", borderRadius: 12, padding: 12, background: "rgba(239,68,68,0.12)" }}>
+            <strong>Sync failed:</strong> {syncState}
           </section>
         ) : null}
 
