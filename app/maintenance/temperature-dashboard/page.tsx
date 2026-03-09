@@ -15,6 +15,7 @@ import {
   notifyTemperatureAlert,
   shouldSendAlert,
 } from "@/app/lib/mocreo";
+import { performMocreoPollSync } from "@/app/lib/mocreo-poll-sync";
 import AutoRefresh from "@/app/maintenance/temperature-dashboard/AutoRefresh";
 import CopyWebhookField from "@/app/maintenance/temperature-dashboard/CopyWebhookField";
 
@@ -647,59 +648,6 @@ export default async function TemperatureDashboardPage({
     if (!session) redirect("/login");
     if (!(await canAccessAdmin(session))) redirect("/");
 
-    const h = await headers();
-    const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
-    const proto = h.get("x-forwarded-proto") ?? "https";
-
-    if (!host) {
-      redirect("/maintenance/temperature-dashboard?sync=host_missing");
-    }
-
-    const syncUrl = `${proto}://${host}/api/integrations/mocreo/sync`;
-    const syncToken = process.env.MOCREO_SYNC_TOKEN?.trim();
-    const headersObj: Record<string, string> = {};
-    if (syncToken) headersObj["x-mocreo-sync-token"] = syncToken;
-    const incomingCookie = h.get("cookie")?.trim();
-    if (incomingCookie) headersObj.cookie = incomingCookie;
-
-    let response: Response;
-    try {
-      response = await fetch(syncUrl, {
-        method: "POST",
-        headers: headersObj,
-        cache: "no-store",
-      });
-    } catch {
-      redirect("/maintenance/temperature-dashboard?sync=network_error");
-    }
-
-    if (!response.ok) {
-      let reason = "";
-      try {
-        const ct = response.headers.get("content-type") ?? "";
-        if (ct.toLowerCase().includes("application/json")) {
-          const j = (await response.json()) as { error?: unknown; message?: unknown };
-          const msg = typeof j.error === "string" ? j.error : typeof j.message === "string" ? j.message : "";
-          reason = msg.trim();
-        } else {
-          reason = (await response.text()).trim();
-        }
-      } catch {
-        reason = "";
-      }
-
-      const sp = new URLSearchParams();
-      sp.set("sync", "failed");
-      sp.set("code", String(response.status));
-      if (reason) sp.set("reason", reason.slice(0, 180));
-      redirect(`/maintenance/temperature-dashboard?${sp.toString()}`);
-    }
-
-    const contentType = response.headers.get("content-type") ?? "";
-    if (!contentType.toLowerCase().includes("application/json")) {
-      redirect(`/maintenance/temperature-dashboard?sync=bad_response&code=${response.status}`);
-    }
-
     let payload: {
       nodesMatched?: number;
       nodesFound?: number;
@@ -714,7 +662,7 @@ export default async function TemperatureDashboardPage({
     } | null = null;
 
     try {
-      payload = (await response.json()) as {
+      payload = (await performMocreoPollSync()) as {
         nodesMatched?: number;
         nodesFound?: number;
         devicesFound?: number;
@@ -726,8 +674,13 @@ export default async function TemperatureDashboardPage({
         skippedNoTimestamp?: number;
         hubsActive?: number;
       };
-    } catch {
-      redirect(`/maintenance/temperature-dashboard?sync=parse_error&code=${response.status}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message.trim() : "Unknown error";
+      const sp = new URLSearchParams();
+      sp.set("sync", "failed");
+      sp.set("code", "500");
+      if (message) sp.set("reason", message.slice(0, 180));
+      redirect(`/maintenance/temperature-dashboard?${sp.toString()}`);
     }
 
     revalidatePath("/maintenance/temperature-dashboard");
