@@ -15,8 +15,31 @@ function isPublicPath(pathname: string) {
   return false;
 }
 
+function isStaleSyncAuthReason(reason: string): boolean {
+  const value = reason.toLowerCase();
+  return (
+    value.includes("authentication required") ||
+    value.includes("llms.txt") ||
+    value.includes("<!doctype html") ||
+    value.includes("<html")
+  );
+}
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  if (pathname === "/maintenance/temperature-dashboard") {
+    const code = req.nextUrl.searchParams.get("code")?.trim() ?? "";
+    const reason = req.nextUrl.searchParams.get("reason")?.trim() ?? "";
+    if (code === "401" && reason && isStaleSyncAuthReason(reason)) {
+      const cleanUrl = req.nextUrl.clone();
+      cleanUrl.searchParams.set(
+        "reason",
+        "Stale app session detected. Close and reopen the app (or hard refresh browser) and run Sync Now again."
+      );
+      return NextResponse.redirect(cleanUrl);
+    }
+  }
 
   const token = await getToken({ req });
 
