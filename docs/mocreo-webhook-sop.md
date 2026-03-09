@@ -1,30 +1,34 @@
-# Mocreo Webhook Setup SOP
+# Mocreo Public API Polling SOP
 
 ## Purpose
-Use this process to connect Mocreo hubs/sensors to the Inventory App temperature dashboard.
+Use this process to connect Mocreo hubs/sensors to the Inventory App temperature dashboard using Mocreo's Public API polling model.
 
 ## Prerequisites
 1. Public app URL is reachable over HTTPS.
 2. User can access `Maintenance -> Temperature Dashboard`.
-3. Mocreo tenant has webhook/API integration enabled (legacy portal does not support this).
+3. Mocreo tenant credentials are available for Public API access.
 
-## A. Get Required Values From Inventory App
+## A. Configure Inventory App Polling Endpoint
 1. Open `Maintenance -> Temperature Dashboard`.
-2. In Step 6, click `Copy URL`.
-3. Record:
-   - Webhook URL: `https://<your-domain>/api/integrations/mocreo/webhook`
-   - Header name (if token enabled): `x-mocreo-token`
-   - Header value: the app's `MOCREO_WEBHOOK_TOKEN`
+2. Record polling endpoint:
+   - Sync URL: `https://<your-domain>/api/integrations/mocreo/sync`
+3. Configure environment variables:
+   - `MOCREO_API_USERNAME` = Mocreo login email
+   - `MOCREO_API_PASSWORD` = Mocreo password
+   - `MOCREO_POLL_INTERVAL_MINUTES` = desired polling interval (example: `10`)
+   - `MOCREO_SYNC_TOKEN` = shared secret used to protect sync route (recommended)
 
-## B. Configure Mocreo Webhook
-1. Open Mocreo integration settings (typically `Settings -> Integrations -> Webhook` or `Developer/API`).
-2. Create a webhook endpoint with:
-   - Method: `POST`
-   - Content-Type: `application/json`
-   - URL: paste the full webhook URL from section A
-3. If token auth is enabled, add header:
-   - `x-mocreo-token: <token value>`
-4. Save.
+## B. Configure Scheduler (Cron)
+1. Configure your scheduler to call:
+   - `POST https://<your-domain>/api/integrations/mocreo/sync`
+2. Include one of these auth methods:
+   - Header: `x-mocreo-sync-token: <MOCREO_SYNC_TOKEN>`
+   - Or bearer auth: `Authorization: Bearer <MOCREO_SYNC_TOKEN>`
+3. Schedule frequency to match `MOCREO_POLL_INTERVAL_MINUTES`.
+4. Optional query params:
+   - `minutes=<n>`
+   - `beginTime=<unix-seconds>`
+   - `endTime=<unix-seconds>`
 
 ## C. Map Hubs In Inventory App
 1. Open `Maintenance -> Temperature Dashboard`.
@@ -37,48 +41,34 @@ Use this process to connect Mocreo hubs/sensors to the Inventory App temperature
 3. Save.
 4. Optional: set per-sensor thresholds in `Edit Sensor Thresholds`.
 
+Important: the app matches Mocreo nodes to hubs using `Mocreo Hub ID` = Mocreo hub serial/SN (`thingName`).
+
 ## D. Validate End-To-End
-1. Run `Webhook Pairing Test` from the dashboard.
+1. Trigger one sync call manually (Postman/cURL):
+   - `POST /api/integrations/mocreo/sync`
 2. Confirm:
    - test result shows `ok`
    - sensor appears in live table
    - `Current Temp` and `Last Seen` update
-3. Trigger a real sensor update from Mocreo and verify app updates on auto-refresh.
+3. Verify subsequent scheduled calls keep data current.
 
 ## E. Troubleshooting
-1. `401 Unauthorized` on webhook:
-   - header missing or token mismatch.
-2. `No sensors discovered`:
-   - hub ID mismatch or Mocreo not sending device events.
-3. Mocreo shows online but app shows stale:
-   - check webhook delivery status in Mocreo.
-   - verify app URL is publicly reachable.
-4. Legacy portal banner shown:
-   - webhook config is unavailable there; request webhook/API enablement from Mocreo support.
+1. `401 Unauthorized` on sync:
+   - token missing or mismatch (`MOCREO_SYNC_TOKEN`).
+2. `Missing MOCREO_API_USERNAME or MOCREO_API_PASSWORD`:
+   - set deployment environment variables and redeploy.
+3. `nodesMatched: 0`:
+   - hub ID mismatch. Ensure dashboard hub `externalHubId` equals Mocreo hub serial (`thingName`).
+4. Data stale:
+   - verify cron is running at intended interval.
+   - confirm `beginTime/endTime` window tracks polling interval.
+5. Rate limit errors:
+   - reduce polling frequency or number of parallel sync jobs; Mocreo limit is 5 requests/second.
 
-## F. Mocreo Support Request Template
-Use this when webhook settings are missing:
+## F. Vendor Notes
+Mocreo support confirmed webhook delivery is not currently supported. Use Public API polling only.
 
 ```text
-Subject: Enable webhook/API integration for our account
-
-Hi Mocreo Support,
-
-Please enable outbound webhook/API integration for our tenant/account.
-
-Account email: <your Mocreo login email>
-Company: <your company name>
-Hub serial numbers:
-- <hub serial 1>
-- <hub serial 2>
-
-We need to post temperature readings to:
-https://<your-domain>/api/integrations/mocreo/webhook
-
-If header auth is supported, we will send:
-x-mocreo-token: <token>
-
-Please confirm when webhook/API is enabled and where in the UI we configure it.
-
-Thanks.
+Rate limiting: max 5 requests/second.
+Best practice: set beginTime/endTime equal to your polling interval window.
 ```
