@@ -8,6 +8,7 @@ import "./globals.css";
 
 import AdminNav from "@/app/admin/components/AdminNav";
 import NotificationSoundClient from "@/app/components/NotificationSoundClient";
+import PwaRegisterClient from "@/app/components/PwaRegisterClient";
 import UserNav from "@/app/components/UserNav";
 import { ADMIN_ENTRY_PERMISSIONS } from "@/app/lib/admin-access";
 import type { LoadedPermissions } from "@/app/lib/permissions";
@@ -36,6 +37,12 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "Inventory App",
   description: "Internal inventory/admin system",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Inventory",
+  },
 };
 
 type PreviewRole = "ADMIN" | "USER";
@@ -435,6 +442,7 @@ export default async function RootLayout({
 
         {showAdminNav ? <AdminNav /> : null}
         {shouldRenderUserNav ? <UserNav /> : null}
+        <PwaRegisterClient />
         <NotificationSoundClient />
 
         <div className="app-content-shell">{children}</div>
