@@ -1048,7 +1048,7 @@ export default async function TemperatureDashboardPage({
   return (
     <main>
       <div style={{ maxWidth: 1280, margin: "0 auto", display: "grid", gap: 12 }}>
-        <details open>
+        <details>
           <summary style={{ cursor: "pointer", fontWeight: 900, fontSize: 16, padding: "2px 2px" }}>Dashboard Overview</summary>
           <section
             style={{
@@ -1146,7 +1146,7 @@ export default async function TemperatureDashboardPage({
           </section>
         ) : null}
 
-        <details open>
+        <details>
           <summary style={{ cursor: "pointer", fontWeight: 900, fontSize: 16, padding: "2px 2px" }}>Step-by-Step Setup</summary>
           <section
             style={{
@@ -1208,7 +1208,7 @@ export default async function TemperatureDashboardPage({
         </details>
 
         {isAdmin ? (
-          <details open>
+          <details>
             <summary style={{ cursor: "pointer", fontWeight: 900, fontSize: 16, padding: "2px 2px" }}>Sync Mocreo Now</summary>
             <section
             style={{
@@ -1250,7 +1250,7 @@ export default async function TemperatureDashboardPage({
         ) : null}
 
         {isAdmin ? (
-          <details open>
+          <details>
             <summary style={{ cursor: "pointer", fontWeight: 900, fontSize: 16, padding: "2px 2px" }}>Register / Update Hub</summary>
             <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 14 }}>
             <h2 style={{ margin: "0 0 10px", fontSize: 20, fontWeight: 900 }}>Register / Update Hub</h2>
@@ -1328,7 +1328,7 @@ export default async function TemperatureDashboardPage({
         ) : null}
 
         {isAdmin ? (
-          <details open>
+          <details>
             <summary style={{ cursor: "pointer", fontWeight: 900, fontSize: 16, padding: "2px 2px" }}>Manual Reading Fallback</summary>
             <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 14 }}>
             <h2 style={{ margin: "0 0 10px", fontSize: 20, fontWeight: 900 }}>Manual Reading Fallback</h2>
@@ -1390,7 +1390,7 @@ export default async function TemperatureDashboardPage({
         ) : null}
 
         {isAdmin ? (
-          <details open>
+          <details>
             <summary style={{ cursor: "pointer", fontWeight: 900, fontSize: 16, padding: "2px 2px" }}>Webhook Pairing Test</summary>
             <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 14 }}>
             <h2 style={{ margin: "0 0 10px", fontSize: 20, fontWeight: 900 }}>Webhook Pairing Test</h2>
