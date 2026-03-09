@@ -672,7 +672,25 @@ export default async function TemperatureDashboardPage({
     }
 
     if (!response.ok) {
-      redirect(`/maintenance/temperature-dashboard?sync=failed&code=${response.status}`);
+      let reason = "";
+      try {
+        const ct = response.headers.get("content-type") ?? "";
+        if (ct.toLowerCase().includes("application/json")) {
+          const j = (await response.json()) as { error?: unknown; message?: unknown };
+          const msg = typeof j.error === "string" ? j.error : typeof j.message === "string" ? j.message : "";
+          reason = msg.trim();
+        } else {
+          reason = (await response.text()).trim();
+        }
+      } catch {
+        reason = "";
+      }
+
+      const sp = new URLSearchParams();
+      sp.set("sync", "failed");
+      sp.set("code", String(response.status));
+      if (reason) sp.set("reason", reason.slice(0, 180));
+      redirect(`/maintenance/temperature-dashboard?${sp.toString()}`);
     }
 
     const contentType = response.headers.get("content-type") ?? "";
@@ -1011,6 +1029,7 @@ export default async function TemperatureDashboardPage({
   const testState = testValue ? `${testValue}${testCode ? ` (${testCode})` : ""}` : null;
   const syncValue = firstParam(params.sync);
   const syncCode = firstParam(params.code);
+  const syncReason = firstParam(params.reason);
   const syncState = syncValue ? `${syncValue}${syncCode ? ` (${syncCode})` : ""}` : null;
   const syncHubsActive = Number(firstParam(params.hubsActive) ?? "NaN");
   const syncNodesMatched = Number(firstParam(params.nodesMatched) ?? "NaN");
@@ -1110,6 +1129,11 @@ export default async function TemperatureDashboardPage({
         {syncValue && syncValue !== "ok" ? (
           <section style={{ border: "1px solid rgba(239,68,68,0.45)", borderRadius: 12, padding: 12, background: "rgba(239,68,68,0.12)" }}>
             <strong>Sync failed:</strong> {syncState}
+            {syncReason ? (
+              <div style={{ marginTop: 6, fontSize: 13, opacity: 0.95 }}>
+                Reason: <code>{syncReason}</code>
+              </div>
+            ) : null}
           </section>
         ) : null}
 
