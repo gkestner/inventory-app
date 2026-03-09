@@ -1015,7 +1015,12 @@ export default async function TemperatureDashboardPage({
   const testState = testValue ? `${testValue}${testCode ? ` (${testCode})` : ""}` : null;
   const syncValue = firstParam(params.sync);
   const syncCode = firstParam(params.code);
-  const syncReason = firstParam(params.reason);
+  const syncReasonRaw = firstParam(params.reason);
+  const syncReason =
+    typeof syncReasonRaw === "string" &&
+    (syncReasonRaw.toLowerCase().includes("authentication required") || syncReasonRaw.toLowerCase().includes("llms.txt"))
+      ? "Stale app session detected. Close and reopen the app (or hard refresh browser) and run Sync Now again."
+      : syncReasonRaw;
   const syncState = syncValue ? `${syncValue}${syncCode ? ` (${syncCode})` : ""}` : null;
   const syncHubsActive = Number(firstParam(params.hubsActive) ?? "NaN");
   const syncNodesFound = Number(firstParam(params.nodesFound) ?? "NaN");
