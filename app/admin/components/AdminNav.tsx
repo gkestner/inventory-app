@@ -188,6 +188,15 @@ export default async function AdminNav() {
     Permission.VIEW_CHECKOUT,
     Permission.CREATE_CHECKOUT,
   ]);
+  const canRoomDiagrams =
+    isAdmin ||
+    hasAnyPermission(perms, [
+      Permission.VIEW_CHECKOUT,
+      Permission.CREATE_CHECKOUT,
+      ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
+      Permission.ADMIN_VIEW_ITEMS,
+      Permission.ADMIN_EDIT_ITEMS,
+    ]);
   const canAdminTravelLogs = canAdminWorkOrders || canUserWorkOrders;
 
   // For now: gate invoices + order history under items perms (no enum changes)
@@ -447,6 +456,11 @@ export default async function AdminNav() {
                 {canTemperatureDashboard ? (
                   <Link href="/maintenance/temperature-dashboard" style={menuItemStyle}>
                     Temperature Dashboard
+                  </Link>
+                ) : null}
+                {canRoomDiagrams ? (
+                  <Link href="/maintenance/room-diagrams" style={menuItemStyle}>
+                    Room Diagrams
                   </Link>
                 ) : null}
                 {canAdminWorkOrders ? (
