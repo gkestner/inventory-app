@@ -24,7 +24,57 @@ type SearchParams = {
   includeIgnored?: string;
   focus?: string;
   ok?: string;
+  sortBy?: string;
+  sortDir?: string;
 };
+
+type SortField =
+  | "priority"
+  | "sku"
+  | "name"
+  | "partNumber"
+  | "orderFrom"
+  | "manufacturer"
+  | "onHandQty"
+  | "orderedQty"
+  | "available"
+  | "minQty"
+  | "shortBy"
+  | "status"
+  | "openTechRequests"
+  | "reorderIgnored";
+
+type SortDir = "asc" | "desc";
+
+const SORT_FIELDS: Array<{ value: SortField; label: string }> = [
+  { value: "priority", label: "Priority" },
+  { value: "sku", label: "SKU" },
+  { value: "name", label: "Item Name" },
+  { value: "partNumber", label: "Part Number" },
+  { value: "orderFrom", label: "Supplier" },
+  { value: "manufacturer", label: "Manufacturer" },
+  { value: "onHandQty", label: "On Hand" },
+  { value: "orderedQty", label: "Ordered" },
+  { value: "available", label: "Available" },
+  { value: "minQty", label: "Min" },
+  { value: "shortBy", label: "Short By" },
+  { value: "status", label: "Status" },
+  { value: "openTechRequests", label: "Tech Requests" },
+  { value: "reorderIgnored", label: "Ignored" },
+];
+
+function parseSortField(v: string | undefined): SortField {
+  const raw = String(v ?? "").trim();
+  return SORT_FIELDS.some((f) => f.value === raw) ? (raw as SortField) : "priority";
+}
+
+function parseSortDir(v: string | undefined): SortDir {
+  return String(v ?? "").trim().toLowerCase() === "desc" ? "desc" : "asc";
+}
+
+function cmpNullableString(a: string | null, b: string | null): number {
+  return String(a ?? "").localeCompare(String(b ?? ""), undefined, { sensitivity: "base" });
+}
 
 async function requireReportView() {
   const session = (await getServerSession(authOptions)) as AdminSession;
@@ -78,6 +128,8 @@ export default async function NeedsOrderingReportPage({
   const focus: "all" | "red" | "yellow" =
     focusRaw === "red" || focusRaw === "yellow" ? focusRaw : "all";
   const okMsg = String(sp.ok ?? "").trim();
+  const sortBy = parseSortField(sp.sortBy);
+  const sortDir = parseSortDir(sp.sortDir);
 
   async function setIgnoredAction(formData: FormData) {
     "use server";
@@ -92,6 +144,8 @@ export default async function NeedsOrderingReportPage({
     const qBack = String(formData.get("q") ?? "").trim();
     const includeIgnoredBack = String(formData.get("includeIgnored") ?? "").trim();
     const focusBack = String(formData.get("focus") ?? "").trim();
+    const sortByBack = String(formData.get("sortBy") ?? "").trim();
+    const sortDirBack = String(formData.get("sortDir") ?? "").trim();
 
     if (!itemId) {
       redirect(
@@ -99,6 +153,8 @@ export default async function NeedsOrderingReportPage({
           q: qBack || undefined,
           includeIgnored: includeIgnoredBack || undefined,
           focus: focusBack || undefined,
+          sortBy: sortByBack || undefined,
+          sortDir: sortDirBack || undefined,
           ok: "Missing item id",
         })}`
       );
@@ -117,6 +173,8 @@ export default async function NeedsOrderingReportPage({
         q: qBack || undefined,
         includeIgnored: includeIgnoredBack || undefined,
         focus: focusBack || undefined,
+        sortBy: sortByBack || undefined,
+        sortDir: sortDirBack || undefined,
         ok: nextIgnored ? "Item ignored" : "Item restored",
       })}`
     );
@@ -199,10 +257,83 @@ export default async function NeedsOrderingReportPage({
     .filter((item) => item.shortBy > 0 || item.hasTechRequest)
     .filter((item) => (focus === "all" ? true : item.priority === focus))
     .sort((a, b) => {
-      const rank = { blue: 0, red: 1, yellow: 2 } as const;
-      if (a.priority !== b.priority) return rank[a.priority] - rank[b.priority];
-      return a.sku.localeCompare(b.sku);
+      const priorityRank = { blue: 0, red: 1, yellow: 2 } as const;
+      const statusRank = { "Tech Requested": 0, Out: 1, "Below Min": 2, Ignored: 3 } as const;
+
+      let base = 0;
+      switch (sortBy) {
+        case "priority":
+          base = priorityRank[a.priority] - priorityRank[b.priority];
+          break;
+        case "sku":
+          base = a.sku.localeCompare(b.sku, undefined, { sensitivity: "base" });
+          break;
+        case "name":
+          base = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+          break;
+        case "partNumber":
+          base = cmpNullableString(a.partNumber, b.partNumber);
+          break;
+        case "orderFrom":
+          base = cmpNullableString(a.orderFrom, b.orderFrom);
+          break;
+        case "manufacturer":
+          base = cmpNullableString(a.manufacturer, b.manufacturer);
+          break;
+        case "onHandQty":
+          base = a.onHandQty - b.onHandQty;
+          break;
+        case "orderedQty":
+          base = a.orderedQty - b.orderedQty;
+          break;
+        case "available":
+          base = a.available - b.available;
+          break;
+        case "minQty":
+          base = a.minQty - b.minQty;
+          break;
+        case "shortBy":
+          base = a.shortBy - b.shortBy;
+          break;
+        case "status": {
+          const aStatus = a.reorderIgnored
+            ? "Ignored"
+            : a.priority === "blue"
+              ? "Tech Requested"
+              : a.priority === "red"
+                ? "Out"
+                : "Below Min";
+          const bStatus = b.reorderIgnored
+            ? "Ignored"
+            : b.priority === "blue"
+              ? "Tech Requested"
+              : b.priority === "red"
+                ? "Out"
+                : "Below Min";
+          base = statusRank[aStatus] - statusRank[bStatus];
+          break;
+        }
+        case "openTechRequests":
+          base = a.openTechRequests - b.openTechRequests;
+          break;
+        case "reorderIgnored":
+          base = Number(a.reorderIgnored) - Number(b.reorderIgnored);
+          break;
+        default:
+          base = 0;
+          break;
+      }
+
+      const dirFactor = sortDir === "desc" ? -1 : 1;
+      if (base !== 0) return base * dirFactor;
+
+      const secondary = a.sku.localeCompare(b.sku, undefined, { sensitivity: "base" });
+      if (secondary !== 0) return secondary;
+
+      return a.id.localeCompare(b.id);
     });
+
+  const sortLabel = SORT_FIELDS.find((f) => f.value === sortBy)?.label ?? "Priority";
 
   const activeCount = needsOrdering.filter((x) => !x.reorderIgnored).length;
   const ignoredCount = needsOrdering.filter((x) => x.reorderIgnored).length;
@@ -266,6 +397,45 @@ export default async function NeedsOrderingReportPage({
 
           <input type="hidden" name="focus" value={focus} />
 
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            Sort By
+            <select
+              name="sortBy"
+              defaultValue={sortBy}
+              style={{
+                padding: "9px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(128,128,128,0.25)",
+                background: "var(--background)",
+                color: "var(--foreground)",
+              }}
+            >
+              {SORT_FIELDS.map((field) => (
+                <option key={field.value} value={field.value}>
+                  {field.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            Direction
+            <select
+              name="sortDir"
+              defaultValue={sortDir}
+              style={{
+                padding: "9px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(128,128,128,0.25)",
+                background: "var(--background)",
+                color: "var(--foreground)",
+              }}
+            >
+              <option value="asc">Ascending</option>
+              <option value="desc">Descending</option>
+            </select>
+          </label>
+
           <button
             type="submit"
             style={{
@@ -285,7 +455,13 @@ export default async function NeedsOrderingReportPage({
           </Link>
 
           <Link
-            href={`/admin/reports/needs-ordering${qs({ q: q || undefined, includeIgnored: includeIgnored ? "1" : undefined, focus: "red" })}`}
+            href={`/admin/reports/needs-ordering${qs({
+              q: q || undefined,
+              includeIgnored: includeIgnored ? "1" : undefined,
+              focus: "red",
+              sortBy,
+              sortDir,
+            })}`}
             style={{
               padding: "10px 12px",
               borderRadius: 12,
@@ -300,7 +476,13 @@ export default async function NeedsOrderingReportPage({
           </Link>
 
           <Link
-            href={`/admin/reports/needs-ordering${qs({ q: q || undefined, includeIgnored: includeIgnored ? "1" : undefined, focus: "yellow" })}`}
+            href={`/admin/reports/needs-ordering${qs({
+              q: q || undefined,
+              includeIgnored: includeIgnored ? "1" : undefined,
+              focus: "yellow",
+              sortBy,
+              sortDir,
+            })}`}
             style={{
               padding: "10px 12px",
               borderRadius: 12,
@@ -317,6 +499,10 @@ export default async function NeedsOrderingReportPage({
 
         <div style={{ marginTop: 12, opacity: 0.9 }}>
           Showing <b>{needsOrdering.length}</b> items (Blue: <b>{blueCount}</b>, Red: <b>{redCount}</b>, Yellow: <b>{yellowCount}</b>, Active: <b>{activeCount}</b>, Ignored: <b>{ignoredCount}</b>)
+        </div>
+
+        <div style={{ marginTop: 6, opacity: 0.85, fontSize: 13 }}>
+          Sorted by <b>{sortLabel}</b> ({sortDir === "asc" ? "ascending" : "descending"})
         </div>
 
         <div
@@ -463,6 +649,8 @@ export default async function NeedsOrderingReportPage({
                         <input type="hidden" name="q" value={q} />
                         <input type="hidden" name="includeIgnored" value={includeIgnored ? "1" : ""} />
                         <input type="hidden" name="focus" value={focus} />
+                        <input type="hidden" name="sortBy" value={sortBy} />
+                        <input type="hidden" name="sortDir" value={sortDir} />
                         <button
                           type="submit"
                           style={{
