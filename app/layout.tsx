@@ -7,6 +7,7 @@ import { PHASE_PRODUCTION_BUILD } from "next/constants";
 import "./globals.css";
 
 import AdminNav from "@/app/admin/components/AdminNav";
+import NotificationSoundClient from "@/app/components/NotificationSoundClient";
 import UserNav from "@/app/components/UserNav";
 import { ADMIN_ENTRY_PERMISSIONS } from "@/app/lib/admin-access";
 import type { LoadedPermissions } from "@/app/lib/permissions";
@@ -434,6 +435,7 @@ export default async function RootLayout({
 
         {showAdminNav ? <AdminNav /> : null}
         {shouldRenderUserNav ? <UserNav /> : null}
+        <NotificationSoundClient />
 
         <div className="app-content-shell">{children}</div>
       </body>
