@@ -1029,29 +1029,32 @@ export default async function TemperatureDashboardPage({
   return (
     <main>
       <div style={{ maxWidth: 1280, margin: "0 auto", display: "grid", gap: 12 }}>
-        <section
-          style={{
-            border: "1px solid var(--border)",
-            borderRadius: 16,
-            padding: 18,
-            background:
-              "linear-gradient(150deg, color-mix(in srgb, var(--brand) 14%, var(--surface)) 0%, var(--surface) 70%)",
-            boxShadow: "var(--shadow)",
-          }}
-        >
-          <h1 style={{ margin: 0, fontSize: 30, fontWeight: 950 }}>Mocreo Temperature Dashboard</h1>
-          <p style={{ margin: "8px 0 0", color: "var(--muted)", lineHeight: 1.45 }}>{statusMessage}</p>
-          <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <code>POST /api/integrations/mocreo/sync</code>
-            <span style={{ fontSize: 12, opacity: 0.8 }}>
-              Optional security header: <code>x-mocreo-sync-token</code> = <code>MOCREO_SYNC_TOKEN</code>
-            </span>
-            <AutoRefresh seconds={refreshSec} />
-            <Link href="/notifications" style={{ textDecoration: "none", fontWeight: 800 }}>
-              {"Notifications ->"}
-            </Link>
-          </div>
-        </section>
+        <details open>
+          <summary style={{ cursor: "pointer", fontWeight: 900, fontSize: 16, padding: "2px 2px" }}>Dashboard Overview</summary>
+          <section
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: 16,
+              padding: 18,
+              background:
+                "linear-gradient(150deg, color-mix(in srgb, var(--brand) 14%, var(--surface)) 0%, var(--surface) 70%)",
+              boxShadow: "var(--shadow)",
+            }}
+          >
+            <h1 style={{ margin: 0, fontSize: 30, fontWeight: 950 }}>Mocreo Temperature Dashboard</h1>
+            <p style={{ margin: "8px 0 0", color: "var(--muted)", lineHeight: 1.45 }}>{statusMessage}</p>
+            <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <code>POST /api/integrations/mocreo/sync</code>
+              <span style={{ fontSize: 12, opacity: 0.8 }}>
+                Optional security header: <code>x-mocreo-sync-token</code> = <code>MOCREO_SYNC_TOKEN</code>
+              </span>
+              <AutoRefresh seconds={refreshSec} />
+              <Link href="/notifications" style={{ textDecoration: "none", fontWeight: 800 }}>
+                {"Notifications ->"}
+              </Link>
+            </div>
+          </section>
+        </details>
 
         {errorText ? (
           <section style={{ border: "1px solid rgba(239,68,68,0.45)", borderRadius: 12, padding: 12, background: "rgba(239,68,68,0.12)" }}>
@@ -1119,17 +1122,19 @@ export default async function TemperatureDashboardPage({
           </section>
         ) : null}
 
-        <section
-          style={{
-            border: "1px solid var(--border)",
-            borderRadius: 14,
-            background: "var(--surface)",
-            boxShadow: "var(--shadow)",
-            padding: 14,
-          }}
-        >
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Step-by-Step Setup</h2>
-          <div style={{ marginTop: 10, display: "grid", gap: 8, lineHeight: 1.5 }}>
+        <details open>
+          <summary style={{ cursor: "pointer", fontWeight: 900, fontSize: 16, padding: "2px 2px" }}>Step-by-Step Setup</summary>
+          <section
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: 14,
+              background: "var(--surface)",
+              boxShadow: "var(--shadow)",
+              padding: 14,
+            }}
+          >
+            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Step-by-Step Setup</h2>
+            <div style={{ marginTop: 10, display: "grid", gap: 8, lineHeight: 1.5 }}>
             <div>
               <strong>1.</strong> In <strong>Register / Update Hub</strong>, enter a <strong>Hub Name</strong> and the exact
               <strong> Mocreo hub serial/SN</strong> as <strong>Mocreo Hub ID</strong>.
@@ -1174,11 +1179,14 @@ export default async function TemperatureDashboardPage({
               <strong>10.</strong> Watch <strong>Recent Alerts</strong> below.
               Alert notifications will go to the assigned maintenance tech + selected recipients.
             </div>
-          </div>
-        </section>
+            </div>
+          </section>
+        </details>
 
         {isAdmin ? (
-          <section
+          <details open>
+            <summary style={{ cursor: "pointer", fontWeight: 900, fontSize: 16, padding: "2px 2px" }}>Sync Mocreo Now</summary>
+            <section
             style={{
               border: "1px solid var(--border)",
               borderRadius: 14,
@@ -1208,16 +1216,19 @@ export default async function TemperatureDashboardPage({
                 Sync Now
               </button>
             </form>
-            {syncState ? (
-              <div style={{ marginTop: 10, fontSize: 13, opacity: 0.9 }}>
-                Last sync result: {syncState}
-              </div>
-            ) : null}
-          </section>
+              {syncState ? (
+                <div style={{ marginTop: 10, fontSize: 13, opacity: 0.9 }}>
+                  Last sync result: {syncState}
+                </div>
+              ) : null}
+            </section>
+          </details>
         ) : null}
 
         {isAdmin ? (
-          <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 14 }}>
+          <details open>
+            <summary style={{ cursor: "pointer", fontWeight: 900, fontSize: 16, padding: "2px 2px" }}>Register / Update Hub</summary>
+            <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 14 }}>
             <h2 style={{ margin: "0 0 10px", fontSize: 20, fontWeight: 900 }}>Register / Update Hub</h2>
             <form action={saveHubAction} style={{ display: "grid", gap: 10 }}>
               <input type="hidden" name="hubId" value="" />
@@ -1288,11 +1299,14 @@ export default async function TemperatureDashboardPage({
                 Save Hub Configuration
               </button>
             </form>
-          </section>
+            </section>
+          </details>
         ) : null}
 
         {isAdmin ? (
-          <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 14 }}>
+          <details open>
+            <summary style={{ cursor: "pointer", fontWeight: 900, fontSize: 16, padding: "2px 2px" }}>Manual Reading Fallback</summary>
+            <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 14 }}>
             <h2 style={{ margin: "0 0 10px", fontSize: 20, fontWeight: 900 }}>Manual Reading Fallback</h2>
             <p style={{ margin: "0 0 10px", color: "var(--muted)", lineHeight: 1.4 }}>
               Use this temporary workaround when Mocreo webhook configuration is unavailable. Enter the reading shown in the Mocreo app and this dashboard will update sensor status and alerts.
@@ -1347,11 +1361,14 @@ export default async function TemperatureDashboardPage({
                 Save Manual Reading
               </button>
             </form>
-          </section>
+            </section>
+          </details>
         ) : null}
 
         {isAdmin ? (
-          <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 14 }}>
+          <details open>
+            <summary style={{ cursor: "pointer", fontWeight: 900, fontSize: 16, padding: "2px 2px" }}>Webhook Pairing Test</summary>
+            <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 14 }}>
             <h2 style={{ margin: "0 0 10px", fontSize: 20, fontWeight: 900 }}>Webhook Pairing Test</h2>
             <p style={{ margin: "0 0 10px", color: "var(--muted)", lineHeight: 1.4 }}>
               Send a synthetic Mocreo reading to your webhook for one registered hub to confirm pairing, ingestion, and notification routing.
@@ -1394,15 +1411,18 @@ export default async function TemperatureDashboardPage({
               </button>
             </form>
 
-            {testState ? (
-              <div style={{ marginTop: 10, fontSize: 13, opacity: 0.9 }}>
-                Last test result: {testState}
-              </div>
-            ) : null}
-          </section>
+              {testState ? (
+                <div style={{ marginTop: 10, fontSize: 13, opacity: 0.9 }}>
+                  Last test result: {testState}
+                </div>
+              ) : null}
+            </section>
+          </details>
         ) : null}
 
-        <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", overflow: "hidden" }}>
+        <details open>
+          <summary style={{ cursor: "pointer", fontWeight: 900, fontSize: 16, padding: "2px 2px" }}>Hub Dashboard</summary>
+          <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", overflow: "hidden" }}>
           <div style={{ padding: 14, borderBottom: "1px solid var(--border)" }}>
             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Hub Dashboard</h2>
             <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>
@@ -1914,9 +1934,12 @@ export default async function TemperatureDashboardPage({
               })}
             </div>
           )}
-        </section>
+          </section>
+        </details>
 
-        <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", overflow: "hidden" }}>
+        <details open>
+          <summary style={{ cursor: "pointer", fontWeight: 900, fontSize: 16, padding: "2px 2px" }}>Recent Alerts</summary>
+          <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", overflow: "hidden" }}>
           <div style={{ padding: 14, borderBottom: "1px solid var(--border)" }}>
             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Recent Alerts</h2>
           </div>
@@ -1953,7 +1976,8 @@ export default async function TemperatureDashboardPage({
               </table>
             </div>
           )}
-        </section>
+          </section>
+        </details>
       </div>
     </main>
   );
