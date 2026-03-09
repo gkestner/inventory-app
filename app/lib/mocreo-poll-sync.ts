@@ -126,6 +126,9 @@ export type MocreoSyncResult = {
   sampleIdsTried: number;
   sampleRequestAttempts: number;
   snapshotFallbackUsed: number;
+  debugNodeKeysSample: string[];
+  debugDeviceKeysSample: string[];
+  debugDeviceInfoKeysSample: string[];
   skippedDuplicate: number;
   skippedNoTemp: number;
   skippedNoTimestamp: number;
@@ -204,6 +207,11 @@ function extractArrayPayload<T = unknown>(payload: unknown): T[] {
   }
 
   return [];
+}
+
+function topLevelKeys(value: unknown): string[] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
+  return Object.keys(value as Record<string, unknown>).sort();
 }
 
 function getNodeId(node: MocreoNode): string {
@@ -639,6 +647,9 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
   let sampleIdsTried = 0;
   let sampleRequestAttempts = 0;
   let snapshotFallbackUsed = 0;
+  let debugNodeKeysSample: string[] = [];
+  let debugDeviceKeysSample: string[] = [];
+  let debugDeviceInfoKeysSample: string[] = [];
   let alerted = 0;
   let skippedDuplicate = 0;
   let skippedNoTemp = 0;
@@ -737,6 +748,15 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
 
     if (samples.length === 0) {
       matchedNodesNoSamples += 1;
+
+      if (debugNodeKeysSample.length === 0) {
+        debugNodeKeysSample = topLevelKeys(node).slice(0, 40);
+      }
+      if (debugDeviceKeysSample.length === 0 && deviceRowsForHub.length > 0) {
+        debugDeviceKeysSample = topLevelKeys(deviceRowsForHub[0]).slice(0, 40);
+        debugDeviceInfoKeysSample = topLevelKeys(asRecord(deviceRowsForHub[0].info)).slice(0, 40);
+      }
+
       continue;
     }
 
@@ -939,6 +959,9 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
     sampleIdsTried,
     sampleRequestAttempts,
     snapshotFallbackUsed,
+    debugNodeKeysSample,
+    debugDeviceKeysSample,
+    debugDeviceInfoKeysSample,
     skippedDuplicate,
     skippedNoTemp,
     skippedNoTimestamp,

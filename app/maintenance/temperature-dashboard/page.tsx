@@ -662,6 +662,9 @@ export default async function TemperatureDashboardPage({
       sampleIdsTried?: number;
       sampleRequestAttempts?: number;
       snapshotFallbackUsed?: number;
+      debugNodeKeysSample?: unknown;
+      debugDeviceKeysSample?: unknown;
+      debugDeviceInfoKeysSample?: unknown;
       skippedDuplicate?: number;
       skippedNoTemp?: number;
       skippedNoTimestamp?: number;
@@ -682,6 +685,9 @@ export default async function TemperatureDashboardPage({
         sampleIdsTried?: number;
         sampleRequestAttempts?: number;
         snapshotFallbackUsed?: number;
+        debugNodeKeysSample?: unknown;
+        debugDeviceKeysSample?: unknown;
+        debugDeviceInfoKeysSample?: unknown;
         skippedDuplicate?: number;
         skippedNoTemp?: number;
         skippedNoTimestamp?: number;
@@ -714,6 +720,30 @@ export default async function TemperatureDashboardPage({
       sp.set("sampleRequestAttempts", String(payload.sampleRequestAttempts));
     if (typeof payload?.snapshotFallbackUsed === "number")
       sp.set("snapshotFallbackUsed", String(payload.snapshotFallbackUsed));
+    if (Array.isArray(payload?.debugNodeKeysSample) && payload.debugNodeKeysSample.length > 0) {
+      const sample = payload.debugNodeKeysSample
+        .map((x) => String(x ?? "").trim())
+        .filter(Boolean)
+        .slice(0, 20)
+        .join(", ");
+      if (sample) sp.set("debugNodeKeys", sample.slice(0, 350));
+    }
+    if (Array.isArray(payload?.debugDeviceKeysSample) && payload.debugDeviceKeysSample.length > 0) {
+      const sample = payload.debugDeviceKeysSample
+        .map((x) => String(x ?? "").trim())
+        .filter(Boolean)
+        .slice(0, 20)
+        .join(", ");
+      if (sample) sp.set("debugDeviceKeys", sample.slice(0, 350));
+    }
+    if (Array.isArray(payload?.debugDeviceInfoKeysSample) && payload.debugDeviceInfoKeysSample.length > 0) {
+      const sample = payload.debugDeviceInfoKeysSample
+        .map((x) => String(x ?? "").trim())
+        .filter(Boolean)
+        .slice(0, 20)
+        .join(", ");
+      if (sample) sp.set("debugDeviceInfoKeys", sample.slice(0, 350));
+    }
     if (typeof payload?.skippedDuplicate === "number") sp.set("skippedDuplicate", String(payload.skippedDuplicate));
     if (typeof payload?.skippedNoTemp === "number") sp.set("skippedNoTemp", String(payload.skippedNoTemp));
     if (typeof payload?.skippedNoTimestamp === "number")
@@ -1063,6 +1093,9 @@ export default async function TemperatureDashboardPage({
   const syncSampleIdsTried = Number(firstParam(params.sampleIdsTried) ?? "NaN");
   const syncSampleRequestAttempts = Number(firstParam(params.sampleRequestAttempts) ?? "NaN");
   const syncSnapshotFallbackUsed = Number(firstParam(params.snapshotFallbackUsed) ?? "NaN");
+  const syncDebugNodeKeys = firstParam(params.debugNodeKeys);
+  const syncDebugDeviceKeys = firstParam(params.debugDeviceKeys);
+  const syncDebugDeviceInfoKeys = firstParam(params.debugDeviceInfoKeys);
   const syncSkippedDuplicate = Number(firstParam(params.skippedDuplicate) ?? "NaN");
   const syncSkippedNoTemp = Number(firstParam(params.skippedNoTemp) ?? "NaN");
   const syncSkippedNoTimestamp = Number(firstParam(params.skippedNoTimestamp) ?? "NaN");
@@ -1156,6 +1189,21 @@ export default async function TemperatureDashboardPage({
             {Number.isFinite(syncMatchedNodesNoSamples) && syncMatchedNodesNoSamples > 0 ? (
               <div style={{ marginTop: 6, fontSize: 13, opacity: 0.95 }}>
                 Matched nodes with no returned samples: {syncMatchedNodesNoSamples}. Fallback-window retries used: {Number.isFinite(syncFallbackNodesQueried) ? syncFallbackNodesQueried : "-"}.
+              </div>
+            ) : null}
+            {syncDebugNodeKeys ? (
+              <div style={{ marginTop: 6, fontSize: 13, opacity: 0.95 }}>
+                Debug node keys (sample): <code>{syncDebugNodeKeys}</code>
+              </div>
+            ) : null}
+            {syncDebugDeviceKeys ? (
+              <div style={{ marginTop: 6, fontSize: 13, opacity: 0.95 }}>
+                Debug device keys (sample): <code>{syncDebugDeviceKeys}</code>
+              </div>
+            ) : null}
+            {syncDebugDeviceInfoKeys ? (
+              <div style={{ marginTop: 6, fontSize: 13, opacity: 0.95 }}>
+                Debug device.info keys (sample): <code>{syncDebugDeviceInfoKeys}</code>
               </div>
             ) : null}
             {syncThingNames ? (
