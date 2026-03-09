@@ -20,6 +20,7 @@ import AutoRefresh from "@/app/maintenance/temperature-dashboard/AutoRefresh";
 import CopyWebhookField from "@/app/maintenance/temperature-dashboard/CopyWebhookField";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type SessionShape = {
   user?: {
@@ -1016,9 +1017,14 @@ export default async function TemperatureDashboardPage({
   const syncValue = firstParam(params.sync);
   const syncCode = firstParam(params.code);
   const syncReasonRaw = firstParam(params.reason);
+  const syncReasonLower = typeof syncReasonRaw === "string" ? syncReasonRaw.toLowerCase() : "";
+  const syncReasonLooksLikeAuthHtml =
+    syncReasonLower.includes("authentication required") ||
+    syncReasonLower.includes("llms.txt") ||
+    syncReasonLower.includes("<!doctype html") ||
+    syncReasonLower.includes("<html");
   const syncReason =
-    typeof syncReasonRaw === "string" &&
-    (syncReasonRaw.toLowerCase().includes("authentication required") || syncReasonRaw.toLowerCase().includes("llms.txt"))
+    syncCode === "401" || syncReasonLooksLikeAuthHtml
       ? "Stale app session detected. Close and reopen the app (or hard refresh browser) and run Sync Now again."
       : syncReasonRaw;
   const syncState = syncValue ? `${syncValue}${syncCode ? ` (${syncCode})` : ""}` : null;
