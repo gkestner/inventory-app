@@ -221,6 +221,27 @@ function firstParam(v: string | string[] | undefined): string | undefined {
   return v;
 }
 
+function dashboardMessageFromCode(code: string | undefined): string | null {
+  const c = String(code ?? "").trim().toLowerCase();
+  if (!c) return null;
+
+  const table: Record<string, string> = {
+    missing: "Hub name and Mocreo Hub ID are required.",
+    range: "Hub threshold range is invalid. Min must be less than Max.",
+    missing_device: "Device and hub are required.",
+    device_range: "Device threshold range is invalid. Min must be less than Max.",
+    invalid_device: "Selected device does not belong to the selected hub.",
+    missing_hub: "Please select a hub for the pairing test.",
+    invalid_hub: "Selected hub is invalid or inactive.",
+    host_missing: "Unable to determine host URL for pairing test.",
+    save_failed: "Could not save hub configuration. Please verify values and try again.",
+    duplicate_hub_id: "That Mocreo Hub ID is already registered to another hub.",
+    forbidden: "You do not have permission to perform this action.",
+  };
+
+  return table[c] ?? c;
+}
+
 export default async function TemperatureDashboardPage({
   searchParams,
 }: {
@@ -285,54 +306,62 @@ export default async function TemperatureDashboardPage({
       assignedMaintenanceUserId = assignments.find((a) => a.locationId === locationId)?.userId ?? null;
     }
 
-    const saved = hubId
-      ? await db.mocreoHub.update({
-          where: { id: hubId },
-          data: {
-            name,
-            externalHubId,
-            locationId,
-            assignedMaintenanceUserId,
-            minTempF,
-            maxTempF,
-          },
-          select: { id: true },
-        })
-      : await db.mocreoHub.create({
-          data: {
-            name,
-            externalHubId,
-            locationId,
-            assignedMaintenanceUserId,
-            minTempF,
-            maxTempF,
-            active: true,
-          },
-          select: { id: true },
+    try {
+      const saved = hubId
+        ? await db.mocreoHub.update({
+            where: { id: hubId },
+            data: {
+              name,
+              externalHubId,
+              locationId,
+              assignedMaintenanceUserId,
+              minTempF,
+              maxTempF,
+            },
+            select: { id: true },
+          })
+        : await db.mocreoHub.create({
+            data: {
+              name,
+              externalHubId,
+              locationId,
+              assignedMaintenanceUserId,
+              minTempF,
+              maxTempF,
+              active: true,
+            },
+            select: { id: true },
+          });
+
+      await db.mocreoHubRecipient.deleteMany({ where: { hubId: saved.id } });
+
+      if (notifyUserIds.length > 0) {
+        await db.mocreoHubRecipient.createMany({
+          data: notifyUserIds.map((userId) => ({ hubId: saved.id, userId })),
+          skipDuplicates: true,
         });
+      }
 
-    await db.mocreoHubRecipient.deleteMany({ where: { hubId: saved.id } });
-
-    if (notifyUserIds.length > 0) {
-      await db.mocreoHubRecipient.createMany({
-        data: notifyUserIds.map((userId) => ({ hubId: saved.id, userId })),
-        skipDuplicates: true,
+      await db.auditLog.create({
+        data: {
+          actorUserId: actor.id,
+          module: "MOCREO_TEMPERATURE",
+          action: hubId ? "UPDATE_HUB_CONFIG" : "CREATE_HUB_CONFIG",
+          entityType: "MocreoHub",
+          entityId: saved.id,
+          message: `${hubId ? "Updated" : "Created"} Mocreo hub ${name}.`,
+        },
       });
+
+      revalidatePath("/maintenance/temperature-dashboard");
+      redirect("/maintenance/temperature-dashboard?saved=1");
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "";
+      if (/unique|duplicate|externalhubid/i.test(msg)) {
+        redirect("/maintenance/temperature-dashboard?error=duplicate_hub_id");
+      }
+      redirect("/maintenance/temperature-dashboard?error=save_failed");
     }
-
-    await db.auditLog.create({
-      data: {
-        actorUserId: actor.id,
-        module: "MOCREO_TEMPERATURE",
-        action: hubId ? "UPDATE_HUB_CONFIG" : "CREATE_HUB_CONFIG",
-        entityType: "MocreoHub",
-        entityId: saved.id,
-        message: `${hubId ? "Updated" : "Created"} Mocreo hub ${name}.`,
-      },
-    });
-
-    revalidatePath("/maintenance/temperature-dashboard");
-    redirect("/maintenance/temperature-dashboard?saved=1");
   }
 
   async function toggleHubAction(formData: FormData) {
@@ -765,6 +794,11 @@ export default async function TemperatureDashboardPage({
     historyByDevice.set(deviceIdKey, hist);
   }
   const params = paramsRaw as SearchParams;
+  const errorCode = firstParam(params.error);
+  const errorText = dashboardMessageFromCode(errorCode);
+  const savedOk = firstParam(params.saved) === "1";
+  const savedDeviceOk = firstParam(params.savedDevice) === "1";
+  const manualOk = firstParam(params.manual) === "ok";
 
   const statusMessage = isAdmin
     ? "This dashboard lets you register Mocreo hubs, assign the maintenance tech, and add extra notification recipients."
@@ -808,6 +842,18 @@ export default async function TemperatureDashboardPage({
             </Link>
           </div>
         </section>
+
+        {errorText ? (
+          <section style={{ border: "1px solid rgba(239,68,68,0.45)", borderRadius: 12, padding: 12, background: "rgba(239,68,68,0.12)" }}>
+            <strong>Action failed:</strong> {errorText}
+          </section>
+        ) : null}
+
+        {savedOk || savedDeviceOk || manualOk ? (
+          <section style={{ border: "1px solid rgba(34,197,94,0.45)", borderRadius: 12, padding: 12, background: "rgba(34,197,94,0.12)" }}>
+            {savedOk ? "Hub configuration saved." : savedDeviceOk ? "Sensor thresholds updated." : "Manual reading ingested."}
+          </section>
+        ) : null}
 
         <section
           style={{
