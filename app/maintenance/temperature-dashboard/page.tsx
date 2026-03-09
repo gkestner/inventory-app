@@ -656,6 +656,9 @@ export default async function TemperatureDashboardPage({
       availableThingNamesSample?: unknown;
       availableDeviceThingNamesSample?: unknown;
       ingested?: number;
+      samplesFetched?: number;
+      matchedNodesNoSamples?: number;
+      fallbackNodesQueried?: number;
       skippedDuplicate?: number;
       skippedNoTemp?: number;
       skippedNoTimestamp?: number;
@@ -670,6 +673,9 @@ export default async function TemperatureDashboardPage({
         availableThingNamesSample?: unknown;
         availableDeviceThingNamesSample?: unknown;
         ingested?: number;
+        samplesFetched?: number;
+        matchedNodesNoSamples?: number;
+        fallbackNodesQueried?: number;
         skippedDuplicate?: number;
         skippedNoTemp?: number;
         skippedNoTimestamp?: number;
@@ -692,6 +698,11 @@ export default async function TemperatureDashboardPage({
     if (typeof payload?.devicesFound === "number") sp.set("devicesFound", String(payload.devicesFound));
     if (typeof payload?.nodesMatched === "number") sp.set("nodesMatched", String(payload.nodesMatched));
     if (typeof payload?.ingested === "number") sp.set("ingested", String(payload.ingested));
+    if (typeof payload?.samplesFetched === "number") sp.set("samplesFetched", String(payload.samplesFetched));
+    if (typeof payload?.matchedNodesNoSamples === "number")
+      sp.set("matchedNodesNoSamples", String(payload.matchedNodesNoSamples));
+    if (typeof payload?.fallbackNodesQueried === "number")
+      sp.set("fallbackNodesQueried", String(payload.fallbackNodesQueried));
     if (typeof payload?.skippedDuplicate === "number") sp.set("skippedDuplicate", String(payload.skippedDuplicate));
     if (typeof payload?.skippedNoTemp === "number") sp.set("skippedNoTemp", String(payload.skippedNoTemp));
     if (typeof payload?.skippedNoTimestamp === "number")
@@ -1035,6 +1046,9 @@ export default async function TemperatureDashboardPage({
   const syncThingNames = firstParam(params.thingNames);
   const syncDeviceThingNames = firstParam(params.deviceThingNames);
   const syncIngested = Number(firstParam(params.ingested) ?? "NaN");
+  const syncSamplesFetched = Number(firstParam(params.samplesFetched) ?? "NaN");
+  const syncMatchedNodesNoSamples = Number(firstParam(params.matchedNodesNoSamples) ?? "NaN");
+  const syncFallbackNodesQueried = Number(firstParam(params.fallbackNodesQueried) ?? "NaN");
   const syncSkippedDuplicate = Number(firstParam(params.skippedDuplicate) ?? "NaN");
   const syncSkippedNoTemp = Number(firstParam(params.skippedNoTemp) ?? "NaN");
   const syncSkippedNoTimestamp = Number(firstParam(params.skippedNoTimestamp) ?? "NaN");
@@ -1118,11 +1132,16 @@ export default async function TemperatureDashboardPage({
                 : "Sync completed but no new readings were ingested."}
             </div>
             <div style={{ marginTop: 6, fontSize: 13, opacity: 0.95 }}>
-              Active hubs: {Number.isFinite(syncHubsActive) ? syncHubsActive : "-"} | Devices found: {Number.isFinite(syncDevicesFound) ? syncDevicesFound : "-"} | Nodes found: {Number.isFinite(syncNodesFound) ? syncNodesFound : "-"} | Nodes matched: {Number.isFinite(syncNodesMatched) ? syncNodesMatched : "-"} | Ingested: {Number.isFinite(syncIngested) ? syncIngested : "-"} | Duplicates skipped: {Number.isFinite(syncSkippedDuplicate) ? syncSkippedDuplicate : "-"} | No-temp skipped: {Number.isFinite(syncSkippedNoTemp) ? syncSkippedNoTemp : "-"} | No-time skipped: {Number.isFinite(syncSkippedNoTimestamp) ? syncSkippedNoTimestamp : "-"}
+              Active hubs: {Number.isFinite(syncHubsActive) ? syncHubsActive : "-"} | Devices found: {Number.isFinite(syncDevicesFound) ? syncDevicesFound : "-"} | Nodes found: {Number.isFinite(syncNodesFound) ? syncNodesFound : "-"} | Nodes matched: {Number.isFinite(syncNodesMatched) ? syncNodesMatched : "-"} | Samples fetched: {Number.isFinite(syncSamplesFetched) ? syncSamplesFetched : "-"} | Ingested: {Number.isFinite(syncIngested) ? syncIngested : "-"} | Duplicates skipped: {Number.isFinite(syncSkippedDuplicate) ? syncSkippedDuplicate : "-"} | No-temp skipped: {Number.isFinite(syncSkippedNoTemp) ? syncSkippedNoTemp : "-"} | No-time skipped: {Number.isFinite(syncSkippedNoTimestamp) ? syncSkippedNoTimestamp : "-"}
             </div>
             {Number.isFinite(syncIngested) && syncIngested === 0 ? (
               <div style={{ marginTop: 6, fontSize: 13, opacity: 0.95 }}>
                 Check mapping and pairing: dashboard <b>Mocreo Hub ID</b> must equal Mocreo hub serial/SN (<code>thingName</code>). If devices are found but nodes are 0, sensors may not be paired to the hub yet.
+              </div>
+            ) : null}
+            {Number.isFinite(syncMatchedNodesNoSamples) && syncMatchedNodesNoSamples > 0 ? (
+              <div style={{ marginTop: 6, fontSize: 13, opacity: 0.95 }}>
+                Matched nodes with no returned samples: {syncMatchedNodesNoSamples}. Fallback-window retries used: {Number.isFinite(syncFallbackNodesQueried) ? syncFallbackNodesQueried : "-"}.
               </div>
             ) : null}
             {syncThingNames ? (

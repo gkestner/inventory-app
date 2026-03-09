@@ -9,6 +9,8 @@ import {
 const MOCREO_BASE_URL = "https://api.sync-sign.com/v2";
 const MAX_POLL_MINUTES = 180;
 const SAMPLE_PAGE_SIZE = 200;
+const DEFAULT_FALLBACK_MINUTES = 24 * 60;
+const MAX_FALLBACK_MINUTES = 7 * 24 * 60;
 
 type MocreoNode = {
   nodeId?: string;
@@ -86,6 +88,9 @@ export type MocreoSyncResult = {
   availableThingNamesSample: string[];
   availableDeviceThingNamesSample: string[];
   ingested: number;
+  samplesFetched: number;
+  matchedNodesNoSamples: number;
+  fallbackNodesQueried: number;
   skippedDuplicate: number;
   skippedNoTemp: number;
   skippedNoTimestamp: number;
@@ -417,10 +422,19 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
   });
 
   let ingested = 0;
+  let samplesFetched = 0;
+  let matchedNodesNoSamples = 0;
+  let fallbackNodesQueried = 0;
   let alerted = 0;
   let skippedDuplicate = 0;
   let skippedNoTemp = 0;
   let skippedNoTimestamp = 0;
+
+  const fallbackWindowMinutesRaw = parseIntSafe(process.env.MOCREO_POLL_FALLBACK_MINUTES);
+  const fallbackWindowMinutes = Math.max(
+    1,
+    Math.min(MAX_FALLBACK_MINUTES, fallbackWindowMinutesRaw ?? DEFAULT_FALLBACK_MINUTES)
+  );
 
   for (const node of targetNodes) {
     const nodeId = getNodeId(node);
@@ -430,14 +444,32 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
     const hub = hubByExternalId.get(normalizeKey(thingName));
     if (!hub) continue;
 
-    const samples = await fetchNodeSamples({
+    let samples = await fetchNodeSamples({
       accessToken,
       nodeId,
       beginTimeSec,
       endTimeSec,
     });
 
-    if (samples.length === 0) continue;
+    if (samples.length === 0) {
+      const fallbackBeginTimeSec = Math.max(0, endTimeSec - fallbackWindowMinutes * 60);
+      if (fallbackBeginTimeSec < beginTimeSec) {
+        fallbackNodesQueried += 1;
+        samples = await fetchNodeSamples({
+          accessToken,
+          nodeId,
+          beginTimeSec: fallbackBeginTimeSec,
+          endTimeSec,
+        });
+      }
+    }
+
+    samplesFetched += samples.length;
+
+    if (samples.length === 0) {
+      matchedNodesNoSamples += 1;
+      continue;
+    }
 
     const uniqueById = new Map<string, NormalizedSample>();
     for (const sample of samples) {
@@ -600,6 +632,9 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
           beginTimeSec,
           endTimeSec,
           sampleCandidates: samples.length,
+          samplesFetched,
+          matchedNodesNoSamples,
+          fallbackNodesQueried,
           ingested,
           skippedDuplicate,
           skippedNoTemp,
@@ -625,6 +660,9 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
     availableThingNamesSample: availableThingNames.slice(0, 8),
     availableDeviceThingNamesSample: availableDeviceThingNames.slice(0, 8),
     ingested,
+    samplesFetched,
+    matchedNodesNoSamples,
+    fallbackNodesQueried,
     skippedDuplicate,
     skippedNoTemp,
     skippedNoTimestamp,
