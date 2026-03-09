@@ -244,43 +244,6 @@ export default async function TemperatureDashboardPage({
     isAdmin;
   if (!canView) redirect("/");
 
-  return (
-    <main>
-      <div style={{ maxWidth: 980, margin: "0 auto", display: "grid", gap: 12 }}>
-        <section
-          style={{
-            border: "1px solid var(--border)",
-            borderRadius: 16,
-            padding: 18,
-            background:
-              "linear-gradient(150deg, color-mix(in srgb, var(--brand) 14%, var(--surface)) 0%, var(--surface) 70%)",
-            boxShadow: "var(--shadow)",
-          }}
-        >
-          <h1 style={{ margin: 0, fontSize: 30, fontWeight: 950 }}>Mocreo Temperature Dashboard</h1>
-          <p style={{ margin: "8px 0 0", color: "var(--muted)", lineHeight: 1.45 }}>
-            This module is temporarily deactivated.
-          </p>
-        </section>
-
-        <section
-          style={{
-            border: "1px solid var(--border)",
-            borderRadius: 14,
-            background: "var(--surface)",
-            boxShadow: "var(--shadow)",
-            padding: 14,
-          }}
-        >
-          <h2 style={{ margin: "0 0 8px", fontSize: 22, fontWeight: 900 }}>Coming Soon</h2>
-          <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.5 }}>
-            We are rebuilding Mocreo connectivity and live data flow. Dashboard controls will return in an upcoming update.
-          </p>
-        </section>
-      </div>
-    </main>
-  );
-
   async function saveHubAction(formData: FormData) {
     "use server";
 
