@@ -129,6 +129,7 @@ export type MocreoSyncResult = {
   debugNodeKeysSample: string[];
   debugNodeProbeKeysSample: string[];
   debugNodeDetailKeysSample: string[];
+  debugNodeDetailDataKeysSample: string[];
   debugDeviceKeysSample: string[];
   debugDeviceInfoKeysSample: string[];
   skippedDuplicate: number;
@@ -564,41 +565,52 @@ async function fetchNodeSamples(args: {
   beginTimeSec: number;
   endTimeSec: number;
 }): Promise<MocreoSample[]> {
-  const out: MocreoSample[] = [];
-  let offset = 0;
+  async function fetchWindow(useMs: boolean): Promise<MocreoSample[]> {
+    const out: MocreoSample[] = [];
+    let offset = 0;
 
-  for (let page = 0; page < 20; page += 1) {
-    const url = new URL(`${MOCREO_BASE_URL}/nodes/${encodeURIComponent(args.nodeId)}/samples`);
-    url.searchParams.set("limit", String(SAMPLE_PAGE_SIZE));
-    url.searchParams.set("offset", String(offset));
-    url.searchParams.set("beginTime", String(args.beginTimeSec));
-    url.searchParams.set("endTime", String(args.endTimeSec));
+    const begin = useMs ? args.beginTimeSec * 1000 : args.beginTimeSec;
+    const end = useMs ? args.endTimeSec * 1000 : args.endTimeSec;
 
-    const res = await fetch(url.toString(), {
-      method: "GET",
-      headers: { Authorization: `Bearer ${args.accessToken}` },
-      cache: "no-store",
-    });
+    for (let page = 0; page < 20; page += 1) {
+      const url = new URL(`${MOCREO_BASE_URL}/nodes/${encodeURIComponent(args.nodeId)}/samples`);
+      url.searchParams.set("limit", String(SAMPLE_PAGE_SIZE));
+      url.searchParams.set("offset", String(offset));
+      url.searchParams.set("beginTime", String(begin));
+      url.searchParams.set("endTime", String(end));
 
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Samples request failed for node ${args.nodeId} (${res.status}): ${text.slice(0, 300)}`);
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: { Authorization: `Bearer ${args.accessToken}` },
+        cache: "no-store",
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Samples request failed for node ${args.nodeId} (${res.status}): ${text.slice(0, 300)}`);
+      }
+
+      const pageRowsRaw = (await res.json()) as unknown;
+      const pageRows = extractArrayPayload<MocreoSample>(pageRowsRaw);
+      if (pageRows.length === 0) break;
+
+      out.push(...pageRows);
+
+      if (pageRows.length < SAMPLE_PAGE_SIZE) break;
+      offset += SAMPLE_PAGE_SIZE;
+
+      // Keep requests under Mocreo's documented limit of 5 requests/sec.
+      await new Promise((resolve) => setTimeout(resolve, 220));
     }
 
-    const pageRowsRaw = (await res.json()) as unknown;
-    const pageRows = extractArrayPayload<MocreoSample>(pageRowsRaw);
-    if (pageRows.length === 0) break;
-
-    out.push(...pageRows);
-
-    if (pageRows.length < SAMPLE_PAGE_SIZE) break;
-    offset += SAMPLE_PAGE_SIZE;
-
-    // Keep requests under Mocreo's documented limit of 5 requests/sec.
-    await new Promise((resolve) => setTimeout(resolve, 220));
+    return out;
   }
 
-  return out;
+  const secRows = await fetchWindow(false);
+  if (secRows.length > 0) return secRows;
+
+  // Some tenants/APIs expect begin/end in milliseconds.
+  return fetchWindow(true);
 }
 
 async function fetchSamplesForCandidate(args: {
@@ -733,6 +745,7 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
   let debugNodeKeysSample: string[] = [];
   let debugNodeProbeKeysSample: string[] = [];
   let debugNodeDetailKeysSample: string[] = [];
+  let debugNodeDetailDataKeysSample: string[] = [];
   let debugDeviceKeysSample: string[] = [];
   let debugDeviceInfoKeysSample: string[] = [];
   let alerted = 0;
@@ -818,6 +831,10 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
       if (detailPayload && debugNodeDetailKeysSample.length === 0) {
         const root = asRecord(detailPayload);
         debugNodeDetailKeysSample = topLevelKeys(root).slice(0, 40);
+        const dataObj = asRecord(root.data);
+        if (Object.keys(dataObj).length > 0) {
+          debugNodeDetailDataKeysSample = topLevelKeys(dataObj).slice(0, 40);
+        }
         const probes = Array.isArray(root.probes) ? root.probes : Array.isArray(asRecord(root.data).probes) ? (asRecord(root.data).probes as unknown[]) : [];
         if (probes.length > 0 && debugNodeProbeKeysSample.length === 0) {
           debugNodeProbeKeysSample = topLevelKeys(probes[0]).slice(0, 40);
@@ -1073,6 +1090,7 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
     debugNodeKeysSample,
     debugNodeProbeKeysSample,
     debugNodeDetailKeysSample,
+    debugNodeDetailDataKeysSample,
     debugDeviceKeysSample,
     debugDeviceInfoKeysSample,
     skippedDuplicate,

@@ -665,6 +665,7 @@ export default async function TemperatureDashboardPage({
       debugNodeKeysSample?: unknown;
       debugNodeProbeKeysSample?: unknown;
       debugNodeDetailKeysSample?: unknown;
+      debugNodeDetailDataKeysSample?: unknown;
       debugDeviceKeysSample?: unknown;
       debugDeviceInfoKeysSample?: unknown;
       skippedDuplicate?: number;
@@ -690,6 +691,7 @@ export default async function TemperatureDashboardPage({
         debugNodeKeysSample?: unknown;
         debugNodeProbeKeysSample?: unknown;
         debugNodeDetailKeysSample?: unknown;
+        debugNodeDetailDataKeysSample?: unknown;
         debugDeviceKeysSample?: unknown;
         debugDeviceInfoKeysSample?: unknown;
         skippedDuplicate?: number;
@@ -747,6 +749,14 @@ export default async function TemperatureDashboardPage({
         .slice(0, 20)
         .join(", ");
       if (sample) sp.set("debugNodeDetailKeys", sample.slice(0, 350));
+    }
+    if (Array.isArray(payload?.debugNodeDetailDataKeysSample) && payload.debugNodeDetailDataKeysSample.length > 0) {
+      const sample = payload.debugNodeDetailDataKeysSample
+        .map((x) => String(x ?? "").trim())
+        .filter(Boolean)
+        .slice(0, 20)
+        .join(", ");
+      if (sample) sp.set("debugNodeDetailDataKeys", sample.slice(0, 350));
     }
     if (Array.isArray(payload?.debugDeviceKeysSample) && payload.debugDeviceKeysSample.length > 0) {
       const sample = payload.debugDeviceKeysSample
@@ -1116,6 +1126,7 @@ export default async function TemperatureDashboardPage({
   const syncDebugNodeKeys = firstParam(params.debugNodeKeys);
   const syncDebugNodeProbeKeys = firstParam(params.debugNodeProbeKeys);
   const syncDebugNodeDetailKeys = firstParam(params.debugNodeDetailKeys);
+  const syncDebugNodeDetailDataKeys = firstParam(params.debugNodeDetailDataKeys);
   const syncDebugDeviceKeys = firstParam(params.debugDeviceKeys);
   const syncDebugDeviceInfoKeys = firstParam(params.debugDeviceInfoKeys);
   const syncSkippedDuplicate = Number(firstParam(params.skippedDuplicate) ?? "NaN");
@@ -1226,6 +1237,11 @@ export default async function TemperatureDashboardPage({
             {syncDebugNodeDetailKeys ? (
               <div style={{ marginTop: 6, fontSize: 13, opacity: 0.95 }}>
                 Debug node detail keys (sample): <code>{syncDebugNodeDetailKeys}</code>
+              </div>
+            ) : null}
+            {syncDebugNodeDetailDataKeys ? (
+              <div style={{ marginTop: 6, fontSize: 13, opacity: 0.95 }}>
+                Debug node detail.data keys (sample): <code>{syncDebugNodeDetailDataKeys}</code>
               </div>
             ) : null}
             {syncDebugDeviceKeys ? (
