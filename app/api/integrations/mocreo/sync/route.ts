@@ -26,6 +26,15 @@ type MocreoNode = {
   signalLevel?: number | null;
 };
 
+type MocreoDevice = {
+  thingName?: string;
+  sn?: string;
+  info?: {
+    thingName?: string;
+    sn?: string;
+  };
+};
+
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 }
@@ -59,6 +68,18 @@ function extractApiErrorMessage(payload: unknown): string {
     toNonEmptyString(err.name) ||
     ""
   );
+}
+
+function extractArrayPayload<T = unknown>(payload: unknown): T[] {
+  if (Array.isArray(payload)) return payload as T[];
+
+  const root = asRecord(payload);
+  const candidates = [root.data, root.items, root.records, root.nodes, root.devices, root.events];
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate as T[];
+  }
+
+  return [];
 }
 
 type MocreoSample = {
@@ -165,8 +186,22 @@ async function fetchNodes(accessToken: string): Promise<MocreoNode[]> {
   }
 
   const json = await res.json();
-  if (!Array.isArray(json)) return [];
-  return json as MocreoNode[];
+  return extractArrayPayload<MocreoNode>(json);
+}
+
+async function fetchDevices(accessToken: string): Promise<MocreoDevice[]> {
+  const res = await fetch(`${MOCREO_BASE_URL}/devices`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    return [];
+  }
+
+  const json = await res.json();
+  return extractArrayPayload<MocreoDevice>(json);
 }
 
 async function fetchNodeSamples(args: {
@@ -249,9 +284,22 @@ async function runSync(req: NextRequest) {
 
   const accessToken = await getAccessToken();
   const nodes = await fetchNodes(accessToken);
+  const devices = await fetchDevices(accessToken);
 
   const availableThingNames = nodes
     .map((node) => String(node.thingName ?? "").trim())
+    .filter((x) => x.length > 0);
+
+  const availableDeviceThingNames = devices
+    .map((d) => {
+      const info = asRecord(d.info);
+      return (
+        String(d.thingName ?? "").trim() ||
+        String(d.sn ?? "").trim() ||
+        String(info.thingName ?? "").trim() ||
+        String(info.sn ?? "").trim()
+      );
+    })
     .filter((x) => x.length > 0);
 
   const targetNodes = nodes.filter((node) => {
@@ -460,8 +508,10 @@ async function runSync(req: NextRequest) {
     minutes,
     hubsActive: hubs.length,
     nodesFound: nodes.length,
+    devicesFound: devices.length,
     nodesMatched: targetNodes.length,
     availableThingNamesSample: availableThingNames.slice(0, 8),
+    availableDeviceThingNamesSample: availableDeviceThingNames.slice(0, 8),
     ingested,
     skippedDuplicate,
     skippedNoTemp,
