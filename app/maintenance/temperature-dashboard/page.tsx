@@ -640,6 +640,45 @@ export default async function TemperatureDashboardPage({
     redirect("/maintenance/temperature-dashboard?test=ok");
   }
 
+  async function runSyncNowAction() {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as SessionShape;
+    if (!session) redirect("/login");
+    if (!(await canAccessAdmin(session))) redirect("/");
+
+    const h = await headers();
+    const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
+    const proto = h.get("x-forwarded-proto") ?? "https";
+
+    if (!host) {
+      redirect("/maintenance/temperature-dashboard?sync=host_missing");
+    }
+
+    const syncUrl = `${proto}://${host}/api/integrations/mocreo/sync`;
+    const syncToken = process.env.MOCREO_SYNC_TOKEN?.trim();
+    const headersObj: Record<string, string> = {};
+    if (syncToken) headersObj["x-mocreo-sync-token"] = syncToken;
+
+    let response: Response;
+    try {
+      response = await fetch(syncUrl, {
+        method: "POST",
+        headers: headersObj,
+        cache: "no-store",
+      });
+    } catch {
+      redirect("/maintenance/temperature-dashboard?sync=network_error");
+    }
+
+    if (!response.ok) {
+      redirect(`/maintenance/temperature-dashboard?sync=failed&code=${response.status}`);
+    }
+
+    revalidatePath("/maintenance/temperature-dashboard");
+    redirect("/maintenance/temperature-dashboard?sync=ok");
+  }
+
   async function ingestManualReadingAction(formData: FormData) {
     "use server";
 
@@ -917,6 +956,9 @@ export default async function TemperatureDashboardPage({
   const testValue = firstParam(params.test);
   const testCode = firstParam(params.code);
   const testState = testValue ? `${testValue}${testCode ? ` (${testCode})` : ""}` : null;
+  const syncValue = firstParam(params.sync);
+  const syncCode = firstParam(params.code);
+  const syncState = syncValue ? `${syncValue}${syncCode ? ` (${syncCode})` : ""}` : null;
   const refreshSecRaw = firstParam(params.refreshSec);
   const refreshSec = Math.max(5, Math.min(300, Number.isFinite(Number(refreshSecRaw)) ? Number(refreshSecRaw) : 20));
   const reqHeaders = await headers();
@@ -1030,6 +1072,45 @@ export default async function TemperatureDashboardPage({
             </div>
           </div>
         </section>
+
+        {isAdmin ? (
+          <section
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: 14,
+              background: "var(--surface)",
+              boxShadow: "var(--shadow)",
+              padding: 14,
+            }}
+          >
+            <h2 style={{ margin: "0 0 10px", fontSize: 20, fontWeight: 900 }}>Sync Mocreo Now</h2>
+            <p style={{ margin: "0 0 10px", color: "var(--muted)", lineHeight: 1.4 }}>
+              Use this to manually pull latest Mocreo readings immediately.
+            </p>
+            <form action={runSyncNowAction}>
+              <button
+                type="submit"
+                style={{
+                  width: "fit-content",
+                  padding: "10px 14px",
+                  borderRadius: 10,
+                  border: "1px solid var(--border)",
+                  cursor: "pointer",
+                  fontWeight: 900,
+                  background: "var(--surface-2)",
+                  color: "var(--foreground)",
+                }}
+              >
+                Sync Now
+              </button>
+            </form>
+            {syncState ? (
+              <div style={{ marginTop: 10, fontSize: 13, opacity: 0.9 }}>
+                Last sync result: {syncState}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
 
         {isAdmin ? (
           <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 14 }}>
