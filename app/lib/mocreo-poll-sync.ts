@@ -15,6 +15,10 @@ const MAX_FALLBACK_MINUTES = 7 * 24 * 60;
 type MocreoNode = {
   nodeId?: string;
   node_id?: string;
+  deviceKey?: string;
+  device_key?: string;
+  encKey?: string;
+  enc_key?: string;
   thingName?: string;
   thing_name?: string;
   name?: string;
@@ -252,6 +256,23 @@ function getNodeThingName(node: MocreoNode): string {
   return String(node.thingName ?? node.thing_name ?? "").trim();
 }
 
+function getNodeSampleIdCandidates(node: MocreoNode): string[] {
+  return Array.from(
+    new Set(
+      [
+        String(node.nodeId ?? "").trim(),
+        String(node.node_id ?? "").trim(),
+        String(node.deviceKey ?? "").trim(),
+        String(node.device_key ?? "").trim(),
+        String(node.encKey ?? "").trim(),
+        String(node.enc_key ?? "").trim(),
+        String(node.thingName ?? "").trim(),
+        String(node.thing_name ?? "").trim(),
+      ].filter(Boolean)
+    )
+  );
+}
+
 function getDeviceHubRef(device: MocreoDevice): string {
   const info = asRecord(device.info);
   return (
@@ -388,6 +409,19 @@ function parseSampleTempF(sample: MocreoSample): number | null {
   return null;
 }
 
+function toLooseNumber(value: unknown): number | null {
+  const strict = toNumberOrNull(value);
+  if (strict !== null) return strict;
+
+  if (typeof value !== "string") return null;
+  const s = value.trim();
+  if (!s) return null;
+  const m = s.match(/-?\d+(?:\.\d+)?/);
+  if (!m) return null;
+  const n = Number(m[0]);
+  return Number.isFinite(n) ? n : null;
+}
+
 function parseTempFFromUnknown(value: unknown): number | null {
   if (typeof value !== "object" || value === null) return null;
 
@@ -430,7 +464,7 @@ function parseTempFFromUnknown(value: unknown): number | null {
 
     for (const [key, raw] of Object.entries(obj)) {
       const k = key.toLowerCase();
-      const n = toNumberOrNull(raw);
+      const n = toLooseNumber(raw);
       if (n !== null) {
         if (k.includes("fahrenheit") || k.endsWith("f") || k.includes("temp_f")) return n;
         if (k.includes("celsius") || k.endsWith("c") || k.includes("temp_c")) return cToF(n);
@@ -441,9 +475,17 @@ function parseTempFFromUnknown(value: unknown): number | null {
           const hint = String(obj.type ?? obj.kind ?? obj.name ?? obj.label ?? "").toLowerCase();
           const unit = String(obj.unit ?? obj.units ?? "").toLowerCase();
           if (hint.includes("temp") || hint.includes("temperature")) {
+            if (unit.includes("0.01") && unit.includes("c")) return cToF(n / 100);
             if (unit === "c" || unit.includes("celsius")) return cToF(n);
             return n;
           }
+        }
+
+        if ((k.includes("temp") || k.includes("temperature")) && n !== null) {
+          const unit = String(obj.unit ?? obj.units ?? "").toLowerCase();
+          if (unit.includes("0.01") && unit.includes("c")) return cToF(n / 100);
+          if (unit === "c" || unit.includes("celsius")) return cToF(n);
+          return n;
         }
       }
 
@@ -768,13 +810,21 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
     if (!hub) continue;
 
     const sampleIdCandidates = new Set<string>();
-    sampleIdCandidates.add(nodeId);
-    if (thingName) sampleIdCandidates.add(thingName);
+    for (const candidate of getNodeSampleIdCandidates(node)) sampleIdCandidates.add(candidate);
 
-    const deviceRowsForHub = devices.filter((device) => {
+    let deviceRowsForHub = devices.filter((device) => {
       const hubRef = getDeviceHubRef(device);
       return hubRef && normalizeKey(hubRef) === normalizeKey(hub.externalHubId);
     });
+
+    if (deviceRowsForHub.length === 0) {
+      // Some payloads don't expose hub linkage on /devices; fall back to rows mentioning node identifiers.
+      const nodeNeedles = [normalizeKey(nodeId), normalizeKey(thingName)].filter(Boolean);
+      deviceRowsForHub = devices.filter((device) => {
+        const blob = JSON.stringify(device).toUpperCase();
+        return nodeNeedles.some((needle) => needle && blob.includes(needle));
+      });
+    }
 
     for (const deviceRow of deviceRowsForHub) {
       for (const candidate of getDeviceSampleIdCandidates(deviceRow)) sampleIdCandidates.add(candidate);
