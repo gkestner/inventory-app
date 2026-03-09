@@ -659,6 +659,8 @@ export default async function TemperatureDashboardPage({
     const syncToken = process.env.MOCREO_SYNC_TOKEN?.trim();
     const headersObj: Record<string, string> = {};
     if (syncToken) headersObj["x-mocreo-sync-token"] = syncToken;
+    const incomingCookie = h.get("cookie")?.trim();
+    if (incomingCookie) headersObj.cookie = incomingCookie;
 
     let response: Response;
     try {
