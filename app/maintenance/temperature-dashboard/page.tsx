@@ -700,6 +700,8 @@ export default async function TemperatureDashboardPage({
 
     let payload: {
       nodesMatched?: number;
+      nodesFound?: number;
+      availableThingNamesSample?: unknown;
       ingested?: number;
       skippedDuplicate?: number;
       skippedNoTemp?: number;
@@ -709,6 +711,8 @@ export default async function TemperatureDashboardPage({
     try {
       payload = (await response.json()) as {
         nodesMatched?: number;
+        nodesFound?: number;
+        availableThingNamesSample?: unknown;
         ingested?: number;
         skippedDuplicate?: number;
         skippedNoTemp?: number;
@@ -722,10 +726,19 @@ export default async function TemperatureDashboardPage({
     const sp = new URLSearchParams();
     sp.set("sync", "ok");
     if (typeof payload?.hubsActive === "number") sp.set("hubsActive", String(payload.hubsActive));
+    if (typeof payload?.nodesFound === "number") sp.set("nodesFound", String(payload.nodesFound));
     if (typeof payload?.nodesMatched === "number") sp.set("nodesMatched", String(payload.nodesMatched));
     if (typeof payload?.ingested === "number") sp.set("ingested", String(payload.ingested));
     if (typeof payload?.skippedDuplicate === "number") sp.set("skippedDuplicate", String(payload.skippedDuplicate));
     if (typeof payload?.skippedNoTemp === "number") sp.set("skippedNoTemp", String(payload.skippedNoTemp));
+    if (Array.isArray(payload?.availableThingNamesSample) && payload.availableThingNamesSample.length > 0) {
+      const sample = payload.availableThingNamesSample
+        .map((x) => String(x ?? "").trim())
+        .filter(Boolean)
+        .slice(0, 8)
+        .join(", ");
+      if (sample) sp.set("thingNames", sample.slice(0, 280));
+    }
     redirect(`/maintenance/temperature-dashboard?${sp.toString()}`);
   }
 
@@ -1032,7 +1045,9 @@ export default async function TemperatureDashboardPage({
   const syncReason = firstParam(params.reason);
   const syncState = syncValue ? `${syncValue}${syncCode ? ` (${syncCode})` : ""}` : null;
   const syncHubsActive = Number(firstParam(params.hubsActive) ?? "NaN");
+  const syncNodesFound = Number(firstParam(params.nodesFound) ?? "NaN");
   const syncNodesMatched = Number(firstParam(params.nodesMatched) ?? "NaN");
+  const syncThingNames = firstParam(params.thingNames);
   const syncIngested = Number(firstParam(params.ingested) ?? "NaN");
   const syncSkippedDuplicate = Number(firstParam(params.skippedDuplicate) ?? "NaN");
   const syncSkippedNoTemp = Number(firstParam(params.skippedNoTemp) ?? "NaN");
@@ -1116,11 +1131,16 @@ export default async function TemperatureDashboardPage({
                 : "Sync completed but no new readings were ingested."}
             </div>
             <div style={{ marginTop: 6, fontSize: 13, opacity: 0.95 }}>
-              Active hubs: {Number.isFinite(syncHubsActive) ? syncHubsActive : "-"} | Nodes matched: {Number.isFinite(syncNodesMatched) ? syncNodesMatched : "-"} | Ingested: {Number.isFinite(syncIngested) ? syncIngested : "-"} | Duplicates skipped: {Number.isFinite(syncSkippedDuplicate) ? syncSkippedDuplicate : "-"} | No-temp skipped: {Number.isFinite(syncSkippedNoTemp) ? syncSkippedNoTemp : "-"}
+              Active hubs: {Number.isFinite(syncHubsActive) ? syncHubsActive : "-"} | Nodes found: {Number.isFinite(syncNodesFound) ? syncNodesFound : "-"} | Nodes matched: {Number.isFinite(syncNodesMatched) ? syncNodesMatched : "-"} | Ingested: {Number.isFinite(syncIngested) ? syncIngested : "-"} | Duplicates skipped: {Number.isFinite(syncSkippedDuplicate) ? syncSkippedDuplicate : "-"} | No-temp skipped: {Number.isFinite(syncSkippedNoTemp) ? syncSkippedNoTemp : "-"}
             </div>
             {Number.isFinite(syncIngested) && syncIngested === 0 ? (
               <div style={{ marginTop: 6, fontSize: 13, opacity: 0.95 }}>
                 Check mapping: dashboard <b>Mocreo Hub ID</b> must exactly equal Mocreo hub serial/SN (<code>thingName</code>), and confirm Mocreo API credentials are set.
+              </div>
+            ) : null}
+            {syncThingNames ? (
+              <div style={{ marginTop: 6, fontSize: 13, opacity: 0.95 }}>
+                Mocreo returned hub IDs (sample): <code>{syncThingNames}</code>
               </div>
             ) : null}
           </section>

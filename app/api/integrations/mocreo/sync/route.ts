@@ -14,6 +14,10 @@ const MOCREO_BASE_URL = "https://api.sync-sign.com/v2";
 const MAX_POLL_MINUTES = 180;
 const SAMPLE_PAGE_SIZE = 200;
 
+function normalizeKey(value: string): string {
+  return value.trim().toUpperCase();
+}
+
 type MocreoNode = {
   nodeId?: string;
   thingName?: string;
@@ -240,15 +244,19 @@ async function runSync(req: NextRequest) {
 
   const hubByExternalId = new Map<string, HubRow>();
   for (const hub of hubs) {
-    hubByExternalId.set(hub.externalHubId, hub as HubRow);
+    hubByExternalId.set(normalizeKey(hub.externalHubId), hub as HubRow);
   }
 
   const accessToken = await getAccessToken();
   const nodes = await fetchNodes(accessToken);
 
+  const availableThingNames = nodes
+    .map((node) => String(node.thingName ?? "").trim())
+    .filter((x) => x.length > 0);
+
   const targetNodes = nodes.filter((node) => {
     const thingName = String(node.thingName ?? "").trim();
-    return thingName && hubByExternalId.has(thingName);
+    return thingName && hubByExternalId.has(normalizeKey(thingName));
   });
 
   let ingested = 0;
@@ -261,7 +269,7 @@ async function runSync(req: NextRequest) {
     const thingName = String(node.thingName ?? "").trim();
     if (!nodeId || !thingName) continue;
 
-    const hub = hubByExternalId.get(thingName);
+    const hub = hubByExternalId.get(normalizeKey(thingName));
     if (!hub) continue;
 
     const samples = await fetchNodeSamples({
@@ -451,7 +459,9 @@ async function runSync(req: NextRequest) {
     endTimeSec,
     minutes,
     hubsActive: hubs.length,
+    nodesFound: nodes.length,
     nodesMatched: targetNodes.length,
+    availableThingNamesSample: availableThingNames.slice(0, 8),
     ingested,
     skippedDuplicate,
     skippedNoTemp,
