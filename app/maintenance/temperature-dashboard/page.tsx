@@ -314,6 +314,7 @@ export default async function TemperatureDashboardPage({
       assignedMaintenanceUserId = assignments.find((a) => a.locationId === locationId)?.userId ?? null;
     }
 
+    let savedId = "";
     try {
       const saved = hubId
         ? await db.mocreoHub.update({
@@ -341,6 +342,8 @@ export default async function TemperatureDashboardPage({
             select: { id: true },
           });
 
+          savedId = saved.id;
+
       await db.mocreoHubRecipient.deleteMany({ where: { hubId: saved.id } });
 
       if (notifyUserIds.length > 0) {
@@ -356,13 +359,10 @@ export default async function TemperatureDashboardPage({
           module: "MOCREO_TEMPERATURE",
           action: hubId ? "UPDATE_HUB_CONFIG" : "CREATE_HUB_CONFIG",
           entityType: "MocreoHub",
-          entityId: saved.id,
+          entityId: savedId,
           message: `${hubId ? "Updated" : "Created"} Mocreo hub ${name}.`,
         },
       });
-
-      revalidatePath("/maintenance/temperature-dashboard");
-      redirect("/maintenance/temperature-dashboard?saved=1");
     } catch (error) {
       const msg = error instanceof Error ? error.message : "";
       if (/unique|duplicate|externalhubid/i.test(msg)) {
@@ -370,6 +370,9 @@ export default async function TemperatureDashboardPage({
       }
       redirect("/maintenance/temperature-dashboard?error=save_failed");
     }
+
+    revalidatePath("/maintenance/temperature-dashboard");
+    redirect("/maintenance/temperature-dashboard?saved=1");
   }
 
   async function toggleHubAction(formData: FormData) {
@@ -446,12 +449,12 @@ export default async function TemperatureDashboardPage({
           metadata: { externalHubId: existing.externalHubId },
         },
       });
-
-      revalidatePath("/maintenance/temperature-dashboard");
-      redirect("/maintenance/temperature-dashboard?deletedHub=1");
     } catch {
       redirect("/maintenance/temperature-dashboard?error=hub_delete_failed");
     }
+
+    revalidatePath("/maintenance/temperature-dashboard");
+    redirect("/maintenance/temperature-dashboard?deletedHub=1");
   }
 
   async function saveDeviceThresholdAction(formData: FormData) {
@@ -556,12 +559,12 @@ export default async function TemperatureDashboardPage({
           },
         },
       });
-
-      revalidatePath("/maintenance/temperature-dashboard");
-      redirect("/maintenance/temperature-dashboard?deletedSensor=1");
     } catch {
       redirect("/maintenance/temperature-dashboard?error=sensor_delete_failed");
     }
+
+    revalidatePath("/maintenance/temperature-dashboard");
+    redirect("/maintenance/temperature-dashboard?deletedSensor=1");
   }
 
   async function runWebhookPairingTestAction(formData: FormData) {
