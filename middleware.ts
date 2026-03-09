@@ -6,6 +6,8 @@ import { getToken } from "next-auth/jwt";
 function isPublicPath(pathname: string) {
   if (pathname === "/login") return true;
   if (pathname.startsWith("/api/auth")) return true;
+  if (pathname.startsWith("/api/integrations/mocreo/sync")) return true;
+  if (pathname.startsWith("/api/integrations/mocreo/webhook")) return true;
   if (pathname.startsWith("/_next")) return true;
   if (pathname === "/favicon.ico") return true;
   if (pathname === "/robots.txt") return true;

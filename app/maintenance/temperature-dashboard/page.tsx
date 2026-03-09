@@ -675,6 +675,11 @@ export default async function TemperatureDashboardPage({
       redirect(`/maintenance/temperature-dashboard?sync=failed&code=${response.status}`);
     }
 
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.toLowerCase().includes("application/json")) {
+      redirect(`/maintenance/temperature-dashboard?sync=bad_response&code=${response.status}`);
+    }
+
     let payload: {
       nodesMatched?: number;
       ingested?: number;
@@ -692,7 +697,7 @@ export default async function TemperatureDashboardPage({
         hubsActive?: number;
       };
     } catch {
-      // Keep payload null and still show generic sync ok.
+      redirect(`/maintenance/temperature-dashboard?sync=parse_error&code=${response.status}`);
     }
 
     revalidatePath("/maintenance/temperature-dashboard");
