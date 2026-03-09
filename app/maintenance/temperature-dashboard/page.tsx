@@ -660,6 +660,7 @@ export default async function TemperatureDashboardPage({
       matchedNodesNoSamples?: number;
       fallbackNodesQueried?: number;
       sampleIdsTried?: number;
+      sampleRequestAttempts?: number;
       skippedDuplicate?: number;
       skippedNoTemp?: number;
       skippedNoTimestamp?: number;
@@ -678,6 +679,7 @@ export default async function TemperatureDashboardPage({
         matchedNodesNoSamples?: number;
         fallbackNodesQueried?: number;
         sampleIdsTried?: number;
+        sampleRequestAttempts?: number;
         skippedDuplicate?: number;
         skippedNoTemp?: number;
         skippedNoTimestamp?: number;
@@ -706,6 +708,8 @@ export default async function TemperatureDashboardPage({
     if (typeof payload?.fallbackNodesQueried === "number")
       sp.set("fallbackNodesQueried", String(payload.fallbackNodesQueried));
     if (typeof payload?.sampleIdsTried === "number") sp.set("sampleIdsTried", String(payload.sampleIdsTried));
+    if (typeof payload?.sampleRequestAttempts === "number")
+      sp.set("sampleRequestAttempts", String(payload.sampleRequestAttempts));
     if (typeof payload?.skippedDuplicate === "number") sp.set("skippedDuplicate", String(payload.skippedDuplicate));
     if (typeof payload?.skippedNoTemp === "number") sp.set("skippedNoTemp", String(payload.skippedNoTemp));
     if (typeof payload?.skippedNoTimestamp === "number")
@@ -1053,6 +1057,7 @@ export default async function TemperatureDashboardPage({
   const syncMatchedNodesNoSamples = Number(firstParam(params.matchedNodesNoSamples) ?? "NaN");
   const syncFallbackNodesQueried = Number(firstParam(params.fallbackNodesQueried) ?? "NaN");
   const syncSampleIdsTried = Number(firstParam(params.sampleIdsTried) ?? "NaN");
+  const syncSampleRequestAttempts = Number(firstParam(params.sampleRequestAttempts) ?? "NaN");
   const syncSkippedDuplicate = Number(firstParam(params.skippedDuplicate) ?? "NaN");
   const syncSkippedNoTemp = Number(firstParam(params.skippedNoTemp) ?? "NaN");
   const syncSkippedNoTimestamp = Number(firstParam(params.skippedNoTimestamp) ?? "NaN");
@@ -1136,7 +1141,7 @@ export default async function TemperatureDashboardPage({
                 : "Sync completed but no new readings were ingested."}
             </div>
             <div style={{ marginTop: 6, fontSize: 13, opacity: 0.95 }}>
-              Active hubs: {Number.isFinite(syncHubsActive) ? syncHubsActive : "-"} | Devices found: {Number.isFinite(syncDevicesFound) ? syncDevicesFound : "-"} | Nodes found: {Number.isFinite(syncNodesFound) ? syncNodesFound : "-"} | Nodes matched: {Number.isFinite(syncNodesMatched) ? syncNodesMatched : "-"} | Sample IDs tried: {Number.isFinite(syncSampleIdsTried) ? syncSampleIdsTried : "-"} | Samples fetched: {Number.isFinite(syncSamplesFetched) ? syncSamplesFetched : "-"} | Ingested: {Number.isFinite(syncIngested) ? syncIngested : "-"} | Duplicates skipped: {Number.isFinite(syncSkippedDuplicate) ? syncSkippedDuplicate : "-"} | No-temp skipped: {Number.isFinite(syncSkippedNoTemp) ? syncSkippedNoTemp : "-"} | No-time skipped: {Number.isFinite(syncSkippedNoTimestamp) ? syncSkippedNoTimestamp : "-"}
+              Active hubs: {Number.isFinite(syncHubsActive) ? syncHubsActive : "-"} | Devices found: {Number.isFinite(syncDevicesFound) ? syncDevicesFound : "-"} | Nodes found: {Number.isFinite(syncNodesFound) ? syncNodesFound : "-"} | Nodes matched: {Number.isFinite(syncNodesMatched) ? syncNodesMatched : "-"} | Sample IDs tried: {Number.isFinite(syncSampleIdsTried) ? syncSampleIdsTried : "-"} | Sample requests tried: {Number.isFinite(syncSampleRequestAttempts) ? syncSampleRequestAttempts : "-"} | Samples fetched: {Number.isFinite(syncSamplesFetched) ? syncSamplesFetched : "-"} | Ingested: {Number.isFinite(syncIngested) ? syncIngested : "-"} | Duplicates skipped: {Number.isFinite(syncSkippedDuplicate) ? syncSkippedDuplicate : "-"} | No-temp skipped: {Number.isFinite(syncSkippedNoTemp) ? syncSkippedNoTemp : "-"} | No-time skipped: {Number.isFinite(syncSkippedNoTimestamp) ? syncSkippedNoTimestamp : "-"}
             </div>
             {Number.isFinite(syncIngested) && syncIngested === 0 ? (
               <div style={{ marginTop: 6, fontSize: 13, opacity: 0.95 }}>

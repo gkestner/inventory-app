@@ -124,6 +124,7 @@ export type MocreoSyncResult = {
   matchedNodesNoSamples: number;
   fallbackNodesQueried: number;
   sampleIdsTried: number;
+  sampleRequestAttempts: number;
   skippedDuplicate: number;
   skippedNoTemp: number;
   skippedNoTimestamp: number;
@@ -450,6 +451,72 @@ async function fetchNodeSamples(args: {
   return out;
 }
 
+async function fetchSamplesForCandidate(args: {
+  accessToken: string;
+  candidateId: string;
+  beginTimeSec: number;
+  endTimeSec: number;
+}): Promise<{ samples: MocreoSample[]; attempts: number }> {
+  const baseArgs = {
+    accessToken: args.accessToken,
+    beginTimeSec: args.beginTimeSec,
+    endTimeSec: args.endTimeSec,
+  };
+
+  let attempts = 0;
+
+  // Most tenants use node IDs here.
+  attempts += 1;
+  try {
+    const samples = await fetchNodeSamples({
+      ...baseArgs,
+      nodeId: args.candidateId,
+    });
+    if (samples.length > 0) return { samples, attempts };
+  } catch {
+    // Try alternate path below.
+  }
+
+  // Some tenants expose sample history behind /devices/{id}/samples.
+  attempts += 1;
+  try {
+    const out: MocreoSample[] = [];
+    let offset = 0;
+
+    for (let page = 0; page < 20; page += 1) {
+      const url = new URL(`${MOCREO_BASE_URL}/devices/${encodeURIComponent(args.candidateId)}/samples`);
+      url.searchParams.set("limit", String(SAMPLE_PAGE_SIZE));
+      url.searchParams.set("offset", String(offset));
+      url.searchParams.set("beginTime", String(args.beginTimeSec));
+      url.searchParams.set("endTime", String(args.endTimeSec));
+
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: { Authorization: `Bearer ${args.accessToken}` },
+        cache: "no-store",
+      });
+
+      if (!res.ok) break;
+
+      const pageRowsRaw = (await res.json()) as unknown;
+      const pageRows = extractArrayPayload<MocreoSample>(pageRowsRaw);
+      if (pageRows.length === 0) break;
+
+      out.push(...pageRows);
+
+      if (pageRows.length < SAMPLE_PAGE_SIZE) break;
+      offset += SAMPLE_PAGE_SIZE;
+      await new Promise((resolve) => setTimeout(resolve, 220));
+    }
+
+    if (out.length > 0) return { samples: out, attempts };
+  } catch {
+    // No-op: caller handles empty result.
+  }
+
+  return { samples: [], attempts };
+}
+
 export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Promise<MocreoSyncResult> {
   const intervalFromEnv = parseIntSafe(process.env.MOCREO_POLL_INTERVAL_MINUTES);
   const intervalFromOptions = parseIntSafe(options.minutes);
@@ -511,6 +578,7 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
   let matchedNodesNoSamples = 0;
   let fallbackNodesQueried = 0;
   let sampleIdsTried = 0;
+  let sampleRequestAttempts = 0;
   let alerted = 0;
   let skippedDuplicate = 0;
   let skippedNoTemp = 0;
@@ -532,6 +600,7 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
 
     const sampleIdCandidates = new Set<string>();
     sampleIdCandidates.add(nodeId);
+    if (thingName) sampleIdCandidates.add(thingName);
 
     const deviceRowsForHub = devices.filter((device) => {
       const hubRef = getDeviceHubRef(device);
@@ -548,12 +617,14 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
     let samples: MocreoSample[] = [];
     let usedFallbackForThisNode = false;
     for (const candidateId of candidateList) {
-      samples = await fetchNodeSamples({
+      const probe = await fetchSamplesForCandidate({
         accessToken,
-        nodeId: candidateId,
+        candidateId,
         beginTimeSec,
         endTimeSec,
       });
+      sampleRequestAttempts += probe.attempts;
+      samples = probe.samples;
       if (samples.length > 0) break;
     }
 
@@ -563,12 +634,14 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
         usedFallbackForThisNode = true;
         fallbackNodesQueried += 1;
         for (const candidateId of candidateList) {
-          samples = await fetchNodeSamples({
+          const probe = await fetchSamplesForCandidate({
             accessToken,
-            nodeId: candidateId,
+            candidateId,
             beginTimeSec: fallbackBeginTimeSec,
             endTimeSec,
           });
+          sampleRequestAttempts += probe.attempts;
+          samples = probe.samples;
           if (samples.length > 0) break;
         }
       }
@@ -746,6 +819,7 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
           matchedNodesNoSamples,
           fallbackNodesQueried,
           sampleIdsTried,
+          sampleRequestAttempts,
           usedFallbackForThisNode,
           ingested,
           skippedDuplicate,
@@ -776,6 +850,7 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
     matchedNodesNoSamples,
     fallbackNodesQueried,
     sampleIdsTried,
+    sampleRequestAttempts,
     skippedDuplicate,
     skippedNoTemp,
     skippedNoTimestamp,
