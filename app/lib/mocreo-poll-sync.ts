@@ -344,8 +344,12 @@ function parseSampleTempF(sample: MocreoSample): number | null {
   return null;
 }
 
-function parseTempFFromUnknown(value: unknown): number | null {
-  const obj = asRecord(value);
+function parseTempFFromUnknown(value: unknown, seen: WeakSet<object> = new WeakSet()): number | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (seen.has(value)) return null;
+  seen.add(value);
+
+  const obj = value as Record<string, unknown>;
 
   const directF =
     toNumberOrNull(obj.temperatureF) ??
@@ -367,16 +371,21 @@ function parseTempFFromUnknown(value: unknown): number | null {
   if (centiC !== null) return cToF(centiC / 100);
 
   for (const key of ["data", "telemetry", "reading", "lastReading", "status", "last"]) {
-    const nested = asRecord(obj[key]);
-    const nestedTemp = parseTempFFromUnknown(nested);
+    const nested = obj[key];
+    if (typeof nested !== "object" || nested === null) continue;
+    const nestedTemp = parseTempFFromUnknown(nested, seen);
     if (nestedTemp !== null) return nestedTemp;
   }
 
   return null;
 }
 
-function parseTimestampFromUnknown(value: unknown): number | null {
-  const obj = asRecord(value);
+function parseTimestampFromUnknown(value: unknown, seen: WeakSet<object> = new WeakSet()): number | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (seen.has(value)) return null;
+  seen.add(value);
+
+  const obj = value as Record<string, unknown>;
   const direct = [obj.time, obj.timestamp, obj.ts, obj.recordedAt, obj.createdAt, obj.lastSeenAt, obj.updatedAt];
   for (const candidate of direct) {
     const ts = parseTimestampSec(candidate);
@@ -384,8 +393,9 @@ function parseTimestampFromUnknown(value: unknown): number | null {
   }
 
   for (const key of ["data", "telemetry", "reading", "lastReading", "status", "last"]) {
-    const nested = asRecord(obj[key]);
-    const nestedTs = parseTimestampFromUnknown(nested);
+    const nested = obj[key];
+    if (typeof nested !== "object" || nested === null) continue;
+    const nestedTs = parseTimestampFromUnknown(nested, seen);
     if (nestedTs !== null) return nestedTs;
   }
 
