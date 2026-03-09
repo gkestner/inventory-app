@@ -47,6 +47,30 @@ export default async function NotificationsPage() {
     redirect("/notifications");
   }
 
+  async function markOneReadAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as SessionShape;
+    if (!session) redirect("/login");
+
+    const email = (session.user?.email ?? "").trim().toLowerCase();
+    const me = await (getCompatDb() as any).user.findUnique({ where: { email }, select: { id: true } });
+    if (!me?.id) redirect("/login");
+
+    const notificationId = String(formData.get("notificationId") ?? "").trim();
+    if (!notificationId) redirect("/notifications");
+
+    const db = getCompatDb();
+    if (db.notification?.updateMany) {
+      await db.notification.updateMany({
+        where: { id: notificationId, userId: me.id, readAt: null },
+        data: { readAt: new Date() },
+      });
+    }
+
+    redirect("/notifications");
+  }
+
   const db = getCompatDb();
   const rows = db.notification?.findMany
     ? await db.notification.findMany({
@@ -103,6 +127,26 @@ export default async function NotificationsPage() {
                     Open
                   </Link>
                 ) : null}
+                {!n.readAt ? (
+                  <form action={markOneReadAction}>
+                    <input type="hidden" name="notificationId" value={n.id} />
+                    <button
+                      type="submit"
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: 8,
+                        border: "1px solid var(--border)",
+                        background: "var(--surface)",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Mark as read
+                    </button>
+                  </form>
+                ) : (
+                  <span>Read</span>
+                )}
               </div>
             </div>
           ))}
