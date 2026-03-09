@@ -106,9 +106,31 @@ function getNodeSignalLevel(node: MocreoNode): number | null {
 
 type MocreoSample = {
   time?: number;
+  timestamp?: number | string;
+  ts?: number | string;
+  recordedAt?: number | string;
+  createdAt?: number | string;
   data?: {
     tm?: number;
+    time?: number | string;
+    timestamp?: number | string;
+    ts?: number | string;
+    recordedAt?: number | string;
+    tempF?: number;
+    temperatureF?: number;
+    tempC?: number;
+    temperatureC?: number;
   };
+  tempF?: number;
+  temperatureF?: number;
+  tempC?: number;
+  temperatureC?: number;
+};
+
+type NormalizedSample = {
+  externalReadingId: string;
+  timestampSec: number;
+  sample: MocreoSample;
 };
 
 type HubRow = {
@@ -140,6 +162,74 @@ function toIntPercent(value: number | null | undefined): number | null {
   if (value === null || value === undefined) return null;
   if (!Number.isFinite(value)) return null;
   return Math.max(0, Math.min(100, Math.trunc(value)));
+}
+
+function parseTimestampSec(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (value > 10_000_000_000) return Math.trunc(value / 1000);
+    return Math.trunc(value);
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    const asNumber = Number(trimmed);
+    if (Number.isFinite(asNumber)) {
+      if (asNumber > 10_000_000_000) return Math.trunc(asNumber / 1000);
+      return Math.trunc(asNumber);
+    }
+
+    const asDateMs = Date.parse(trimmed);
+    if (Number.isFinite(asDateMs)) return Math.trunc(asDateMs / 1000);
+  }
+
+  return null;
+}
+
+function parseSampleTimestampSec(sample: MocreoSample): number | null {
+  const data = asRecord(sample.data);
+  const candidates: unknown[] = [
+    sample.time,
+    sample.timestamp,
+    sample.ts,
+    sample.recordedAt,
+    sample.createdAt,
+    data.time,
+    data.timestamp,
+    data.ts,
+    data.recordedAt,
+  ];
+
+  for (const value of candidates) {
+    const ts = parseTimestampSec(value);
+    if (ts !== null) return ts;
+  }
+
+  return null;
+}
+
+function parseSampleTempF(sample: MocreoSample): number | null {
+  const data = asRecord(sample.data);
+
+  const centiC = toNumberOrNull(data.tm);
+  if (centiC !== null) return cToF(centiC / 100);
+
+  const directF =
+    toNumberOrNull(sample.temperatureF) ??
+    toNumberOrNull(sample.tempF) ??
+    toNumberOrNull(data.temperatureF) ??
+    toNumberOrNull(data.tempF);
+  if (directF !== null) return directF;
+
+  const directC =
+    toNumberOrNull(sample.temperatureC) ??
+    toNumberOrNull(sample.tempC) ??
+    toNumberOrNull(data.temperatureC) ??
+    toNumberOrNull(data.tempC);
+  if (directC !== null) return cToF(directC);
+
+  return null;
 }
 
 function resolveSyncAuth(req: NextRequest): boolean {
@@ -253,10 +343,11 @@ async function fetchNodeSamples(args: {
       throw new Error(`Samples request failed for node ${args.nodeId} (${res.status}): ${text.slice(0, 300)}`);
     }
 
-    const pageRows = (await res.json()) as unknown;
-    if (!Array.isArray(pageRows) || pageRows.length === 0) break;
+    const pageRowsRaw = (await res.json()) as unknown;
+    const pageRows = extractArrayPayload<MocreoSample>(pageRowsRaw);
+    if (pageRows.length === 0) break;
 
-    out.push(...(pageRows as MocreoSample[]));
+    out.push(...pageRows);
 
     if (pageRows.length < SAMPLE_PAGE_SIZE) break;
     offset += SAMPLE_PAGE_SIZE;
@@ -333,6 +424,7 @@ async function runSync(req: NextRequest) {
   let alerted = 0;
   let skippedDuplicate = 0;
   let skippedNoTemp = 0;
+  let skippedNoTimestamp = 0;
 
   for (const node of targetNodes) {
     const nodeId = getNodeId(node);
@@ -351,12 +443,16 @@ async function runSync(req: NextRequest) {
 
     if (samples.length === 0) continue;
 
-    const uniqueById = new Map<string, MocreoSample>();
+    const uniqueById = new Map<string, NormalizedSample>();
     for (const sample of samples) {
-      const ts = Number(sample.time);
-      if (!Number.isFinite(ts)) continue;
-      const externalReadingId = `poll:${nodeId}:${Math.trunc(ts)}`;
-      uniqueById.set(externalReadingId, sample);
+      const timestampSec = parseSampleTimestampSec(sample);
+      if (timestampSec === null || timestampSec <= 0) {
+        skippedNoTimestamp += 1;
+        continue;
+      }
+
+      const externalReadingId = `poll:${nodeId}:${timestampSec}`;
+      uniqueById.set(externalReadingId, { externalReadingId, timestampSec, sample });
     }
 
     const externalIds = Array.from(uniqueById.keys());
@@ -383,31 +479,28 @@ async function runSync(req: NextRequest) {
     const hubMinTempF = toNumberOrNull(hub.minTempF);
     const hubMaxTempF = toNumberOrNull(hub.maxTempF);
 
-    const sortedPairs = Array.from(uniqueById.entries()).sort((a, b) => {
-      const at = Number(a[1].time ?? 0);
-      const bt = Number(b[1].time ?? 0);
-      return at - bt;
-    });
+    const sortedPairs = Array.from(uniqueById.values()).sort((a, b) => a.timestampSec - b.timestampSec);
 
     let latestReadingAt: Date | null = hub.lastReadingAt;
     let latestTempF: number | null = null;
     let latestState: "NORMAL" | "HIGH" | "LOW" | "UNKNOWN" = "UNKNOWN";
     let hubLastAlertAt = hub.lastAlertAt;
 
-    for (const [externalReadingId, sample] of sortedPairs) {
+    for (const row of sortedPairs) {
+      const externalReadingId = row.externalReadingId;
+      const sample = row.sample;
       if (existingSet.has(externalReadingId)) {
         skippedDuplicate += 1;
         continue;
       }
 
-      const tempRaw = Number(sample.data?.tm);
-      if (!Number.isFinite(tempRaw)) {
+      const tempF = parseSampleTempF(sample);
+      if (tempF === null || !Number.isFinite(tempF)) {
         skippedNoTemp += 1;
         continue;
       }
 
-      const recordedAt = new Date(Math.trunc(Number(sample.time) * 1000));
-      const tempF = cToF(tempRaw / 100);
+      const recordedAt = new Date(row.timestampSec * 1000);
       const alertState = evaluateTemperatureAlertState(tempF, {
         minTempF: deviceMinTempF ?? hubMinTempF,
         maxTempF: deviceMaxTempF ?? hubMaxTempF,
@@ -514,6 +607,7 @@ async function runSync(req: NextRequest) {
           ingested,
           skippedDuplicate,
           skippedNoTemp,
+          skippedNoTimestamp,
           alerted,
         },
       },
@@ -537,6 +631,7 @@ async function runSync(req: NextRequest) {
     ingested,
     skippedDuplicate,
     skippedNoTemp,
+    skippedNoTimestamp,
     alerted,
   });
 }

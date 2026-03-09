@@ -707,6 +707,7 @@ export default async function TemperatureDashboardPage({
       ingested?: number;
       skippedDuplicate?: number;
       skippedNoTemp?: number;
+      skippedNoTimestamp?: number;
       hubsActive?: number;
     } | null = null;
 
@@ -720,6 +721,7 @@ export default async function TemperatureDashboardPage({
         ingested?: number;
         skippedDuplicate?: number;
         skippedNoTemp?: number;
+        skippedNoTimestamp?: number;
         hubsActive?: number;
       };
     } catch {
@@ -736,6 +738,8 @@ export default async function TemperatureDashboardPage({
     if (typeof payload?.ingested === "number") sp.set("ingested", String(payload.ingested));
     if (typeof payload?.skippedDuplicate === "number") sp.set("skippedDuplicate", String(payload.skippedDuplicate));
     if (typeof payload?.skippedNoTemp === "number") sp.set("skippedNoTemp", String(payload.skippedNoTemp));
+    if (typeof payload?.skippedNoTimestamp === "number")
+      sp.set("skippedNoTimestamp", String(payload.skippedNoTimestamp));
     if (Array.isArray(payload?.availableThingNamesSample) && payload.availableThingNamesSample.length > 0) {
       const sample = payload.availableThingNamesSample
         .map((x) => String(x ?? "").trim())
@@ -1000,6 +1004,7 @@ export default async function TemperatureDashboardPage({
   const lastSyncIngested = Number(latestSyncMeta?.ingested ?? NaN);
   const lastSyncSkippedDuplicate = Number(latestSyncMeta?.skippedDuplicate ?? NaN);
   const lastSyncSkippedNoTemp = Number(latestSyncMeta?.skippedNoTemp ?? NaN);
+  const lastSyncSkippedNoTimestamp = Number(latestSyncMeta?.skippedNoTimestamp ?? NaN);
 
   const hubIds = hubs.map((h) => h.id);
   const sensorReadings: SensorReadingRow[] =
@@ -1066,6 +1071,7 @@ export default async function TemperatureDashboardPage({
   const syncIngested = Number(firstParam(params.ingested) ?? "NaN");
   const syncSkippedDuplicate = Number(firstParam(params.skippedDuplicate) ?? "NaN");
   const syncSkippedNoTemp = Number(firstParam(params.skippedNoTemp) ?? "NaN");
+  const syncSkippedNoTimestamp = Number(firstParam(params.skippedNoTimestamp) ?? "NaN");
   const refreshSecRaw = firstParam(params.refreshSec);
   const refreshSec = Math.max(5, Math.min(300, Number.isFinite(Number(refreshSecRaw)) ? Number(refreshSecRaw) : 20));
   const reqHeaders = await headers();
@@ -1146,7 +1152,7 @@ export default async function TemperatureDashboardPage({
                 : "Sync completed but no new readings were ingested."}
             </div>
             <div style={{ marginTop: 6, fontSize: 13, opacity: 0.95 }}>
-              Active hubs: {Number.isFinite(syncHubsActive) ? syncHubsActive : "-"} | Devices found: {Number.isFinite(syncDevicesFound) ? syncDevicesFound : "-"} | Nodes found: {Number.isFinite(syncNodesFound) ? syncNodesFound : "-"} | Nodes matched: {Number.isFinite(syncNodesMatched) ? syncNodesMatched : "-"} | Ingested: {Number.isFinite(syncIngested) ? syncIngested : "-"} | Duplicates skipped: {Number.isFinite(syncSkippedDuplicate) ? syncSkippedDuplicate : "-"} | No-temp skipped: {Number.isFinite(syncSkippedNoTemp) ? syncSkippedNoTemp : "-"}
+              Active hubs: {Number.isFinite(syncHubsActive) ? syncHubsActive : "-"} | Devices found: {Number.isFinite(syncDevicesFound) ? syncDevicesFound : "-"} | Nodes found: {Number.isFinite(syncNodesFound) ? syncNodesFound : "-"} | Nodes matched: {Number.isFinite(syncNodesMatched) ? syncNodesMatched : "-"} | Ingested: {Number.isFinite(syncIngested) ? syncIngested : "-"} | Duplicates skipped: {Number.isFinite(syncSkippedDuplicate) ? syncSkippedDuplicate : "-"} | No-temp skipped: {Number.isFinite(syncSkippedNoTemp) ? syncSkippedNoTemp : "-"} | No-time skipped: {Number.isFinite(syncSkippedNoTimestamp) ? syncSkippedNoTimestamp : "-"}
             </div>
             {Number.isFinite(syncIngested) && syncIngested === 0 ? (
               <div style={{ marginTop: 6, fontSize: 13, opacity: 0.95 }}>
@@ -1181,7 +1187,7 @@ export default async function TemperatureDashboardPage({
           <section style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 12, background: "var(--surface)" }}>
             <div style={{ fontWeight: 900 }}>Latest Poll Run</div>
             <div style={{ marginTop: 6, fontSize: 13, opacity: 0.92 }}>
-              Ran at: {fmtDateTime(latestSyncAudit.createdAt)} | Ingested: {Number.isFinite(lastSyncIngested) ? lastSyncIngested : "-"} | Candidates/Matched: {Number.isFinite(lastSyncNodesMatched) ? lastSyncNodesMatched : "-"} | Duplicates skipped: {Number.isFinite(lastSyncSkippedDuplicate) ? lastSyncSkippedDuplicate : "-"} | No-temp skipped: {Number.isFinite(lastSyncSkippedNoTemp) ? lastSyncSkippedNoTemp : "-"}
+              Ran at: {fmtDateTime(latestSyncAudit.createdAt)} | Ingested: {Number.isFinite(lastSyncIngested) ? lastSyncIngested : "-"} | Candidates/Matched: {Number.isFinite(lastSyncNodesMatched) ? lastSyncNodesMatched : "-"} | Duplicates skipped: {Number.isFinite(lastSyncSkippedDuplicate) ? lastSyncSkippedDuplicate : "-"} | No-temp skipped: {Number.isFinite(lastSyncSkippedNoTemp) ? lastSyncSkippedNoTemp : "-"} | No-time skipped: {Number.isFinite(lastSyncSkippedNoTimestamp) ? lastSyncSkippedNoTimestamp : "-"}
             </div>
           </section>
         ) : null}
