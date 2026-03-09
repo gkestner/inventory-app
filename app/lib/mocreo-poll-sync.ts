@@ -125,6 +125,7 @@ export type MocreoSyncResult = {
   fallbackNodesQueried: number;
   sampleIdsTried: number;
   sampleRequestAttempts: number;
+  snapshotFallbackUsed: number;
   skippedDuplicate: number;
   skippedNoTemp: number;
   skippedNoTimestamp: number;
@@ -339,6 +340,54 @@ function parseSampleTempF(sample: MocreoSample): number | null {
     toNumberOrNull(data.temperatureC) ??
     toNumberOrNull(data.tempC);
   if (directC !== null) return cToF(directC);
+
+  return null;
+}
+
+function parseTempFFromUnknown(value: unknown): number | null {
+  const obj = asRecord(value);
+
+  const directF =
+    toNumberOrNull(obj.temperatureF) ??
+    toNumberOrNull(obj.tempF) ??
+    toNumberOrNull(obj.lastTempF) ??
+    toNumberOrNull(obj.currentTempF) ??
+    toNumberOrNull(obj.fahrenheit);
+  if (directF !== null) return directF;
+
+  const directC =
+    toNumberOrNull(obj.temperatureC) ??
+    toNumberOrNull(obj.tempC) ??
+    toNumberOrNull(obj.lastTempC) ??
+    toNumberOrNull(obj.currentTempC) ??
+    toNumberOrNull(obj.celsius);
+  if (directC !== null) return cToF(directC);
+
+  const centiC = toNumberOrNull(obj.tm);
+  if (centiC !== null) return cToF(centiC / 100);
+
+  for (const key of ["data", "telemetry", "reading", "lastReading", "status", "last"]) {
+    const nested = asRecord(obj[key]);
+    const nestedTemp = parseTempFFromUnknown(nested);
+    if (nestedTemp !== null) return nestedTemp;
+  }
+
+  return null;
+}
+
+function parseTimestampFromUnknown(value: unknown): number | null {
+  const obj = asRecord(value);
+  const direct = [obj.time, obj.timestamp, obj.ts, obj.recordedAt, obj.createdAt, obj.lastSeenAt, obj.updatedAt];
+  for (const candidate of direct) {
+    const ts = parseTimestampSec(candidate);
+    if (ts !== null) return ts;
+  }
+
+  for (const key of ["data", "telemetry", "reading", "lastReading", "status", "last"]) {
+    const nested = asRecord(obj[key]);
+    const nestedTs = parseTimestampFromUnknown(nested);
+    if (nestedTs !== null) return nestedTs;
+  }
 
   return null;
 }
@@ -579,6 +628,7 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
   let fallbackNodesQueried = 0;
   let sampleIdsTried = 0;
   let sampleRequestAttempts = 0;
+  let snapshotFallbackUsed = 0;
   let alerted = 0;
   let skippedDuplicate = 0;
   let skippedNoTemp = 0;
@@ -648,6 +698,32 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
     }
 
     samplesFetched += samples.length;
+
+    if (samples.length === 0) {
+      const snapshotTempF =
+        parseTempFFromUnknown(node) ||
+        deviceRowsForHub.map((row) => parseTempFFromUnknown(row)).find((v): v is number => v !== null) ||
+        null;
+      const snapshotTs =
+        parseTimestampFromUnknown(node) ||
+        deviceRowsForHub
+          .map((row) => parseTimestampFromUnknown(row))
+          .find((v): v is number => typeof v === "number" && Number.isFinite(v) && v > 0) ||
+        endTimeSec;
+
+      if (snapshotTempF !== null && Number.isFinite(snapshotTempF)) {
+        const syntheticSample: MocreoSample = {
+          time: snapshotTs,
+          tempF: snapshotTempF,
+          data: {
+            time: snapshotTs,
+            tempF: snapshotTempF,
+          },
+        };
+        samples = [syntheticSample];
+        snapshotFallbackUsed += 1;
+      }
+    }
 
     if (samples.length === 0) {
       matchedNodesNoSamples += 1;
@@ -820,6 +896,7 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
           fallbackNodesQueried,
           sampleIdsTried,
           sampleRequestAttempts,
+          snapshotFallbackUsed,
           usedFallbackForThisNode,
           ingested,
           skippedDuplicate,
@@ -851,6 +928,7 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
     fallbackNodesQueried,
     sampleIdsTried,
     sampleRequestAttempts,
+    snapshotFallbackUsed,
     skippedDuplicate,
     skippedNoTemp,
     skippedNoTimestamp,
