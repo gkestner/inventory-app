@@ -88,6 +88,7 @@ type Db = {
     findMany: (args: unknown) => Promise<HubRow[]>;
     create: (args: unknown) => Promise<{ id: string }>;
     update: (args: unknown) => Promise<{ id: string }>;
+    delete: (args: unknown) => Promise<{ id: string }>;
     findUnique: (args: unknown) => Promise<
       | {
           id: string;
@@ -113,6 +114,7 @@ type Db = {
       | null
     >;
     update: (args: unknown) => Promise<{ id: string }>;
+    delete: (args: unknown) => Promise<{ id: string }>;
   };
   mocreoTemperatureReading: {
     findMany: (args: unknown) => Promise<AlertRow[]>;
@@ -236,6 +238,12 @@ function dashboardMessageFromCode(code: string | undefined): string | null {
     host_missing: "Unable to determine host URL for pairing test.",
     save_failed: "Could not save hub configuration. Please verify values and try again.",
     duplicate_hub_id: "That Mocreo Hub ID is already registered to another hub.",
+    missing_hub_delete: "Hub id is missing for delete action.",
+    invalid_hub_delete: "Hub not found for delete action.",
+    hub_delete_failed: "Hub delete failed. Try again or check related records.",
+    missing_sensor_delete: "Sensor id is missing for delete action.",
+    invalid_sensor_delete: "Sensor not found for delete action.",
+    sensor_delete_failed: "Sensor delete failed. Try again.",
     forbidden: "You do not have permission to perform this action.",
   };
 
@@ -399,6 +407,53 @@ export default async function TemperatureDashboardPage({
     redirect("/maintenance/temperature-dashboard");
   }
 
+  async function deleteHubAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as SessionShape;
+    if (!session) redirect("/login");
+    if (!(await canAccessAdmin(session))) redirect("/");
+
+    const email = String(session.user?.email ?? "").trim().toLowerCase();
+    if (!email) redirect("/login");
+    const actor = await db.user.findUnique({ where: { email }, select: { id: true, active: true } });
+    if (!actor || !actor.active) redirect("/login");
+
+    const hubId = String(formData.get("hubId") ?? "").trim();
+    if (!hubId) {
+      redirect("/maintenance/temperature-dashboard?error=missing_hub_delete");
+    }
+
+    const existing = await db.mocreoHub.findUnique({
+      where: { id: hubId },
+      select: { id: true, name: true, externalHubId: true, active: true },
+    });
+    if (!existing) {
+      redirect("/maintenance/temperature-dashboard?error=invalid_hub_delete");
+    }
+
+    try {
+      await db.mocreoHub.delete({ where: { id: hubId }, select: { id: true } });
+
+      await db.auditLog.create({
+        data: {
+          actorUserId: actor.id,
+          module: "MOCREO_TEMPERATURE",
+          action: "DELETE_HUB",
+          entityType: "MocreoHub",
+          entityId: hubId,
+          message: `Deleted Mocreo hub ${existing.name}.`,
+          metadata: { externalHubId: existing.externalHubId },
+        },
+      });
+
+      revalidatePath("/maintenance/temperature-dashboard");
+      redirect("/maintenance/temperature-dashboard?deletedHub=1");
+    } catch {
+      redirect("/maintenance/temperature-dashboard?error=hub_delete_failed");
+    }
+  }
+
   async function saveDeviceThresholdAction(formData: FormData) {
     "use server";
 
@@ -457,6 +512,56 @@ export default async function TemperatureDashboardPage({
 
     revalidatePath("/maintenance/temperature-dashboard");
     redirect("/maintenance/temperature-dashboard?savedDevice=1");
+  }
+
+  async function deleteSensorAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as SessionShape;
+    if (!session) redirect("/login");
+    if (!(await canAccessAdmin(session))) redirect("/");
+
+    const email = String(session.user?.email ?? "").trim().toLowerCase();
+    if (!email) redirect("/login");
+    const actor = await db.user.findUnique({ where: { email }, select: { id: true, active: true } });
+    if (!actor || !actor.active) redirect("/login");
+
+    const deviceId = String(formData.get("deviceId") ?? "").trim();
+    if (!deviceId) {
+      redirect("/maintenance/temperature-dashboard?error=missing_sensor_delete");
+    }
+
+    const existing = await db.mocreoDevice.findUnique({
+      where: { id: deviceId },
+      select: { id: true, hubId: true, name: true, externalDeviceId: true },
+    });
+    if (!existing) {
+      redirect("/maintenance/temperature-dashboard?error=invalid_sensor_delete");
+    }
+
+    try {
+      await db.mocreoDevice.delete({ where: { id: deviceId }, select: { id: true } });
+
+      await db.auditLog.create({
+        data: {
+          actorUserId: actor.id,
+          module: "MOCREO_TEMPERATURE",
+          action: "DELETE_SENSOR",
+          entityType: "MocreoDevice",
+          entityId: existing.id,
+          message: `Deleted Mocreo sensor ${existing.name}.`,
+          metadata: {
+            hubId: existing.hubId,
+            externalDeviceId: existing.externalDeviceId,
+          },
+        },
+      });
+
+      revalidatePath("/maintenance/temperature-dashboard");
+      redirect("/maintenance/temperature-dashboard?deletedSensor=1");
+    } catch {
+      redirect("/maintenance/temperature-dashboard?error=sensor_delete_failed");
+    }
   }
 
   async function runWebhookPairingTestAction(formData: FormData) {
@@ -799,6 +904,8 @@ export default async function TemperatureDashboardPage({
   const savedOk = firstParam(params.saved) === "1";
   const savedDeviceOk = firstParam(params.savedDevice) === "1";
   const manualOk = firstParam(params.manual) === "ok";
+  const deletedHubOk = firstParam(params.deletedHub) === "1";
+  const deletedSensorOk = firstParam(params.deletedSensor) === "1";
 
   const statusMessage = isAdmin
     ? "This dashboard lets you register Mocreo hubs, assign the maintenance tech, and add extra notification recipients."
@@ -849,9 +956,17 @@ export default async function TemperatureDashboardPage({
           </section>
         ) : null}
 
-        {savedOk || savedDeviceOk || manualOk ? (
+        {savedOk || savedDeviceOk || manualOk || deletedHubOk || deletedSensorOk ? (
           <section style={{ border: "1px solid rgba(34,197,94,0.45)", borderRadius: 12, padding: 12, background: "rgba(34,197,94,0.12)" }}>
-            {savedOk ? "Hub configuration saved." : savedDeviceOk ? "Sensor thresholds updated." : "Manual reading ingested."}
+            {savedOk
+              ? "Hub configuration saved."
+              : savedDeviceOk
+                ? "Sensor thresholds updated."
+                : manualOk
+                  ? "Manual reading ingested."
+                  : deletedHubOk
+                    ? "Hub deleted."
+                    : "Sensor deleted."}
           </section>
         ) : null}
 
@@ -1156,12 +1271,32 @@ export default async function TemperatureDashboardPage({
                         </div>
                       </div>
                       {isAdmin ? (
-                        <form action={toggleHubAction}>
-                          <input type="hidden" name="hubId" value={hub.id} />
-                          <button type="submit" style={{ padding: "7px 10px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface)", cursor: "pointer", fontWeight: 800 }}>
-                            {hub.active ? "Deactivate" : "Activate"}
-                          </button>
-                        </form>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                          <form action={toggleHubAction}>
+                            <input type="hidden" name="hubId" value={hub.id} />
+                            <button type="submit" style={{ padding: "7px 10px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface)", cursor: "pointer", fontWeight: 800 }}>
+                              {hub.active ? "Deactivate" : "Activate"}
+                            </button>
+                          </form>
+
+                          <form action={deleteHubAction}>
+                            <input type="hidden" name="hubId" value={hub.id} />
+                            <button
+                              type="submit"
+                              style={{
+                                padding: "7px 10px",
+                                border: "1px solid rgba(239,68,68,0.45)",
+                                borderRadius: 8,
+                                background: "rgba(239,68,68,0.12)",
+                                cursor: "pointer",
+                                fontWeight: 800,
+                              }}
+                              title="Delete this hub and linked Mocreo records"
+                            >
+                              Delete Hub
+                            </button>
+                          </form>
+                        </div>
                       ) : null}
                     </div>
 
@@ -1440,6 +1575,34 @@ export default async function TemperatureDashboardPage({
                                   style={{ padding: "8px 10px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface-2)", fontWeight: 800, cursor: "pointer" }}
                                 >
                                   Save Sensor
+                                </button>
+                              </form>
+                            ))}
+
+                            {hub.devices.map((device) => (
+                              <form
+                                key={`delete-sensor-${device.id}`}
+                                action={deleteSensorAction}
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "flex-end",
+                                  marginTop: -4,
+                                }}
+                              >
+                                <input type="hidden" name="deviceId" value={device.id} />
+                                <button
+                                  type="submit"
+                                  style={{
+                                    padding: "6px 10px",
+                                    border: "1px solid rgba(239,68,68,0.45)",
+                                    borderRadius: 8,
+                                    background: "rgba(239,68,68,0.12)",
+                                    fontWeight: 800,
+                                    cursor: "pointer",
+                                  }}
+                                  title={`Delete sensor ${device.name}`}
+                                >
+                                  Delete Sensor: {device.name}
                                 </button>
                               </form>
                             ))}
