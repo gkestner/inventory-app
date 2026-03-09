@@ -1,5 +1,5 @@
-const CACHE_VERSION = "inventory-app-v1";
-const APP_SHELL = ["/", "/login", "/notifications", "/favicon.ico"];
+const CACHE_VERSION = "inventory-app-v2";
+const APP_SHELL = ["/favicon.ico"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -26,8 +26,21 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   const request = event.request;
+  const url = new URL(request.url);
+  const isSameOrigin = url.origin === self.location.origin;
+  const isStaticAsset = ["script", "style", "image", "font"].includes(request.destination);
 
   if (request.method !== "GET") return;
+
+  // Never cache HTML/doc navigations to avoid stale app pages in installed mode.
+  if (request.mode === "navigate") {
+    event.respondWith(fetch(request).catch(() => caches.match("/")));
+    return;
+  }
+
+  if (!isSameOrigin || !isStaticAsset) {
+    return;
+  }
 
   event.respondWith(
     fetch(request)
