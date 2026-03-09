@@ -1302,48 +1302,6 @@ export default async function TemperatureDashboardPage({
 
         {isAdmin ? (
           <details>
-            <summary style={{ cursor: "pointer", fontWeight: 900, fontSize: 16, padding: "2px 2px" }}>Sync Mocreo Now</summary>
-            <section
-            style={{
-              border: "1px solid var(--border)",
-              borderRadius: 14,
-              background: "var(--surface)",
-              boxShadow: "var(--shadow)",
-              padding: 14,
-            }}
-          >
-            <h2 style={{ margin: "0 0 10px", fontSize: 20, fontWeight: 900 }}>Sync Mocreo Now</h2>
-            <p style={{ margin: "0 0 10px", color: "var(--muted)", lineHeight: 1.4 }}>
-              Use this to manually pull latest Mocreo readings immediately.
-            </p>
-            <form action={runSyncNowAction}>
-              <button
-                type="submit"
-                style={{
-                  width: "fit-content",
-                  padding: "10px 14px",
-                  borderRadius: 10,
-                  border: "1px solid var(--border)",
-                  cursor: "pointer",
-                  fontWeight: 900,
-                  background: "var(--surface-2)",
-                  color: "var(--foreground)",
-                }}
-              >
-                Sync Now
-              </button>
-            </form>
-              {syncState ? (
-                <div style={{ marginTop: 10, fontSize: 13, opacity: 0.9 }}>
-                  Last sync result: {syncState}
-                </div>
-              ) : null}
-            </section>
-          </details>
-        ) : null}
-
-        {isAdmin ? (
-          <details>
             <summary style={{ cursor: "pointer", fontWeight: 900, fontSize: 16, padding: "2px 2px" }}>Register / Update Hub</summary>
             <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 14 }}>
             <h2 style={{ margin: "0 0 10px", fontSize: 20, fontWeight: 900 }}>Register / Update Hub</h2>
@@ -1540,11 +1498,37 @@ export default async function TemperatureDashboardPage({
         <details open>
           <summary style={{ cursor: "pointer", fontWeight: 900, fontSize: 16, padding: "2px 2px" }}>Hub Dashboard</summary>
           <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", overflow: "hidden" }}>
-          <div style={{ padding: 14, borderBottom: "1px solid var(--border)" }}>
-            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Hub Dashboard</h2>
-            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>
-              Sensor-level thresholds override hub thresholds when set.
+          <div style={{ padding: 14, borderBottom: "1px solid var(--border)", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+            <div>
+              <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Hub Dashboard</h2>
+              <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>
+                Sensor-level thresholds override hub thresholds when set.
+              </div>
+              {isAdmin && syncState ? (
+                <div style={{ marginTop: 8, fontSize: 13, opacity: 0.9 }}>
+                  Last sync result: {syncState}
+                </div>
+              ) : null}
             </div>
+            {isAdmin ? (
+              <form action={runSyncNowAction}>
+                <button
+                  type="submit"
+                  style={{
+                    width: "fit-content",
+                    padding: "10px 14px",
+                    borderRadius: 10,
+                    border: "1px solid var(--border)",
+                    cursor: "pointer",
+                    fontWeight: 900,
+                    background: "var(--surface-2)",
+                    color: "var(--foreground)",
+                  }}
+                >
+                  Sync Now
+                </button>
+              </form>
+            ) : null}
           </div>
           {hubs.length === 0 ? (
             <div style={{ padding: 14, opacity: 0.8 }}>No hubs configured yet.</div>
