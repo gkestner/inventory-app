@@ -1805,18 +1805,10 @@ export default async function TemperatureDashboardPage({
                       <div style={{ marginBottom: 6, fontSize: 12, opacity: 0.8 }}>
                         Live sensor table (auto-refresh) with 24h trend sparkline per sensor.
                       </div>
-                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1080 }}>
-                        <thead>
-                          <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                            <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Device</th>
-                            <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Temperature Gauge</th>
-                            <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Trend (24h)</th>
-                            <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Alert</th>
-                            <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Battery</th>
-                            <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Last Seen</th>
-                          </tr>
-                        </thead>
-                        <tbody>
+                      {hub.devices.length === 0 ? (
+                        <div style={{ padding: "8px 4px", opacity: 0.8 }}>No readings have been received yet for this hub.</div>
+                      ) : (
+                        <div style={{ display: "grid", gap: 12 }}>
                           {hub.devices.map((device) => {
                             const latest = latestReadingByDevice.get(device.id);
                             const dTemp = latest?.tempF ?? toNumberOrNull(device.lastTempF);
@@ -1878,24 +1870,36 @@ export default async function TemperatureDashboardPage({
                             const health = getConnectionHealth(dSeen);
                             const trend = historyByDevice.get(device.id) ?? [];
                             const points = sparklinePoints(trend.map((t) => t.temp));
+
                             return (
-                              <tr key={device.id} style={{ borderBottom: "1px solid var(--border)", background: "color-mix(in srgb, var(--surface) 88%, var(--surface-2))" }}>
-                                <td style={{ padding: "10px 6px" }}>
-                                  <div style={{ fontWeight: 800 }}>{device.name}</div>
-                                  <div style={{ fontSize: 11, opacity: 0.78, marginTop: 2 }}>
-                                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                                      <span style={{ width: 8, height: 8, borderRadius: 999, background: health.color, display: "inline-block" }} />
-                                      <span>
-                                        {health.label}
-                                        {health.minutes !== null ? ` (${health.minutes}m)` : ""}
+                              <article
+                                key={device.id}
+                                style={{
+                                  border: "1px solid var(--border)",
+                                  borderRadius: 12,
+                                  padding: 12,
+                                  background: "color-mix(in srgb, var(--surface) 90%, var(--surface-2))",
+                                  display: "grid",
+                                  gridTemplateColumns: "minmax(460px, 2fr) minmax(240px, 1fr)",
+                                  gap: 12,
+                                  alignItems: "center",
+                                }}
+                              >
+                                <div style={{ display: "grid", gridTemplateColumns: "140px minmax(360px, 1fr)", gap: 10, alignItems: "center" }}>
+                                  <div>
+                                    <div style={{ fontWeight: 900, fontSize: 28, lineHeight: 1.1 }}>{device.name}</div>
+                                    <div style={{ fontSize: 12, opacity: 0.78, marginTop: 6 }}>
+                                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                        <span style={{ width: 10, height: 10, borderRadius: 999, background: health.color, display: "inline-block" }} />
+                                        <span>
+                                          {health.label}
+                                          {health.minutes !== null ? ` (${health.minutes}m)` : ""}
+                                        </span>
                                       </span>
-                                    </span>
+                                    </div>
                                   </div>
-                                  <div style={{ fontSize: 11, opacity: 0.72, marginTop: 2 }}>Sensor</div>
-                                </td>
-                                <td style={{ padding: "10px 6px", minWidth: 560 }}>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                                    <svg width="380" height="380" viewBox="0 0 380 380" role="img" aria-label={`Current temperature for ${device.name}`}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                                    <svg width="420" height="420" viewBox="0 0 420 420" role="img" aria-label={`Current temperature for ${device.name}`}>
                                       <circle cx={gaugeCenter} cy={gaugeCenter} r={gaugeRadius} fill="none" stroke="var(--border)" strokeWidth="8" />
                                       <circle
                                         cx={gaugeCenter}
@@ -1914,7 +1918,7 @@ export default async function TemperatureDashboardPage({
                                         x2={minTickOuter.x.toFixed(2)}
                                         y2={minTickOuter.y.toFixed(2)}
                                         stroke="var(--muted)"
-                                        strokeWidth="2"
+                                        strokeWidth="3"
                                       />
                                       <line
                                         x1={maxTickInner.x.toFixed(2)}
@@ -1922,7 +1926,7 @@ export default async function TemperatureDashboardPage({
                                         x2={maxTickOuter.x.toFixed(2)}
                                         y2={maxTickOuter.y.toFixed(2)}
                                         stroke="var(--muted)"
-                                        strokeWidth="2"
+                                        strokeWidth="3"
                                       />
                                       <line
                                         x1={gaugeCenter}
@@ -1949,51 +1953,56 @@ export default async function TemperatureDashboardPage({
                                       <div style={{ opacity: 0.75 }}>Range: {Math.round(gaugePct * 100)}%</div>
                                     </div>
                                   </div>
-                                </td>
-                                <td style={{ padding: "6px 4px" }}>
-                                  {trend.length < 2 ? (
-                                    <span style={{ fontSize: 12, opacity: 0.75 }}>Need more samples</span>
-                                  ) : (
-                                    <svg width="160" height="36" viewBox="0 0 160 36" role="img" aria-label={`Temp trend for ${device.name}`}>
-                                      <polyline
-                                        points={points}
-                                        fill="none"
-                                        stroke="var(--brand)"
-                                        strokeWidth="2"
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                      />
-                                    </svg>
-                                  )}
-                                </td>
-                                <td style={{ padding: "6px 4px", fontWeight: 800 }}>
-                                  <span
-                                    style={{
-                                      display: "inline-block",
-                                      padding: "4px 8px",
-                                      borderRadius: 999,
-                                      border: "1px solid var(--border)",
-                                      color: dialTheme.color,
-                                      background: "color-mix(in srgb, var(--surface) 86%, var(--surface-2))",
-                                    }}
-                                  >
-                                    {alertState}
-                                  </span>
-                                </td>
-                                <td style={{ padding: "6px 4px" }}>{device.lastBatteryPct === null ? "-" : `${device.lastBatteryPct}%`}</td>
-                                <td style={{ padding: "6px 4px", whiteSpace: "nowrap" }}>{fmtDateTime(dSeen)}</td>
-                              </tr>
+                                </div>
+
+                                <div style={{ display: "grid", gap: 10, justifyItems: "start" }}>
+                                  <div>
+                                    <div style={{ fontSize: 12, opacity: 0.7, fontWeight: 700 }}>Trend (24h)</div>
+                                    {trend.length < 2 ? (
+                                      <span style={{ fontSize: 12, opacity: 0.75 }}>Need more samples</span>
+                                    ) : (
+                                      <svg width="220" height="52" viewBox="0 0 220 52" role="img" aria-label={`Temp trend for ${device.name}`}>
+                                        <polyline
+                                          points={sparklinePoints(trend.map((t) => t.temp), 220, 48)}
+                                          fill="none"
+                                          stroke="var(--brand)"
+                                          strokeWidth="2.5"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                        />
+                                      </svg>
+                                    )}
+                                  </div>
+
+                                  <div>
+                                    <div style={{ fontSize: 12, opacity: 0.7, fontWeight: 700 }}>Alert</div>
+                                    <span
+                                      style={{
+                                        display: "inline-block",
+                                        padding: "6px 12px",
+                                        borderRadius: 999,
+                                        border: "1px solid var(--border)",
+                                        color: dialTheme.color,
+                                        background: "color-mix(in srgb, var(--surface) 86%, var(--surface-2))",
+                                        fontWeight: 900,
+                                      }}
+                                    >
+                                      {alertState}
+                                    </span>
+                                  </div>
+
+                                  <div style={{ display: "grid", gridTemplateColumns: "auto auto", columnGap: 16, rowGap: 6, fontSize: 13 }}>
+                                    <div style={{ opacity: 0.7, fontWeight: 700 }}>Battery</div>
+                                    <div>{device.lastBatteryPct === null ? "-" : `${device.lastBatteryPct}%`}</div>
+                                    <div style={{ opacity: 0.7, fontWeight: 700 }}>Last Seen</div>
+                                    <div style={{ whiteSpace: "nowrap" }}>{fmtDateTime(dSeen)}</div>
+                                  </div>
+                                </div>
+                              </article>
                             );
                           })}
-                          {hub.devices.length === 0 ? (
-                            <tr>
-                              <td colSpan={6} style={{ padding: "8px 4px", opacity: 0.8 }}>
-                                No readings have been received yet for this hub.
-                              </td>
-                            </tr>
-                          ) : null}
-                        </tbody>
-                      </table>
+                        </div>
+                      )}
                     </div>
 
                     {isAdmin ? (
