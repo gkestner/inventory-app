@@ -13,6 +13,7 @@ import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { Decimal } from "@prisma/client/runtime/library";
 
 import ItemPicker from "./ItemPicker";
+import NewItemAutoCheck from "./NewItemAutoCheck";
 import {
   addToInventoryAction as addToInventoryServerAction,
   createOrderAction as createOrderServerAction,
@@ -1103,7 +1104,8 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           <div style={{ marginTop: 10, border, borderRadius: 14, background: surface, padding: 12 }}>
             <div style={{ fontWeight: 900, marginBottom: 8, fontSize: 14 }}>Create Order</div>
 
-            <form action={createOrderFormAction} style={{ display: "grid", gap: 10 }}>
+            <form id="create-order-form" action={createOrderFormAction} style={{ display: "grid", gap: 10 }}>
+              <NewItemAutoCheck formId="create-order-form" />
               <div style={wrapRow}>
                 <label style={{ display: "grid", gap: 6, fontSize: 12, opacity: 0.9, fontWeight: 900, ...flexItem(420, 3) }}>
                   Item (select existing)
