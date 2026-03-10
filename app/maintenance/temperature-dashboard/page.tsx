@@ -2044,7 +2044,21 @@ export default async function TemperatureDashboardPage({
                               >
                                 <div style={{ display: "grid", gridTemplateColumns: "minmax(140px, 190px) minmax(0, 1fr)", gap: 12, alignItems: "center" }}>
                                   <div>
-                                    <div style={{ fontWeight: 900, fontSize: 28, lineHeight: 1.1 }}>{device.name}</div>
+                                    <div
+                                      style={{
+                                        fontWeight: 900,
+                                        fontSize: 34,
+                                        lineHeight: 1.05,
+                                        letterSpacing: "0.01em",
+                                        color: "var(--foreground)",
+                                        padding: "4px 8px",
+                                        borderRadius: 10,
+                                        background: "color-mix(in srgb, var(--surface) 84%, var(--surface-2))",
+                                        border: "1px solid var(--border)",
+                                      }}
+                                    >
+                                      {device.name}
+                                    </div>
                                     <div style={{ fontSize: 12, opacity: 0.78, marginTop: 6 }}>
                                       <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                                         <span style={{ width: 10, height: 10, borderRadius: 999, background: health.color, display: "inline-block" }} />
