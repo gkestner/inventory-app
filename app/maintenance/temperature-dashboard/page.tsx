@@ -1860,24 +1860,6 @@ export default async function TemperatureDashboardPage({
                       ) : null}
                     </div>
 
-                    <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8, fontSize: 13 }}>
-                      <div>
-                        <strong>Store:</strong> {hub.location?.name ?? "-"}
-                      </div>
-                      <div>
-                        <strong>Thresholds:</strong> {min === null ? "-" : `${min}F`} to {max === null ? "-" : `${max}F`}
-                      </div>
-                      <div>
-                        <strong>Last Alert State:</strong> {hub.lastAlertState ?? "UNKNOWN"}
-                      </div>
-                      <div>
-                        <strong>Current Hub Temp:</strong> {lastTemp === null ? "-" : `${lastTemp.toFixed(1)}F`}
-                      </div>
-                      <div>
-                        <strong>Extra Recipients:</strong> {recipientLabels.length ? recipientLabels.join(", ") : "None"}
-                      </div>
-                    </div>
-
                     <details style={{ marginTop: 10, border: "1px solid var(--border)", borderRadius: 10, padding: 10, background: "var(--surface)" }}>
                       <summary style={{ cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", fontWeight: 800, fontSize: 13 }}>
                         <span>Sensor Temperature Overlay (Last 24h)</span>
