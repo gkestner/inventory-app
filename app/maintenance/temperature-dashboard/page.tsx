@@ -1717,16 +1717,13 @@ export default async function TemperatureDashboardPage({
                         <strong>Store:</strong> {hub.location?.name ?? "-"}
                       </div>
                       <div>
-                        <strong>Assigned Maintenance:</strong> {personLabel(hub.assignedMaintenanceUser)}
-                      </div>
-                      <div>
                         <strong>Thresholds:</strong> {min === null ? "-" : `${min}F`} to {max === null ? "-" : `${max}F`}
                       </div>
                       <div>
-                        <strong>Last Reading:</strong> {lastTemp === null ? "-" : `${lastTemp.toFixed(1)}F`} ({fmtDateTime(hub.lastReadingAt)})
+                        <strong>Last Alert State:</strong> {hub.lastAlertState ?? "UNKNOWN"}
                       </div>
                       <div>
-                        <strong>Last Alert State:</strong> {hub.lastAlertState ?? "UNKNOWN"}
+                        <strong>Current Hub Temp:</strong> {lastTemp === null ? "-" : `${lastTemp.toFixed(1)}F`}
                       </div>
                       <div>
                         <strong>Extra Recipients:</strong> {recipientLabels.length ? recipientLabels.join(", ") : "None"}
@@ -1840,14 +1837,12 @@ export default async function TemperatureDashboardPage({
                       <div style={{ marginBottom: 6, fontSize: 12, opacity: 0.8 }}>
                         Live sensor table (auto-refresh) with 24h trend sparkline per sensor.
                       </div>
-                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 920 }}>
                         <thead>
                           <tr style={{ borderBottom: "1px solid var(--border)" }}>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Device</th>
-                            <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Device ID</th>
+                            <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Temperature Gauge</th>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Connection</th>
-                            <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Thresholds (F)</th>
-                            <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Current Temp</th>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Trend (24h)</th>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Alert</th>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Battery</th>
@@ -1874,7 +1869,8 @@ export default async function TemperatureDashboardPage({
                             const gaugeRange = Math.max(0.001, gaugeMax - gaugeMin);
                             const clampedTemp = dTemp === null ? gaugeMin : Math.max(gaugeMin, Math.min(gaugeMax, dTemp));
                             const gaugePct = Math.max(0, Math.min(1, (clampedTemp - gaugeMin) / gaugeRange));
-                            const gaugeRadius = 32;
+                            const gaugeCenter = 68;
+                            const gaugeRadius = 50;
                             const gaugeCircumference = 2 * Math.PI * gaugeRadius;
                             const gaugeDash = `${(gaugePct * gaugeCircumference).toFixed(2)} ${gaugeCircumference.toFixed(2)}`;
                             const outOfRange =
@@ -1903,8 +1899,8 @@ export default async function TemperatureDashboardPage({
                             const toPolar = (radius: number, degrees: number) => {
                               const radians = ((degrees - 90) * Math.PI) / 180;
                               return {
-                                x: 46 + radius * Math.cos(radians),
-                                y: 46 + radius * Math.sin(radians),
+                                x: gaugeCenter + radius * Math.cos(radians),
+                                y: gaugeCenter + radius * Math.sin(radians),
                               };
                             };
                             const minTickOuter = toPolar(gaugeRadius + 2, dialStartDeg);
@@ -1921,35 +1917,20 @@ export default async function TemperatureDashboardPage({
                                   <div style={{ fontWeight: 800 }}>{device.name}</div>
                                   <div style={{ fontSize: 11, opacity: 0.78 }}>Sensor</div>
                                 </td>
-                                <td style={{ padding: "10px 6px", fontFamily: "monospace", fontSize: 12 }}>{device.externalDeviceId}</td>
-                                <td style={{ padding: "6px 4px", fontSize: 12, whiteSpace: "nowrap" }}>
-                                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                                    <span style={{ width: 8, height: 8, borderRadius: 999, background: health.color, display: "inline-block" }} />
-                                    <span>
-                                      {health.label}
-                                      {health.minutes !== null ? ` (${health.minutes}m)` : ""}
-                                    </span>
-                                  </span>
-                                </td>
-                                <td style={{ padding: "6px 4px" }}>
-                                  {dMin === null && dMax === null
-                                    ? `Hub default (${min === null ? "-" : min} to ${max === null ? "-" : max})`
-                                    : `${dMin === null ? "-" : dMin} to ${dMax === null ? "-" : dMax}`}
-                                </td>
-                                <td style={{ padding: "8px 4px", minWidth: 210 }}>
+                                <td style={{ padding: "8px 4px", minWidth: 320 }}>
                                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                                    <svg width="92" height="92" viewBox="0 0 92 92" role="img" aria-label={`Current temperature for ${device.name}`}>
-                                      <circle cx="46" cy="46" r={gaugeRadius} fill="none" stroke="var(--border)" strokeWidth="8" />
+                                    <svg width="136" height="136" viewBox="0 0 136 136" role="img" aria-label={`Current temperature for ${device.name}`}>
+                                      <circle cx={gaugeCenter} cy={gaugeCenter} r={gaugeRadius} fill="none" stroke="var(--border)" strokeWidth="8" />
                                       <circle
-                                        cx="46"
-                                        cy="46"
+                                        cx={gaugeCenter}
+                                        cy={gaugeCenter}
                                         r={gaugeRadius}
                                         fill="none"
                                         stroke={gaugeColor}
                                         strokeWidth="8"
                                         strokeLinecap="round"
                                         strokeDasharray={gaugeDash}
-                                        transform="rotate(-90 46 46)"
+                                        transform={`rotate(-90 ${gaugeCenter} ${gaugeCenter})`}
                                       />
                                       <line
                                         x1={minTickInner.x.toFixed(2)}
@@ -1968,30 +1949,39 @@ export default async function TemperatureDashboardPage({
                                         strokeWidth="2"
                                       />
                                       <line
-                                        x1="46"
-                                        y1="46"
+                                        x1={gaugeCenter}
+                                        y1={gaugeCenter}
                                         x2={needlePoint.x.toFixed(2)}
                                         y2={needlePoint.y.toFixed(2)}
                                         stroke={gaugeColor}
                                         strokeWidth="2.4"
                                         strokeLinecap="round"
                                       />
-                                      <circle cx="46" cy="46" r="2.8" fill={gaugeColor} />
-                                      <text x="46" y="42" textAnchor="middle" fill="var(--foreground)" style={{ fontSize: 21, fontWeight: 900 }}>
+                                      <circle cx={gaugeCenter} cy={gaugeCenter} r="3.4" fill={gaugeColor} />
+                                      <text x={gaugeCenter} y="65" textAnchor="middle" fill="var(--foreground)" style={{ fontSize: 30, fontWeight: 900 }}>
                                         {dTemp === null ? "--" : dTemp.toFixed(1)}
                                       </text>
-                                      <text x="46" y="58" textAnchor="middle" fill="var(--muted)" style={{ fontSize: 11, fontWeight: 700 }}>
+                                      <text x={gaugeCenter} y="86" textAnchor="middle" fill="var(--muted)" style={{ fontSize: 13, fontWeight: 700 }}>
                                         F
                                       </text>
                                     </svg>
-                                    <div style={{ fontSize: 11, lineHeight: 1.35, minWidth: 98 }}>
-                                      <div style={{ fontWeight: 800, color: gaugeColor }}>{dialTheme.label}</div>
+                                    <div style={{ fontSize: 12, lineHeight: 1.35, minWidth: 118 }}>
+                                      <div style={{ fontWeight: 900, color: gaugeColor }}>{dialTheme.label}</div>
                                       <div style={{ opacity: 0.85 }}>
                                         Min {hasRange ? (effectiveMin as number).toFixed(1) : "-"} | Max {hasRange ? (effectiveMax as number).toFixed(1) : "-"}
                                       </div>
-                                      <div style={{ opacity: 0.75 }}>Gauge: {Math.round(gaugePct * 100)}%</div>
+                                      <div style={{ opacity: 0.75 }}>Range: {Math.round(gaugePct * 100)}%</div>
                                     </div>
                                   </div>
+                                </td>
+                                <td style={{ padding: "6px 4px", fontSize: 12, whiteSpace: "nowrap" }}>
+                                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                    <span style={{ width: 8, height: 8, borderRadius: 999, background: health.color, display: "inline-block" }} />
+                                    <span>
+                                      {health.label}
+                                      {health.minutes !== null ? ` (${health.minutes}m)` : ""}
+                                    </span>
+                                  </span>
                                 </td>
                                 <td style={{ padding: "6px 4px" }}>
                                   {trend.length < 2 ? (
@@ -2030,7 +2020,7 @@ export default async function TemperatureDashboardPage({
                           })}
                           {hub.devices.length === 0 ? (
                             <tr>
-                              <td colSpan={9} style={{ padding: "8px 4px", opacity: 0.8 }}>
+                              <td colSpan={7} style={{ padding: "8px 4px", opacity: 0.8 }}>
                                 No readings have been received yet for this hub.
                               </td>
                             </tr>
