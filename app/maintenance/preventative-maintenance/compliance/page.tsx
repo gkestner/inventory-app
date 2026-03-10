@@ -25,12 +25,15 @@ type PmEntry = {
   locationId: string;
   greaseTrapTankSize: string | null;
   greaseTrapDatePumped: string | null;
+  greaseTrapReminderMonths: string | null;
   greaseTrapCompany: string | null;
   greaseTrapCost: string | null;
   backflowDateChecked: string | null;
+  backflowReminderMonths: string | null;
   backflowCompany: string | null;
   backflowAmount: string | null;
   boilerInspectionDatePrimary: string | null;
+  boilerInspectionReminderMonths: string | null;
   boilerInspectionCompany: string | null;
   boilerInspectionCost: string | null;
 };
@@ -46,6 +49,41 @@ const pmDb = prisma as unknown as PmDb;
 function valueOrDash(v: string | null | undefined) {
   const s = String(v ?? "").trim();
   return s || "-";
+}
+
+function parseReminderMonths(raw: string | null | undefined): number | null {
+  const n = Number(String(raw ?? "").trim());
+  if (!Number.isFinite(n)) return null;
+  const int = Math.trunc(n);
+  if (int <= 0 || int > 120) return null;
+  return int;
+}
+
+function parseDateInput(raw: string | null | undefined): Date | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  const d = new Date(`${s}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function addMonths(base: Date, months: number): Date {
+  const d = new Date(base);
+  d.setMonth(d.getMonth() + months);
+  return d;
+}
+
+function dueSummary(dateRaw: string | null | undefined, reminderRaw: string | null | undefined): string {
+  const months = parseReminderMonths(reminderRaw);
+  const date = parseDateInput(dateRaw);
+  if (!months || !date) return "-";
+  const due = addMonths(date, months);
+  const dueIso = due.toISOString().slice(0, 10);
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((due.getTime() - now.getTime()) / 86400000);
+  if (diffDays < 0) return `${dueIso} (Overdue)`;
+  if (diffDays <= 30) return `${dueIso} (Due Soon)`;
+  return `${dueIso} (On Track)`;
 }
 
 function locationSortValue(locationNumber: string | null | undefined): number {
@@ -129,12 +167,15 @@ export default async function MaintenancePreventativeMaintenanceCompliancePage({
             locationId: true,
             greaseTrapTankSize: true,
             greaseTrapDatePumped: true,
+            greaseTrapReminderMonths: true,
             greaseTrapCompany: true,
             greaseTrapCost: true,
             backflowDateChecked: true,
+            backflowReminderMonths: true,
             backflowCompany: true,
             backflowAmount: true,
             boilerInspectionDatePrimary: true,
+            boilerInspectionReminderMonths: true,
             boilerInspectionCompany: true,
             boilerInspectionCost: true,
           },
@@ -238,6 +279,12 @@ export default async function MaintenancePreventativeMaintenanceCompliancePage({
                   <th style={{ ...tableHeaderStyle, minWidth: 170 }}>
                     Grease Trap Pumped Date
                   </th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 140 }}>
+                    Reminder (Months)
+                  </th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 190 }}>
+                    Next Due
+                  </th>
                   <th style={{ ...tableHeaderStyle, minWidth: 170 }}>
                     Company Who Pumped
                   </th>
@@ -256,6 +303,8 @@ export default async function MaintenancePreventativeMaintenanceCompliancePage({
                     <tr key={location.id}>
                       <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>{formatLocationLabel(location)}</td>
                       <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.greaseTrapDatePumped)}</td>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.greaseTrapReminderMonths)}</td>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{dueSummary(row?.greaseTrapDatePumped, row?.greaseTrapReminderMonths)}</td>
                       <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.greaseTrapCompany)}</td>
                       <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.greaseTrapTankSize)}</td>
                       <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.greaseTrapCost)}</td>
@@ -275,6 +324,8 @@ export default async function MaintenancePreventativeMaintenanceCompliancePage({
                 <tr>
                   <th style={{ ...tableHeaderStyle, minWidth: 180 }}>Location</th>
                   <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Date Inspected</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 140 }}>Reminder (Months)</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 190 }}>Next Due</th>
                   <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Cost</th>
                   <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Company</th>
                 </tr>
@@ -286,6 +337,8 @@ export default async function MaintenancePreventativeMaintenanceCompliancePage({
                     <tr key={`backflow-${location.id}`}>
                       <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>{formatLocationLabel(location)}</td>
                       <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.backflowDateChecked)}</td>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.backflowReminderMonths)}</td>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{dueSummary(row?.backflowDateChecked, row?.backflowReminderMonths)}</td>
                       <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.backflowAmount)}</td>
                       <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.backflowCompany)}</td>
                     </tr>
@@ -304,6 +357,8 @@ export default async function MaintenancePreventativeMaintenanceCompliancePage({
                 <tr>
                   <th style={{ ...tableHeaderStyle, minWidth: 180 }}>Location</th>
                   <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Date Inspected</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 140 }}>Reminder (Months)</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 190 }}>Next Due</th>
                   <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Cost</th>
                   <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Company</th>
                 </tr>
@@ -315,6 +370,8 @@ export default async function MaintenancePreventativeMaintenanceCompliancePage({
                     <tr key={`boiler-${location.id}`}>
                       <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>{formatLocationLabel(location)}</td>
                       <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.boilerInspectionDatePrimary)}</td>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.boilerInspectionReminderMonths)}</td>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{dueSummary(row?.boilerInspectionDatePrimary, row?.boilerInspectionReminderMonths)}</td>
                       <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.boilerInspectionCost)}</td>
                       <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)" }}>{valueOrDash(row?.boilerInspectionCompany)}</td>
                     </tr>

@@ -544,14 +544,17 @@ model PreventativeMaintenanceEntry {
 
   greaseTrapTankSize String?
   greaseTrapDatePumped String?
+  greaseTrapReminderMonths String?
   greaseTrapCompany  String?
   greaseTrapCost     String?
 
   backflowDateChecked String?
+  backflowReminderMonths String?
   backflowCompany    String?
   backflowAmount     String?
 
   boilerInspectionDatePrimary String?
+  boilerInspectionReminderMonths String?
   boilerInspectionCompany String?
   boilerInspectionCost String?
   boilerInspectionDateSecondary String?

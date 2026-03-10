@@ -30,6 +30,36 @@ function toTrimmed(v: FormDataEntryValue | null) {
   return String(v ?? "").trim();
 }
 
+function parseReminderMonths(raw: string | null | undefined): number | null {
+  const n = Number(String(raw ?? "").trim());
+  if (!Number.isFinite(n)) return null;
+  const int = Math.trunc(n);
+  if (int <= 0) return null;
+  if (int > 120) return null;
+  return int;
+}
+
+function parseDateInput(raw: string | null | undefined): Date | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  const d = new Date(`${s}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function addMonths(base: Date, months: number): Date {
+  const d = new Date(base);
+  d.setMonth(d.getMonth() + months);
+  return d;
+}
+
+function computeNextDue(dateRaw: string | null | undefined, reminderRaw: string | null | undefined): string {
+  const months = parseReminderMonths(reminderRaw);
+  const date = parseDateInput(dateRaw);
+  if (!months || !date) return "-";
+  const due = addMonths(date, months);
+  return due.toISOString().slice(0, 10);
+}
+
 function locationSortValue(locationNumber: string | null | undefined): number {
   const raw = String(locationNumber ?? "").trim();
   if (!raw) return Number.MAX_SAFE_INTEGER;
@@ -63,12 +93,15 @@ function getComplianceValues(formData: FormData, locationId: string): Partial<Pr
     greaseTrapGallons: toTrimmed(formData.get(`greaseTrapGallons:${locationId}`)),
     greaseTrapTankSize: toTrimmed(formData.get(`greaseTrapTankSize:${locationId}`)),
     greaseTrapDatePumped: toTrimmed(formData.get(`greaseTrapDatePumped:${locationId}`)),
+    greaseTrapReminderMonths: toTrimmed(formData.get(`greaseTrapReminderMonths:${locationId}`)),
     greaseTrapCompany: toTrimmed(formData.get(`greaseTrapCompany:${locationId}`)),
     greaseTrapCost: toTrimmed(formData.get(`greaseTrapCost:${locationId}`)),
     backflowDateChecked: toTrimmed(formData.get(`backflowDateChecked:${locationId}`)),
+    backflowReminderMonths: toTrimmed(formData.get(`backflowReminderMonths:${locationId}`)),
     backflowCompany: toTrimmed(formData.get(`backflowCompany:${locationId}`)),
     backflowAmount: toTrimmed(formData.get(`backflowAmount:${locationId}`)),
     boilerInspectionDatePrimary: toTrimmed(formData.get(`boilerInspectionDatePrimary:${locationId}`)),
+    boilerInspectionReminderMonths: toTrimmed(formData.get(`boilerInspectionReminderMonths:${locationId}`)),
     boilerInspectionCost: toTrimmed(formData.get(`boilerInspectionCost:${locationId}`)),
     boilerInspectionCompany: toTrimmed(formData.get(`boilerInspectionCompany:${locationId}`)),
   };
@@ -109,12 +142,15 @@ export default async function AdminPreventativeMaintenanceCompliancePage({
       greaseTrapGallons: true,
       greaseTrapTankSize: true,
       greaseTrapDatePumped: true,
+      greaseTrapReminderMonths: true,
       greaseTrapCompany: true,
       greaseTrapCost: true,
       backflowDateChecked: true,
+      backflowReminderMonths: true,
       backflowCompany: true,
       backflowAmount: true,
       boilerInspectionDatePrimary: true,
+      boilerInspectionReminderMonths: true,
       boilerInspectionCost: true,
       boilerInspectionCompany: true,
     },
@@ -257,6 +293,8 @@ export default async function AdminPreventativeMaintenanceCompliancePage({
                 <tr>
                   <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Location</th>
                   <th style={{ ...tableHeaderStyle, minWidth: 140 }}>Pumped Date</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 140 }}>Reminder (Months)</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 130 }}>Next Due</th>
                   <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Company Who Pumped</th>
                   <th style={{ ...tableHeaderStyle, minWidth: 140 }}>Grease Trap Size</th>
                   <th style={{ ...tableHeaderStyle, minWidth: 120 }}>Cost to Pump</th>
@@ -269,6 +307,8 @@ export default async function AdminPreventativeMaintenanceCompliancePage({
                     <tr key={`grease-${location.id}`}>
                       <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>{formatLocationLabel(location)}</td>
                       <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`greaseTrapDatePumped:${location.id}`} defaultValue={row?.greaseTrapDatePumped ?? ""} style={inputStyle} /></td>
+                      <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`greaseTrapReminderMonths:${location.id}`} defaultValue={row?.greaseTrapReminderMonths ?? ""} style={inputStyle} /></td>
+                      <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)", fontWeight: 700 }}>{computeNextDue(row?.greaseTrapDatePumped, row?.greaseTrapReminderMonths)}</td>
                       <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`greaseTrapCompany:${location.id}`} defaultValue={row?.greaseTrapCompany ?? ""} style={inputStyle} /></td>
                       <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`greaseTrapTankSize:${location.id}`} defaultValue={row?.greaseTrapTankSize ?? ""} style={inputStyle} /></td>
                       <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`greaseTrapCost:${location.id}`} defaultValue={row?.greaseTrapCost ?? ""} style={inputStyle} /></td>
@@ -288,6 +328,8 @@ export default async function AdminPreventativeMaintenanceCompliancePage({
                 <tr>
                   <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Location</th>
                   <th style={{ ...tableHeaderStyle, minWidth: 140 }}>Date Inspected</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 140 }}>Reminder (Months)</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 130 }}>Next Due</th>
                   <th style={{ ...tableHeaderStyle, minWidth: 120 }}>Cost</th>
                   <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Company</th>
                 </tr>
@@ -299,6 +341,8 @@ export default async function AdminPreventativeMaintenanceCompliancePage({
                     <tr key={`backflow-${location.id}`}>
                       <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>{formatLocationLabel(location)}</td>
                       <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`backflowDateChecked:${location.id}`} defaultValue={row?.backflowDateChecked ?? ""} style={inputStyle} /></td>
+                      <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`backflowReminderMonths:${location.id}`} defaultValue={row?.backflowReminderMonths ?? ""} style={inputStyle} /></td>
+                      <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)", fontWeight: 700 }}>{computeNextDue(row?.backflowDateChecked, row?.backflowReminderMonths)}</td>
                       <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`backflowAmount:${location.id}`} defaultValue={row?.backflowAmount ?? ""} style={inputStyle} /></td>
                       <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`backflowCompany:${location.id}`} defaultValue={row?.backflowCompany ?? ""} style={inputStyle} /></td>
                     </tr>
@@ -317,6 +361,8 @@ export default async function AdminPreventativeMaintenanceCompliancePage({
                 <tr>
                   <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Location</th>
                   <th style={{ ...tableHeaderStyle, minWidth: 140 }}>Date Inspected</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 140 }}>Reminder (Months)</th>
+                  <th style={{ ...tableHeaderStyle, minWidth: 130 }}>Next Due</th>
                   <th style={{ ...tableHeaderStyle, minWidth: 120 }}>Cost</th>
                   <th style={{ ...tableHeaderStyle, minWidth: 170 }}>Company</th>
                 </tr>
@@ -328,6 +374,8 @@ export default async function AdminPreventativeMaintenanceCompliancePage({
                     <tr key={`boiler-${location.id}`}>
                       <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>{formatLocationLabel(location)}</td>
                       <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`boilerInspectionDatePrimary:${location.id}`} defaultValue={row?.boilerInspectionDatePrimary ?? ""} style={inputStyle} /></td>
+                      <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`boilerInspectionReminderMonths:${location.id}`} defaultValue={row?.boilerInspectionReminderMonths ?? ""} style={inputStyle} /></td>
+                      <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)", fontWeight: 700 }}>{computeNextDue(row?.boilerInspectionDatePrimary, row?.boilerInspectionReminderMonths)}</td>
                       <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`boilerInspectionCost:${location.id}`} defaultValue={row?.boilerInspectionCost ?? ""} style={inputStyle} /></td>
                       <td style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}><input name={`boilerInspectionCompany:${location.id}`} defaultValue={row?.boilerInspectionCompany ?? ""} style={inputStyle} /></td>
                     </tr>

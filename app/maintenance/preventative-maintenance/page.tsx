@@ -34,12 +34,15 @@ type PmEntry = {
   greaseTrapGallons: string | null;
   greaseTrapTankSize: string | null;
   greaseTrapDatePumped: string | null;
+  greaseTrapReminderMonths: string | null;
   greaseTrapCompany: string | null;
   greaseTrapCost: string | null;
   backflowDateChecked: string | null;
+  backflowReminderMonths: string | null;
   backflowCompany: string | null;
   backflowAmount: string | null;
   boilerInspectionDatePrimary: string | null;
+  boilerInspectionReminderMonths: string | null;
   boilerInspectionCompany: string | null;
   boilerInspectionCost: string | null;
   boilerInspectionDateSecondary: string | null;
@@ -205,12 +208,15 @@ export default async function MaintenancePreventativeMaintenancePage({
             greaseTrapGallons: true,
             greaseTrapTankSize: true,
             greaseTrapDatePumped: true,
+            greaseTrapReminderMonths: true,
             greaseTrapCompany: true,
             greaseTrapCost: true,
             backflowDateChecked: true,
+            backflowReminderMonths: true,
             backflowCompany: true,
             backflowAmount: true,
             boilerInspectionDatePrimary: true,
+            boilerInspectionReminderMonths: true,
             boilerInspectionCompany: true,
             boilerInspectionCost: true,
             boilerInspectionDateSecondary: true,

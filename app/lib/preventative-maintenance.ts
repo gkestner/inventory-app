@@ -8,12 +8,15 @@ export type PreventativeMaintenanceFieldKey =
   | "greaseTrapGallons"
   | "greaseTrapTankSize"
   | "greaseTrapDatePumped"
+  | "greaseTrapReminderMonths"
   | "greaseTrapCompany"
   | "greaseTrapCost"
   | "backflowDateChecked"
+  | "backflowReminderMonths"
   | "backflowCompany"
   | "backflowAmount"
   | "boilerInspectionDatePrimary"
+  | "boilerInspectionReminderMonths"
   | "boilerInspectionCompany"
   | "boilerInspectionCost"
   | "boilerInspectionDateSecondary";
@@ -29,18 +32,21 @@ export const PM_CHECKLIST_FIELDS: Array<{ key: PreventativeMaintenanceFieldKey; 
 export const GREASE_TRAP_TRACKING_FIELDS: Array<{ key: PreventativeMaintenanceFieldKey; label: string }> = [
   { key: "greaseTrapTankSize", label: "Gal. Tank" },
   { key: "greaseTrapDatePumped", label: "Date Pumped" },
+  { key: "greaseTrapReminderMonths", label: "Reminder (Months)" },
   { key: "greaseTrapCompany", label: "Company" },
   { key: "greaseTrapCost", label: "Cost" },
 ];
 
 export const BACKFLOW_TRACKING_FIELDS: Array<{ key: PreventativeMaintenanceFieldKey; label: string }> = [
   { key: "backflowDateChecked", label: "Date Checked" },
+  { key: "backflowReminderMonths", label: "Reminder (Months)" },
   { key: "backflowCompany", label: "Company" },
   { key: "backflowAmount", label: "Amount" },
 ];
 
 export const BOILER_TRACKING_FIELDS: Array<{ key: PreventativeMaintenanceFieldKey; label: string }> = [
   { key: "boilerInspectionDatePrimary", label: "Date Inspected" },
+  { key: "boilerInspectionReminderMonths", label: "Reminder (Months)" },
   { key: "boilerInspectionCost", label: "Cost" },
   { key: "boilerInspectionCompany", label: "Company" },
 ];
@@ -93,12 +99,15 @@ export type PreventativeMaintenanceValues = {
   greaseTrapGallons: string;
   greaseTrapTankSize: string;
   greaseTrapDatePumped: string;
+  greaseTrapReminderMonths: string;
   greaseTrapCompany: string;
   greaseTrapCost: string;
   backflowDateChecked: string;
+  backflowReminderMonths: string;
   backflowCompany: string;
   backflowAmount: string;
   boilerInspectionDatePrimary: string;
+  boilerInspectionReminderMonths: string;
   boilerInspectionCompany: string;
   boilerInspectionCost: string;
   boilerInspectionDateSecondary: string;
@@ -112,12 +121,15 @@ type PreventativeMaintenancePersistedValues = {
   greaseTrapGallons: string | null;
   greaseTrapTankSize: string | null;
   greaseTrapDatePumped: string | null;
+  greaseTrapReminderMonths: string | null;
   greaseTrapCompany: string | null;
   greaseTrapCost: string | null;
   backflowDateChecked: string | null;
+  backflowReminderMonths: string | null;
   backflowCompany: string | null;
   backflowAmount: string | null;
   boilerInspectionDatePrimary: string | null;
+  boilerInspectionReminderMonths: string | null;
   boilerInspectionCompany: string | null;
   boilerInspectionCost: string | null;
   boilerInspectionDateSecondary: string | null;
@@ -131,12 +143,15 @@ const EMPTY_VALUES: PreventativeMaintenanceValues = {
   greaseTrapGallons: "",
   greaseTrapTankSize: "",
   greaseTrapDatePumped: "",
+  greaseTrapReminderMonths: "",
   greaseTrapCompany: "",
   greaseTrapCost: "",
   backflowDateChecked: "",
+  backflowReminderMonths: "",
   backflowCompany: "",
   backflowAmount: "",
   boilerInspectionDatePrimary: "",
+  boilerInspectionReminderMonths: "",
   boilerInspectionCompany: "",
   boilerInspectionCost: "",
   boilerInspectionDateSecondary: "",
@@ -297,12 +312,15 @@ export async function savePreventativeMaintenanceEntryWithAudit(args: {
       greaseTrapGallons: true,
       greaseTrapTankSize: true,
       greaseTrapDatePumped: true,
+      greaseTrapReminderMonths: true,
       greaseTrapCompany: true,
       greaseTrapCost: true,
       backflowDateChecked: true,
+      backflowReminderMonths: true,
       backflowCompany: true,
       backflowAmount: true,
       boilerInspectionDatePrimary: true,
+      boilerInspectionReminderMonths: true,
       boilerInspectionCompany: true,
       boilerInspectionCost: true,
       boilerInspectionDateSecondary: true,
@@ -334,12 +352,15 @@ export async function savePreventativeMaintenanceEntryWithAudit(args: {
       greaseTrapGallons: true,
       greaseTrapTankSize: true,
       greaseTrapDatePumped: true,
+      greaseTrapReminderMonths: true,
       greaseTrapCompany: true,
       greaseTrapCost: true,
       backflowDateChecked: true,
+      backflowReminderMonths: true,
       backflowCompany: true,
       backflowAmount: true,
       boilerInspectionDatePrimary: true,
+      boilerInspectionReminderMonths: true,
       boilerInspectionCompany: true,
       boilerInspectionCost: true,
       boilerInspectionDateSecondary: true,
@@ -370,12 +391,15 @@ export async function savePreventativeMaintenanceEntryWithAudit(args: {
             greaseTrapGallons: saved.greaseTrapGallons,
             greaseTrapTankSize: saved.greaseTrapTankSize,
             greaseTrapDatePumped: saved.greaseTrapDatePumped,
+            greaseTrapReminderMonths: saved.greaseTrapReminderMonths,
             greaseTrapCompany: saved.greaseTrapCompany,
             greaseTrapCost: saved.greaseTrapCost,
             backflowDateChecked: saved.backflowDateChecked,
+            backflowReminderMonths: saved.backflowReminderMonths,
             backflowCompany: saved.backflowCompany,
             backflowAmount: saved.backflowAmount,
             boilerInspectionDatePrimary: saved.boilerInspectionDatePrimary,
+            boilerInspectionReminderMonths: saved.boilerInspectionReminderMonths,
             boilerInspectionCompany: saved.boilerInspectionCompany,
             boilerInspectionCost: saved.boilerInspectionCost,
             boilerInspectionDateSecondary: saved.boilerInspectionDateSecondary,
