@@ -314,6 +314,7 @@ export default async function TemperatureDashboardPage({
     const maxTempF = parseTempInput(formData.get("maxTempF"));
     const gaugeMinF = parseTempInput(formData.get("gaugeMinF"));
     const gaugeMaxF = parseTempInput(formData.get("gaugeMaxF"));
+    console.log("DEBUG: saveHubAction gaugeMinF=", gaugeMinF, "gaugeMaxF=", gaugeMaxF);
 
     if (!name || !externalHubId) {
       redirect("/maintenance/temperature-dashboard?error=missing");
@@ -392,6 +393,7 @@ export default async function TemperatureDashboardPage({
 
       let saved;
       try {
+        console.log("DEBUG: DB update gaugeMinF=", gaugeMinF, "gaugeMaxF=", gaugeMaxF);
         saved = hubId
           ? await db.mocreoHub.update({
               where: { id: hubId },
@@ -2053,8 +2055,8 @@ export default async function TemperatureDashboardPage({
                                     </div>
                                   </div>
                                   <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-                                    <div style={{ display: "grid", justifyItems: "center" }}>
-                                      <svg width="480" height="420" viewBox="0 0 480 420" role="img" aria-label={`Current temperature for ${device.name}`}>
+                                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                                      <svg width="480" height="420" viewBox="0 0 480 420" role="img" aria-label={`Current temperature for ${device.name}`} style={{ display: "block", margin: "0 auto" }}>
                                         <path d={arcPath(dialStartDeg, dialEndDeg)} fill="none" stroke="var(--border)" strokeWidth="14" strokeLinecap="round" />
 
                                         {hasRange ? (
@@ -2096,7 +2098,7 @@ export default async function TemperatureDashboardPage({
                                         <circle cx={gaugeCenter} cy={gaugeCenter} r="8" fill={gaugeColor} />
                                         <circle cx={markerPoint.x.toFixed(2)} cy={markerPoint.y.toFixed(2)} r="7" fill={gaugeColor} stroke="var(--surface)" strokeWidth="2" />
                                       </svg>
-                                      <div style={{ marginTop: -18, fontSize: 56, fontWeight: 900, lineHeight: 1, color: "var(--foreground)" }}>
+                                      <div style={{ marginTop: -18, fontSize: 56, fontWeight: 900, lineHeight: 1, color: "var(--foreground)", textAlign: "center" }}>
                                         {dTemp === null ? "--" : dTemp.toFixed(1)}F
                                       </div>
                                     </div>
@@ -2361,6 +2363,8 @@ export default async function TemperatureDashboardPage({
                                 name="gaugeMinF"
                                 type="number"
                                 step="0.1"
+                                min={-100}
+                                max={200}
                                 defaultValue={toNumberOrNull(hub.gaugeMinF) ?? "-20"}
                                 style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)" }}
                               />
@@ -2372,6 +2376,8 @@ export default async function TemperatureDashboardPage({
                                 name="gaugeMaxF"
                                 type="number"
                                 step="0.1"
+                                min={-100}
+                                max={200}
                                 defaultValue={toNumberOrNull(hub.gaugeMaxF) ?? "80"}
                                 style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)" }}
                               />
