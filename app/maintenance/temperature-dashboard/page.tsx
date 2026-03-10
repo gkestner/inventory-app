@@ -1877,7 +1877,39 @@ export default async function TemperatureDashboardPage({
                             const gaugeDash = `${(gaugePct * gaugeCircumference).toFixed(2)} ${gaugeCircumference.toFixed(2)}`;
                             const outOfRange =
                               hasRange && dTemp !== null && (dTemp < (effectiveMin as number) || dTemp > (effectiveMax as number));
-                            const gaugeColor = dTemp === null ? "var(--muted)" : outOfRange ? "#ef4444" : "#22c55e";
+                            const alertState =
+                              device.lastAlertState ??
+                              (dTemp === null
+                                ? "UNKNOWN"
+                                : outOfRange && hasRange
+                                  ? dTemp < (effectiveMin as number)
+                                    ? "LOW"
+                                    : "HIGH"
+                                  : "NORMAL");
+                            const dialTheme =
+                              alertState === "HIGH"
+                                ? { color: "#ef4444", label: "High alert" }
+                                : alertState === "LOW"
+                                  ? { color: "#f59e0b", label: "Low alert" }
+                                  : alertState === "NORMAL"
+                                    ? { color: "#22c55e", label: "Normal" }
+                                    : { color: "#9ca3af", label: "Unknown" };
+                            const gaugeColor = dTemp === null ? "#9ca3af" : dialTheme.color;
+                            const dialStartDeg = -140;
+                            const dialEndDeg = 140;
+                            const dialAngleDeg = dialStartDeg + gaugePct * (dialEndDeg - dialStartDeg);
+                            const toPolar = (radius: number, degrees: number) => {
+                              const radians = ((degrees - 90) * Math.PI) / 180;
+                              return {
+                                x: 46 + radius * Math.cos(radians),
+                                y: 46 + radius * Math.sin(radians),
+                              };
+                            };
+                            const minTickOuter = toPolar(gaugeRadius + 2, dialStartDeg);
+                            const minTickInner = toPolar(gaugeRadius - 5, dialStartDeg);
+                            const maxTickOuter = toPolar(gaugeRadius + 2, dialEndDeg);
+                            const maxTickInner = toPolar(gaugeRadius - 5, dialEndDeg);
+                            const needlePoint = toPolar(gaugeRadius - 8, dialAngleDeg);
                             const health = getConnectionHealth(dSeen);
                             const trend = historyByDevice.get(device.id) ?? [];
                             const points = sparklinePoints(trend.map((t) => t.temp));
@@ -1917,6 +1949,32 @@ export default async function TemperatureDashboardPage({
                                         strokeDasharray={gaugeDash}
                                         transform="rotate(-90 46 46)"
                                       />
+                                      <line
+                                        x1={minTickInner.x.toFixed(2)}
+                                        y1={minTickInner.y.toFixed(2)}
+                                        x2={minTickOuter.x.toFixed(2)}
+                                        y2={minTickOuter.y.toFixed(2)}
+                                        stroke="var(--muted)"
+                                        strokeWidth="2"
+                                      />
+                                      <line
+                                        x1={maxTickInner.x.toFixed(2)}
+                                        y1={maxTickInner.y.toFixed(2)}
+                                        x2={maxTickOuter.x.toFixed(2)}
+                                        y2={maxTickOuter.y.toFixed(2)}
+                                        stroke="var(--muted)"
+                                        strokeWidth="2"
+                                      />
+                                      <line
+                                        x1="46"
+                                        y1="46"
+                                        x2={needlePoint.x.toFixed(2)}
+                                        y2={needlePoint.y.toFixed(2)}
+                                        stroke={gaugeColor}
+                                        strokeWidth="2.4"
+                                        strokeLinecap="round"
+                                      />
+                                      <circle cx="46" cy="46" r="2.8" fill={gaugeColor} />
                                       <text x="46" y="42" textAnchor="middle" fill="var(--foreground)" style={{ fontSize: 21, fontWeight: 900 }}>
                                         {dTemp === null ? "--" : dTemp.toFixed(1)}
                                       </text>
@@ -1925,7 +1983,7 @@ export default async function TemperatureDashboardPage({
                                       </text>
                                     </svg>
                                     <div style={{ fontSize: 11, lineHeight: 1.35, minWidth: 98 }}>
-                                      <div style={{ fontWeight: 800, color: gaugeColor }}>{outOfRange ? "Out of range" : "Within range"}</div>
+                                      <div style={{ fontWeight: 800, color: gaugeColor }}>{dialTheme.label}</div>
                                       <div style={{ opacity: 0.85 }}>
                                         Min {hasRange ? (effectiveMin as number).toFixed(1) : "-"} | Max {hasRange ? (effectiveMax as number).toFixed(1) : "-"}
                                       </div>
@@ -1949,7 +2007,20 @@ export default async function TemperatureDashboardPage({
                                     </svg>
                                   )}
                                 </td>
-                                <td style={{ padding: "6px 4px", fontWeight: 800 }}>{device.lastAlertState ?? "UNKNOWN"}</td>
+                                <td style={{ padding: "6px 4px", fontWeight: 800 }}>
+                                  <span
+                                    style={{
+                                      display: "inline-block",
+                                      padding: "4px 8px",
+                                      borderRadius: 999,
+                                      border: "1px solid var(--border)",
+                                      color: dialTheme.color,
+                                      background: "color-mix(in srgb, var(--surface) 86%, var(--surface-2))",
+                                    }}
+                                  >
+                                    {alertState}
+                                  </span>
+                                </td>
                                 <td style={{ padding: "6px 4px" }}>{device.lastBatteryPct === null ? "-" : `${device.lastBatteryPct}%`}</td>
                                 <td style={{ padding: "6px 4px", whiteSpace: "nowrap" }}>{fmtDateTime(dSeen)}</td>
                               </tr>
