@@ -255,6 +255,16 @@ function dashboardMessageFromCode(code: string | undefined): string | null {
   return table[c] ?? c;
 }
 
+function isMissingGaugeColumnError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error ?? "");
+  const normalized = msg.toLowerCase();
+  return (
+    normalized.includes("gaugeminf") ||
+    normalized.includes("gaugemaxf") ||
+    normalized.includes("column") && (normalized.includes("mocreohub") || normalized.includes("mocreo hub"))
+  );
+}
+
 export default async function TemperatureDashboardPage({
   searchParams,
 }: {
@@ -964,6 +974,90 @@ export default async function TemperatureDashboardPage({
     redirect("/maintenance/temperature-dashboard?manual=ok");
   }
 
+  const hubWhere = isAdmin
+    ? {}
+    : {
+        OR: [{ assignedMaintenanceUserId: meId }, { recipients: { some: { userId: meId } } }],
+      };
+
+  const loadHubs = async (): Promise<HubRow[]> => {
+    try {
+      return (await (db as any).mocreoHub.findMany({
+        where: hubWhere,
+        orderBy: [{ active: "desc" }, { name: "asc" }],
+        select: {
+          id: true,
+          name: true,
+          externalHubId: true,
+          active: true,
+          minTempF: true,
+          maxTempF: true,
+          gaugeMinF: true,
+          gaugeMaxF: true,
+          lastReadingAt: true,
+          lastTempF: true,
+          lastAlertState: true,
+          location: { select: { id: true, name: true } },
+          assignedMaintenanceUser: { select: { id: true, name: true, email: true } },
+          recipients: { select: { user: { select: { id: true, name: true, email: true } } } },
+          devices: {
+            orderBy: [{ lastReadingAt: "desc" }, { name: "asc" }],
+            select: {
+              id: true,
+              name: true,
+              externalDeviceId: true,
+              minTempF: true,
+              maxTempF: true,
+              lastSeenAt: true,
+              lastReadingAt: true,
+              lastTempF: true,
+              lastAlertState: true,
+              lastBatteryPct: true,
+            },
+          },
+        },
+      })) as HubRow[];
+    } catch (error) {
+      if (!isMissingGaugeColumnError(error)) throw error;
+
+      const legacyRows = await (db as any).mocreoHub.findMany({
+        where: hubWhere,
+        orderBy: [{ active: "desc" }, { name: "asc" }],
+        select: {
+          id: true,
+          name: true,
+          externalHubId: true,
+          active: true,
+          minTempF: true,
+          maxTempF: true,
+          lastReadingAt: true,
+          lastTempF: true,
+          lastAlertState: true,
+          location: { select: { id: true, name: true } },
+          assignedMaintenanceUser: { select: { id: true, name: true, email: true } },
+          recipients: { select: { user: { select: { id: true, name: true, email: true } } } },
+          devices: {
+            orderBy: [{ lastReadingAt: "desc" }, { name: "asc" }],
+            select: {
+              id: true,
+              name: true,
+              externalDeviceId: true,
+              minTempF: true,
+              maxTempF: true,
+              lastSeenAt: true,
+              lastReadingAt: true,
+              lastTempF: true,
+              lastAlertState: true,
+              lastBatteryPct: true,
+            },
+          },
+        },
+      });
+
+      return (legacyRows as HubRow[]).map((row) => ({ ...row, gaugeMinF: null, gaugeMaxF: null }));
+    }
+  };
+
   const [users, locations, hubs, recentAlerts, paramsRaw] = await Promise.all([
     db.user.findMany({
       where: { active: true },
@@ -975,45 +1069,7 @@ export default async function TemperatureDashboardPage({
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
-    db.mocreoHub.findMany({
-      where: isAdmin
-        ? {}
-        : {
-            OR: [{ assignedMaintenanceUserId: meId }, { recipients: { some: { userId: meId } } }],
-          },
-      orderBy: [{ active: "desc" }, { name: "asc" }],
-      select: {
-        id: true,
-        name: true,
-        externalHubId: true,
-        active: true,
-        minTempF: true,
-        maxTempF: true,
-        gaugeMinF: true,
-        gaugeMaxF: true,
-        lastReadingAt: true,
-        lastTempF: true,
-        lastAlertState: true,
-        location: { select: { id: true, name: true } },
-        assignedMaintenanceUser: { select: { id: true, name: true, email: true } },
-        recipients: { select: { user: { select: { id: true, name: true, email: true } } } },
-        devices: {
-          orderBy: [{ lastReadingAt: "desc" }, { name: "asc" }],
-          select: {
-            id: true,
-            name: true,
-            externalDeviceId: true,
-            minTempF: true,
-            maxTempF: true,
-            lastSeenAt: true,
-            lastReadingAt: true,
-            lastTempF: true,
-            lastAlertState: true,
-            lastBatteryPct: true,
-          },
-        },
-      },
-    }),
+    loadHubs(),
     db.mocreoTemperatureReading.findMany({
       where: {
         alertState: { in: ["HIGH", "LOW"] },
