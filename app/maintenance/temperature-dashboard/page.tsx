@@ -327,53 +327,112 @@ export default async function TemperatureDashboardPage({
       redirect("/maintenance/temperature-dashboard?error=gauge_range");
     }
 
-    const locationId = locationIdRaw || null;
+    let locationId = locationIdRaw || null;
     let assignedMaintenanceUserId = assignedMaintenanceUserIdRaw || null;
+
+    if (locationId) {
+      const matchedLocation = await db.location.findMany({
+        where: { id: locationId, active: true },
+        select: { id: true, name: true },
+        take: 1,
+      } as any);
+      locationId = matchedLocation[0]?.id ?? null;
+    }
+
+    if (assignedMaintenanceUserId) {
+      const matchedUser = await db.user.findMany({
+        where: { id: assignedMaintenanceUserId, active: true },
+        select: { id: true, name: true, email: true },
+        take: 1,
+      } as any);
+      assignedMaintenanceUserId = matchedUser[0]?.id ?? null;
+    }
 
     if (!hubId && !assignedMaintenanceUserId && locationId) {
       const assignments = await loadMaintenancePrimaryAssignments();
       assignedMaintenanceUserId = assignments.find((a) => a.locationId === locationId)?.userId ?? null;
     }
 
+    const validRecipientUsers = notifyUserIds.length
+      ? await db.user.findMany({
+          where: { id: { in: notifyUserIds }, active: true },
+          select: { id: true, name: true, email: true },
+        } as any)
+      : [];
+    const validRecipientIds = new Set(validRecipientUsers.map((u) => u.id));
+
     let savedId = "";
     try {
-      const saved = hubId
-        ? await db.mocreoHub.update({
-            where: { id: hubId },
-            data: {
-              name,
-              externalHubId,
-              locationId,
-              assignedMaintenanceUserId,
-              minTempF,
-              maxTempF,
-              gaugeMinF,
-              gaugeMaxF,
-            },
-            select: { id: true },
-          })
-        : await db.mocreoHub.create({
-            data: {
-              name,
-              externalHubId,
-              locationId,
-              assignedMaintenanceUserId,
-              minTempF,
-              maxTempF,
-              gaugeMinF,
-              gaugeMaxF,
-              active: true,
-            },
-            select: { id: true },
-          });
+      const saveWithoutGaugeFields = async () =>
+        hubId
+          ? await db.mocreoHub.update({
+              where: { id: hubId },
+              data: {
+                name,
+                externalHubId,
+                locationId,
+                assignedMaintenanceUserId,
+                minTempF,
+                maxTempF,
+              },
+              select: { id: true },
+            })
+          : await db.mocreoHub.create({
+              data: {
+                name,
+                externalHubId,
+                locationId,
+                assignedMaintenanceUserId,
+                minTempF,
+                maxTempF,
+                active: true,
+              },
+              select: { id: true },
+            });
 
-          savedId = saved.id;
+      let saved;
+      try {
+        saved = hubId
+          ? await db.mocreoHub.update({
+              where: { id: hubId },
+              data: {
+                name,
+                externalHubId,
+                locationId,
+                assignedMaintenanceUserId,
+                minTempF,
+                maxTempF,
+                gaugeMinF,
+                gaugeMaxF,
+              },
+              select: { id: true },
+            })
+          : await db.mocreoHub.create({
+              data: {
+                name,
+                externalHubId,
+                locationId,
+                assignedMaintenanceUserId,
+                minTempF,
+                maxTempF,
+                gaugeMinF,
+                gaugeMaxF,
+                active: true,
+              },
+              select: { id: true },
+            });
+      } catch (error) {
+        if (!isMissingGaugeColumnError(error)) throw error;
+        saved = await saveWithoutGaugeFields();
+      }
+
+      savedId = saved.id;
 
       await db.mocreoHubRecipient.deleteMany({ where: { hubId: saved.id } });
 
-      if (notifyUserIds.length > 0) {
+      if (validRecipientIds.size > 0) {
         await db.mocreoHubRecipient.createMany({
-          data: notifyUserIds.map((userId) => ({ hubId: saved.id, userId })),
+          data: Array.from(validRecipientIds).map((userId) => ({ hubId: saved.id, userId })),
           skipDuplicates: true,
         });
       }
