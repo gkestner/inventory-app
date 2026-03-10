@@ -407,6 +407,17 @@ export default async function MaintenanceWorkOrdersPage() {
     boxShadow: "0 0 0 1px rgba(80, 160, 255, 0.12) inset",
   };
 
+  const btnPictures: CSSProperties = {
+    ...btn,
+    height: 44,
+    background: "rgba(59, 130, 246, 0.2)",
+    border: "1px solid rgba(59, 130, 246, 0.55)",
+    boxShadow: "0 0 0 1px rgba(59, 130, 246, 0.14) inset",
+    textDecoration: "none",
+  };
+
+  const photoTargetId = inProgress?.id ?? workOrders[0]?.id ?? null;
+
   const gridWrap: CSSProperties = {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
@@ -649,6 +660,19 @@ export default async function MaintenanceWorkOrdersPage() {
 
         {/* TOP CARD: Start OR End */}
         <div style={{ ...card, ...pageWidth, marginTop: 14, display: "grid", gap: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 13, opacity: 0.85 }}>Photos are uploaded from a specific work order detail screen.</div>
+            {photoTargetId ? (
+              <a href={`/maintenance/work-orders/${photoTargetId}`} style={btnPictures}>
+                Add Pictures
+              </a>
+            ) : (
+              <button type="button" style={{ ...btnPictures, opacity: 0.55, cursor: "not-allowed" }} disabled>
+                Add Pictures
+              </button>
+            )}
+          </div>
+
           {!inProgress ? (
             <>
               <h2 style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>Start Work Order</h2>
@@ -854,6 +878,12 @@ export default async function MaintenanceWorkOrdersPage() {
                           width: 260,
                         }}
                       >
+                        <div style={{ marginBottom: 8 }}>
+                          <a href={`/maintenance/work-orders/${wo.id}`} style={{ ...btnPictures, height: 36, padding: "0 12px", fontSize: 13 }}>
+                            Pictures
+                          </a>
+                        </div>
+
                         {canUpdateOwn && (isOpenDraft || isSubmitted) ? (
                           <details style={{ marginLeft: "auto", textAlign: "left", display: "inline-block", width: "100%" }}>
                             <summary style={{ cursor: "pointer", fontWeight: 900, textAlign: "right" }}>Edit</summary>
