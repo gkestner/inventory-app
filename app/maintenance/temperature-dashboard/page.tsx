@@ -1612,9 +1612,30 @@ export default async function TemperatureDashboardPage({
                     background: "color-mix(in srgb, var(--surface-2) 70%, var(--surface))",
                   }}
                 >
+                  {(() => {
+                    const groupSensorCount = group.hubs.reduce((count, hub) => count + hub.devices.length, 0);
+                    let groupLatestSeen: Date | null = null;
+
+                    for (const hub of group.hubs) {
+                      for (const device of hub.devices) {
+                        const latest = latestReadingByDevice.get(device.id);
+                        const seenAt = latest?.recordedAt ?? device.lastSeenAt ?? device.lastReadingAt;
+                        if (!seenAt) continue;
+                        if (!groupLatestSeen || seenAt.getTime() > groupLatestSeen.getTime()) {
+                          groupLatestSeen = seenAt;
+                        }
+                      }
+                    }
+
+                    return (
                   <summary style={{ cursor: "pointer", fontWeight: 900, fontSize: 16 }}>
                     {group.name} ({group.hubs.length} {group.hubs.length === 1 ? "hub" : "hubs"})
+                    <span style={{ marginLeft: 10, fontSize: 13, opacity: 0.82, fontWeight: 700 }}>
+                      {groupSensorCount} {groupSensorCount === 1 ? "sensor" : "sensors"} | Last seen: {fmtDateTime(groupLatestSeen)}
+                    </span>
                   </summary>
+                    );
+                  })()}
                   <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
               {group.hubs.map((hub) => {
                 const recipientLabels = hub.recipients.map((r) => personLabel(r.user));
