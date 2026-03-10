@@ -1913,8 +1913,6 @@ export default async function TemperatureDashboardPage({
                             const gaugePct = Math.max(0, Math.min(1, (clampedTemp - gaugeMin) / gaugeRange));
                             const gaugeCenter = 210;
                             const gaugeRadius = 168;
-                            const gaugeCircumference = 2 * Math.PI * gaugeRadius;
-                            const gaugeDash = `${(gaugePct * gaugeCircumference).toFixed(2)} ${gaugeCircumference.toFixed(2)}`;
                             const outOfRange =
                               hasRange && dTemp !== null && (dTemp < (effectiveMin as number) || dTemp > (effectiveMax as number));
                             const alertState =
@@ -1937,6 +1935,7 @@ export default async function TemperatureDashboardPage({
                             const gaugeColor = dTemp === null ? "#9ca3af" : outOfRange ? "#ef4444" : "#38bdf8";
                             const dialStartDeg = -140;
                             const dialEndDeg = 140;
+                            const dialSpanDeg = dialEndDeg - dialStartDeg;
                             const dialAngleDeg = dialStartDeg + gaugePct * (dialEndDeg - dialStartDeg);
                             const toPolar = (radius: number, degrees: number) => {
                               const radians = ((degrees - 90) * Math.PI) / 180;
@@ -1945,6 +1944,21 @@ export default async function TemperatureDashboardPage({
                                 y: gaugeCenter + radius * Math.sin(radians),
                               };
                             };
+                            const toDialDegForTemp = (tempValue: number) => {
+                              const pct = Math.max(0, Math.min(1, (tempValue - gaugeMin) / gaugeRange));
+                              return dialStartDeg + pct * dialSpanDeg;
+                            };
+                            const arcPath = (startDeg: number, endDeg: number) => {
+                              const start = toPolar(gaugeRadius, startDeg);
+                              const end = toPolar(gaugeRadius, endDeg);
+                              const delta = Math.abs(endDeg - startDeg);
+                              const largeArcFlag = delta > 180 ? 1 : 0;
+                              return `M ${start.x.toFixed(2)} ${start.y.toFixed(2)} A ${gaugeRadius} ${gaugeRadius} 0 ${largeArcFlag} 1 ${end.x.toFixed(2)} ${end.y.toFixed(2)}`;
+                            };
+
+                            const inRangeStartDeg = hasRange ? toDialDegForTemp(effectiveMin as number) : dialStartDeg;
+                            const inRangeEndDeg = hasRange ? toDialDegForTemp(effectiveMax as number) : dialEndDeg;
+                            const markerPoint = toPolar(gaugeRadius, dialAngleDeg);
                             const minTickOuter = toPolar(gaugeRadius + 2, dialStartDeg);
                             const minTickInner = toPolar(gaugeRadius - 5, dialStartDeg);
                             const maxTickOuter = toPolar(gaugeRadius + 2, dialEndDeg);
@@ -1980,52 +1994,53 @@ export default async function TemperatureDashboardPage({
                                     </div>
                                   </div>
                                   <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-                                    <svg width="480" height="480" viewBox="0 0 480 480" role="img" aria-label={`Current temperature for ${device.name}`}>
-                                      <circle cx={gaugeCenter} cy={gaugeCenter} r={gaugeRadius} fill="none" stroke="var(--border)" strokeWidth="8" />
-                                      <circle
-                                        cx={gaugeCenter}
-                                        cy={gaugeCenter}
-                                        r={gaugeRadius}
-                                        fill="none"
-                                        stroke={gaugeColor}
-                                        strokeWidth="14"
-                                        strokeLinecap="round"
-                                        strokeDasharray={gaugeDash}
-                                        transform={`rotate(-90 ${gaugeCenter} ${gaugeCenter})`}
-                                      />
-                                      <line
-                                        x1={minTickInner.x.toFixed(2)}
-                                        y1={minTickInner.y.toFixed(2)}
-                                        x2={minTickOuter.x.toFixed(2)}
-                                        y2={minTickOuter.y.toFixed(2)}
-                                        stroke="var(--muted)"
-                                        strokeWidth="3"
-                                      />
-                                      <line
-                                        x1={maxTickInner.x.toFixed(2)}
-                                        y1={maxTickInner.y.toFixed(2)}
-                                        x2={maxTickOuter.x.toFixed(2)}
-                                        y2={maxTickOuter.y.toFixed(2)}
-                                        stroke="var(--muted)"
-                                        strokeWidth="3"
-                                      />
-                                      <line
-                                        x1={gaugeCenter}
-                                        y1={gaugeCenter}
-                                        x2={needlePoint.x.toFixed(2)}
-                                        y2={needlePoint.y.toFixed(2)}
-                                        stroke={gaugeColor}
-                                        strokeWidth="6"
-                                        strokeLinecap="round"
-                                      />
-                                      <circle cx={gaugeCenter} cy={gaugeCenter} r="8" fill={gaugeColor} />
-                                      <text x={gaugeCenter} y={gaugeCenter - 12} textAnchor="middle" fill="var(--foreground)" style={{ fontSize: 66, fontWeight: 900 }}>
-                                        {dTemp === null ? "--" : dTemp.toFixed(1)}
-                                      </text>
-                                      <text x={gaugeCenter} y={gaugeCenter + 30} textAnchor="middle" fill="var(--muted)" style={{ fontSize: 22, fontWeight: 700 }}>
-                                        F
-                                      </text>
-                                    </svg>
+                                    <div style={{ display: "grid", justifyItems: "center" }}>
+                                      <svg width="480" height="420" viewBox="0 0 480 420" role="img" aria-label={`Current temperature for ${device.name}`}>
+                                        <path d={arcPath(dialStartDeg, dialEndDeg)} fill="none" stroke="var(--border)" strokeWidth="14" strokeLinecap="round" />
+
+                                        {hasRange ? (
+                                          <>
+                                            <path d={arcPath(dialStartDeg, inRangeStartDeg)} fill="none" stroke="#ef4444" strokeWidth="14" />
+                                            <path d={arcPath(inRangeStartDeg, inRangeEndDeg)} fill="none" stroke="#22c55e" strokeWidth="14" />
+                                            <path d={arcPath(inRangeEndDeg, dialEndDeg)} fill="none" stroke="#ef4444" strokeWidth="14" />
+                                          </>
+                                        ) : (
+                                          <path d={arcPath(dialStartDeg, dialEndDeg)} fill="none" stroke="#22c55e" strokeWidth="14" />
+                                        )}
+
+                                        <line
+                                          x1={minTickInner.x.toFixed(2)}
+                                          y1={minTickInner.y.toFixed(2)}
+                                          x2={minTickOuter.x.toFixed(2)}
+                                          y2={minTickOuter.y.toFixed(2)}
+                                          stroke="var(--muted)"
+                                          strokeWidth="3"
+                                        />
+                                        <line
+                                          x1={maxTickInner.x.toFixed(2)}
+                                          y1={maxTickInner.y.toFixed(2)}
+                                          x2={maxTickOuter.x.toFixed(2)}
+                                          y2={maxTickOuter.y.toFixed(2)}
+                                          stroke="var(--muted)"
+                                          strokeWidth="3"
+                                        />
+
+                                        <line
+                                          x1={gaugeCenter}
+                                          y1={gaugeCenter}
+                                          x2={needlePoint.x.toFixed(2)}
+                                          y2={needlePoint.y.toFixed(2)}
+                                          stroke={gaugeColor}
+                                          strokeWidth="6"
+                                          strokeLinecap="round"
+                                        />
+                                        <circle cx={gaugeCenter} cy={gaugeCenter} r="8" fill={gaugeColor} />
+                                        <circle cx={markerPoint.x.toFixed(2)} cy={markerPoint.y.toFixed(2)} r="7" fill={gaugeColor} stroke="var(--surface)" strokeWidth="2" />
+                                      </svg>
+                                      <div style={{ marginTop: -18, fontSize: 56, fontWeight: 900, lineHeight: 1, color: "var(--foreground)" }}>
+                                        {dTemp === null ? "--" : dTemp.toFixed(1)}F
+                                      </div>
+                                    </div>
                                     <div style={{ fontSize: 18, lineHeight: 1.45, minWidth: 220 }}>
                                       <div style={{ fontWeight: 900, color: gaugeColor }}>{outOfRange ? "Out of range" : dialTheme.label}</div>
                                       <div style={{ opacity: 0.85 }}>
