@@ -1768,7 +1768,7 @@ export default async function TemperatureDashboardPage({
                   </summary>
                     );
                   })()}
-                  <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+                    <div style={{ display: "grid", gap: 10, marginTop: 10, gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))" }}>
               {group.hubs.map((hub) => {
                 const recipientLabels = hub.recipients.map((r) => personLabel(r.user));
                 const min = toNumberOrNull(hub.minTempF);
