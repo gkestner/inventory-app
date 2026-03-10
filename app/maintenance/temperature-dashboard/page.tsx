@@ -1506,7 +1506,7 @@ export default async function TemperatureDashboardPage({
             <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 14 }}>
             <h2 style={{ margin: "0 0 10px", fontSize: 20, fontWeight: 900 }}>Register / Update Hub</h2>
             <form action={saveHubAction} style={{ display: "grid", gap: 10 }}>
-              <input type="hidden" name="hubId" value={hub.id} />
+              <input type="hidden" name="hubId" value="" />
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8 }}>
                 <label style={{ display: "grid", gap: 4 }}>
