@@ -9,6 +9,7 @@ import {
 const MOCREO_BASE_URL = "https://api.sync-sign.com/v2";
 const MAX_POLL_MINUTES = 180;
 const SAMPLE_PAGE_SIZE = 200;
+const LIST_PAGE_SIZE = 200;
 const DEFAULT_FALLBACK_MINUTES = 24 * 60;
 const MAX_FALLBACK_MINUTES = 7 * 24 * 60;
 
@@ -463,6 +464,12 @@ function getDeviceSampleIdCandidates(device: MocreoDevice): string[] {
   );
 }
 
+function getDeviceStableKey(device: MocreoDevice): string {
+  const candidates = getDeviceSampleIdCandidates(device);
+  if (candidates.length > 0) return candidates[0];
+  return JSON.stringify(device).slice(0, 240);
+}
+
 function getNodeBatteryLevel(node: MocreoNode): number | null {
   const n = Number(node.batteryLevel ?? node.battery_level ?? NaN);
   return Number.isFinite(n) ? n : null;
@@ -703,34 +710,88 @@ async function getAccessToken(): Promise<string> {
 }
 
 async function fetchNodes(accessToken: string): Promise<MocreoNode[]> {
-  const res = await fetch(`${MOCREO_BASE_URL}/nodes`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${accessToken}` },
-    cache: "no-store",
-  });
+  const out: MocreoNode[] = [];
+  const seen = new Set<string>();
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Nodes request failed (${res.status}): ${text.slice(0, 300)}`);
+  for (let page = 0; page < 50; page += 1) {
+    const offset = page * LIST_PAGE_SIZE;
+    const url = new URL(`${MOCREO_BASE_URL}/nodes`);
+    url.searchParams.set("limit", String(LIST_PAGE_SIZE));
+    url.searchParams.set("offset", String(offset));
+
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Nodes request failed (${res.status}): ${text.slice(0, 300)}`);
+    }
+
+    const json = await res.json();
+    const pageRows = extractArrayPayload<MocreoNode>(json);
+    if (pageRows.length === 0) break;
+
+    let addedThisPage = 0;
+    for (const row of pageRows) {
+      const stableKey = getNodeId(row) || getNodeThingName(row) || JSON.stringify(row).slice(0, 240);
+      const key = normalizeKey(stableKey);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(row);
+      addedThisPage += 1;
+    }
+
+    if (addedThisPage === 0 || pageRows.length < LIST_PAGE_SIZE) break;
+
+    // Keep requests under Mocreo's documented limit of 5 requests/sec.
+    await new Promise((resolve) => setTimeout(resolve, 220));
   }
 
-  const json = await res.json();
-  return extractArrayPayload<MocreoNode>(json);
+  return out;
 }
 
 async function fetchDevices(accessToken: string): Promise<MocreoDevice[]> {
-  const res = await fetch(`${MOCREO_BASE_URL}/devices`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${accessToken}` },
-    cache: "no-store",
-  });
+  const out: MocreoDevice[] = [];
+  const seen = new Set<string>();
 
-  if (!res.ok) {
-    return [];
+  for (let page = 0; page < 50; page += 1) {
+    const offset = page * LIST_PAGE_SIZE;
+    const url = new URL(`${MOCREO_BASE_URL}/devices`);
+    url.searchParams.set("limit", String(LIST_PAGE_SIZE));
+    url.searchParams.set("offset", String(offset));
+
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+
+    if (!res.ok) {
+      if (page === 0) return [];
+      break;
+    }
+
+    const json = await res.json();
+    const pageRows = extractArrayPayload<MocreoDevice>(json);
+    if (pageRows.length === 0) break;
+
+    let addedThisPage = 0;
+    for (const row of pageRows) {
+      const key = normalizeKey(getDeviceStableKey(row));
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(row);
+      addedThisPage += 1;
+    }
+
+    if (addedThisPage === 0 || pageRows.length < LIST_PAGE_SIZE) break;
+    await new Promise((resolve) => setTimeout(resolve, 220));
   }
 
-  const json = await res.json();
-  return extractArrayPayload<MocreoDevice>(json);
+  return out;
 }
 
 async function fetchNodeSamples(args: {
