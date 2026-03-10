@@ -43,8 +43,14 @@ async function resolveSessionUserId(session: AdminSession): Promise<string> {
   const email = session?.user?.email ?? null;
   if (!email) return "";
 
-  const u = await prisma.user.findUnique({ where: { email }, select: { id: true } });
-  return u?.id ?? "";
+  const uByExact = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+  if (uByExact?.id) return uByExact.id;
+
+  const uByInsensitive = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: "insensitive" } },
+    select: { id: true },
+  });
+  return uByInsensitive?.id ?? "";
 }
 
 function safeReturnToPathFromReferer(referer: string | null): string {
@@ -131,9 +137,7 @@ function applySkuMiddleFromParts(skuRaw: string, loc: string, shelf: string, bin
   }
 
   const parts = String(skuRaw).trim().split("-");
-  if (parts.length < 3) {
-    throw new Error("New item SKU must be in format ZONE-MIDDLE-ITEM (example: 01-031802-0001).");
-  }
+  if (parts.length < 3) return skuRaw;
 
   parts[1] = `${loc}${shelf}${bin}`;
   return parts.join("-");
