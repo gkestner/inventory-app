@@ -1799,50 +1799,17 @@ export default async function TemperatureDashboardPage({
                     </details>
 
                     <div style={{ marginTop: 10, overflowX: "auto" }}>
-                      <div
-                        style={{
-                          marginBottom: 8,
-                          border: "1px solid var(--border)",
-                          borderRadius: 8,
-                          background: "var(--surface)",
-                          padding: 8,
-                          display: "flex",
-                          gap: 12,
-                          flexWrap: "wrap",
-                          alignItems: "center",
-                          fontSize: 12,
-                        }}
-                      >
-                        <strong>Connection Health:</strong>
-                        {hub.devices.map((device) => {
-                          const latest = latestReadingByDevice.get(device.id);
-                          const dSeen = latest?.recordedAt ?? device.lastSeenAt ?? device.lastReadingAt;
-                          const health = getConnectionHealth(dSeen);
-                          return (
-                            <span key={`health-${device.id}`} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                              <span style={{ width: 8, height: 8, borderRadius: 999, background: health.color, display: "inline-block" }} />
-                              <span>
-                                {device.name}: <b>{health.label}</b>
-                                {health.minutes !== null ? ` (${health.minutes}m)` : ""}
-                              </span>
-                            </span>
-                          );
-                        })}
-                        {hub.devices.length === 0 ? <span style={{ opacity: 0.75 }}>No sensors discovered yet.</span> : null}
-                      </div>
-
                       <div style={{ marginBottom: 6, fontSize: 12, opacity: 0.8 }}>
                         Connection status is based on webhook "last seen" timestamps.
                       </div>
                       <div style={{ marginBottom: 6, fontSize: 12, opacity: 0.8 }}>
                         Live sensor table (auto-refresh) with 24h trend sparkline per sensor.
                       </div>
-                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 920 }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1080 }}>
                         <thead>
                           <tr style={{ borderBottom: "1px solid var(--border)" }}>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Device</th>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Temperature Gauge</th>
-                            <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Connection</th>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Trend (24h)</th>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Alert</th>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Battery</th>
@@ -1869,8 +1836,8 @@ export default async function TemperatureDashboardPage({
                             const gaugeRange = Math.max(0.001, gaugeMax - gaugeMin);
                             const clampedTemp = dTemp === null ? gaugeMin : Math.max(gaugeMin, Math.min(gaugeMax, dTemp));
                             const gaugePct = Math.max(0, Math.min(1, (clampedTemp - gaugeMin) / gaugeRange));
-                            const gaugeCenter = 68;
-                            const gaugeRadius = 50;
+                            const gaugeCenter = 190;
+                            const gaugeRadius = 150;
                             const gaugeCircumference = 2 * Math.PI * gaugeRadius;
                             const gaugeDash = `${(gaugePct * gaugeCircumference).toFixed(2)} ${gaugeCircumference.toFixed(2)}`;
                             const outOfRange =
@@ -1915,11 +1882,20 @@ export default async function TemperatureDashboardPage({
                               <tr key={device.id} style={{ borderBottom: "1px solid var(--border)", background: "color-mix(in srgb, var(--surface) 88%, var(--surface-2))" }}>
                                 <td style={{ padding: "10px 6px" }}>
                                   <div style={{ fontWeight: 800 }}>{device.name}</div>
-                                  <div style={{ fontSize: 11, opacity: 0.78 }}>Sensor</div>
+                                  <div style={{ fontSize: 11, opacity: 0.78, marginTop: 2 }}>
+                                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                      <span style={{ width: 8, height: 8, borderRadius: 999, background: health.color, display: "inline-block" }} />
+                                      <span>
+                                        {health.label}
+                                        {health.minutes !== null ? ` (${health.minutes}m)` : ""}
+                                      </span>
+                                    </span>
+                                  </div>
+                                  <div style={{ fontSize: 11, opacity: 0.72, marginTop: 2 }}>Sensor</div>
                                 </td>
-                                <td style={{ padding: "8px 4px", minWidth: 320 }}>
+                                <td style={{ padding: "10px 6px", minWidth: 560 }}>
                                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                                    <svg width="136" height="136" viewBox="0 0 136 136" role="img" aria-label={`Current temperature for ${device.name}`}>
+                                    <svg width="380" height="380" viewBox="0 0 380 380" role="img" aria-label={`Current temperature for ${device.name}`}>
                                       <circle cx={gaugeCenter} cy={gaugeCenter} r={gaugeRadius} fill="none" stroke="var(--border)" strokeWidth="8" />
                                       <circle
                                         cx={gaugeCenter}
@@ -1927,7 +1903,7 @@ export default async function TemperatureDashboardPage({
                                         r={gaugeRadius}
                                         fill="none"
                                         stroke={gaugeColor}
-                                        strokeWidth="8"
+                                        strokeWidth="14"
                                         strokeLinecap="round"
                                         strokeDasharray={gaugeDash}
                                         transform={`rotate(-90 ${gaugeCenter} ${gaugeCenter})`}
@@ -1954,18 +1930,18 @@ export default async function TemperatureDashboardPage({
                                         x2={needlePoint.x.toFixed(2)}
                                         y2={needlePoint.y.toFixed(2)}
                                         stroke={gaugeColor}
-                                        strokeWidth="2.4"
+                                        strokeWidth="6"
                                         strokeLinecap="round"
                                       />
-                                      <circle cx={gaugeCenter} cy={gaugeCenter} r="3.4" fill={gaugeColor} />
-                                      <text x={gaugeCenter} y="65" textAnchor="middle" fill="var(--foreground)" style={{ fontSize: 30, fontWeight: 900 }}>
+                                      <circle cx={gaugeCenter} cy={gaugeCenter} r="8" fill={gaugeColor} />
+                                      <text x={gaugeCenter} y="188" textAnchor="middle" fill="var(--foreground)" style={{ fontSize: 72, fontWeight: 900 }}>
                                         {dTemp === null ? "--" : dTemp.toFixed(1)}
                                       </text>
-                                      <text x={gaugeCenter} y="86" textAnchor="middle" fill="var(--muted)" style={{ fontSize: 13, fontWeight: 700 }}>
+                                      <text x={gaugeCenter} y="226" textAnchor="middle" fill="var(--muted)" style={{ fontSize: 22, fontWeight: 700 }}>
                                         F
                                       </text>
                                     </svg>
-                                    <div style={{ fontSize: 12, lineHeight: 1.35, minWidth: 118 }}>
+                                    <div style={{ fontSize: 16, lineHeight: 1.42, minWidth: 180 }}>
                                       <div style={{ fontWeight: 900, color: gaugeColor }}>{dialTheme.label}</div>
                                       <div style={{ opacity: 0.85 }}>
                                         Min {hasRange ? (effectiveMin as number).toFixed(1) : "-"} | Max {hasRange ? (effectiveMax as number).toFixed(1) : "-"}
@@ -1973,15 +1949,6 @@ export default async function TemperatureDashboardPage({
                                       <div style={{ opacity: 0.75 }}>Range: {Math.round(gaugePct * 100)}%</div>
                                     </div>
                                   </div>
-                                </td>
-                                <td style={{ padding: "6px 4px", fontSize: 12, whiteSpace: "nowrap" }}>
-                                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                                    <span style={{ width: 8, height: 8, borderRadius: 999, background: health.color, display: "inline-block" }} />
-                                    <span>
-                                      {health.label}
-                                      {health.minutes !== null ? ` (${health.minutes}m)` : ""}
-                                    </span>
-                                  </span>
                                 </td>
                                 <td style={{ padding: "6px 4px" }}>
                                   {trend.length < 2 ? (
@@ -2020,7 +1987,7 @@ export default async function TemperatureDashboardPage({
                           })}
                           {hub.devices.length === 0 ? (
                             <tr>
-                              <td colSpan={7} style={{ padding: "8px 4px", opacity: 0.8 }}>
+                              <td colSpan={6} style={{ padding: "8px 4px", opacity: 0.8 }}>
                                 No readings have been received yet for this hub.
                               </td>
                             </tr>
