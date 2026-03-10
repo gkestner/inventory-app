@@ -2050,11 +2050,13 @@ export default async function TemperatureDashboardPage({
                                         fontSize: 34,
                                         lineHeight: 1.05,
                                         letterSpacing: "0.01em",
-                                        color: "var(--foreground)",
-                                        padding: "4px 8px",
+                                        color: "#f8fbff",
+                                        padding: "6px 10px",
                                         borderRadius: 10,
-                                        background: "color-mix(in srgb, var(--surface) 84%, var(--surface-2))",
-                                        border: "1px solid var(--border)",
+                                        background: "linear-gradient(180deg, rgba(20,33,54,0.96) 0%, rgba(11,24,44,0.96) 100%)",
+                                        border: "1px solid rgba(93, 173, 255, 0.62)",
+                                        textShadow: "0 1px 1px rgba(0,0,0,0.55)",
+                                        boxShadow: "0 0 0 1px rgba(147,197,253,0.2) inset, 0 6px 18px rgba(0,0,0,0.28)",
                                       }}
                                     >
                                       {device.name}
