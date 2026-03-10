@@ -1838,7 +1838,7 @@ export default async function TemperatureDashboardPage({
                       <div style={{ marginBottom: 6, fontSize: 12, opacity: 0.8 }}>
                         Live sensor table (auto-refresh) with 24h trend sparkline per sensor.
                       </div>
-                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
                         <thead>
                           <tr style={{ borderBottom: "1px solid var(--border)" }}>
                             <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 12 }}>Device</th>
@@ -1859,13 +1859,35 @@ export default async function TemperatureDashboardPage({
                             const dSeen = latest?.recordedAt ?? device.lastSeenAt ?? device.lastReadingAt;
                             const dMin = toNumberOrNull(device.minTempF);
                             const dMax = toNumberOrNull(device.maxTempF);
+                            const effectiveMin = dMin ?? min;
+                            const effectiveMax = dMax ?? max;
+                            const hasRange =
+                              effectiveMin !== null &&
+                              effectiveMax !== null &&
+                              Number.isFinite(effectiveMin) &&
+                              Number.isFinite(effectiveMax) &&
+                              effectiveMin < effectiveMax;
+                            const gaugeMin = hasRange ? effectiveMin : dTemp === null ? 0 : dTemp - 10;
+                            const gaugeMax = hasRange ? effectiveMax : dTemp === null ? 100 : dTemp + 10;
+                            const gaugeRange = Math.max(0.001, gaugeMax - gaugeMin);
+                            const clampedTemp = dTemp === null ? gaugeMin : Math.max(gaugeMin, Math.min(gaugeMax, dTemp));
+                            const gaugePct = Math.max(0, Math.min(1, (clampedTemp - gaugeMin) / gaugeRange));
+                            const gaugeRadius = 32;
+                            const gaugeCircumference = 2 * Math.PI * gaugeRadius;
+                            const gaugeDash = `${(gaugePct * gaugeCircumference).toFixed(2)} ${gaugeCircumference.toFixed(2)}`;
+                            const outOfRange =
+                              hasRange && dTemp !== null && (dTemp < (effectiveMin as number) || dTemp > (effectiveMax as number));
+                            const gaugeColor = dTemp === null ? "var(--muted)" : outOfRange ? "#ef4444" : "#22c55e";
                             const health = getConnectionHealth(dSeen);
                             const trend = historyByDevice.get(device.id) ?? [];
                             const points = sparklinePoints(trend.map((t) => t.temp));
                             return (
-                              <tr key={device.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                                <td style={{ padding: "6px 4px" }}>{device.name}</td>
-                                <td style={{ padding: "6px 4px", fontFamily: "monospace", fontSize: 12 }}>{device.externalDeviceId}</td>
+                              <tr key={device.id} style={{ borderBottom: "1px solid var(--border)", background: "color-mix(in srgb, var(--surface) 88%, var(--surface-2))" }}>
+                                <td style={{ padding: "10px 6px" }}>
+                                  <div style={{ fontWeight: 800 }}>{device.name}</div>
+                                  <div style={{ fontSize: 11, opacity: 0.78 }}>Sensor</div>
+                                </td>
+                                <td style={{ padding: "10px 6px", fontFamily: "monospace", fontSize: 12 }}>{device.externalDeviceId}</td>
                                 <td style={{ padding: "6px 4px", fontSize: 12, whiteSpace: "nowrap" }}>
                                   <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                                     <span style={{ width: 8, height: 8, borderRadius: 999, background: health.color, display: "inline-block" }} />
@@ -1880,8 +1902,36 @@ export default async function TemperatureDashboardPage({
                                     ? `Hub default (${min === null ? "-" : min} to ${max === null ? "-" : max})`
                                     : `${dMin === null ? "-" : dMin} to ${dMax === null ? "-" : dMax}`}
                                 </td>
-                                <td style={{ padding: "6px 4px", fontWeight: 800 }}>
-                                  {dTemp === null ? "No temperature parsed" : `${dTemp.toFixed(1)}F`}
+                                <td style={{ padding: "8px 4px", minWidth: 210 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                    <svg width="92" height="92" viewBox="0 0 92 92" role="img" aria-label={`Current temperature for ${device.name}`}>
+                                      <circle cx="46" cy="46" r={gaugeRadius} fill="none" stroke="var(--border)" strokeWidth="8" />
+                                      <circle
+                                        cx="46"
+                                        cy="46"
+                                        r={gaugeRadius}
+                                        fill="none"
+                                        stroke={gaugeColor}
+                                        strokeWidth="8"
+                                        strokeLinecap="round"
+                                        strokeDasharray={gaugeDash}
+                                        transform="rotate(-90 46 46)"
+                                      />
+                                      <text x="46" y="42" textAnchor="middle" fill="var(--foreground)" style={{ fontSize: 21, fontWeight: 900 }}>
+                                        {dTemp === null ? "--" : dTemp.toFixed(1)}
+                                      </text>
+                                      <text x="46" y="58" textAnchor="middle" fill="var(--muted)" style={{ fontSize: 11, fontWeight: 700 }}>
+                                        F
+                                      </text>
+                                    </svg>
+                                    <div style={{ fontSize: 11, lineHeight: 1.35, minWidth: 98 }}>
+                                      <div style={{ fontWeight: 800, color: gaugeColor }}>{outOfRange ? "Out of range" : "Within range"}</div>
+                                      <div style={{ opacity: 0.85 }}>
+                                        Min {hasRange ? (effectiveMin as number).toFixed(1) : "-"} | Max {hasRange ? (effectiveMax as number).toFixed(1) : "-"}
+                                      </div>
+                                      <div style={{ opacity: 0.75 }}>Gauge: {Math.round(gaugePct * 100)}%</div>
+                                    </div>
+                                  </div>
                                 </td>
                                 <td style={{ padding: "6px 4px" }}>
                                   {trend.length < 2 ? (
