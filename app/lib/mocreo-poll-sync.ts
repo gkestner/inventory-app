@@ -224,16 +224,53 @@ function extractApiErrorMessage(payload: unknown): string {
   );
 }
 
-function extractArrayPayload<T = unknown>(payload: unknown): T[] {
-  if (Array.isArray(payload)) return payload as T[];
+function findFirstArrayValue(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "object" || value === null) return [];
 
-  const root = asRecord(payload);
-  const candidates = [root.data, root.items, root.records, root.nodes, root.devices, root.events];
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate)) return candidate as T[];
+  const preferredKeys = [
+    "samples",
+    "readings",
+    "records",
+    "items",
+    "list",
+    "rows",
+    "nodes",
+    "devices",
+    "events",
+    "result",
+    "results",
+  ];
+
+  const root = value as Record<string, unknown>;
+  for (const key of preferredKeys) {
+    const candidate = root[key];
+    if (Array.isArray(candidate)) return candidate;
+  }
+
+  const seen = new WeakSet<object>();
+  const queue: unknown[] = [value];
+  let depth = 0;
+
+  while (queue.length > 0 && depth < 200) {
+    const current = queue.shift();
+    depth += 1;
+    if (Array.isArray(current)) return current;
+    if (typeof current !== "object" || current === null) continue;
+    if (seen.has(current)) continue;
+    seen.add(current);
+
+    for (const nested of Object.values(current as Record<string, unknown>)) {
+      if (Array.isArray(nested)) return nested;
+      if (typeof nested === "object" && nested !== null) queue.push(nested);
+    }
   }
 
   return [];
+}
+
+function extractArrayPayload<T = unknown>(payload: unknown): T[] {
+  return findFirstArrayValue(payload) as T[];
 }
 
 function topLevelKeys(value: unknown): string[] {
