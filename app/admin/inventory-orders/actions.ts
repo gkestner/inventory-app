@@ -228,7 +228,7 @@ export async function createOrderAction(formData: FormData) {
   try {
     const { session } = await requireOrderHistoryEdit();
 
-    const isNewItem = parseBool(formData.get("isNewItem"));
+    const requestedNewItem = parseBool(formData.get("isNewItem"));
     let itemId = nonEmptyString(formData.get("itemId"));
 
     // new item fields (only required when isNewItem)
@@ -244,6 +244,10 @@ export async function createOrderAction(formData: FormData) {
     const newShelf = parseTwoDigitSkuPart(formData.get("newShelf"), "Shelf");
     const newBin = parseTwoDigitSkuPart(formData.get("newBin"), "Bin");
     const newSku = applySkuMiddleFromParts(newSkuRaw, newLoc, newShelf, newBin);
+
+    // If users fill New item fields but forget the checkbox, still treat submit as a new-item flow.
+    const hasNewItemSignals = Boolean(newSkuRaw || newName || newPartNumber || newLoc || newShelf || newBin);
+    const isNewItem = requestedNewItem || (!itemId && hasNewItemSignals);
 
     const qty = parseRequiredInt(formData.get("qty"));
     const supplierName = String(formData.get("supplierName") ?? "").trim();
