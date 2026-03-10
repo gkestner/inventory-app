@@ -1930,7 +1930,7 @@ export default async function TemperatureDashboardPage({
                       )}
                     </details>
 
-                    <div style={{ marginTop: 10, overflowX: "auto" }}>
+                    <div style={{ marginTop: 10 }}>
                       <div style={{ marginBottom: 6, fontSize: 12, opacity: 0.8 }}>
                         Connection status is based on webhook "last seen" timestamps.
                       </div>
@@ -1940,7 +1940,7 @@ export default async function TemperatureDashboardPage({
                       {hub.devices.length === 0 ? (
                         <div style={{ padding: "8px 4px", opacity: 0.8 }}>No readings have been received yet for this hub.</div>
                       ) : (
-                        <div style={{ display: "grid", gap: 12 }}>
+                        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(520px, 1fr))" }}>
                           {hub.devices.map((device) => {
                             const latest = latestReadingByDevice.get(device.id);
                             const dTemp = latest?.tempF ?? toNumberOrNull(device.lastTempF);
@@ -1972,8 +1972,8 @@ export default async function TemperatureDashboardPage({
                             const gaugeRange = Math.max(0.001, gaugeMax - gaugeMin);
                             const clampedTemp = dTemp === null ? gaugeMin : Math.max(gaugeMin, Math.min(gaugeMax, dTemp));
                             const gaugePct = Math.max(0, Math.min(1, (clampedTemp - gaugeMin) / gaugeRange));
-                            const gaugeCenter = 210;
-                            const gaugeRadius = 168;
+                            const gaugeCenter = 150;
+                            const gaugeRadius = 112;
                             const outOfRange =
                               hasRange && dTemp !== null && (dTemp < (effectiveMin as number) || dTemp > (effectiveMax as number));
                             const alertState =
@@ -2039,9 +2039,10 @@ export default async function TemperatureDashboardPage({
                                   background: "color-mix(in srgb, var(--surface) 90%, var(--surface-2))",
                                   display: "grid",
                                   gap: 10,
+                                  minWidth: 0,
                                 }}
                               >
-                                <div style={{ display: "grid", gridTemplateColumns: "180px minmax(420px, 1fr)", gap: 12, alignItems: "center" }}>
+                                <div style={{ display: "grid", gridTemplateColumns: "minmax(140px, 190px) minmax(0, 1fr)", gap: 12, alignItems: "center" }}>
                                   <div>
                                     <div style={{ fontWeight: 900, fontSize: 28, lineHeight: 1.1 }}>{device.name}</div>
                                     <div style={{ fontSize: 12, opacity: 0.78, marginTop: 6 }}>
@@ -2054,9 +2055,9 @@ export default async function TemperatureDashboardPage({
                                       </span>
                                     </div>
                                   </div>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
                                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-                                      <svg width="480" height="420" viewBox="0 0 480 420" role="img" aria-label={`Current temperature for ${device.name}`} style={{ display: "block", margin: "0 auto" }}>
+                                      <svg width="320" height="300" viewBox="0 0 320 300" role="img" aria-label={`Current temperature for ${device.name}`} style={{ display: "block", margin: "0 auto", maxWidth: "100%", height: "auto" }}>
                                         <path d={arcPath(dialStartDeg, dialEndDeg)} fill="none" stroke="var(--border)" strokeWidth="14" strokeLinecap="round" />
 
                                         {hasRange ? (
@@ -2098,11 +2099,11 @@ export default async function TemperatureDashboardPage({
                                         <circle cx={gaugeCenter} cy={gaugeCenter} r="8" fill={gaugeColor} />
                                         <circle cx={markerPoint.x.toFixed(2)} cy={markerPoint.y.toFixed(2)} r="7" fill={gaugeColor} stroke="var(--surface)" strokeWidth="2" />
                                       </svg>
-                                      <div style={{ marginTop: -18, fontSize: 56, fontWeight: 900, lineHeight: 1, color: "var(--foreground)", textAlign: "center" }}>
+                                      <div style={{ marginTop: -10, fontSize: 40, fontWeight: 900, lineHeight: 1, color: "var(--foreground)", textAlign: "center" }}>
                                         {dTemp === null ? "--" : dTemp.toFixed(1)}F
                                       </div>
                                     </div>
-                                    <div style={{ fontSize: 18, lineHeight: 1.45, minWidth: 220 }}>
+                                    <div style={{ fontSize: 16, lineHeight: 1.45, minWidth: 170 }}>
                                       <div style={{ fontWeight: 900, color: gaugeColor }}>{outOfRange ? "Out of range" : dialTheme.label}</div>
                                       <div style={{ opacity: 0.85 }}>
                                         Min {hasRange ? (effectiveMin as number).toFixed(1) : "-"} | Max {hasRange ? (effectiveMax as number).toFixed(1) : "-"}
