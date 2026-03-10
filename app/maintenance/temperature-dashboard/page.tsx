@@ -1807,7 +1807,23 @@ export default async function TemperatureDashboardPage({
                   <article key={hub.id} style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 12, background: "var(--surface-2)" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                       <div>
-                        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>
+                        <h3
+                          style={{
+                            margin: 0,
+                            fontWeight: 900,
+                            fontSize: 34,
+                            lineHeight: 1.05,
+                            letterSpacing: "0.01em",
+                            color: "#f8fbff",
+                            padding: "6px 10px",
+                            borderRadius: 10,
+                            background: "linear-gradient(180deg, rgba(20,33,54,0.96) 0%, rgba(11,24,44,0.96) 100%)",
+                            border: "1px solid rgba(93, 173, 255, 0.62)",
+                            textShadow: "0 1px 1px rgba(0,0,0,0.55)",
+                            boxShadow: "0 0 0 1px rgba(147,197,253,0.2) inset, 0 6px 18px rgba(0,0,0,0.28)",
+                            display: "inline-block",
+                          }}
+                        >
                           {hub.name} {hub.active ? "" : "(Inactive)"}
                         </h3>
                         <div style={{ fontSize: 12, opacity: 0.8, marginTop: 4 }}>
@@ -2042,25 +2058,8 @@ export default async function TemperatureDashboardPage({
                                   minWidth: 0,
                                 }}
                               >
-                                <div style={{ display: "grid", gridTemplateColumns: "minmax(140px, 190px) minmax(0, 1fr)", gap: 12, alignItems: "center" }}>
+                                <div style={{ display: "grid", gridTemplateColumns: "minmax(110px, 150px) minmax(0, 1fr)", gap: 12, alignItems: "center" }}>
                                   <div>
-                                    <div
-                                      style={{
-                                        fontWeight: 900,
-                                        fontSize: 34,
-                                        lineHeight: 1.05,
-                                        letterSpacing: "0.01em",
-                                        color: "#f8fbff",
-                                        padding: "6px 10px",
-                                        borderRadius: 10,
-                                        background: "linear-gradient(180deg, rgba(20,33,54,0.96) 0%, rgba(11,24,44,0.96) 100%)",
-                                        border: "1px solid rgba(93, 173, 255, 0.62)",
-                                        textShadow: "0 1px 1px rgba(0,0,0,0.55)",
-                                        boxShadow: "0 0 0 1px rgba(147,197,253,0.2) inset, 0 6px 18px rgba(0,0,0,0.28)",
-                                      }}
-                                    >
-                                      {device.name}
-                                    </div>
                                     <div style={{ fontSize: 12, opacity: 0.78, marginTop: 6 }}>
                                       <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                                         <span style={{ width: 10, height: 10, borderRadius: 999, background: health.color, display: "inline-block" }} />
