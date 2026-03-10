@@ -1940,7 +1940,7 @@ export default async function TemperatureDashboardPage({
                       {hub.devices.length === 0 ? (
                         <div style={{ padding: "8px 4px", opacity: 0.8 }}>No readings have been received yet for this hub.</div>
                       ) : (
-                        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(520px, 1fr))" }}>
+                        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(460px, 1fr))" }}>
                           {hub.devices.map((device) => {
                             const latest = latestReadingByDevice.get(device.id);
                             const dTemp = latest?.tempF ?? toNumberOrNull(device.lastTempF);
