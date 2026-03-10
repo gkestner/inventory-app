@@ -231,7 +231,13 @@ export default async function UserNav() {
             </Link>
           ) : null}
 
-          {(canOfficeEntry || canTravelLog || canTemperatureDashboard || canReceipts || canLiveOrders) && (
+          {canTemperatureDashboard ? (
+            <Link href="/maintenance/temperature-dashboard" className="site-link" style={linkStyle}>
+              Temperature Dashboard
+            </Link>
+          ) : null}
+
+          {(canOfficeEntry || canTravelLog || canReceipts || canLiveOrders) && (
             <details data-user-dropdown style={detailsStyle}>
               <summary style={summaryStyle}>More</summary>
               <div style={menuStyle}>
@@ -243,11 +249,6 @@ export default async function UserNav() {
                 {canTravelLog ? (
                   <Link href="/maintenance/travel-log" style={menuItemStyle}>
                     Travel Log
-                  </Link>
-                ) : null}
-                {canTemperatureDashboard ? (
-                  <Link href="/maintenance/temperature-dashboard" style={menuItemStyle}>
-                    Temperature Dashboard
                   </Link>
                 ) : null}
                 {canReceipts ? (
