@@ -177,11 +177,35 @@ function buildSystemAuditLine(args: {
   return parts.join(" ");
 }
 
+function computeLandedUnitCost(args: {
+  unitPrice: Decimal | string | number;
+  shippingCost?: Decimal | string | number | null;
+  taxCost?: Decimal | string | number | null;
+  quantity: number;
+}): Decimal {
+  const unit = new Decimal(args.unitPrice);
+  const shipping = args.shippingCost ? new Decimal(args.shippingCost) : new Decimal(0);
+  const tax = args.taxCost ? new Decimal(args.taxCost) : new Decimal(0);
+  const qty = Number.isFinite(args.quantity) && args.quantity > 0 ? Math.trunc(args.quantity) : 1;
+
+  // Item.cost stores landed per-unit cost.
+  return new Decimal(unit.add(shipping.add(tax).div(qty)).toFixed(2));
+}
+
 async function syncItemCostAndOrderFromFromLatestOrder(tx: Prisma.TransactionClient, itemId: string) {
   const latest = await tx.inventoryOrder.findFirst({
     where: { itemId },
     orderBy: { orderedAt: "desc" },
-    select: { id: true, unitPrice: true, supplierName: true, orderedAt: true, note: true },
+    select: {
+      id: true,
+      unitPrice: true,
+      shippingCost: true,
+      taxCost: true,
+      quantity: true,
+      supplierName: true,
+      orderedAt: true,
+      note: true,
+    },
   });
 
   if (!latest) return;
@@ -195,7 +219,13 @@ async function syncItemCostAndOrderFromFromLatestOrder(tx: Prisma.TransactionCli
   // Only update if we have a cost value.
   if (!latest.unitPrice) return;
 
-  const newCostStr = new Decimal(latest.unitPrice).toFixed(2);
+  const landedUnitCost = computeLandedUnitCost({
+    unitPrice: latest.unitPrice,
+    shippingCost: latest.shippingCost,
+    taxCost: latest.taxCost,
+    quantity: latest.quantity,
+  });
+  const newCostStr = landedUnitCost.toFixed(2);
   const prevCostStr = item.cost ? new Decimal(item.cost).toFixed(2) : null;
   const newOrderFrom = latest.supplierName ?? null;
 
@@ -212,7 +242,7 @@ async function syncItemCostAndOrderFromFromLatestOrder(tx: Prisma.TransactionCli
   await tx.item.update({
     where: { id: itemId },
     data: {
-      cost: latest.unitPrice,
+      cost: landedUnitCost,
       orderFrom: newOrderFrom,
       // tack the audit line onto latest order note so you can see *why* item changed
       inventoryOrders: {
@@ -322,7 +352,13 @@ export async function createOrderAction(formData: FormData) {
       if (!item) throw new Error("Item not found");
 
       const prevCostStr = item.cost ? new Decimal(item.cost).toFixed(2) : null;
-      const newCostStr = new Decimal(unitPriceStr).toFixed(2);
+      const landedUnitCost = computeLandedUnitCost({
+        unitPrice: unitPriceStr,
+        shippingCost: shippingCostStr,
+        taxCost: taxCostStr,
+        quantity: qty,
+      });
+      const newCostStr = landedUnitCost.toFixed(2);
 
       const prevOrderFrom = item.orderFrom ?? null;
       const newOrderFromFinal = supplierName ? supplierName : prevOrderFrom;
@@ -368,7 +404,7 @@ export async function createOrderAction(formData: FormData) {
         where: { id: itemId },
         data: {
           orderedQty: { increment: qty },
-          cost: new Decimal(unitPriceStr),
+          cost: landedUnitCost,
           orderFrom: supplierName ? supplierName : undefined,
         },
       });
@@ -473,7 +509,13 @@ export async function saveOrderDetailsAction(formData: FormData) {
       }
 
       const prevCostStr = item.cost ? new Decimal(item.cost).toFixed(2) : null;
-      const newCostStr = new Decimal(unitPriceStr).toFixed(2);
+      const landedUnitCost = computeLandedUnitCost({
+        unitPrice: unitPriceStr,
+        shippingCost: shippingCostStr,
+        taxCost: taxCostStr,
+        quantity: qty,
+      });
+      const newCostStr = landedUnitCost.toFixed(2);
 
       const prevOrderFrom = item.orderFrom ?? null;
       const newOrderFrom = supplierName ? supplierName : prevOrderFrom;
