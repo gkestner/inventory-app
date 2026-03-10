@@ -21,11 +21,31 @@ type MocreoNode = {
   enc_key?: string;
   thingName?: string;
   thing_name?: string;
+  associated?: string;
+  hubId?: string;
+  hub_id?: string;
+  gatewayId?: string;
+  gateway_id?: string;
+  parentThingName?: string;
+  parent_thing_name?: string;
   name?: string;
   batteryLevel?: number | null;
   battery_level?: number | null;
   signalLevel?: number | null;
   signal_level?: number | null;
+  info?: {
+    associated?: string;
+    hubId?: string;
+    hub_id?: string;
+    gatewayId?: string;
+    gateway_id?: string;
+    parentThingName?: string;
+    parent_thing_name?: string;
+    thingName?: string;
+    thing_name?: string;
+    nodeId?: string;
+    node_id?: string;
+  };
 };
 
 type MocreoDevice = {
@@ -271,6 +291,81 @@ function getNodeSampleIdCandidates(node: MocreoNode): string[] {
       ].filter(Boolean)
     )
   );
+}
+
+function getNodeHubRefCandidates(node: MocreoNode): string[] {
+  const info = asRecord(node.info);
+  return Array.from(
+    new Set(
+      [
+        String(node.associated ?? "").trim(),
+        String(node.hubId ?? "").trim(),
+        String(node.hub_id ?? "").trim(),
+        String(node.gatewayId ?? "").trim(),
+        String(node.gateway_id ?? "").trim(),
+        String(node.parentThingName ?? "").trim(),
+        String(node.parent_thing_name ?? "").trim(),
+        String(node.thingName ?? "").trim(),
+        String(node.thing_name ?? "").trim(),
+        String(info.associated ?? "").trim(),
+        String(info.hubId ?? "").trim(),
+        String(info.hub_id ?? "").trim(),
+        String(info.gatewayId ?? "").trim(),
+        String(info.gateway_id ?? "").trim(),
+        String(info.parentThingName ?? "").trim(),
+        String(info.parent_thing_name ?? "").trim(),
+        String(info.thingName ?? "").trim(),
+        String(info.thing_name ?? "").trim(),
+      ].filter(Boolean)
+    )
+  );
+}
+
+function getDeviceNodeIdCandidates(device: MocreoDevice): string[] {
+  const info = asRecord(device.info);
+  return Array.from(
+    new Set(
+      [
+        String(device.nodeId ?? "").trim(),
+        String(device.node_id ?? "").trim(),
+        String(device.deviceId ?? "").trim(),
+        String(device.device_id ?? "").trim(),
+        String(device.sensorId ?? "").trim(),
+        String(device.sensor_id ?? "").trim(),
+        String(info.nodeId ?? "").trim(),
+        String(info.node_id ?? "").trim(),
+        String(info.deviceId ?? "").trim(),
+        String(info.device_id ?? "").trim(),
+        String(info.sensorId ?? "").trim(),
+        String(info.sensor_id ?? "").trim(),
+      ].filter(Boolean)
+    )
+  );
+}
+
+function resolveHubForNode(args: {
+  node: MocreoNode;
+  hubByExternalId: Map<string, HubRow>;
+  hubByNodeId: Map<string, HubRow>;
+}): HubRow | null {
+  const directThingName = getNodeThingName(args.node);
+  if (directThingName) {
+    const direct = args.hubByExternalId.get(normalizeKey(directThingName));
+    if (direct) return direct;
+  }
+
+  for (const ref of getNodeHubRefCandidates(args.node)) {
+    const hub = args.hubByExternalId.get(normalizeKey(ref));
+    if (hub) return hub;
+  }
+
+  const nodeId = getNodeId(args.node);
+  if (nodeId) {
+    const viaNode = args.hubByNodeId.get(normalizeKey(nodeId));
+    if (viaNode) return viaNode;
+  }
+
+  return null;
 }
 
 function getDeviceHubRef(device: MocreoDevice): string {
@@ -772,9 +867,18 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
     })
     .filter((x) => x.length > 0);
 
+  const hubByNodeId = new Map<string, HubRow>();
+  for (const device of devices) {
+    const hubRef = getDeviceHubRef(device);
+    const hub = hubRef ? hubByExternalId.get(normalizeKey(hubRef)) : null;
+    if (!hub) continue;
+    for (const nodeCandidate of getDeviceNodeIdCandidates(device)) {
+      hubByNodeId.set(normalizeKey(nodeCandidate), hub);
+    }
+  }
+
   const targetNodes = nodes.filter((node) => {
-    const thingName = getNodeThingName(node);
-    return thingName && hubByExternalId.has(normalizeKey(thingName));
+    return resolveHubForNode({ node, hubByExternalId, hubByNodeId }) !== null;
   });
 
   let ingested = 0;
@@ -803,10 +907,10 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
 
   for (const node of targetNodes) {
     const nodeId = getNodeId(node);
-    const thingName = getNodeThingName(node);
-    if (!nodeId || !thingName) continue;
+    if (!nodeId) continue;
+    const nodeThingName = getNodeThingName(node);
 
-    const hub = hubByExternalId.get(normalizeKey(thingName));
+    const hub = resolveHubForNode({ node, hubByExternalId, hubByNodeId });
     if (!hub) continue;
 
     const sampleIdCandidates = new Set<string>();
@@ -819,7 +923,7 @@ export async function performMocreoPollSync(options: MocreoSyncOptions = {}): Pr
 
     if (deviceRowsForHub.length === 0) {
       // Some payloads don't expose hub linkage on /devices; fall back to rows mentioning node identifiers.
-      const nodeNeedles = [normalizeKey(nodeId), normalizeKey(thingName)].filter(Boolean);
+      const nodeNeedles = [normalizeKey(nodeId), normalizeKey(nodeThingName)].filter(Boolean);
       deviceRowsForHub = devices.filter((device) => {
         const blob = JSON.stringify(device).toUpperCase();
         return nodeNeedles.some((needle) => needle && blob.includes(needle));
