@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Props = {
@@ -25,6 +25,8 @@ function errText(err: unknown): string {
 
 export default function AttachmentUploader({ workOrderId }: Props) {
   const router = useRouter();
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>("");
 
@@ -95,15 +97,41 @@ export default function AttachmentUploader({ workOrderId }: Props) {
 
   return (
     <div style={{ display: "grid", gap: 8 }}>
-      <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 900, opacity: 0.95 }}>
-        Upload File (to cloud storage)
-        <input
-          type="file"
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button
+          type="button"
           disabled={busy}
-          onChange={(e) => onFileSelected(e.currentTarget.files?.[0] ?? null)}
-          style={{ padding: 8, border: "1px solid var(--border)", borderRadius: 10 }}
-        />
-      </label>
+          onClick={() => cameraInputRef.current?.click()}
+          style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--surface)", fontWeight: 800, cursor: busy ? "not-allowed" : "pointer" }}
+        >
+          Take Picture
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => uploadInputRef.current?.click()}
+          style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--surface)", fontWeight: 800, cursor: busy ? "not-allowed" : "pointer" }}
+        >
+          Upload Picture
+        </button>
+      </div>
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        disabled={busy}
+        onChange={(e) => onFileSelected(e.currentTarget.files?.[0] ?? null)}
+        style={{ display: "none" }}
+      />
+      <input
+        ref={uploadInputRef}
+        type="file"
+        accept="image/*"
+        disabled={busy}
+        onChange={(e) => onFileSelected(e.currentTarget.files?.[0] ?? null)}
+        style={{ display: "none" }}
+      />
       <div style={{ fontSize: 12, opacity: 0.85 }}>
         Max file size: 25MB. This uploads directly to configured GCS bucket using a short-lived signed URL.
       </div>
