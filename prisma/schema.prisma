@@ -766,6 +766,9 @@ model MocreoHub {
   minTempF Decimal? @db.Decimal(6, 2)
   maxTempF Decimal? @db.Decimal(6, 2)
 
+  gaugeMinF Decimal? @db.Decimal(6, 2)
+  gaugeMaxF Decimal? @db.Decimal(6, 2)
+
   lastReadingAt DateTime?
   lastTempF     Decimal? @db.Decimal(6, 2)
 

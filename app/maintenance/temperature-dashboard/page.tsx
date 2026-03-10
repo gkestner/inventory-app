@@ -37,6 +37,8 @@ type HubRow = {
   active: boolean;
   minTempF: unknown;
   maxTempF: unknown;
+  gaugeMinF: unknown;
+  gaugeMaxF: unknown;
   lastReadingAt: Date | null;
   lastTempF: unknown;
   lastAlertState: "NORMAL" | "HIGH" | "LOW" | "UNKNOWN" | null;
@@ -232,6 +234,7 @@ function dashboardMessageFromCode(code: string | undefined): string | null {
   const table: Record<string, string> = {
     missing: "Hub name and Mocreo Hub ID are required.",
     range: "Hub threshold range is invalid. Min must be less than Max.",
+    gauge_range: "Gauge range is invalid. Gauge Min must be less than Gauge Max.",
     missing_device: "Device and hub are required.",
     device_range: "Device threshold range is invalid. Min must be less than Max.",
     invalid_device: "Selected device does not belong to the selected hub.",
@@ -299,6 +302,8 @@ export default async function TemperatureDashboardPage({
 
     const minTempF = parseTempInput(formData.get("minTempF"));
     const maxTempF = parseTempInput(formData.get("maxTempF"));
+    const gaugeMinF = parseTempInput(formData.get("gaugeMinF"));
+    const gaugeMaxF = parseTempInput(formData.get("gaugeMaxF"));
 
     if (!name || !externalHubId) {
       redirect("/maintenance/temperature-dashboard?error=missing");
@@ -306,6 +311,10 @@ export default async function TemperatureDashboardPage({
 
     if (minTempF !== null && maxTempF !== null && minTempF >= maxTempF) {
       redirect("/maintenance/temperature-dashboard?error=range");
+    }
+
+    if (gaugeMinF !== null && gaugeMaxF !== null && gaugeMinF >= gaugeMaxF) {
+      redirect("/maintenance/temperature-dashboard?error=gauge_range");
     }
 
     const locationId = locationIdRaw || null;
@@ -328,6 +337,8 @@ export default async function TemperatureDashboardPage({
               assignedMaintenanceUserId,
               minTempF,
               maxTempF,
+              gaugeMinF,
+              gaugeMaxF,
             },
             select: { id: true },
           })
@@ -339,6 +350,8 @@ export default async function TemperatureDashboardPage({
               assignedMaintenanceUserId,
               minTempF,
               maxTempF,
+              gaugeMinF,
+              gaugeMaxF,
               active: true,
             },
             select: { id: true },
@@ -976,6 +989,8 @@ export default async function TemperatureDashboardPage({
         active: true,
         minTempF: true,
         maxTempF: true,
+        gaugeMinF: true,
+        gaugeMaxF: true,
         lastReadingAt: true,
         lastTempF: true,
         lastAlertState: true,
@@ -1815,6 +1830,18 @@ export default async function TemperatureDashboardPage({
                             const dSeen = latest?.recordedAt ?? device.lastSeenAt ?? device.lastReadingAt;
                             const dMin = toNumberOrNull(device.minTempF);
                             const dMax = toNumberOrNull(device.maxTempF);
+                            const hubGaugeMinRaw = toNumberOrNull(hub.gaugeMinF);
+                            const hubGaugeMaxRaw = toNumberOrNull(hub.gaugeMaxF);
+                            const gaugeHasValidHubRange =
+                              hubGaugeMinRaw !== null &&
+                              hubGaugeMaxRaw !== null &&
+                              Number.isFinite(hubGaugeMinRaw) &&
+                              Number.isFinite(hubGaugeMaxRaw) &&
+                              hubGaugeMinRaw < hubGaugeMaxRaw;
+                            const defaultGaugeMin = -20;
+                            const defaultGaugeMax = 80;
+                            const scaleMin = gaugeHasValidHubRange ? hubGaugeMinRaw : defaultGaugeMin;
+                            const scaleMax = gaugeHasValidHubRange ? hubGaugeMaxRaw : defaultGaugeMax;
                             const effectiveMin = dMin ?? min;
                             const effectiveMax = dMax ?? max;
                             const hasRange =
@@ -1823,13 +1850,13 @@ export default async function TemperatureDashboardPage({
                               Number.isFinite(effectiveMin) &&
                               Number.isFinite(effectiveMax) &&
                               effectiveMin < effectiveMax;
-                            const gaugeMin = hasRange ? effectiveMin : dTemp === null ? 0 : dTemp - 10;
-                            const gaugeMax = hasRange ? effectiveMax : dTemp === null ? 100 : dTemp + 10;
+                            const gaugeMin = scaleMin;
+                            const gaugeMax = scaleMax;
                             const gaugeRange = Math.max(0.001, gaugeMax - gaugeMin);
                             const clampedTemp = dTemp === null ? gaugeMin : Math.max(gaugeMin, Math.min(gaugeMax, dTemp));
                             const gaugePct = Math.max(0, Math.min(1, (clampedTemp - gaugeMin) / gaugeRange));
-                            const gaugeCenter = 190;
-                            const gaugeRadius = 150;
+                            const gaugeCenter = 210;
+                            const gaugeRadius = 168;
                             const gaugeCircumference = 2 * Math.PI * gaugeRadius;
                             const gaugeDash = `${(gaugePct * gaugeCircumference).toFixed(2)} ${gaugeCircumference.toFixed(2)}`;
                             const outOfRange =
@@ -1851,7 +1878,7 @@ export default async function TemperatureDashboardPage({
                                   : alertState === "NORMAL"
                                     ? { color: "#22c55e", label: "Normal" }
                                     : { color: "#9ca3af", label: "Unknown" };
-                            const gaugeColor = dTemp === null ? "#9ca3af" : dialTheme.color;
+                            const gaugeColor = dTemp === null ? "#9ca3af" : outOfRange ? "#ef4444" : "#38bdf8";
                             const dialStartDeg = -140;
                             const dialEndDeg = 140;
                             const dialAngleDeg = dialStartDeg + gaugePct * (dialEndDeg - dialStartDeg);
@@ -1897,7 +1924,7 @@ export default async function TemperatureDashboardPage({
                                     </div>
                                   </div>
                                   <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-                                    <svg width="460" height="460" viewBox="0 0 460 460" role="img" aria-label={`Current temperature for ${device.name}`}>
+                                    <svg width="480" height="480" viewBox="0 0 480 480" role="img" aria-label={`Current temperature for ${device.name}`}>
                                       <circle cx={gaugeCenter} cy={gaugeCenter} r={gaugeRadius} fill="none" stroke="var(--border)" strokeWidth="8" />
                                       <circle
                                         cx={gaugeCenter}
@@ -1936,19 +1963,21 @@ export default async function TemperatureDashboardPage({
                                         strokeLinecap="round"
                                       />
                                       <circle cx={gaugeCenter} cy={gaugeCenter} r="8" fill={gaugeColor} />
-                                      <text x={gaugeCenter} y="188" textAnchor="middle" fill="var(--foreground)" style={{ fontSize: 72, fontWeight: 900 }}>
+                                      <text x={gaugeCenter} y={gaugeCenter - 12} textAnchor="middle" fill="var(--foreground)" style={{ fontSize: 66, fontWeight: 900 }}>
                                         {dTemp === null ? "--" : dTemp.toFixed(1)}
                                       </text>
-                                      <text x={gaugeCenter} y="226" textAnchor="middle" fill="var(--muted)" style={{ fontSize: 22, fontWeight: 700 }}>
+                                      <text x={gaugeCenter} y={gaugeCenter + 30} textAnchor="middle" fill="var(--muted)" style={{ fontSize: 22, fontWeight: 700 }}>
                                         F
                                       </text>
                                     </svg>
                                     <div style={{ fontSize: 18, lineHeight: 1.45, minWidth: 220 }}>
-                                      <div style={{ fontWeight: 900, color: gaugeColor }}>{dialTheme.label}</div>
+                                      <div style={{ fontWeight: 900, color: gaugeColor }}>{outOfRange ? "Out of range" : dialTheme.label}</div>
                                       <div style={{ opacity: 0.85 }}>
                                         Min {hasRange ? (effectiveMin as number).toFixed(1) : "-"} | Max {hasRange ? (effectiveMax as number).toFixed(1) : "-"}
                                       </div>
-                                      <div style={{ opacity: 0.75 }}>Range: {Math.round(gaugePct * 100)}%</div>
+                                      <div style={{ opacity: 0.75 }}>
+                                        Gauge Scale: {gaugeMin.toFixed(1)} to {gaugeMax.toFixed(1)}F
+                                      </div>
                                     </div>
                                   </div>
                                 </div>
@@ -2192,6 +2221,28 @@ export default async function TemperatureDashboardPage({
                                 type="number"
                                 step="0.1"
                                 defaultValue={toNumberOrNull(hub.maxTempF) ?? ""}
+                                style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)" }}
+                              />
+                            </label>
+
+                            <label style={{ display: "grid", gap: 4 }}>
+                              <span style={{ fontWeight: 700 }}>Gauge Min (F)</span>
+                              <input
+                                name="gaugeMinF"
+                                type="number"
+                                step="0.1"
+                                defaultValue={toNumberOrNull(hub.gaugeMinF) ?? "-20"}
+                                style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)" }}
+                              />
+                            </label>
+
+                            <label style={{ display: "grid", gap: 4 }}>
+                              <span style={{ fontWeight: 700 }}>Gauge Max (F)</span>
+                              <input
+                                name="gaugeMaxF"
+                                type="number"
+                                step="0.1"
+                                defaultValue={toNumberOrNull(hub.gaugeMaxF) ?? "80"}
                                 style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)" }}
                               />
                             </label>

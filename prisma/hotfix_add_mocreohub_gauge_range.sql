@@ -1,0 +1,2 @@
+ALTER TABLE "MocreoHub" ADD COLUMN "gaugeMinF" DECIMAL(6,2);
+ALTER TABLE "MocreoHub" ADD COLUMN "gaugeMaxF" DECIMAL(6,2);
