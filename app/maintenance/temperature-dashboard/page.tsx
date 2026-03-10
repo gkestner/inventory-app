@@ -1141,6 +1141,26 @@ export default async function TemperatureDashboardPage({
     ? `${proto}://${host}/api/integrations/mocreo/sync`
     : "/api/integrations/mocreo/sync";
 
+  const hubsByLocation = new Map<string, { key: string; name: string; hubs: HubRow[] }>();
+  for (const hub of hubs) {
+    const locationKey = hub.location?.id ?? `unassigned-${hub.id}`;
+    const locationName = String(hub.location?.name ?? "Unassigned Location").trim() || "Unassigned Location";
+    const existing = hubsByLocation.get(locationKey);
+    if (existing) {
+      existing.hubs.push(hub);
+      continue;
+    }
+    hubsByLocation.set(locationKey, { key: locationKey, name: locationName, hubs: [hub] });
+  }
+
+  const locationGroups = Array.from(hubsByLocation.values()).sort((a, b) => {
+    const aUnassigned = a.name.toLowerCase() === "unassigned location";
+    const bUnassigned = b.name.toLowerCase() === "unassigned location";
+    if (aUnassigned && !bUnassigned) return 1;
+    if (!aUnassigned && bUnassigned) return -1;
+    return a.name.localeCompare(b.name);
+  });
+
   return (
     <main>
       <div style={{ maxWidth: 1280, margin: "0 auto", display: "grid", gap: 12 }}>
@@ -1582,7 +1602,21 @@ export default async function TemperatureDashboardPage({
             <div style={{ padding: 14, opacity: 0.8 }}>No hubs configured yet.</div>
           ) : (
             <div style={{ display: "grid", gap: 10, padding: 12 }}>
-              {hubs.map((hub) => {
+              {locationGroups.map((group) => (
+                <details
+                  key={group.key}
+                  style={{
+                    border: "1px solid var(--border)",
+                    borderRadius: 12,
+                    padding: 10,
+                    background: "color-mix(in srgb, var(--surface-2) 70%, var(--surface))",
+                  }}
+                >
+                  <summary style={{ cursor: "pointer", fontWeight: 900, fontSize: 16 }}>
+                    {group.name} ({group.hubs.length} {group.hubs.length === 1 ? "hub" : "hubs"})
+                  </summary>
+                  <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+              {group.hubs.map((hub) => {
                 const recipientLabels = hub.recipients.map((r) => personLabel(r.user));
                 const min = toNumberOrNull(hub.minTempF);
                 const max = toNumberOrNull(hub.maxTempF);
@@ -2081,6 +2115,9 @@ export default async function TemperatureDashboardPage({
                   </article>
                 );
               })}
+                  </div>
+                </details>
+              ))}
             </div>
           )}
           </section>
