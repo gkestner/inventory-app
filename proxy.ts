@@ -1,4 +1,3 @@
-
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
@@ -25,7 +24,7 @@ function isStaleSyncAuthReason(reason: string): boolean {
   );
 }
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   if (pathname === "/maintenance/temperature-dashboard") {
@@ -60,9 +59,9 @@ export async function middleware(req: NextRequest) {
   }
 
   // NOTE:
-  // Do not enforce role-only /admin checks in middleware.
+  // Do not enforce role-only /admin checks in proxy.
   // Admin access is resolved server-side using permission-based guards.
-  // A strict Role.ADMIN middleware gate can cause redirect loops when
+  // A strict Role.ADMIN proxy gate can cause redirect loops when
   // users have admin permissions via titles but non-ADMIN legacy roles.
 
   return NextResponse.next();
