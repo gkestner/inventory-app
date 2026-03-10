@@ -1733,11 +1733,13 @@ export default async function TemperatureDashboardPage({
                       </div>
                     </div>
 
-                    <div style={{ marginTop: 10, border: "1px solid var(--border)", borderRadius: 10, padding: 10, background: "var(--surface)" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                        <div style={{ fontWeight: 800, fontSize: 13 }}>Sensor Temperature Overlay (Last 24h)</div>
-                        <div style={{ fontSize: 12, opacity: 0.75 }}>Live chart updates with auto-refresh</div>
-                      </div>
+                    <details style={{ marginTop: 10, border: "1px solid var(--border)", borderRadius: 10, padding: 10, background: "var(--surface)" }}>
+                      <summary style={{ cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", fontWeight: 800, fontSize: 13 }}>
+                        <span>Sensor Temperature Overlay (Last 24h)</span>
+                        <span style={{ fontSize: 12, opacity: 0.75, fontWeight: 600 }}>Click to expand trend</span>
+                      </summary>
+
+                      <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75 }}>Live chart updates with auto-refresh</div>
 
                       {series.length === 0 ? (
                         <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75 }}>Need at least two readings per sensor to draw overlay lines.</div>
@@ -1797,7 +1799,7 @@ export default async function TemperatureDashboardPage({
                           </div>
                         </>
                       )}
-                    </div>
+                    </details>
 
                     <div style={{ marginTop: 10, overflowX: "auto" }}>
                       <div
