@@ -8,6 +8,7 @@ import { authOptions } from "@/app/lib/auth";
 import { ADMIN_ENTRY_PERMISSIONS } from "@/app/lib/admin-access";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import {
+  ADMIN_VIEW_TEMPERATURE_DASHBOARD,
   CREATE_RECEIPTS,
   CREATE_WORK_ORDERS_FOR_OTHERS,
   VIEW_COMPANY_VEHICLE_LOG,
@@ -51,6 +52,7 @@ export default async function DashboardPage() {
       VIEW_COMPANY_VEHICLE_LOG,
       VIEW_MAINTENANCE_REQUESTS,
       VIEW_TEMPERATURE_DASHBOARD,
+      ADMIN_VIEW_TEMPERATURE_DASHBOARD,
       VIEW_RECEIPTS,
       CREATE_RECEIPTS,
     ]);

@@ -9,6 +9,7 @@ import { Permission } from "@prisma/client";
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import {
+  ADMIN_VIEW_TEMPERATURE_DASHBOARD,
   ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
   CREATE_RECEIPTS,
   CREATE_WORK_ORDERS_FOR_OTHERS,
@@ -55,6 +56,7 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
       VIEW_COMPANY_VEHICLE_LOG,
       VIEW_MAINTENANCE_REQUESTS,
       VIEW_TEMPERATURE_DASHBOARD,
+      ADMIN_VIEW_TEMPERATURE_DASHBOARD,
       VIEW_RECEIPTS,
       CREATE_RECEIPTS,
     ]);
@@ -86,7 +88,8 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
   const canEquipmentTracking = perms.allowAll || hasAnyPermission(perms, [VIEW_EQUIPMENT_TRACKING]);
   const canVehicleLog = perms.allowAll || hasAnyPermission(perms, [VIEW_COMPANY_VEHICLE_LOG]);
   const canMaintenanceRequests = perms.allowAll || hasAnyPermission(perms, [VIEW_MAINTENANCE_REQUESTS]);
-  const canTemperatureDashboard = perms.allowAll || hasAnyPermission(perms, [VIEW_TEMPERATURE_DASHBOARD]);
+  const canTemperatureDashboard =
+    perms.allowAll || hasAnyPermission(perms, [VIEW_TEMPERATURE_DASHBOARD, ADMIN_VIEW_TEMPERATURE_DASHBOARD]);
   const canReceipts = perms.allowAll || hasAnyPermission(perms, [VIEW_RECEIPTS, CREATE_RECEIPTS]);
   const canRoomDiagrams =
     perms.allowAll ||

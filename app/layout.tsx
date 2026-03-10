@@ -13,6 +13,7 @@ import UserNav from "@/app/components/UserNav";
 import { ADMIN_ENTRY_PERMISSIONS } from "@/app/lib/admin-access";
 import type { LoadedPermissions } from "@/app/lib/permissions";
 import {
+  ADMIN_VIEW_TEMPERATURE_DASHBOARD,
   CREATE_RECEIPTS,
   VIEW_COMPANY_VEHICLE_LOG,
   VIEW_EQUIPMENT_TRACKING,
@@ -249,6 +250,7 @@ export default async function RootLayout({
       VIEW_COMPANY_VEHICLE_LOG,
       VIEW_MAINTENANCE_REQUESTS,
       VIEW_TEMPERATURE_DASHBOARD,
+      ADMIN_VIEW_TEMPERATURE_DASHBOARD,
       VIEW_RECEIPTS,
       CREATE_RECEIPTS,
     ]);
