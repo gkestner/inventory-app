@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getServerSession } from "next-auth";
-import { Permission } from "@prisma/client";
+import { InvoiceVendor, Permission, Prisma } from "@prisma/client";
 import { redirect } from "next/navigation";
 
 import { authOptions } from "@/app/lib/auth";
@@ -24,9 +24,22 @@ type ParsedSkuSlot = {
 type ItemRow = {
   id: string;
   sku: string;
+  partNumber: string | null;
+  vendor: InvoiceVendor;
   name: string;
+  description: string | null;
+  category: string | null;
+  manufacturer: string | null;
+  orderFrom: string | null;
+  webUrl: string | null;
+  cost: Prisma.Decimal | null;
+  price: Prisma.Decimal | null;
+  taxable: boolean;
   onHandQty: number;
+  usedQty: number;
+  orderedQty: number;
   minQty: number;
+  reorderIgnored: boolean;
   active: boolean;
 };
 
@@ -109,6 +122,70 @@ function countItemsForShelf(rows: SlotRow[], location: string, shelf: string): n
   return rows.filter((r) => r.slot.location === location && r.slot.shelf === shelf).length;
 }
 
+function normalizeSearchText(v: string): string {
+  return (v || "")
+    .normalize("NFKC")
+    .replace(/[‐‑‒–—−]/g, "-")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenizeQuery(q: string): string[] {
+  const normalized = normalizeSearchText(q);
+  if (!normalized) return [];
+
+  return normalized
+    .split(/[ \-]+/g)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2);
+}
+
+function rowSearchText(row: SlotRow): string {
+  const vendorLabel =
+    row.vendor === "AMERICAN_PLUS"
+      ? "american plus"
+      : row.vendor === "SUCCESS_PLUS"
+        ? "success plus"
+        : String(row.vendor ?? "").toLowerCase();
+
+  const taxableStr = row.taxable ? "taxable yes" : "taxable no";
+  const activeStr = row.active ? "active yes" : "active no";
+  const reorderIgnoredStr = row.reorderIgnored ? "reorder ignored yes" : "reorder ignored no";
+
+  return normalizeSearchText(
+    [
+      row.id,
+      row.sku,
+      row.partNumber ?? "",
+      vendorLabel,
+      row.name ?? "",
+      row.category ?? "",
+      row.description ?? "",
+      row.manufacturer ?? "",
+      row.orderFrom ?? "",
+      row.webUrl ?? "",
+      String(row.cost ?? ""),
+      String(row.price ?? ""),
+      taxableStr,
+      activeStr,
+      reorderIgnoredStr,
+      `${row.slot.location} ${row.slot.shelf} ${row.slot.bin}`,
+      String(row.onHandQty ?? ""),
+      String(row.usedQty ?? ""),
+      String(row.minQty ?? ""),
+      String(row.orderedQty ?? ""),
+    ].join(" "),
+  );
+}
+
+function rowMatchesQuery(row: SlotRow, q: string): boolean {
+  const tokens = tokenizeQuery(q);
+  if (tokens.length === 0) return true;
+  const hay = rowSearchText(row);
+  return tokens.every((tok) => hay.includes(tok));
+}
+
 export default async function MaintenanceRoomDiagramsPage({
   searchParams,
 }: {
@@ -141,9 +218,22 @@ export default async function MaintenanceRoomDiagramsPage({
     select: {
       id: true,
       sku: true,
+      partNumber: true,
+      vendor: true,
       name: true,
+      description: true,
+      category: true,
+      manufacturer: true,
+      orderFrom: true,
+      webUrl: true,
+      cost: true,
+      price: true,
+      taxable: true,
       onHandQty: true,
+      usedQty: true,
+      orderedQty: true,
       minQty: true,
+      reorderIgnored: true,
       active: true,
     },
   });
@@ -161,10 +251,7 @@ export default async function MaintenanceRoomDiagramsPage({
   const selectedItemId = String(firstParam(paramsRaw, "item") ?? "").trim();
 
   const filteredRows = q
-    ? slotRows.filter((row) => {
-        const hay = `${row.name} ${row.sku}`.toLowerCase();
-        return hay.includes(q.toLowerCase());
-      })
+    ? slotRows.filter((row) => rowMatchesQuery(row, q))
     : [];
 
   const selectedItem =
@@ -281,7 +368,7 @@ export default async function MaintenanceRoomDiagramsPage({
                 id="room-diagram-search"
                 name="q"
                 defaultValue={q}
-                placeholder="Search by item name or SKU"
+                placeholder="Search ID, SKU, part #, name, category, vendor, mfg, order from..."
                 style={{
                   width: "min(520px, 100%)",
                   padding: "8px 10px",
