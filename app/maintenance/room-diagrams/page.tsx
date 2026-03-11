@@ -289,12 +289,12 @@ export default async function MaintenanceRoomDiagramsPage({
   });
   const shelfLayoutBase =
     shelfColCount === 1
-      ? { aisleLefts: [] as string[], columnLefts: ["3%"], columnWidth: "94%", rowTopStart: 36, rowStep: 36, cardHeight: 32, headerHeight: 11, binRows: 1, mapHeight: 36 + 24 * 36 + 10 }
+      ? { aisleLefts: [] as string[], columnLefts: ["3%"], columnWidth: "94%", rowTopStart: 36, rowStep: 42, cardHeight: 38, headerHeight: 13, mapHeight: 36 + 24 * 42 + 10 }
       : shelfColCount === 2
-        ? { aisleLefts: ["49.2%"], columnLefts: ["3.2%", "52.2%"], columnWidth: "44%", rowTopStart: 44, rowStep: 52, cardHeight: 48, headerHeight: 13, binRows: 2, mapHeight: 44 + shelvesPerCol * 52 + 20 }
+        ? { aisleLefts: ["49.2%"], columnLefts: ["3.2%", "52.2%"], columnWidth: "44%", rowTopStart: 44, rowStep: 48, cardHeight: 44, headerHeight: 13, mapHeight: 44 + shelvesPerCol * 48 + 20 }
         : shelfColCount === 4
-          ? { aisleLefts: ["24.2%", "49.5%", "74.8%"], columnLefts: ["3%", "28%", "53%", "78%"], columnWidth: "19%", rowTopStart: 44, rowStep: 62, cardHeight: 58, headerHeight: 14, binRows: 2, mapHeight: 44 + shelvesPerCol * 62 + 20 }
-          : { aisleLefts: ["32.5%", "65.5%"], columnLefts: ["4%", "37%", "70%"], columnWidth: "26%", rowTopStart: 44, rowStep: 62, cardHeight: 58, headerHeight: 14, binRows: 2, mapHeight: 44 + shelvesPerCol * 62 + 20 };
+          ? { aisleLefts: ["24.2%", "49.5%", "74.8%"], columnLefts: ["3%", "28%", "53%", "78%"], columnWidth: "19%", rowTopStart: 44, rowStep: 52, cardHeight: 48, headerHeight: 14, mapHeight: 44 + shelvesPerCol * 52 + 20 }
+          : { aisleLefts: ["32.5%", "65.5%"], columnLefts: ["4%", "37%", "70%"], columnWidth: "26%", rowTopStart: 44, rowStep: 52, cardHeight: 48, headerHeight: 14, mapHeight: 44 + shelvesPerCol * 52 + 20 };
   const shelfLayout = { ...shelfLayoutBase, columns: shelfColumns };
 
   return (
@@ -651,15 +651,15 @@ export default async function MaintenanceRoomDiagramsPage({
                           <span>Shelf {prettyCode(code)}</span>
                           <span>{count}</span>
                         </div>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(8, minmax(0, 1fr))", gridTemplateRows: `repeat(${shelfLayout.binRows}, 1fr)`, gap: 0 }}>
-                          {Array.from({ length: 8 * shelfLayout.binRows }).map((_, i) => {
-                            const isBinHighlight = active && selectedWholeBin !== null && i === selectedWholeBin - 1;
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(10, minmax(0, 1fr))", gridTemplateRows: "1fr", gap: 0 }}>
+                          {Array.from({ length: 10 }).map((_, i) => {
+                            const binNumber = i + 1;
+                            const isBinHighlight = active && selectedWholeBin !== null && selectedWholeBin === binNumber;
                             return (
                               <div
                                 key={`${code}-${i}`}
                                 style={{
-                                  borderRight: "1px solid #374151",
-                                  borderBottom: i < 8 * (shelfLayout.binRows - 1) ? "1px solid #374151" : "0",
+                                  borderRight: i < 9 ? "1px solid #374151" : "none",
                                   background: isBinHighlight ? "#f97316" : active ? "#fff7cc" : "#d6d6d6",
                                   outline: isBinHighlight ? "2px solid #0f172a" : "none",
                                   outlineOffset: "-2px",
