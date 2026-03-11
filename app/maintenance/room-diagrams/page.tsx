@@ -460,48 +460,97 @@ export default async function MaintenanceRoomDiagramsPage({
                 borderRadius: 12,
                 background: "#d9d9d9",
                 padding: 10,
-                display: "grid",
-                gridTemplateColumns: "1fr",
-                gap: 6,
-                maxHeight: 320,
-                overflowY: "auto",
+                overflowX: "auto",
                 color: "#0f172a",
               }}
             >
-              {shelfCodes.map((code) => {
-                const active = focusShelf === code;
-                const count = countItemsForShelf(slotRows, focusLocation, code);
-                return (
-                  <div
-                    key={code}
-                    style={{
-                      border: active ? "3px solid #0f172a" : "2px solid #374151",
-                      borderRadius: 8,
-                      padding: "6px 8px 8px",
-                      background: active ? "#fde68a" : "#f3f4f6",
-                      display: "grid",
-                      gap: 6,
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                      <strong style={{ fontSize: 13, color: "#0f172a" }}>Shelf {prettyCode(code)}</strong>
-                      <span style={{ fontSize: 11, opacity: 0.85, color: "#0f172a" }}>{count} items</span>
+              <div
+                style={{
+                  position: "relative",
+                  minWidth: 840,
+                  height: 620,
+                  border: "2px solid #111827",
+                  background: "#ececec",
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    right: 0,
+                    top: 0,
+                    height: 24,
+                    borderBottom: "2px solid #111827",
+                    background: "#bed3e7",
+                    display: "grid",
+                    placeItems: "center",
+                    fontWeight: 900,
+                    fontSize: 14,
+                  }}
+                >
+                  {locationLabel(focusLocation)} Shelf Map
+                </div>
+
+                <div style={{ position: "absolute", left: "32.5%", top: 24, bottom: 0, width: 18, background: "#111827" }} />
+                <div style={{ position: "absolute", left: "65.5%", top: 24, bottom: 0, width: 18, background: "#111827" }} />
+
+                {shelfCodes.map((code, idx) => {
+                  const active = focusShelf === code;
+                  const count = countItemsForShelf(slotRows, focusLocation, code);
+                  const column = Math.floor(idx / 8);
+                  const row = idx % 8;
+                  const left = column === 0 ? "4%" : column === 1 ? "37%" : "70%";
+                  const top = `${44 + row * 70}px`;
+
+                  return (
+                    <div
+                      key={code}
+                      style={{
+                        position: "absolute",
+                        left,
+                        top,
+                        width: "26%",
+                        height: 58,
+                        border: active ? "3px solid #0f172a" : "2px solid #1f2937",
+                        background: active ? "#fde68a" : "#f3f4f6",
+                        display: "grid",
+                        gridTemplateRows: "14px 1fr",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 900,
+                          lineHeight: 1,
+                          background: "#9ee8f7",
+                          borderBottom: "1px solid #1f2937",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          padding: "0 4px",
+                        }}
+                      >
+                        <span>Shelf {prettyCode(code)}</span>
+                        <span>{count}</span>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(8, minmax(0, 1fr))", gridTemplateRows: "repeat(2, 1fr)", gap: 0 }}>
+                        {Array.from({ length: 16 }).map((_, i) => (
+                          <div
+                            key={`${code}-${i}`}
+                            style={{
+                              borderRight: "1px solid #374151",
+                              borderBottom: i < 8 ? "1px solid #374151" : "0",
+                              background: active ? "#fff7cc" : "#d6d6d6",
+                            }}
+                          />
+                        ))}
+                      </div>
                     </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(8, minmax(0, 1fr))", gap: 2 }}>
-                      {Array.from({ length: 8 }).map((_, i) => (
-                        <div
-                          key={`${code}-${i}`}
-                          style={{
-                            height: 14,
-                            border: "1px solid #374151",
-                            background: active ? "#fff7cc" : "#e5e7eb",
-                          }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </article>
         </section>
