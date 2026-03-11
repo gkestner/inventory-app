@@ -463,6 +463,11 @@ export default async function AdminNav() {
                     Room Diagrams
                   </Link>
                 ) : null}
+                {canCheckout ? (
+                  <Link href="/maintenance/room-diagrams/quick-count" style={menuItemStyle}>
+                    Quick Count Editor
+                  </Link>
+                ) : null}
                 {canAdminWorkOrders ? (
                   <Link href="/admin/work-orders" style={menuItemStyle}>
                     Work Orders

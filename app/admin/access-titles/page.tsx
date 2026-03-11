@@ -151,8 +151,18 @@ type PermMeta = {
 const PERMS: PermMeta[] = [
   { perm: Permission.VIEW_HOME, module: "Navigation", group: "Navigation", label: "View Home" },
 
-  { perm: Permission.VIEW_CHECKOUT, module: "Inventory", group: "Checkout", label: "View Checkout" },
-  { perm: Permission.CREATE_CHECKOUT, module: "Inventory", group: "Checkout", label: "Create Checkout" },
+  {
+    perm: Permission.VIEW_CHECKOUT,
+    module: "Inventory",
+    group: "Checkout + Room Diagrams",
+    label: "View Checkout + Room Diagrams",
+  },
+  {
+    perm: Permission.CREATE_CHECKOUT,
+    module: "Inventory",
+    group: "Checkout + Room Diagrams",
+    label: "Create Checkout + Quick Count Editor",
+  },
 
   // ✅ NEW: Live Orders board permission (general users)
   { perm: Permission.VIEW_LIVE_ORDERS, module: "Inventory", group: "Orders", label: "View Live Orders Board" },

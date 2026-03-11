@@ -43,8 +43,18 @@ export const PERMISSION_CATALOG: PermissionCatalogEntry[] = [
   { permission: Permission.VIEW_HOME, module: "Navigation", path: ["General"], label: "View Home" },
 
   // ===== Inventory / Checkout =====
-  { permission: Permission.VIEW_CHECKOUT, module: "Inventory", path: ["Checkout"], label: "View Checkout" },
-  { permission: Permission.CREATE_CHECKOUT, module: "Inventory", path: ["Checkout"], label: "Create Checkout" },
+  {
+    permission: Permission.VIEW_CHECKOUT,
+    module: "Inventory",
+    path: ["Checkout + Room Diagrams"],
+    label: "View Checkout + Room Diagrams",
+  },
+  {
+    permission: Permission.CREATE_CHECKOUT,
+    module: "Inventory",
+    path: ["Checkout + Room Diagrams"],
+    label: "Create Checkout + Quick Count Editor",
+  },
 
   // ===== Maintenance / Work Orders (non-admin) =====
   { permission: Permission.VIEW_WORK_ORDERS, module: "Maintenance", path: ["Work Orders"], label: "View Work Orders" },

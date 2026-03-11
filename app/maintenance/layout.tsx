@@ -101,6 +101,8 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
       Permission.ADMIN_VIEW_ITEMS,
       Permission.ADMIN_EDIT_ITEMS,
     ]);
+  const canQuickCountEditor =
+    perms.allowAll || hasAnyPermission(perms, [Permission.CREATE_CHECKOUT, Permission.ADMIN_EDIT_ITEMS]);
 
   const shell: CSSProperties = {
     color: "var(--foreground)",
@@ -292,6 +294,11 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
                   {canRoomDiagrams ? (
                     <Link href="/maintenance/room-diagrams" style={menuItemStyle}>
                       Room Diagrams
+                    </Link>
+                  ) : null}
+                  {canQuickCountEditor ? (
+                    <Link href="/maintenance/room-diagrams/quick-count" style={menuItemStyle}>
+                      Quick Count Editor
                     </Link>
                   ) : null}
                   {canPreventativeMaintenance ? (

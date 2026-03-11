@@ -240,11 +240,16 @@ export default async function MaintenanceHomePage() {
             <article style={card}>
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Maintenance Room Diagrams</h2>
               <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.5 }}>
-                View room/location shelf diagrams generated from SKU Location/Shelf/Bin and run quick inventory counts.
+                Search and highlight part locations across maintenance location, shelf, and bin diagrams.
               </p>
-              <Link href="/maintenance/room-diagrams" style={action}>
-                Open Room Diagrams
-              </Link>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <Link href="/maintenance/room-diagrams" style={action}>
+                  Open Room Diagrams
+                </Link>
+                <Link href="/maintenance/room-diagrams/quick-count" style={action}>
+                  Open Quick Count Editor
+                </Link>
+              </div>
             </article>
           ) : null}
 
