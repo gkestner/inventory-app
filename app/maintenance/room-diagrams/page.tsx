@@ -356,9 +356,9 @@ export default async function MaintenanceRoomDiagramsPage({
                 style={{
                   position: "absolute",
                   left: "1%",
-                  top: "18%",
+                  top: "28%",
                   width: "9%",
-                  height: "72%",
+                  height: "62%",
                   border: "2px solid #111827",
                   background: "#efefef",
                   display: "grid",
@@ -385,6 +385,7 @@ export default async function MaintenanceRoomDiagramsPage({
               ].map((zone) => {
                 const active = focusLocation === zone.code;
                 const itemCount = slotRows.filter((r) => r.slot.location === zone.code).length;
+                const compactZone = ["06", "07", "08", "09", "10"].includes(zone.code);
                 return (
                   <div
                     key={zone.code}
@@ -413,14 +414,19 @@ export default async function MaintenanceRoomDiagramsPage({
                               fontSize: 16,
                               lineHeight: 1,
                             }
-                          : { fontSize: 16, lineHeight: 1.1 }
+                          : {
+                              fontSize: compactZone ? 10 : 16,
+                              lineHeight: compactZone ? 1 : 1.1,
+                              textAlign: "center",
+                              whiteSpace: compactZone ? "pre-line" : "nowrap",
+                            }
                       }
                     >
-                      {locationLabel(zone.code)}
+                      {compactZone ? `Location\n#${prettyCode(zone.code)}` : locationLabel(zone.code)}
                     </div>
                     <div
                       style={
-                        zone.vertical
+                        zone.vertical || compactZone
                           ? { display: "none" }
                           : {
                               position: "absolute",
