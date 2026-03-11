@@ -246,30 +246,30 @@ export default async function MaintenanceRoomDiagramsPage({
             <label htmlFor="room-diagram-search" style={{ fontWeight: 800 }}>
               Search Part (SKU or Name)
             </label>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <input
                 id="room-diagram-search"
                 name="q"
                 defaultValue={q}
                 placeholder="Search by item name or SKU"
                 style={{
-                  flex: "1 1 320px",
-                  padding: "9px 12px",
+                  width: "min(520px, 100%)",
+                  padding: "8px 10px",
                   borderRadius: 10,
                   border: "1px solid var(--border)",
-                  background: "var(--surface-2)",
+                  background: "var(--surface)",
                   color: "var(--foreground)",
                 }}
               />
               <button
                 type="submit"
                 style={{
-                  padding: "9px 14px",
+                  padding: "8px 12px",
                   borderRadius: 10,
                   border: "1px solid var(--border)",
-                  background: "var(--surface-2)",
+                  background: "var(--surface)",
                   color: "var(--foreground)",
-                  fontWeight: 800,
+                  fontWeight: 900,
                   cursor: "pointer",
                 }}
               >
@@ -279,12 +279,12 @@ export default async function MaintenanceRoomDiagramsPage({
                 href="/maintenance/room-diagrams"
                 style={{
                   textDecoration: "none",
-                  padding: "9px 14px",
+                  padding: "8px 12px",
                   borderRadius: 10,
                   border: "1px solid var(--border)",
                   background: "var(--surface)",
                   color: "var(--foreground)",
-                  fontWeight: 700,
+                  fontWeight: 800,
                 }}
               >
                 Clear
@@ -309,18 +309,21 @@ export default async function MaintenanceRoomDiagramsPage({
                         href={buildItemHref(q, row)}
                         style={{
                           textDecoration: "none",
-                          border: isActive ? "2px solid #2563eb" : "1px solid var(--border)",
+                          border: isActive ? "2px solid color-mix(in srgb, var(--brand) 70%, #3b82f6)" : "1px solid var(--border)",
                           borderRadius: 10,
                           padding: "8px 10px",
-                          background: isActive ? "#dbeafe" : "var(--surface-2)",
+                          background: isActive
+                            ? "color-mix(in srgb, var(--brand) 20%, var(--surface-2))"
+                            : "var(--surface-2)",
                           color: "var(--foreground)",
                           display: "grid",
                           gap: 2,
+                          boxShadow: isActive ? "0 0 0 1px color-mix(in srgb, var(--brand) 30%, transparent)" : "none",
                         }}
                       >
                         <strong>{row.name}</strong>
-                        <span style={{ fontSize: 12, opacity: 0.85, fontFamily: "monospace" }}>{row.sku}</span>
-                        <span style={{ fontSize: 12, opacity: 0.85 }}>
+                        <span style={{ fontSize: 12, color: "var(--muted)", fontFamily: "monospace" }}>{row.sku}</span>
+                        <span style={{ fontSize: 12, color: "var(--muted)" }}>
                           {locationLabel(row.slot.location)} / Shelf {prettyCode(row.slot.shelf)} / Bin {prettyCode(row.slot.bin)}
                         </span>
                       </Link>
