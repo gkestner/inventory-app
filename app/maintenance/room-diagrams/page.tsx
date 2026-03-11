@@ -190,9 +190,39 @@ export default async function MaintenanceRoomDiagramsPage({
   const parsedFocusBin = Number(focusBin);
   const selectedWholeBin = Number.isFinite(parsedFocusBin) ? Math.trunc(parsedFocusBin) : null;
 
+  const shelfLayout =
+    focusLocation === "01"
+      ? {
+          columns: [
+            ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"],
+            ["13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24"],
+          ],
+          aisleLefts: ["49.2%"],
+          columnLefts: ["3.2%", "52.2%"],
+          columnWidth: "44%",
+          rowTopStart: 44,
+          rowStep: 49,
+          mapMinWidth: 980,
+          mapHeight: 680,
+        }
+      : {
+          columns: [
+            ["01", "02", "03", "04", "05", "06", "07", "08"],
+            ["09", "10", "11", "12", "13", "14", "15", "16"],
+            ["17", "18", "19", "20", "21", "22", "23", "24"],
+          ],
+          aisleLefts: ["32.5%", "65.5%"],
+          columnLefts: ["4%", "37%", "70%"],
+          columnWidth: "26%",
+          rowTopStart: 44,
+          rowStep: 70,
+          mapMinWidth: 1040,
+          mapHeight: 620,
+        };
+
   return (
     <main>
-      <div style={{ maxWidth: 1320, margin: "0 auto", display: "grid", gap: 12 }}>
+      <div style={{ width: "100%", margin: "0 auto", display: "grid", gap: 12, paddingInline: 10 }}>
         <section
           style={{
             border: "1px solid var(--border)",
@@ -339,7 +369,7 @@ export default async function MaintenanceRoomDiagramsPage({
           )}
         </section>
 
-        <section style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 12 }}>
+        <section style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <article style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 12 }}>
             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>1) Maintenance Location Diagram</h2>
             <p style={{ margin: "6px 0 0", color: "var(--muted)" }}>
@@ -353,7 +383,7 @@ export default async function MaintenanceRoomDiagramsPage({
                 background: "#d9d9d9",
                 padding: 8,
                 position: "relative",
-                minHeight: 360,
+                minHeight: 470,
                 color: "#0f172a",
               }}
             >
@@ -470,8 +500,8 @@ export default async function MaintenanceRoomDiagramsPage({
               <div
                 style={{
                   position: "relative",
-                  minWidth: 840,
-                  height: 620,
+                  minWidth: shelfLayout.mapMinWidth,
+                  height: shelfLayout.mapHeight,
                   border: "2px solid #111827",
                   background: "#ececec",
                   overflow: "hidden",
@@ -495,64 +525,65 @@ export default async function MaintenanceRoomDiagramsPage({
                   {locationLabel(focusLocation)} Shelf Map
                 </div>
 
-                <div style={{ position: "absolute", left: "32.5%", top: 24, bottom: 0, width: 18, background: "#111827" }} />
-                <div style={{ position: "absolute", left: "65.5%", top: 24, bottom: 0, width: 18, background: "#111827" }} />
+                {shelfLayout.aisleLefts.map((left) => (
+                  <div key={left} style={{ position: "absolute", left, top: 24, bottom: 0, width: 18, background: "#111827" }} />
+                ))}
 
-                {shelfCodes.map((code, idx) => {
-                  const active = focusShelf === code;
-                  const count = countItemsForShelf(slotRows, focusLocation, code);
-                  const column = Math.floor(idx / 8);
-                  const row = idx % 8;
-                  const left = column === 0 ? "4%" : column === 1 ? "37%" : "70%";
-                  const top = `${44 + row * 70}px`;
+                {shelfLayout.columns.map((columnShelves, columnIndex) =>
+                  columnShelves.map((code, rowIndex) => {
+                    const active = focusShelf === code;
+                    const count = countItemsForShelf(slotRows, focusLocation, code);
+                    const left = shelfLayout.columnLefts[columnIndex] ?? "4%";
+                    const top = `${shelfLayout.rowTopStart + rowIndex * shelfLayout.rowStep}px`;
 
-                  return (
-                    <div
-                      key={code}
-                      style={{
-                        position: "absolute",
-                        left,
-                        top,
-                        width: "26%",
-                        height: 58,
-                        border: active ? "3px solid #0f172a" : "2px solid #1f2937",
-                        background: active ? "#fde68a" : "#f3f4f6",
-                        display: "grid",
-                        gridTemplateRows: "14px 1fr",
-                        overflow: "hidden",
-                      }}
-                    >
+                    return (
                       <div
+                        key={`${columnIndex}-${code}`}
                         style={{
-                          fontSize: 10,
-                          fontWeight: 900,
-                          lineHeight: 1,
-                          background: "#9ee8f7",
-                          borderBottom: "1px solid #1f2937",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          padding: "0 4px",
+                          position: "absolute",
+                          left,
+                          top,
+                          width: shelfLayout.columnWidth,
+                          height: 58,
+                          border: active ? "3px solid #0f172a" : "2px solid #1f2937",
+                          background: active ? "#fde68a" : "#f3f4f6",
+                          display: "grid",
+                          gridTemplateRows: "14px 1fr",
+                          overflow: "hidden",
                         }}
                       >
-                        <span>Shelf {prettyCode(code)}</span>
-                        <span>{count}</span>
+                        <div
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 900,
+                            lineHeight: 1,
+                            background: "#9ee8f7",
+                            borderBottom: "1px solid #1f2937",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            padding: "0 4px",
+                          }}
+                        >
+                          <span>Shelf {prettyCode(code)}</span>
+                          <span>{count}</span>
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(8, minmax(0, 1fr))", gridTemplateRows: "repeat(2, 1fr)", gap: 0 }}>
+                          {Array.from({ length: 16 }).map((_, i) => (
+                            <div
+                              key={`${code}-${i}`}
+                              style={{
+                                borderRight: "1px solid #374151",
+                                borderBottom: i < 8 ? "1px solid #374151" : "0",
+                                background: active ? "#fff7cc" : "#d6d6d6",
+                              }}
+                            />
+                          ))}
+                        </div>
                       </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(8, minmax(0, 1fr))", gridTemplateRows: "repeat(2, 1fr)", gap: 0 }}>
-                        {Array.from({ length: 16 }).map((_, i) => (
-                          <div
-                            key={`${code}-${i}`}
-                            style={{
-                              borderRight: "1px solid #374151",
-                              borderBottom: i < 8 ? "1px solid #374151" : "0",
-                              background: active ? "#fff7cc" : "#d6d6d6",
-                            }}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
               </div>
             </div>
           </article>
