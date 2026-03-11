@@ -187,6 +187,8 @@ export default async function MaintenanceRoomDiagramsPage({
 
   const selectedBinPositionFeet = toBinPositionFeet(focusBin, binsOnFocusedShelf);
   const selectedBinPositionPercent = positionToPercent(selectedBinPositionFeet);
+  const parsedFocusBin = Number(focusBin);
+  const selectedWholeBin = Number.isFinite(parsedFocusBin) ? Math.trunc(parsedFocusBin) : null;
 
   return (
     <main>
@@ -514,35 +516,47 @@ export default async function MaintenanceRoomDiagramsPage({
             <div
               style={{
                 position: "relative",
-                height: 72,
+                height: 104,
                 border: "2px solid #111827",
                 borderRadius: 8,
                 background: "#e5e7eb",
+                padding: "10px 12px",
               }}
             >
-              {Array.from({ length: 22 }).map((_, idx) => {
-                const value = idx * 0.5;
-                const pct = (value / 10.5) * 100;
-                return (
-                  <div
-                    key={value}
-                    style={{
-                      position: "absolute",
-                      left: `${pct}%`,
-                      top: 0,
-                      bottom: 0,
-                      width: idx % 2 === 0 ? 2 : 0,
-                      background: idx % 2 === 0 ? "rgba(17,24,39,0.25)" : "transparent",
-                    }}
-                  />
-                );
-              })}
+              <div style={{ position: "absolute", left: 12, right: 12, top: 18, display: "grid", gridTemplateColumns: "8px repeat(10, minmax(0, 1fr)) 8px", gap: 0, alignItems: "end" }}>
+                <div style={{ height: 72, background: "#111827" }} />
+                {Array.from({ length: 10 }).map((_, i) => {
+                  const binNumber = i + 1;
+                  const isSelected = selectedWholeBin === binNumber;
+                  return (
+                    <div
+                      key={binNumber}
+                      style={{
+                        height: 36,
+                        borderTop: "2px solid #374151",
+                        borderBottom: "2px solid #374151",
+                        borderLeft: i === 0 ? "2px solid #374151" : "1px solid #374151",
+                        borderRight: i === 9 ? "2px solid #374151" : "1px solid #374151",
+                        background: isSelected ? "#fde68a" : "#f3f4f6",
+                        display: "grid",
+                        placeItems: "center",
+                        fontSize: 12,
+                        fontWeight: 900,
+                        color: "#0f172a",
+                      }}
+                    >
+                      {binNumber}
+                    </div>
+                  );
+                })}
+                <div style={{ height: 72, background: "#111827" }} />
+              </div>
 
               <div
                 style={{
                   position: "absolute",
                   left: `${selectedBinPositionPercent}%`,
-                  top: 6,
+                  top: 2,
                   transform: "translateX(-50%)",
                   display: "grid",
                   gap: 2,
