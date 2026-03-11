@@ -459,13 +459,12 @@ export default async function MaintenanceRoomDiagramsPage({
         <section
           style={{
             display: "grid",
-            gridTemplateColumns: "minmax(620px, 1fr) minmax(960px, 1fr)",
+            gridTemplateColumns: "1fr 1.5fr",
             gap: 12,
             alignItems: "start",
-            overflowX: "auto",
           }}
         >
-          <article style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 12, minWidth: 620 }}>
+          <article style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 12 }}>
             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>1) Maintenance Location Diagram</h2>
             <p style={{ margin: "6px 0 0", color: "var(--muted)" }}>
               Fixed room layout map with desk/walls. Highlighted box is the selected maintenance location.
@@ -478,7 +477,6 @@ export default async function MaintenanceRoomDiagramsPage({
                 background: "#d9d9d9",
                 padding: 8,
                 position: "relative",
-                minWidth: 600,
                 minHeight: 520,
                 color: "#0f172a",
                 overflow: "hidden",
@@ -488,7 +486,7 @@ export default async function MaintenanceRoomDiagramsPage({
                 style={{
                   position: "absolute",
                   left: "1%",
-                  top: "28%",
+                  top: "33%",
                   width: "9%",
                   height: "62%",
                   border: "2px solid #111827",
@@ -508,12 +506,12 @@ export default async function MaintenanceRoomDiagramsPage({
                 { code: "02", left: "57%", top: "1%", width: "43%", height: "11%" },
                 { code: "03", left: "95%", top: "20%", width: "5%", height: "64%", vertical: true },
                 { code: "04", left: "55%", top: "31%", width: "28%", height: "28%" },
-                { code: "05", left: "63%", top: "81%", width: "37%", height: "9%" },
-                { code: "06", left: "84%", top: "73%", width: "16%", height: "9%" },
-                { code: "07", left: "73%", top: "73%", width: "11%", height: "9%" },
-                { code: "10", left: "63%", top: "73%", width: "10%", height: "9%" },
-                { code: "08", left: "52%", top: "75%", width: "11%", height: "15%" },
-                { code: "09", left: "36%", top: "78%", width: "13%", height: "12%" },
+                { code: "05", left: "63%", top: "85%", width: "37%", height: "9%" },
+                { code: "06", left: "84%", top: "77%", width: "16%", height: "9%" },
+                { code: "07", left: "73%", top: "77%", width: "11%", height: "9%" },
+                { code: "10", left: "63%", top: "77%", width: "10%", height: "9%" },
+                { code: "08", left: "52%", top: "79%", width: "11%", height: "15%" },
+                { code: "09", left: "36%", top: "82%", width: "13%", height: "12%" },
               ].map((zone) => {
                 const active = focusLocation === zone.code;
                 const itemCount = slotRows.filter((r) => r.slot.location === zone.code).length;
@@ -578,7 +576,7 @@ export default async function MaintenanceRoomDiagramsPage({
             </div>
           </article>
 
-          <article style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 12, minWidth: 960 }}>
+          <article style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 12 }}>
             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>2) Shelf Diagram</h2>
             <p style={{ margin: "6px 0 0", color: "var(--muted)" }}>
               Shelves are available in every location. The selected shelf is highlighted.
@@ -590,14 +588,12 @@ export default async function MaintenanceRoomDiagramsPage({
                 borderRadius: 12,
                 background: "#d9d9d9",
                 padding: 10,
-                overflowX: "auto",
                 color: "#0f172a",
               }}
             >
               <div
                 style={{
                   position: "relative",
-                  minWidth: shelfLayout.mapMinWidth,
                   height: shelfLayout.mapHeight,
                   border: "2px solid #111827",
                   background: "#ececec",
