@@ -344,13 +344,14 @@ export default async function MaintenanceRoomDiagramsPage({
             <div
               style={{
                 marginTop: 10,
-                border: "1px solid var(--border)",
+                border: "2px solid #111827",
                 borderRadius: 12,
-                background: "#ececec",
+                background: "#d9d9d9",
                 padding: 10,
                 display: "grid",
                 gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
                 gap: 8,
+                color: "#0f172a",
               }}
             >
               {locationCodes.map((code) => {
@@ -360,18 +361,19 @@ export default async function MaintenanceRoomDiagramsPage({
                   <div
                     key={code}
                     style={{
-                      border: active ? "2px solid #2563eb" : "1px solid #202020",
-                      borderRadius: 10,
-                      background: active ? "#dbeafe" : "#f7f7f7",
+                      border: active ? "3px solid #0f172a" : "2px solid #1f2937",
+                      borderRadius: 8,
+                      background: active ? "#fde68a" : "#efefef",
                       padding: 8,
-                      minHeight: 52,
+                      minHeight: 56,
                       display: "grid",
                       alignContent: "center",
                       gap: 2,
+                      color: "#0f172a",
                     }}
                   >
                     <strong>{locationLabel(code)}</strong>
-                    <span style={{ fontSize: 12, opacity: 0.8 }}>{itemCount} items</span>
+                    <span style={{ fontSize: 12, opacity: 0.9 }}>{itemCount} items</span>
                   </div>
                 );
               })}
@@ -386,15 +388,16 @@ export default async function MaintenanceRoomDiagramsPage({
             <div
               style={{
                 marginTop: 10,
-                border: "1px solid var(--border)",
+                border: "2px solid #111827",
                 borderRadius: 12,
-                background: "#f4f6f8",
+                background: "#d9d9d9",
                 padding: 10,
                 display: "grid",
-                gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                gridTemplateColumns: "1fr",
                 gap: 6,
                 maxHeight: 320,
                 overflowY: "auto",
+                color: "#0f172a",
               }}
             >
               {shelfCodes.map((code) => {
@@ -404,16 +407,30 @@ export default async function MaintenanceRoomDiagramsPage({
                   <div
                     key={code}
                     style={{
-                      border: active ? "2px solid #0284c7" : "1px solid var(--border)",
+                      border: active ? "3px solid #0f172a" : "2px solid #374151",
                       borderRadius: 8,
-                      padding: "6px 8px",
-                      background: active ? "#cffafe" : "white",
+                      padding: "6px 8px 8px",
+                      background: active ? "#fde68a" : "#f3f4f6",
                       display: "grid",
-                      gap: 2,
+                      gap: 6,
                     }}
                   >
-                    <strong style={{ fontSize: 13 }}>Shelf {prettyCode(code)}</strong>
-                    <span style={{ fontSize: 11, opacity: 0.8 }}>{count} items</span>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                      <strong style={{ fontSize: 13, color: "#0f172a" }}>Shelf {prettyCode(code)}</strong>
+                      <span style={{ fontSize: 11, opacity: 0.85, color: "#0f172a" }}>{count} items</span>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(8, minmax(0, 1fr))", gap: 2 }}>
+                      {Array.from({ length: 8 }).map((_, i) => (
+                        <div
+                          key={`${code}-${i}`}
+                          style={{
+                            height: 14,
+                            border: "1px solid #374151",
+                            background: active ? "#fff7cc" : "#e5e7eb",
+                          }}
+                        />
+                      ))}
+                    </div>
                   </div>
                 );
               })}
@@ -427,14 +444,14 @@ export default async function MaintenanceRoomDiagramsPage({
             0 = left shelf wall, 10.5 = right shelf wall. Selected bin is mapped onto this ruler.
           </p>
 
-          <div style={{ marginTop: 12, border: "1px solid var(--border)", borderRadius: 12, background: "#f8fafc", padding: 12 }}>
+          <div style={{ marginTop: 12, border: "2px solid #111827", borderRadius: 12, background: "#d9d9d9", padding: 12, color: "#0f172a" }}>
             <div
               style={{
                 position: "relative",
-                height: 62,
-                border: "1px solid #1f2937",
-                borderRadius: 10,
-                background: "linear-gradient(180deg, #ffffff 0%, #e5e7eb 100%)",
+                height: 72,
+                border: "2px solid #111827",
+                borderRadius: 8,
+                background: "#e5e7eb",
               }}
             >
               {Array.from({ length: 22 }).map((_, idx) => {
@@ -448,8 +465,8 @@ export default async function MaintenanceRoomDiagramsPage({
                       left: `${pct}%`,
                       top: 0,
                       bottom: 0,
-                      width: idx % 2 === 0 ? 1 : 0,
-                      background: idx % 2 === 0 ? "rgba(31,41,55,0.2)" : "transparent",
+                      width: idx % 2 === 0 ? 2 : 0,
+                      background: idx % 2 === 0 ? "rgba(17,24,39,0.25)" : "transparent",
                     }}
                   />
                 );
@@ -466,14 +483,14 @@ export default async function MaintenanceRoomDiagramsPage({
                   justifyItems: "center",
                 }}
               >
-                <div style={{ fontSize: 11, fontWeight: 800, background: "#dbeafe", border: "1px solid #2563eb", borderRadius: 999, padding: "2px 8px" }}>
+                <div style={{ fontSize: 11, fontWeight: 900, background: "#fde68a", border: "2px solid #0f172a", borderRadius: 999, padding: "2px 8px", color: "#0f172a" }}>
                   Bin {prettyCode(focusBin)}
                 </div>
-                <div style={{ width: 0, height: 0, borderLeft: "7px solid transparent", borderRight: "7px solid transparent", borderTop: "12px solid #2563eb" }} />
+                <div style={{ width: 0, height: 0, borderLeft: "8px solid transparent", borderRight: "8px solid transparent", borderTop: "12px solid #0f172a" }} />
               </div>
 
-              <div style={{ position: "absolute", left: 10, bottom: 6, fontSize: 12, fontWeight: 800 }}>0</div>
-              <div style={{ position: "absolute", right: 10, bottom: 6, fontSize: 12, fontWeight: 800 }}>10.5</div>
+              <div style={{ position: "absolute", left: 10, bottom: 6, fontSize: 12, fontWeight: 900, color: "#0f172a" }}>0</div>
+              <div style={{ position: "absolute", right: 10, bottom: 6, fontSize: 12, fontWeight: 900, color: "#0f172a" }}>10.5</div>
             </div>
 
             <div style={{ marginTop: 10, display: "grid", gap: 4 }}>
