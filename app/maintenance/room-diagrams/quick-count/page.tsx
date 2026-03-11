@@ -218,6 +218,14 @@ export default async function QuickCountEditorPage({
   const selectedPath = `/maintenance/room-diagrams/quick-count?loc=${selectedLocation}&shelf=${selectedShelf}&bin=${selectedBin}`;
   const updatedOk = firstParam(paramsRaw, "updated") === "1";
 
+  const availableLocations = Array.from(
+    new Set(slotRows.map((row) => row.slot.location))
+  ).sort((a, b) => Number(a) - Number(b));
+
+  const availableShelves = Array.from(
+    new Set(slotRows.filter((row) => row.slot.location === selectedLocation).map((row) => row.slot.shelf))
+  ).sort((a, b) => Number(a) - Number(b));
+
   const availableBins = Array.from(
     new Set(
       slotRows
@@ -287,40 +295,85 @@ export default async function QuickCountEditorPage({
             {locationLabel(selectedLocation)} / Shelf {prettyCode(selectedShelf)} / Bin {prettyCode(selectedBin)}
           </h2>
 
-          <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <Link
-              href={`/maintenance/room-diagrams/quick-count?loc=${selectedLocation}&shelf=${selectedShelf}&bin=01`}
-              style={{
-                textDecoration: "none",
-                padding: "7px 10px",
-                borderRadius: 8,
-                border: "1px solid var(--border)",
-                background: "var(--surface-2)",
-                color: "var(--foreground)",
-                fontSize: 13,
-                fontWeight: 700,
-              }}
-            >
-              Reset Bin
-            </Link>
-            {availableBins.map((binCode) => (
-              <Link
-                key={binCode}
-                href={`/maintenance/room-diagrams/quick-count?loc=${selectedLocation}&shelf=${selectedShelf}&bin=${binCode}`}
-                style={{
-                  textDecoration: "none",
-                  padding: "7px 10px",
-                  borderRadius: 8,
-                  border: binCode === selectedBin ? "2px solid #2563eb" : "1px solid var(--border)",
-                  background: binCode === selectedBin ? "#dbeafe" : "var(--surface-2)",
-                  color: "var(--foreground)",
-                  fontSize: 13,
-                  fontWeight: 700,
-                }}
-              >
-                Bin {prettyCode(binCode)}
-              </Link>
-            ))}
+          <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+            {/* Location filter */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 5, color: "var(--muted)" }}>LOCATION</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {availableLocations.map((locCode) => (
+                  <Link
+                    key={locCode}
+                    href={`/maintenance/room-diagrams/quick-count?loc=${locCode}&shelf=01&bin=01`}
+                    style={{
+                      textDecoration: "none",
+                      padding: "6px 10px",
+                      borderRadius: 8,
+                      border: locCode === selectedLocation ? "2px solid #2563eb" : "1px solid var(--border)",
+                      background: locCode === selectedLocation ? "#dbeafe" : "var(--surface-2)",
+                      color: "var(--foreground)",
+                      fontSize: 13,
+                      fontWeight: 700,
+                    }}
+                  >
+                    Loc {prettyCode(locCode)}
+                  </Link>
+                ))}
+              </div>
+            </div>
+
+            {/* Shelf filter */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 5, color: "var(--muted)" }}>SHELF</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {availableShelves.map((shelfCode) => (
+                  <Link
+                    key={shelfCode}
+                    href={`/maintenance/room-diagrams/quick-count?loc=${selectedLocation}&shelf=${shelfCode}&bin=01`}
+                    style={{
+                      textDecoration: "none",
+                      padding: "6px 10px",
+                      borderRadius: 8,
+                      border: shelfCode === selectedShelf ? "2px solid #2563eb" : "1px solid var(--border)",
+                      background: shelfCode === selectedShelf ? "#dbeafe" : "var(--surface-2)",
+                      color: "var(--foreground)",
+                      fontSize: 13,
+                      fontWeight: 700,
+                    }}
+                  >
+                    Shelf {prettyCode(shelfCode)}
+                  </Link>
+                ))}
+              </div>
+            </div>
+
+            {/* Bin filter */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 5, color: "var(--muted)" }}>BIN</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {availableBins.length === 0 ? (
+                  <span style={{ fontSize: 13, opacity: 0.7 }}>No bins on this shelf</span>
+                ) : (
+                  availableBins.map((binCode) => (
+                    <Link
+                      key={binCode}
+                      href={`/maintenance/room-diagrams/quick-count?loc=${selectedLocation}&shelf=${selectedShelf}&bin=${binCode}`}
+                      style={{
+                        textDecoration: "none",
+                        padding: "6px 10px",
+                        borderRadius: 8,
+                        border: binCode === selectedBin ? "2px solid #2563eb" : "1px solid var(--border)",
+                        background: binCode === selectedBin ? "#dbeafe" : "var(--surface-2)",
+                        color: "var(--foreground)",
+                        fontSize: 13,
+                        fontWeight: 700,
+                      }}
+                    >
+                      Bin {prettyCode(binCode)}
+                    </Link>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
 
           {selectedRows.length === 0 ? (
