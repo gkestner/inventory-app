@@ -449,9 +449,10 @@ export default async function MaintenanceRoomDiagramsPage({
         <section
           style={{
             display: "grid",
-            gridTemplateColumns: "1fr 1.5fr",
+            gridTemplateColumns: "minmax(560px, 1fr) minmax(0, 1.5fr)",
             gap: 12,
             alignItems: "start",
+            overflowX: "auto",
           }}
         >
           <article style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 12 }}>
@@ -467,6 +468,8 @@ export default async function MaintenanceRoomDiagramsPage({
                 background: "#d9d9d9",
                 padding: 8,
                 position: "relative",
+                width: "100%",
+                minWidth: 520,
                 minHeight: 520,
                 color: "#0f172a",
                 overflow: "hidden",
