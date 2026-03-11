@@ -179,7 +179,6 @@ export default async function MaintenanceRoomDiagramsPage({
   const focusShelf = selectedItem?.slot.shelf ?? fallbackShelf;
   const focusBin = selectedItem?.slot.bin ?? fallbackBin;
 
-  const locationCodes = Array.from({ length: 10 }, (_, idx) => String(idx + 1).padStart(2, "0"));
   const shelfCodes = Array.from({ length: 24 }, (_, idx) => String(idx + 1).padStart(2, "0"));
 
   const binsOnFocusedShelf = Array.from(
@@ -339,7 +338,7 @@ export default async function MaintenanceRoomDiagramsPage({
           <article style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 12 }}>
             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>1) Maintenance Location Diagram</h2>
             <p style={{ margin: "6px 0 0", color: "var(--muted)" }}>
-              Highlighted area shows the selected part's maintenance location.
+              Fixed room layout map with desk/walls. Highlighted box is the selected maintenance location.
             </p>
             <div
               style={{
@@ -347,33 +346,94 @@ export default async function MaintenanceRoomDiagramsPage({
                 border: "2px solid #111827",
                 borderRadius: 12,
                 background: "#d9d9d9",
-                padding: 10,
-                display: "grid",
-                gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
-                gap: 8,
+                padding: 8,
+                position: "relative",
+                minHeight: 360,
                 color: "#0f172a",
               }}
             >
-              {locationCodes.map((code) => {
-                const active = focusLocation === code;
-                const itemCount = slotRows.filter((r) => r.slot.location === code).length;
+              <div
+                style={{
+                  position: "absolute",
+                  left: "1%",
+                  top: "18%",
+                  width: "9%",
+                  height: "72%",
+                  border: "2px solid #111827",
+                  background: "#efefef",
+                  display: "grid",
+                  gridTemplateRows: "40px 1fr",
+                  overflow: "hidden",
+                }}
+              >
+                <div style={{ borderBottom: "2px solid #111827", display: "grid", placeItems: "center", fontWeight: 900 }}>
+                  Desk
+                </div>
+              </div>
+
+              {[
+                { code: "01", left: "10%", top: "1%", width: "44%", height: "11%" },
+                { code: "02", left: "57%", top: "1%", width: "43%", height: "11%" },
+                { code: "03", left: "95%", top: "20%", width: "5%", height: "64%", vertical: true },
+                { code: "04", left: "55%", top: "31%", width: "28%", height: "28%" },
+                { code: "05", left: "63%", top: "81%", width: "37%", height: "9%" },
+                { code: "06", left: "84%", top: "73%", width: "16%", height: "9%" },
+                { code: "07", left: "73%", top: "73%", width: "11%", height: "9%" },
+                { code: "10", left: "63%", top: "73%", width: "10%", height: "9%" },
+                { code: "08", left: "52%", top: "75%", width: "11%", height: "15%" },
+                { code: "09", left: "36%", top: "78%", width: "13%", height: "12%" },
+              ].map((zone) => {
+                const active = focusLocation === zone.code;
+                const itemCount = slotRows.filter((r) => r.slot.location === zone.code).length;
                 return (
                   <div
-                    key={code}
+                    key={zone.code}
                     style={{
-                      border: active ? "3px solid #0f172a" : "2px solid #1f2937",
-                      borderRadius: 8,
+                      position: "absolute",
+                      left: zone.left,
+                      top: zone.top,
+                      width: zone.width,
+                      height: zone.height,
+                      border: active ? "3px solid #0f172a" : "2px solid #111827",
                       background: active ? "#fde68a" : "#efefef",
-                      padding: 8,
-                      minHeight: 56,
                       display: "grid",
-                      alignContent: "center",
-                      gap: 2,
+                      placeItems: "center",
+                      padding: 4,
                       color: "#0f172a",
+                      fontWeight: 900,
                     }}
                   >
-                    <strong>{locationLabel(code)}</strong>
-                    <span style={{ fontSize: 12, opacity: 0.9 }}>{itemCount} items</span>
+                    <div
+                      style={
+                        zone.vertical
+                          ? {
+                              writingMode: "vertical-rl",
+                              textOrientation: "upright",
+                              letterSpacing: 1,
+                              fontSize: 16,
+                              lineHeight: 1,
+                            }
+                          : { fontSize: 16, lineHeight: 1.1 }
+                      }
+                    >
+                      {locationLabel(zone.code)}
+                    </div>
+                    <div
+                      style={
+                        zone.vertical
+                          ? { display: "none" }
+                          : {
+                              position: "absolute",
+                              right: 6,
+                              bottom: 4,
+                              fontSize: 11,
+                              fontWeight: 700,
+                              opacity: 0.9,
+                            }
+                      }
+                    >
+                      {itemCount} items
+                    </div>
                   </div>
                 );
               })}
