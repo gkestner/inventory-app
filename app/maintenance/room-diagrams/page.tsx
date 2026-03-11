@@ -456,8 +456,16 @@ export default async function MaintenanceRoomDiagramsPage({
           )}
         </section>
 
-        <section style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <article style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 12 }}>
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(620px, 1fr) minmax(960px, 1fr)",
+            gap: 12,
+            alignItems: "start",
+            overflowX: "auto",
+          }}
+        >
+          <article style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 12, minWidth: 620 }}>
             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>1) Maintenance Location Diagram</h2>
             <p style={{ margin: "6px 0 0", color: "var(--muted)" }}>
               Fixed room layout map with desk/walls. Highlighted box is the selected maintenance location.
@@ -470,8 +478,10 @@ export default async function MaintenanceRoomDiagramsPage({
                 background: "#d9d9d9",
                 padding: 8,
                 position: "relative",
-                minHeight: 470,
+                minWidth: 600,
+                minHeight: 520,
                 color: "#0f172a",
+                overflow: "hidden",
               }}
             >
               <div
@@ -568,7 +578,7 @@ export default async function MaintenanceRoomDiagramsPage({
             </div>
           </article>
 
-          <article style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 12 }}>
+          <article style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", padding: 12, minWidth: 960 }}>
             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>2) Shelf Diagram</h2>
             <p style={{ margin: "6px 0 0", color: "var(--muted)" }}>
               Shelves are available in every location. The selected shelf is highlighted.
