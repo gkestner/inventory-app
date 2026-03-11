@@ -652,16 +652,23 @@ export default async function MaintenanceRoomDiagramsPage({
                           <span>{count}</span>
                         </div>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(8, minmax(0, 1fr))", gridTemplateRows: `repeat(${shelfLayout.binRows}, 1fr)`, gap: 0 }}>
-                          {Array.from({ length: 8 * shelfLayout.binRows }).map((_, i) => (
-                            <div
-                              key={`${code}-${i}`}
-                              style={{
-                                borderRight: "1px solid #374151",
-                                borderBottom: i < 8 * (shelfLayout.binRows - 1) ? "1px solid #374151" : "0",
-                                background: active ? "#fff7cc" : "#d6d6d6",
-                              }}
-                            />
-                          ))}
+                          {Array.from({ length: 8 * shelfLayout.binRows }).map((_, i) => {
+                            const isBinHighlight = active && selectedWholeBin !== null && i === selectedWholeBin - 1;
+                            return (
+                              <div
+                                key={`${code}-${i}`}
+                                style={{
+                                  borderRight: "1px solid #374151",
+                                  borderBottom: i < 8 * (shelfLayout.binRows - 1) ? "1px solid #374151" : "0",
+                                  background: isBinHighlight ? "#f97316" : active ? "#fff7cc" : "#d6d6d6",
+                                  outline: isBinHighlight ? "2px solid #0f172a" : "none",
+                                  outlineOffset: "-2px",
+                                  position: "relative",
+                                  zIndex: isBinHighlight ? 1 : 0,
+                                }}
+                              />
+                            );
+                          })}
                         </div>
                       </div>
                     );
