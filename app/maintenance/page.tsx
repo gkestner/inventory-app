@@ -65,6 +65,8 @@ export default async function MaintenanceHomePage() {
       Permission.ADMIN_VIEW_ITEMS,
       Permission.ADMIN_EDIT_ITEMS,
     ]);
+  const canQuickCountEditor =
+    perms.allowAll || hasAnyPermission(perms, [Permission.CREATE_CHECKOUT, Permission.ADMIN_EDIT_ITEMS]);
 
   const border = "1px solid var(--border)";
 
@@ -246,9 +248,11 @@ export default async function MaintenanceHomePage() {
                 <Link href="/maintenance/room-diagrams" style={action}>
                   Open Room Diagrams
                 </Link>
-                <Link href="/maintenance/room-diagrams/quick-count" style={action}>
-                  Open Quick Count Editor
-                </Link>
+                {canQuickCountEditor ? (
+                  <Link href="/maintenance/room-diagrams/quick-count" style={action}>
+                    Open Quick Count Editor
+                  </Link>
+                ) : null}
               </div>
             </article>
           ) : null}

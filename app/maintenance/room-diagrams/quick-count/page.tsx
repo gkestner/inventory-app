@@ -101,6 +101,8 @@ export default async function QuickCountEditorPage({
     perms.allowAll ||
     hasAnyPermission(perms, [Permission.CREATE_CHECKOUT, Permission.ADMIN_EDIT_ITEMS]);
 
+  if (!canEditCounts) redirect("/maintenance/room-diagrams");
+
   const actorEmail = String(session.user?.email ?? "").trim().toLowerCase();
 
   async function quickCountUpdateAction(formData: FormData) {
@@ -492,11 +494,6 @@ export default async function QuickCountEditorPage({
             </div>
           )}
 
-          {!canEditCounts ? (
-            <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
-              You can view this page, but quick count editing requires checkout or admin item-edit permission.
-            </div>
-          ) : null}
         </section>
       </div>
     </main>
