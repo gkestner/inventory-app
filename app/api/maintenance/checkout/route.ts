@@ -158,11 +158,14 @@ export async function POST(req: NextRequest) {
       // 1) Load item + store
       const [item, store] = await Promise.all([
         tx.item.findUnique({ where: { id: itemId } }),
-        tx.location.findUnique({ where: { id: storeId } }),
+        tx.location.findUnique({
+          where: { id: storeId },
+          select: { id: true, name: true, active: true },
+        }),
       ]);
 
       if (!item) throw new Error("Item not found");
-      if (!store) throw new Error("Store not found");
+      if (!store || !store.active) throw new Error("Store not found");
 
       // 2) Resolve createdBy user
       let createdByUser = null as null | { id: string; name: string; active: boolean };
@@ -204,6 +207,7 @@ export async function POST(req: NextRequest) {
           itemId: item.id,
           sku: item.sku,
           partNumber: item.partNumber,
+          vendor: item.vendor,
           name: item.name,
           description: item.description,
           category: item.category,

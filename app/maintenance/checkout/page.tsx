@@ -207,7 +207,10 @@ export default async function MaintenanceCheckoutPage({
       }
 
       // Lookups (outside tx is okay, but we keep the write path atomic)
-      const store = await prisma.location.findUnique({ where: { id: storeId } });
+      const store = await prisma.location.findUnique({
+        where: { id: storeId },
+        select: { id: true, name: true, active: true },
+      });
       if (!store || !store.active) throw new Error("Store not found");
 
       const createdBy = await prisma.user.findUnique({ where: { id: createdByUserId } });
