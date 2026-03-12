@@ -65,9 +65,25 @@ function phaseLabel(s: string): string {
 export default async function EmployeeLiveOrdersPage() {
   await requireLiveOrdersView();
 
+  const now = new Date();
+  const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+
   const orders = await prisma.inventoryOrder.findMany({
     where: {
       hiddenFromUserLiveBoard: false,
+      OR: [
+        { status: { not: "ADDED_TO_INVENTORY" } },
+        {
+          status: "ADDED_TO_INVENTORY",
+          OR: [
+            { addedToInventoryAt: { gte: twoWeeksAgo } },
+            {
+              addedToInventoryAt: null,
+              orderedAt: { gte: twoWeeksAgo },
+            },
+          ],
+        },
+      ],
     },
     orderBy: { orderedAt: "desc" },
     take: 200,
@@ -75,6 +91,7 @@ export default async function EmployeeLiveOrdersPage() {
       id: true,
       status: true,
       orderedAt: true,
+      addedToInventoryAt: true,
       quantity: true,
       item: { select: { sku: true, name: true } },
     },
@@ -128,7 +145,7 @@ export default async function EmployeeLiveOrdersPage() {
       <div style={header}>
         <div>
           <h1 style={title}>Live Orders</h1>
-          <div style={muted}>Shows Ordered → Arrived → Added to Inventory.</div>
+          <div style={muted}>Shows Ordered → Arrived → Added to Inventory. Added items stay visible here for 14 days.</div>
         </div>
 
         <Link

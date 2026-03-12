@@ -17,6 +17,7 @@ export const runtime = "nodejs";
 
 type SearchParams = {
   ok?: string;
+  err?: string;
 };
 
 function toInt(v: FormDataEntryValue | null): number {
@@ -74,6 +75,7 @@ export default async function MaintenanceCheckoutPage({
 
   const sp = await searchParams;
   const ok = sp.ok === "1";
+  const err = typeof sp.err === "string" && sp.err.trim() ? sp.err.trim() : null;
 
   const sessionUserId = getSessionUserId(session);
 
@@ -231,6 +233,7 @@ export default async function MaintenanceCheckoutPage({
             version: nextVersion,
             sku: item.sku,
             partNumber: item.partNumber,
+            vendor: item.vendor,
             name: item.name,
             description: item.description,
             category: item.category,
@@ -251,7 +254,6 @@ export default async function MaintenanceCheckoutPage({
         const orderedAfter = item.orderedQty;
         const availableAfter = onHandAfter + orderedAfter;
         const minQtyAtTime = item.minQty;
-        vendor: item.vendor,
         await tx.item.update({
           where: { id: itemId },
           data: {
@@ -366,7 +368,7 @@ export default async function MaintenanceCheckoutPage({
           ? (e as { message: string }).message
           : "Checkout failed";
 
-      throw new Error(msg);
+      redirect(`/maintenance/checkout?err=${encodeURIComponent(msg)}`);
     }
   }
 
@@ -411,6 +413,21 @@ export default async function MaintenanceCheckoutPage({
           }}
         >
           ✅ Checkout submitted.
+        </div>
+      ) : null}
+
+      {err ? (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: 10,
+            borderRadius: 10,
+            border: "1px solid rgba(220,53,69,0.45)",
+            background: "rgba(220,53,69,0.08)",
+            color: "var(--foreground)",
+          }}
+        >
+          Checkout failed: {err}
         </div>
       ) : null}
 
