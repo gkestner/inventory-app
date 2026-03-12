@@ -54,10 +54,38 @@ const EQUIPMENT_AREAS: RequiredEquipmentArea[] = [
   "OTHER",
 ];
 
+const BILLED_BACK_VENDORS = [
+  "United Refrigeration",
+  "Baker Distributing",
+  "Builders Mart",
+  "Johnson Hilliard",
+  "Johnstone Supply",
+  "Kendall Electric",
+  "MAuk & Adams Glass",
+  "Hobart",
+  "Southern Refrigeration",
+  "Sherwin Williams",
+  "Trane US",
+  "TN Valley Aluminum",
+  "Virginia Electric Supply",
+  "Williams Electric",
+] as const;
+
+type BilledBackVendor = (typeof BILLED_BACK_VENDORS)[number];
+
+function locationNeedsBilledBackVendor(locationNumber: string | null | undefined, locationName: string | null | undefined): boolean {
+  const num = String(locationNumber ?? "").trim();
+  if (num === "100") return true;
+
+  const name = String(locationName ?? "").toLowerCase();
+  return name.includes("billed back");
+}
+
 type ReceiptRow = {
   id: string;
   receiptDate: Date;
   amountCents: number;
+  billedBackVendor: string | null;
   notes: string | null;
   createdAt: Date;
   location: { name: string };
@@ -177,13 +205,13 @@ export default async function MaintenanceReceiptPage() {
       id: true,
       active: true,
       locationId: true,
-      location: { select: { id: true, name: true } },
+      location: { select: { id: true, name: true, active: true, receiptEnabled: true, locationNumber: true } },
       allowedLocations: {
         orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
         select: {
           locationId: true,
           isPrimary: true,
-          location: { select: { id: true, name: true } },
+          location: { select: { id: true, name: true, active: true, receiptEnabled: true, locationNumber: true } },
         },
       },
     },
@@ -191,21 +219,33 @@ export default async function MaintenanceReceiptPage() {
 
   if (!me || !me.active) redirect("/login");
 
-  const allowedLocations: Array<{ id: string; name: string; source: "PRIMARY" | "OPTIONAL" }> = [];
+  const allowedLocations: Array<{ id: string; name: string; source: "PRIMARY" | "OPTIONAL"; locationNumber: string | null }> = [];
   const seen = new Set<string>();
 
-  if (me.location) {
+  if (me.location && me.location.active && me.location.receiptEnabled) {
     seen.add(me.location.id);
-    allowedLocations.push({ id: me.location.id, name: me.location.name, source: "PRIMARY" });
+    allowedLocations.push({
+      id: me.location.id,
+      name: me.location.name,
+      source: "PRIMARY",
+      locationNumber: me.location.locationNumber ?? null,
+    });
   }
   for (const ul of me.allowedLocations) {
     if (!ul.location) continue;
+    if (!ul.location.active || !ul.location.receiptEnabled) continue;
     if (seen.has(ul.location.id)) continue;
     seen.add(ul.location.id);
-    allowedLocations.push({ id: ul.location.id, name: ul.location.name, source: ul.isPrimary ? "PRIMARY" : "OPTIONAL" });
+    allowedLocations.push({
+      id: ul.location.id,
+      name: ul.location.name,
+      source: ul.isPrimary ? "PRIMARY" : "OPTIONAL",
+      locationNumber: ul.location.locationNumber ?? null,
+    });
   }
 
   const allowedLocationIds = allowedLocations.map((l) => l.id);
+  const canCreateOnAnyLocation = canCreateReceipts && allowedLocationIds.length > 0;
 
   const usersForReceipts = await prisma.user.findMany({
     where: {
@@ -238,6 +278,7 @@ export default async function MaintenanceReceiptPage() {
           id: true,
           receiptDate: true,
           amountCents: true,
+          billedBackVendor: true,
           notes: true,
           createdAt: true,
           location: { select: { name: true } },
@@ -268,8 +309,9 @@ export default async function MaintenanceReceiptPage() {
         id: true,
         active: true,
         locationId: true,
+        location: { select: { id: true, active: true, receiptEnabled: true } },
         allowedLocations: {
-          select: { locationId: true },
+          select: { locationId: true, location: { select: { active: true, receiptEnabled: true } } },
           orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }],
         },
       },
@@ -288,9 +330,19 @@ export default async function MaintenanceReceiptPage() {
     if (!createdByUserId) throw new Error("User is required.");
 
     const allowed = new Set<string>();
-    if (me.locationId) allowed.add(me.locationId);
-    for (const a of me.allowedLocations) allowed.add(a.locationId);
+    if (me.locationId && me.location?.active && me.location.receiptEnabled) allowed.add(me.locationId);
+    for (const a of me.allowedLocations) {
+      if (a.location?.active && a.location.receiptEnabled) allowed.add(a.locationId);
+    }
     if (!allowed.has(locationId)) throw new Error("Invalid location selection.");
+
+    const selectedLocation = await prisma.location.findUnique({
+      where: { id: locationId },
+      select: { id: true, name: true, active: true, receiptEnabled: true, locationNumber: true },
+    });
+    if (!selectedLocation || !selectedLocation.active || !selectedLocation.receiptEnabled) {
+      throw new Error("Selected location is not enabled for receipt entry.");
+    }
 
     const selectedUser = await prisma.user.findUnique({
       where: { id: createdByUserId },
@@ -310,6 +362,13 @@ export default async function MaintenanceReceiptPage() {
       throw new Error("Selected user is not assigned to the selected location.");
     }
 
+    const billedBackVendorRaw = String(formData.get("billedBackVendor") ?? "").trim();
+    const needsBilledBackVendor = locationNeedsBilledBackVendor(selectedLocation.locationNumber, selectedLocation.name);
+    const billedBackVendor = billedBackVendorRaw as BilledBackVendor;
+    if (needsBilledBackVendor && !BILLED_BACK_VENDORS.includes(billedBackVendor)) {
+      throw new Error("Please select a billed-back vendor for location 100 - Billed Back.");
+    }
+
     const areas = parseAreas(formData);
     if (areas.length === 0) throw new Error("Please select at least one user area.");
 
@@ -327,6 +386,7 @@ export default async function MaintenanceReceiptPage() {
           receiptDate,
           locationId,
           amountCents,
+          billedBackVendor: needsBilledBackVendor ? billedBackVendor : null,
           notes: notes || null,
           createdByUserId,
         },
@@ -379,12 +439,17 @@ export default async function MaintenanceReceiptPage() {
     accentColor: "var(--brand)",
   };
 
+  const defaultLocation = allowedLocations[0] ?? null;
+  const showBilledBackVendorByDefault = defaultLocation
+    ? locationNeedsBilledBackVendor(defaultLocation.locationNumber, defaultLocation.name)
+    : false;
+
   return (
     <main style={{ padding: 24, maxWidth: 1200, margin: "0 auto", display: "grid", gap: 14 }}>
       <section style={card}>
         <h1 style={{ margin: 0, fontSize: 26, fontWeight: 900 }}>Receipt Data Entry</h1>
         <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.5 }}>
-          Log receipts with date, store location, amount, user areas, and optional notes.
+          Log receipts with date, store location, assigned user, amount, user areas, and optional notes.
         </p>
       </section>
 
@@ -395,14 +460,27 @@ export default async function MaintenanceReceiptPage() {
           <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
             <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
               Date
-              <input type="date" name="receiptDate" defaultValue={todayNy} required style={input} disabled={!canCreateReceipts} />
+              <input type="date" name="receiptDate" defaultValue={todayNy} required style={input} disabled={!canCreateOnAnyLocation} />
             </label>
 
             <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
               Location
-              <select name="locationId" defaultValue={allowedLocations[0]?.id ?? ""} required style={input} disabled={!canCreateReceipts}>
+              <select
+                id="receipt-location-select"
+                name="locationId"
+                defaultValue={allowedLocations[0]?.id ?? ""}
+                required
+                style={input}
+                disabled={!canCreateOnAnyLocation}
+              >
+                <option value="">Select location</option>
                 {allowedLocations.map((l) => (
-                  <option key={l.id} value={l.id}>
+                  <option
+                    key={l.id}
+                    value={l.id}
+                    data-location-number={l.locationNumber ?? ""}
+                    data-location-name={l.name}
+                  >
                     {l.name}
                     {l.source === "PRIMARY" ? " (Primary)" : ""}
                   </option>
@@ -412,7 +490,7 @@ export default async function MaintenanceReceiptPage() {
 
             <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
               User
-              <select name="createdByUserId" defaultValue={me.id} required style={input} disabled={!canCreateReceipts}>
+              <select name="createdByUserId" defaultValue={me.id} required style={input} disabled={!canCreateOnAnyLocation}>
                 <option value="">Select user</option>
                 {usersForReceipts.map((u) => (
                   <option key={u.id} value={u.id}>
@@ -424,13 +502,58 @@ export default async function MaintenanceReceiptPage() {
 
             <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
               Amount
-              <input type="number" name="amount" min="0.01" step="0.01" placeholder="0.00" required style={input} disabled={!canCreateReceipts} />
+              <input type="number" name="amount" min="0.01" step="0.01" placeholder="0.00" required style={input} disabled={!canCreateOnAnyLocation} />
             </label>
           </div>
 
           <div style={{ fontSize: 12, color: "var(--muted)", marginTop: -4 }}>
-            User list is based on active users assigned to your allowed locations.
+            Only locations marked as receipt-enabled in Admin Locations appear here.
           </div>
+
+          <div
+            id="receipt-billed-back-vendor-wrap"
+            style={{
+              display: showBilledBackVendorByDefault ? "grid" : "none",
+              gap: 6,
+              fontWeight: 800,
+            }}
+          >
+            <label style={{ display: "grid", gap: 6, fontWeight: 800, maxWidth: 480 }}>
+              Billed-Back Vendor (Location 100)
+              <select id="receipt-billed-back-vendor" name="billedBackVendor" defaultValue="" style={input}>
+                <option value="">Select vendor</option>
+                {BILLED_BACK_VENDORS.map((vendor) => (
+                  <option key={vendor} value={vendor}>
+                    {vendor}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `(() => {
+  const locationSelect = document.getElementById("receipt-location-select");
+  const vendorWrap = document.getElementById("receipt-billed-back-vendor-wrap");
+  const vendorSelect = document.getElementById("receipt-billed-back-vendor");
+  if (!locationSelect || !vendorWrap || !vendorSelect) return;
+
+  const syncVendorVisibility = () => {
+    const selected = locationSelect.options[locationSelect.selectedIndex];
+    const locationNumber = (selected?.dataset?.locationNumber || "").trim();
+    const locationName = (selected?.dataset?.locationName || "").toLowerCase();
+    const show = locationNumber === "100" || locationName.includes("billed back");
+    vendorWrap.style.display = show ? "grid" : "none";
+    vendorSelect.required = show;
+    if (!show) vendorSelect.value = "";
+  };
+
+  syncVendorVisibility();
+  locationSelect.addEventListener("change", syncVendorVisibility);
+})();`,
+            }}
+          />
 
           <div style={{ display: "grid", gap: 8 }}>
             <div style={{ fontWeight: 900 }}>User Areas</div>
@@ -455,7 +578,7 @@ export default async function MaintenanceReceiptPage() {
                     fontWeight: 700,
                   }}
                 >
-                  <input type="checkbox" name="areas" value={area} style={checkboxStyle} disabled={!canCreateReceipts} />
+                  <input type="checkbox" name="areas" value={area} style={checkboxStyle} disabled={!canCreateOnAnyLocation} />
                   {formatAreaLabel(area)}
                 </label>
               ))}
@@ -464,16 +587,20 @@ export default async function MaintenanceReceiptPage() {
 
           <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
             Notes (optional)
-            <textarea name="notes" rows={4} placeholder="Add any notes about this receipt" style={input} disabled={!canCreateReceipts} />
+            <textarea name="notes" rows={4} placeholder="Add any notes about this receipt" style={input} disabled={!canCreateOnAnyLocation} />
           </label>
 
           <div>
-            <button type="submit" style={btn} disabled={!canCreateReceipts}>
+            <button type="submit" style={btn} disabled={!canCreateOnAnyLocation}>
               Save Receipt Entry
             </button>
             {!canCreateReceipts ? (
               <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
                 You have view-only access. Ask an admin to grant <b>Create Receipts</b> in the permission tree.
+              </div>
+            ) : !canCreateOnAnyLocation ? (
+              <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
+                No receipt-enabled locations are currently assigned to you. Ask admin to enable locations for receipts.
               </div>
             ) : null}
           </div>
@@ -487,7 +614,7 @@ export default async function MaintenanceReceiptPage() {
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
             <thead>
               <tr>
-                {["Date", "Location", "User", "Amount", "Areas", "Notes", "Created"].map((h) => (
+                {["Date", "Location", "User", "Billed-Back Vendor", "Amount", "Areas", "Notes", "Created"].map((h) => (
                   <th
                     key={h}
                     style={{
@@ -511,6 +638,7 @@ export default async function MaintenanceReceiptPage() {
                   <td style={{ padding: 8, borderBottom: border, minWidth: 220 }}>
                     {(r.createdByUser?.name?.trim() || "(No Name)") + " (" + (r.createdByUser?.email || "-") + ")"}
                   </td>
+                  <td style={{ padding: 8, borderBottom: border, minWidth: 220 }}>{r.billedBackVendor || "-"}</td>
                   <td style={{ padding: 8, borderBottom: border, whiteSpace: "nowrap", fontWeight: 800 }}>
                     {moneyFromCents(r.amountCents)}
                   </td>
@@ -524,7 +652,7 @@ export default async function MaintenanceReceiptPage() {
 
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ padding: 10, opacity: 0.75 }}>
+                  <td colSpan={8} style={{ padding: 10, opacity: 0.75 }}>
                     No receipt entries yet.
                   </td>
                 </tr>

@@ -328,6 +328,7 @@ model Location {
   id        String   @id @default(cuid())
   name      String   @unique
   active    Boolean  @default(true)
+  receiptEnabled Boolean @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -367,6 +368,7 @@ model Location {
   receiptEntries ReceiptEntry[]
 
   @@index([active])
+  @@index([receiptEnabled])
 }
 
 model User {
@@ -1021,6 +1023,7 @@ model ReceiptEntry {
 
   amountCents Int
   notes       String?
+  billedBackVendor String?
 
   createdByUserId String
   createdByUser   User @relation("ReceiptEntryCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)

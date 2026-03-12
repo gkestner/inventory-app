@@ -611,6 +611,31 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
     redirect("/admin/locations?ok=" + encodeURIComponent("Saved"));
   }
 
+  async function setReceiptEnabledAction(formData: FormData) {
+    "use server";
+    await requireAdmin();
+
+    const id = String(formData.get("id") ?? "").trim();
+    const nextReceiptEnabled = String(formData.get("nextReceiptEnabled") ?? "").trim() === "true";
+
+    if (!id) redirect("/admin/locations?err=" + encodeURIComponent("Missing id"));
+
+    try {
+      await prisma.location.update({
+        where: { id },
+        data: { receiptEnabled: nextReceiptEnabled },
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Update failed";
+      redirect("/admin/locations?err=" + encodeURIComponent(msg));
+    }
+
+    revalidatePath("/admin/locations");
+    revalidatePath("/maintenance/receipts");
+    revalidatePath("/maintenance");
+    redirect("/admin/locations?ok=" + encodeURIComponent("Saved"));
+  }
+
   async function deleteLocationAction(formData: FormData) {
     "use server";
     await requireAdmin();
@@ -675,7 +700,15 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
   const locations = await prisma.location.findMany({
     where,
     orderBy: [{ active: "desc" }, { name: "asc" }],
-    select: { id: true, name: true, locationNumber: true, corporationNumber: true, createdAt: true, active: true },
+    select: {
+      id: true,
+      name: true,
+      locationNumber: true,
+      corporationNumber: true,
+      createdAt: true,
+      active: true,
+      receiptEnabled: true,
+    },
   });
 
   const thStyle: CSSProperties = {
@@ -984,16 +1017,32 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
             <col style={{ width: 110 }} />
             <col style={{ width: 200 }} />
             <col style={{ width: 90 }} />
+            <col style={{ width: 110 }} />
             <col style={{ width: 190 }} />
             <col style={{ width: 350 }} />
             <col style={{ width: 280 }} />
             <col style={{ width: 280 }} />
             <col style={{ width: 170 }} />
             <col style={{ width: 190 }} />
+            <col style={{ width: 190 }} />
           </colgroup>
           <thead>
             <tr>
-              {["Select", "Loc #", "Corp #", "Name", "Active", "Created", "Rename", "Set #", "Set Corp #", "Toggle", "Delete"].map((h) => (
+                {[
+                  "Select",
+                  "Loc #",
+                  "Corp #",
+                  "Name",
+                  "Active",
+                  "Receipts",
+                  "Created",
+                  "Rename",
+                  "Set #",
+                  "Set Corp #",
+                  "Toggle",
+                  "Receipt Toggle",
+                  "Delete",
+                ].map((h) => (
                 <th key={h} style={thStyle}>
                   {h}
                 </th>
@@ -1016,6 +1065,10 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
 
                 <td style={tdStyle}>
                   <span style={{ fontWeight: 900 }}>{l.active ? "YES" : "NO"}</span>
+                </td>
+
+                <td style={tdStyle}>
+                  <span style={{ fontWeight: 900 }}>{l.receiptEnabled ? "ON" : "OFF"}</span>
                 </td>
 
                 <td style={tdStyle}>{new Date(l.createdAt).toLocaleString()}</td>
@@ -1106,6 +1159,16 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
                 </td>
 
                 <td style={tdStyle}>
+                  <form action={setReceiptEnabledAction} style={{ display: "flex", gap: 8, flexWrap: "nowrap" }}>
+                    <input type="hidden" name="id" value={l.id} />
+                    <input type="hidden" name="nextReceiptEnabled" value={l.receiptEnabled ? "false" : "true"} />
+                    <button type="submit" style={{ padding: "6px 10px", fontWeight: 900, whiteSpace: "nowrap" }}>
+                      {l.receiptEnabled ? "Turn Receipts Off" : "Turn Receipts On"}
+                    </button>
+                  </form>
+                </td>
+
+                <td style={tdStyle}>
                   <details>
                     <summary style={{ cursor: "pointer", fontWeight: 900 }}>Delete</summary>
                     <form action={deleteLocationAction} style={{ marginTop: 8, display: "grid", gap: 8, maxWidth: 260 }}>
@@ -1135,7 +1198,7 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
 
             {locations.length === 0 ? (
               <tr>
-                <td colSpan={11} style={{ padding: 14, opacity: 0.8 }}>
+                <td colSpan={13} style={{ padding: 14, opacity: 0.8 }}>
                   No locations found.
                 </td>
               </tr>
