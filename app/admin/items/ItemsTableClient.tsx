@@ -1145,9 +1145,10 @@ export default function ItemsTableClient({
   return (
     <div
       style={{
+        position: "relative",
         border: "1px solid var(--border)",
         borderRadius: 12,
-        overflow: "hidden",
+        overflow: "visible",
         background: surface,
       }}
     >
@@ -1368,7 +1369,7 @@ export default function ItemsTableClient({
         <div style={{ padding: 12, borderBottom: "1px solid var(--border)", color: danger }}>{saveError}</div>
       ) : null}
 
-      <div style={{ overflowX: "hidden", width: "100%" }}>
+      <div style={{ overflowX: "auto", overflowY: "visible", width: "100%" }}>
         <style>{`
           [data-items-table] th {
             white-space: nowrap !important;
