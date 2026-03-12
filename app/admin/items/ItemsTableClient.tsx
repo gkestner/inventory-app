@@ -1,7 +1,7 @@
 // app/admin/items/ItemsTableClient.tsx
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 type Vendor = "SUCCESS_PLUS" | "AMERICAN_PLUS";
 function isCostPlusVendor(v: unknown): v is Vendor {
@@ -557,6 +557,8 @@ export default function ItemsTableClient({
   // ✅ ONE formula per vendor (passed from server)
   vendorFormulas: Record<Vendor, string>;
 }) {
+  type ActionsMenuPosition = { top: number; left: number };
+
   const [rows, setRows] = useState<ItemRow[]>(initialItems ?? []);
 
   // Search UI value
@@ -592,6 +594,10 @@ export default function ItemsTableClient({
   const [rollingBack, setRollingBack] = useState(false);
   const [rollbackError, setRollbackError] = useState<string | null>(null);
 
+  const [openActionsForId, setOpenActionsForId] = useState<string | null>(null);
+  const [actionsMenuPos, setActionsMenuPos] = useState<ActionsMenuPosition | null>(null);
+  const actionsMenuRef = useRef<HTMLDivElement | null>(null);
+
   function clearSelection() {
     setSelectedIds({});
     setBulkError(null);
@@ -604,6 +610,8 @@ export default function ItemsTableClient({
     setSaveError(null);
     setFormulaPreview(null);
     setFormulaError(null);
+    setOpenActionsForId(null);
+    setActionsMenuPos(null);
   }
 
   function closeHistory() {
@@ -632,28 +640,61 @@ export default function ItemsTableClient({
   }, []);
 
   useEffect(() => {
-    const closeAllActionMenus = () => {
-      const openMenus = Array.from(document.querySelectorAll('details[data-item-actions][open]')) as HTMLDetailsElement[];
-      for (const menu of openMenus) menu.removeAttribute("open");
+    if (!openActionsForId) return;
+
+    const closeMenu = () => {
+      setOpenActionsForId(null);
+      setActionsMenuPos(null);
     };
 
-    const onDocClick = (e: MouseEvent) => {
+    const onDocPointerDown = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
-      if (target?.closest?.('details[data-item-actions]')) return;
-      closeAllActionMenus();
+      if (!target) return;
+      if (actionsMenuRef.current?.contains(target)) return;
+      if (target.closest?.("[data-item-action-trigger]")) return;
+      closeMenu();
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeAllActionMenus();
+      if (e.key === "Escape") closeMenu();
     };
 
-    document.addEventListener("click", onDocClick, false);
+    const onViewportChange = () => closeMenu();
+
+    document.addEventListener("mousedown", onDocPointerDown, true);
     document.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("scroll", onViewportChange, true);
+    window.addEventListener("resize", onViewportChange);
+
     return () => {
-      document.removeEventListener("click", onDocClick, false);
+      document.removeEventListener("mousedown", onDocPointerDown, true);
       document.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("scroll", onViewportChange, true);
+      window.removeEventListener("resize", onViewportChange);
     };
-  }, []);
+  }, [openActionsForId]);
+
+  function toggleActionsMenu(rowId: string, triggerEl: HTMLElement) {
+    if (openActionsForId === rowId) {
+      setOpenActionsForId(null);
+      setActionsMenuPos(null);
+      return;
+    }
+
+    const rect = triggerEl.getBoundingClientRect();
+    const menuWidth = 172;
+    const menuHeightEstimate = 300;
+    const gutter = 8;
+    const left = Math.max(gutter, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - gutter));
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const shouldOpenUp = spaceBelow < menuHeightEstimate;
+    const top = shouldOpenUp
+      ? Math.max(gutter, rect.top - menuHeightEstimate - gutter)
+      : Math.min(rect.bottom + gutter, window.innerHeight - gutter);
+
+    setActionsMenuPos({ top, left });
+    setOpenActionsForId(rowId);
+  }
 
    // ✅ LIVE client-side filtered view while typing.
   // If the current URL already contains this same q, rows are server-filtered,
@@ -1729,10 +1770,12 @@ export default function ItemsTableClient({
                           </button>
                         </div>
                       ) : (
-                        <details data-item-actions style={{ position: "relative", display: "inline-block" }}>
-                          <summary
+                        <>
+                          <button
+                            type="button"
+                            data-item-action-trigger
+                            onClick={(e) => toggleActionsMenu(row.id, e.currentTarget)}
                             style={{
-                              listStyle: "none",
                               padding: "6px 10px",
                               borderRadius: 10,
                               border: "1px solid var(--border)",
@@ -1743,85 +1786,80 @@ export default function ItemsTableClient({
                               userSelect: "none",
                               whiteSpace: "nowrap",
                             }}
+                            aria-haspopup="menu"
+                            aria-expanded={openActionsForId === row.id}
                           >
                             Actions
-                          </summary>
+                          </button>
 
-                          <div
-                            style={{
-                              position: "absolute",
-                              right: 0,
-                              top: "calc(100% + 8px)",
-                              zIndex: 2500,
-                              minWidth: 172,
-                              borderRadius: 12,
-                              border: "1px solid var(--border)",
-                              background: surface,
-                              boxShadow: "0 10px 25px rgba(0,0,0,0.25)",
-                              padding: 8,
-                              display: "grid",
-                              gap: 6,
-                            }}
-                          >
-                            <button
-                              onClick={() => startEdit(row)}
-                              disabled={bulkBusy}
+                          {openActionsForId === row.id && actionsMenuPos ? (
+                            <div
+                              ref={actionsMenuRef}
                               style={{
-                                padding: "6px 10px",
-                                borderRadius: 10,
+                                position: "fixed",
+                                left: actionsMenuPos.left,
+                                top: actionsMenuPos.top,
+                                zIndex: 4000,
+                                minWidth: 172,
+                                borderRadius: 12,
                                 border: "1px solid var(--border)",
                                 background: surface,
-                                color: "var(--text)",
-                                cursor: bulkBusy ? "not-allowed" : "pointer",
-                                opacity: bulkBusy ? 0.7 : 1,
-                                whiteSpace: "nowrap",
-                                textAlign: "left",
+                                boxShadow: "0 10px 25px rgba(0,0,0,0.25)",
+                                padding: 8,
+                                display: "grid",
+                                gap: 6,
                               }}
                             >
-                              Edit
-                            </button>
+                              <button
+                                onClick={() => {
+                                  setOpenActionsForId(null);
+                                  setActionsMenuPos(null);
+                                  startEdit(row);
+                                }}
+                                disabled={bulkBusy}
+                                style={{
+                                  padding: "6px 10px",
+                                  borderRadius: 10,
+                                  border: "1px solid var(--border)",
+                                  background: surface,
+                                  color: "var(--text)",
+                                  cursor: bulkBusy ? "not-allowed" : "pointer",
+                                  opacity: bulkBusy ? 0.7 : 1,
+                                  whiteSpace: "nowrap",
+                                  textAlign: "left",
+                                }}
+                              >
+                                Edit
+                              </button>
 
-                            <button
-                              onClick={() => openHistory(row.id)}
-                              disabled={bulkBusy}
-                              style={{
-                                padding: "6px 10px",
-                                borderRadius: 10,
-                                border: "1px solid var(--border)",
-                                background: surface,
-                                color: "var(--text)",
-                                cursor: bulkBusy ? "not-allowed" : "pointer",
-                                opacity: bulkBusy ? 0.7 : 1,
-                                whiteSpace: "nowrap",
-                                textAlign: "left",
-                              }}
-                            >
-                              History
-                            </button>
+                              <button
+                                onClick={() => {
+                                  setOpenActionsForId(null);
+                                  setActionsMenuPos(null);
+                                  openHistory(row.id);
+                                }}
+                                disabled={bulkBusy}
+                                style={{
+                                  padding: "6px 10px",
+                                  borderRadius: 10,
+                                  border: "1px solid var(--border)",
+                                  background: surface,
+                                  color: "var(--text)",
+                                  cursor: bulkBusy ? "not-allowed" : "pointer",
+                                  opacity: bulkBusy ? 0.7 : 1,
+                                  whiteSpace: "nowrap",
+                                  textAlign: "left",
+                                }}
+                              >
+                                History
+                              </button>
 
-                            <a
-                              href={`/admin/items/${row.id}/inventory`}
-                              style={{
-                                display: "inline-block",
-                                padding: "6px 10px",
-                                borderRadius: 10,
-                                border: "1px solid var(--border)",
-                                background: surface,
-                                color: "var(--text)",
-                                textDecoration: "none",
-                                fontWeight: 700,
-                                lineHeight: 1.1,
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              Inventory
-                            </a>
-
-                            {web ? (
                               <a
-                                href={web}
-                                target="_blank"
-                                rel="noreferrer"
+                                href={`/admin/items/${row.id}/inventory`}
+                                onClick={() => {
+                                  setOpenActionsForId(null);
+                                  setActionsMenuPos(null);
+                                }}
                                 style={{
                                   display: "inline-block",
                                   padding: "6px 10px",
@@ -1835,109 +1873,149 @@ export default function ItemsTableClient({
                                   whiteSpace: "nowrap",
                                 }}
                               >
-                                Open Web
+                                Inventory
                               </a>
-                            ) : (
-                              <span
+
+                              {web ? (
+                                <a
+                                  href={web}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={() => {
+                                    setOpenActionsForId(null);
+                                    setActionsMenuPos(null);
+                                  }}
+                                  style={{
+                                    display: "inline-block",
+                                    padding: "6px 10px",
+                                    borderRadius: 10,
+                                    border: "1px solid var(--border)",
+                                    background: surface,
+                                    color: "var(--text)",
+                                    textDecoration: "none",
+                                    fontWeight: 700,
+                                    lineHeight: 1.1,
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  Open Web
+                                </a>
+                              ) : (
+                                <span
+                                  style={{
+                                    display: "inline-block",
+                                    padding: "6px 10px",
+                                    borderRadius: 10,
+                                    border: "1px solid var(--border)",
+                                    background: surface,
+                                    color: "var(--text)",
+                                    opacity: 0.55,
+                                    whiteSpace: "nowrap",
+                                    cursor: "not-allowed",
+                                    fontWeight: 700,
+                                  }}
+                                  title="No web URL on this item"
+                                >
+                                  Open Web
+                                </span>
+                              )}
+
+                              <button
+                                onClick={() => {
+                                  setOpenActionsForId(null);
+                                  setActionsMenuPos(null);
+                                  printLabelsFor([row.id]);
+                                }}
+                                disabled={bulkBusy}
                                 style={{
-                                  display: "inline-block",
                                   padding: "6px 10px",
                                   borderRadius: 10,
                                   border: "1px solid var(--border)",
                                   background: surface,
                                   color: "var(--text)",
-                                  opacity: 0.55,
+                                  cursor: bulkBusy ? "not-allowed" : "pointer",
+                                  opacity: bulkBusy ? 0.7 : 1,
                                   whiteSpace: "nowrap",
-                                  cursor: "not-allowed",
-                                  fontWeight: 700,
+                                  textAlign: "left",
                                 }}
-                                title="No web URL on this item"
+                                title="Open printable part label"
                               >
-                                Open Web
-                              </span>
-                            )}
+                                Print Label
+                              </button>
 
-                            <button
-                              onClick={() => printLabelsFor([row.id])}
-                              disabled={bulkBusy}
-                              style={{
-                                padding: "6px 10px",
-                                borderRadius: 10,
-                                border: "1px solid var(--border)",
-                                background: surface,
-                                color: "var(--text)",
-                                cursor: bulkBusy ? "not-allowed" : "pointer",
-                                opacity: bulkBusy ? 0.7 : 1,
-                                whiteSpace: "nowrap",
-                                textAlign: "left",
-                              }}
-                              title="Open printable part label"
-                            >
-                              Print Label
-                            </button>
+                              <button
+                                onClick={() => {
+                                  setOpenActionsForId(null);
+                                  setActionsMenuPos(null);
+                                  if (window.confirm(`Archive item ${row.sku}?`)) archiveIds([row.id]);
+                                }}
+                                disabled={bulkBusy}
+                                style={{
+                                  padding: "6px 10px",
+                                  borderRadius: 10,
+                                  border: "1px solid var(--border)",
+                                  background: surface,
+                                  color: "var(--text)",
+                                  cursor: bulkBusy ? "not-allowed" : "pointer",
+                                  opacity: bulkBusy ? 0.7 : 1,
+                                  whiteSpace: "nowrap",
+                                  textAlign: "left",
+                                }}
+                                title="Archive (sets active=false)"
+                              >
+                                Archive
+                              </button>
 
-                            <button
-                              onClick={() => {
-                                if (window.confirm(`Archive item ${row.sku}?`)) archiveIds([row.id]);
-                              }}
-                              disabled={bulkBusy}
-                              style={{
-                                padding: "6px 10px",
-                                borderRadius: 10,
-                                border: "1px solid var(--border)",
-                                background: surface,
-                                color: "var(--text)",
-                                cursor: bulkBusy ? "not-allowed" : "pointer",
-                                opacity: bulkBusy ? 0.7 : 1,
-                                whiteSpace: "nowrap",
-                                textAlign: "left",
-                              }}
-                              title="Archive (sets active=false)"
-                            >
-                              Archive
-                            </button>
+                              <button
+                                onClick={() => {
+                                  setOpenActionsForId(null);
+                                  setActionsMenuPos(null);
+                                  deleteIds([row.id]);
+                                }}
+                                disabled={bulkBusy}
+                                style={{
+                                  padding: "6px 10px",
+                                  borderRadius: 10,
+                                  border: `1px solid ${danger}`,
+                                  background: surface,
+                                  color: danger,
+                                  cursor: bulkBusy ? "not-allowed" : "pointer",
+                                  opacity: bulkBusy ? 0.7 : 1,
+                                  fontWeight: 900,
+                                  whiteSpace: "nowrap",
+                                  textAlign: "left",
+                                }}
+                                title="Delete (may be blocked by audit references)"
+                              >
+                                Delete
+                              </button>
 
-                            <button
-                              onClick={() => deleteIds([row.id])}
-                              disabled={bulkBusy}
-                              style={{
-                                padding: "6px 10px",
-                                borderRadius: 10,
-                                border: `1px solid ${danger}`,
-                                background: surface,
-                                color: danger,
-                                cursor: bulkBusy ? "not-allowed" : "pointer",
-                                opacity: bulkBusy ? 0.7 : 1,
-                                fontWeight: 900,
-                                whiteSpace: "nowrap",
-                                textAlign: "left",
-                              }}
-                              title="Delete (may be blocked by audit references)"
-                            >
-                              Delete
-                            </button>
-
-                            <button
-                              onClick={() => purgeIds([row.id])}
-                              disabled={bulkBusy}
-                              style={{
-                                padding: "6px 10px",
-                                borderRadius: 10,
-                                border: `2px solid ${danger}`,
-                                background: surface,
-                                color: danger,
-                                cursor: bulkBusy ? "not-allowed" : "pointer",
-                                opacity: bulkBusy ? 0.7 : 1,
-                                fontWeight: 950,
-                                whiteSpace: "nowrap",
-                                textAlign: "left",
-                              }}
-                              title="PURGE (irreversible; deletes related tickets/orders/versions)"
-                            >
-                              PURGE
-                            </button>
-                          </div>
-                        </details>
+                              <button
+                                onClick={() => {
+                                  setOpenActionsForId(null);
+                                  setActionsMenuPos(null);
+                                  purgeIds([row.id]);
+                                }}
+                                disabled={bulkBusy}
+                                style={{
+                                  padding: "6px 10px",
+                                  borderRadius: 10,
+                                  border: `2px solid ${danger}`,
+                                  background: surface,
+                                  color: danger,
+                                  cursor: bulkBusy ? "not-allowed" : "pointer",
+                                  opacity: bulkBusy ? 0.7 : 1,
+                                  fontWeight: 950,
+                                  whiteSpace: "nowrap",
+                                  textAlign: "left",
+                                }}
+                                title="PURGE (irreversible; deletes related tickets/orders/versions)"
+                              >
+                                PURGE
+                              </button>
+                            </div>
+                          ) : null}
+                        </>
                       )}
                     </td>
                   </tr>
