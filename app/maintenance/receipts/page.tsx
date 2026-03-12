@@ -61,6 +61,7 @@ type ReceiptRow = {
   notes: string | null;
   createdAt: Date;
   location: { name: string };
+  createdByUser: { name: string | null; email: string };
   areas: { area: string }[];
 };
 
@@ -204,10 +205,33 @@ export default async function MaintenanceReceiptPage() {
     allowedLocations.push({ id: ul.location.id, name: ul.location.name, source: ul.isPrimary ? "PRIMARY" : "OPTIONAL" });
   }
 
+  const allowedLocationIds = allowedLocations.map((l) => l.id);
+
+  const usersForReceipts = await prisma.user.findMany({
+    where: {
+      active: true,
+      OR: [
+        { locationId: { in: allowedLocationIds } },
+        { allowedLocations: { some: { locationId: { in: allowedLocationIds } } } },
+      ],
+    },
+    orderBy: [{ name: "asc" }, { email: "asc" }],
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      locationId: true,
+      allowedLocations: { select: { locationId: true } },
+    },
+  });
+
   const db = getCompatDb() as any;
   const rows: ReceiptRow[] = db.receiptEntry?.findMany
     ? await db.receiptEntry.findMany({
-        where: { createdByUserId: me.id },
+        where: {
+          locationId: { in: allowedLocationIds },
+          createdByUser: { active: true },
+        },
         orderBy: [{ receiptDate: "desc" }, { createdAt: "desc" }],
         take: 75,
         select: {
@@ -217,6 +241,7 @@ export default async function MaintenanceReceiptPage() {
           notes: true,
           createdAt: true,
           location: { select: { name: true } },
+          createdByUser: { select: { name: true, email: true } },
           areas: { select: { area: true }, orderBy: { area: "asc" } },
         },
       })
@@ -258,10 +283,32 @@ export default async function MaintenanceReceiptPage() {
     const locationIdRaw = formData.get("locationId");
     const locationId = typeof locationIdRaw === "string" ? locationIdRaw.trim() : "";
 
+    const createdByUserIdRaw = formData.get("createdByUserId");
+    const createdByUserId = typeof createdByUserIdRaw === "string" ? createdByUserIdRaw.trim() : "";
+    if (!createdByUserId) throw new Error("User is required.");
+
     const allowed = new Set<string>();
     if (me.locationId) allowed.add(me.locationId);
     for (const a of me.allowedLocations) allowed.add(a.locationId);
     if (!allowed.has(locationId)) throw new Error("Invalid location selection.");
+
+    const selectedUser = await prisma.user.findUnique({
+      where: { id: createdByUserId },
+      select: {
+        id: true,
+        active: true,
+        locationId: true,
+        allowedLocations: { select: { locationId: true } },
+      },
+    });
+    if (!selectedUser || !selectedUser.active) throw new Error("Selected user is not active.");
+
+    const userAllowed = new Set<string>();
+    if (selectedUser.locationId) userAllowed.add(selectedUser.locationId);
+    for (const a of selectedUser.allowedLocations) userAllowed.add(a.locationId);
+    if (!userAllowed.has(locationId)) {
+      throw new Error("Selected user is not assigned to the selected location.");
+    }
 
     const areas = parseAreas(formData);
     if (areas.length === 0) throw new Error("Please select at least one user area.");
@@ -281,7 +328,7 @@ export default async function MaintenanceReceiptPage() {
           locationId,
           amountCents,
           notes: notes || null,
-          createdByUserId: me.id,
+          createdByUserId,
         },
         select: { id: true },
       });
@@ -364,9 +411,25 @@ export default async function MaintenanceReceiptPage() {
             </label>
 
             <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
+              User
+              <select name="createdByUserId" defaultValue={me.id} required style={input} disabled={!canCreateReceipts}>
+                <option value="">Select user</option>
+                {usersForReceipts.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {(u.name?.trim() || "(No Name)") + " (" + u.email + ")"}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
               Amount
               <input type="number" name="amount" min="0.01" step="0.01" placeholder="0.00" required style={input} disabled={!canCreateReceipts} />
             </label>
+          </div>
+
+          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: -4 }}>
+            User list is based on active users assigned to your allowed locations.
           </div>
 
           <div style={{ display: "grid", gap: 8 }}>
@@ -424,7 +487,7 @@ export default async function MaintenanceReceiptPage() {
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
             <thead>
               <tr>
-                {["Date", "Location", "Amount", "Areas", "Notes", "Created"].map((h) => (
+                {["Date", "Location", "User", "Amount", "Areas", "Notes", "Created"].map((h) => (
                   <th
                     key={h}
                     style={{
@@ -445,6 +508,9 @@ export default async function MaintenanceReceiptPage() {
                 <tr key={r.id}>
                   <td style={{ padding: 8, borderBottom: border, whiteSpace: "nowrap" }}>{fmtDate(r.receiptDate)}</td>
                   <td style={{ padding: 8, borderBottom: border }}>{r.location?.name ?? "-"}</td>
+                  <td style={{ padding: 8, borderBottom: border, minWidth: 220 }}>
+                    {(r.createdByUser?.name?.trim() || "(No Name)") + " (" + (r.createdByUser?.email || "-") + ")"}
+                  </td>
                   <td style={{ padding: 8, borderBottom: border, whiteSpace: "nowrap", fontWeight: 800 }}>
                     {moneyFromCents(r.amountCents)}
                   </td>
@@ -458,7 +524,7 @@ export default async function MaintenanceReceiptPage() {
 
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ padding: 10, opacity: 0.75 }}>
+                  <td colSpan={7} style={{ padding: 10, opacity: 0.75 }}>
                     No receipt entries yet.
                   </td>
                 </tr>
