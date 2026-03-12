@@ -161,59 +161,58 @@ export default async function MaintenanceCheckoutPage({
 
   async function checkoutAction(formData: FormData) {
     "use server";
-
-    const { session: s, perms: p } = await requireCheckoutCreate();
-
-    const itemId = String(formData.get("itemId") || "");
-    const storeId = String(formData.get("storeId") || "");
-    const createdByUserId = String(formData.get("createdByUserId") || "");
-    const quantity = toInt(formData.get("quantity"));
-    const needToOrderMore = formData.get("needToOrderMore") === "on";
-    const note = String(formData.get("note") || "").trim();
-
-    if (!itemId) throw new Error("Missing itemId");
-    if (!storeId) throw new Error("Missing storeId");
-    if (!createdByUserId) throw new Error("Missing createdByUserId");
-    if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("Invalid quantity");
-
-    // Enforce allowed store locations for non-admin.
-    if (!p.allowAll) {
-      const email =
-        typeof (s.user as unknown as { email?: unknown })?.email === "string"
-          ? ((s.user as unknown as { email?: string }).email ?? "").toLowerCase().trim()
-          : "";
-
-      if (!email) throw new Error("Unauthorized");
-
-      const me = await prisma.user.findUnique({
-        where: { email },
-        select: {
-          id: true,
-          active: true,
-          locationId: true,
-          allowedLocations: { select: { locationId: true } },
-        },
-      });
-
-      if (!me || !me.active) throw new Error("Unauthorized");
-
-      const allowed = new Set<string>();
-      if (me.locationId) allowed.add(me.locationId);
-      for (const ul of me.allowedLocations) allowed.add(ul.locationId);
-
-      if (!allowed.has(storeId)) {
-        throw new Error("You are not allowed to create a checkout ticket for that store.");
-      }
-    }
-
-    // Lookups (outside tx is okay, but we keep the write path atomic)
-    const store = await prisma.location.findUnique({ where: { id: storeId } });
-    if (!store || !store.active) throw new Error("Store not found");
-
-    const createdBy = await prisma.user.findUnique({ where: { id: createdByUserId } });
-    if (!createdBy) throw new Error("Created-by user not found");
-
     try {
+      const { session: s, perms: p } = await requireCheckoutCreate();
+
+      const itemId = String(formData.get("itemId") || "");
+      const storeId = String(formData.get("storeId") || "");
+      const createdByUserId = String(formData.get("createdByUserId") || "");
+      const quantity = toInt(formData.get("quantity"));
+      const needToOrderMore = formData.get("needToOrderMore") === "on";
+      const note = String(formData.get("note") || "").trim();
+
+      if (!itemId) throw new Error("Missing itemId");
+      if (!storeId) throw new Error("Missing storeId");
+      if (!createdByUserId) throw new Error("Missing createdByUserId");
+      if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("Invalid quantity");
+
+      // Enforce allowed store locations for non-admin.
+      if (!p.allowAll) {
+        const email =
+          typeof (s.user as unknown as { email?: unknown })?.email === "string"
+            ? ((s.user as unknown as { email?: string }).email ?? "").toLowerCase().trim()
+            : "";
+
+        if (!email) throw new Error("Unauthorized");
+
+        const me = await prisma.user.findUnique({
+          where: { email },
+          select: {
+            id: true,
+            active: true,
+            locationId: true,
+            allowedLocations: { select: { locationId: true } },
+          },
+        });
+
+        if (!me || !me.active) throw new Error("Unauthorized");
+
+        const allowed = new Set<string>();
+        if (me.locationId) allowed.add(me.locationId);
+        for (const ul of me.allowedLocations) allowed.add(ul.locationId);
+
+        if (!allowed.has(storeId)) {
+          throw new Error("You are not allowed to create a checkout ticket for that store.");
+        }
+      }
+
+      // Lookups (outside tx is okay, but we keep the write path atomic)
+      const store = await prisma.location.findUnique({ where: { id: storeId } });
+      if (!store || !store.active) throw new Error("Store not found");
+
+      const createdBy = await prisma.user.findUnique({ where: { id: createdByUserId } });
+      if (!createdBy) throw new Error("Created-by user not found");
+
       await prisma.$transaction(async (tx) => {
         const item = await tx.item.findUnique({ where: { id: itemId } });
         if (!item) throw new Error("Item not found");
