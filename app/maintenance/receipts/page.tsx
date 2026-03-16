@@ -200,49 +200,71 @@ export default async function MaintenanceReceiptPage() {
   }
 
   const email = String(session?.user?.email ?? "").trim().toLowerCase();
-  const me = await prisma.user.findUnique({
-    where: { email },
-    select: {
-      id: true,
-      active: true,
-      locationId: true,
-      location: { select: { id: true, name: true, active: true, receiptEnabled: true, locationNumber: true } },
-      allowedLocations: {
-        orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
-        select: {
-          locationId: true,
-          isPrimary: true,
-          location: { select: { id: true, name: true, active: true, receiptEnabled: true, locationNumber: true } },
+  const [me, allActiveLocationsForReceipts] = await Promise.all([
+    prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        active: true,
+        locationId: true,
+        location: { select: { id: true, name: true, active: true, receiptEnabled: true, locationNumber: true } },
+        allowedLocations: {
+          orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
+          select: {
+            locationId: true,
+            isPrimary: true,
+            location: { select: { id: true, name: true, active: true, receiptEnabled: true, locationNumber: true } },
+          },
         },
       },
-    },
-  });
+    }),
+    perms.allowAll
+      ? prisma.location.findMany({
+          where: { active: true },
+          orderBy: { name: "asc" },
+          select: { id: true, name: true, locationNumber: true },
+        })
+      : Promise.resolve([]),
+  ]);
 
   if (!me || !me.active) redirect("/login");
 
   const allowedLocations: Array<{ id: string; name: string; source: "PRIMARY" | "OPTIONAL"; locationNumber: string | null }> = [];
   const seen = new Set<string>();
 
-  if (me.location && me.location.active) {
-    seen.add(me.location.id);
-    allowedLocations.push({
-      id: me.location.id,
-      name: me.location.name,
-      source: "PRIMARY",
-      locationNumber: me.location.locationNumber ?? null,
-    });
-  }
-  for (const ul of me.allowedLocations) {
-    if (!ul.location) continue;
-    if (!ul.location.active) continue;
-    if (seen.has(ul.location.id)) continue;
-    seen.add(ul.location.id);
-    allowedLocations.push({
-      id: ul.location.id,
-      name: ul.location.name,
-      source: ul.isPrimary ? "PRIMARY" : "OPTIONAL",
-      locationNumber: ul.location.locationNumber ?? null,
-    });
+  if (perms.allowAll) {
+    for (const location of allActiveLocationsForReceipts) {
+      if (seen.has(location.id)) continue;
+      seen.add(location.id);
+      allowedLocations.push({
+        id: location.id,
+        name: location.name,
+        source: "PRIMARY",
+        locationNumber: location.locationNumber ?? null,
+      });
+    }
+  } else {
+    if (me.location && me.location.active) {
+      seen.add(me.location.id);
+      allowedLocations.push({
+        id: me.location.id,
+        name: me.location.name,
+        source: "PRIMARY",
+        locationNumber: me.location.locationNumber ?? null,
+      });
+    }
+    for (const ul of me.allowedLocations) {
+      if (!ul.location) continue;
+      if (!ul.location.active) continue;
+      if (seen.has(ul.location.id)) continue;
+      seen.add(ul.location.id);
+      allowedLocations.push({
+        id: ul.location.id,
+        name: ul.location.name,
+        source: ul.isPrimary ? "PRIMARY" : "OPTIONAL",
+        locationNumber: ul.location.locationNumber ?? null,
+      });
+    }
   }
 
   const allowedLocationIds = allowedLocations.map((l) => l.id);
@@ -332,9 +354,17 @@ export default async function MaintenanceReceiptPage() {
     if (!createdByUserId) throw new Error("User is required.");
 
     const allowed = new Set<string>();
-    if (me.locationId && me.location?.active) allowed.add(me.locationId);
-    for (const a of me.allowedLocations) {
-      if (a.location?.active) allowed.add(a.locationId);
+    if (perms.allowAll) {
+      const activeLocations = await prisma.location.findMany({
+        where: { active: true },
+        select: { id: true },
+      });
+      for (const location of activeLocations) allowed.add(location.id);
+    } else {
+      if (me.locationId && me.location?.active) allowed.add(me.locationId);
+      for (const a of me.allowedLocations) {
+        if (a.location?.active) allowed.add(a.locationId);
+      }
     }
     if (!allowed.has(locationId)) throw new Error("Invalid location selection.");
 
