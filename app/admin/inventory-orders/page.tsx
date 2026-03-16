@@ -810,6 +810,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
         select: { id: true, status: true, itemId: true, note: true, item: { select: { sku: true } } },
       });
       if (!existing) throw new Error("Order not found");
+      if (existing.status !== "ORDERED") return;
 
       const auditLine = buildSystemAuditLine({
         action: "MARK_ARRIVED",
@@ -857,6 +858,9 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
       if (!existing) throw new Error("Order not found");
 
       if (existing.status === "ADDED_TO_INVENTORY") return;
+      if (existing.status !== "ARRIVED") {
+        throw new Error("Order must be marked as arrived before adding to inventory.");
+      }
 
       const item = await tx.item.findUnique({
         where: { id: existing.itemId },
@@ -895,7 +899,6 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
         where: { id },
         data: {
           status: "ADDED_TO_INVENTORY",
-          arrivedAt: existing.status === "ORDERED" ? new Date() : undefined,
           addedToInventoryAt: existing.addedToInventoryAt ?? new Date(),
           note: existing.note ? `${existing.note}\n${auditLine}` : auditLine,
         },
@@ -1450,7 +1453,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
               : o.itemId;
 
             const canArrive = o.status === "ORDERED";
-            const canAdd = o.status !== "ADDED_TO_INVENTORY";
+            const canAdd = o.status === "ARRIVED";
             const phaseText = phaseLabel(o.status as InventoryOrderPhase);
 
             return (
@@ -1484,19 +1487,23 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                 </div>
 
                 <div className="actionsRow">
-                  <form action={markArrivedFormAction}>
-                    <input type="hidden" name="id" value={o.id} />
-                    <button type="submit" style={{ ...btn, opacity: canArrive ? 1 : 0.5 }} disabled={!canArrive}>
-                      Mark Arrived
-                    </button>
-                  </form>
+                  {canArrive ? (
+                    <form action={markArrivedFormAction}>
+                      <input type="hidden" name="id" value={o.id} />
+                      <button type="submit" style={btn}>
+                        Mark Arrived
+                      </button>
+                    </form>
+                  ) : null}
 
-                  <form action={addToInventoryFormAction}>
-                    <input type="hidden" name="id" value={o.id} />
-                    <button type="submit" style={{ ...btnPrimary, opacity: canAdd ? 1 : 0.5 }} disabled={!canAdd}>
-                      Add to Inventory
-                    </button>
-                  </form>
+                  {canAdd ? (
+                    <form action={addToInventoryFormAction}>
+                      <input type="hidden" name="id" value={o.id} />
+                      <button type="submit" style={btnPrimary}>
+                        Add to Inventory
+                      </button>
+                    </form>
+                  ) : null}
 
                   <Link
                     href={`/labels?ids=${encodeURIComponent(o.itemId)}&autoprint=1&autoclose=1`}

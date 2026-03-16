@@ -255,6 +255,24 @@ function normalizeCorporationNumber(raw: string): string | null {
   return v;
 }
 
+function isMissingColumnError(e: unknown): boolean {
+  if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2022") {
+    return true;
+  }
+  const msg = e instanceof Error ? e.message.toLowerCase() : "";
+  return msg.includes("column") && msg.includes("does not exist");
+}
+
+type LocationViewRow = {
+  id: string;
+  name: string;
+  locationNumber: string | null;
+  corporationNumber: string | null;
+  createdAt: Date;
+  active: boolean;
+  receiptEnabled: boolean;
+};
+
 export default async function AdminLocationsPage({ searchParams }: { searchParams?: SearchParams }) {
   await requireAdmin();
 
@@ -697,19 +715,46 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
       }
     : {};
 
-  const locations = await prisma.location.findMany({
-    where,
-    orderBy: [{ active: "desc" }, { name: "asc" }],
-    select: {
-      id: true,
-      name: true,
-      locationNumber: true,
-      corporationNumber: true,
-      createdAt: true,
-      active: true,
+  let schemaWarning = "";
+  let locations: LocationViewRow[] = [];
+  try {
+    locations = await prisma.location.findMany({
+      where,
+      orderBy: [{ active: "desc" }, { name: "asc" }],
+      select: {
+        id: true,
+        name: true,
+        locationNumber: true,
+        corporationNumber: true,
+        createdAt: true,
+        active: true,
+        receiptEnabled: true,
+      },
+    });
+  } catch (e: unknown) {
+    if (!isMissingColumnError(e)) throw e;
+
+    const fallback = await prisma.location.findMany({
+      where,
+      orderBy: [{ active: "desc" }, { name: "asc" }],
+      select: {
+        id: true,
+        name: true,
+        createdAt: true,
+        active: true,
+      },
+    });
+
+    locations = fallback.map((l) => ({
+      ...l,
+      locationNumber: null,
+      corporationNumber: null,
       receiptEnabled: true,
-    },
-  });
+    }));
+
+    schemaWarning =
+      "Locations page is running in compatibility mode because deployed DB columns are missing. Run latest Prisma migration/deploy to restore full fields.";
+  }
 
   const thStyle: CSSProperties = {
     textAlign: "left",
@@ -735,6 +780,12 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
       {okMsg ? (
         <div style={{ padding: 10, marginBottom: 10, border: "1px solid rgba(128,128,128,0.25)", borderRadius: 10 }}>
           ✅ {okMsg}
+        </div>
+      ) : null}
+
+      {schemaWarning ? (
+        <div style={{ padding: 10, marginBottom: 10, border: "1px solid rgba(255,165,0,0.45)", borderRadius: 10 }}>
+          ⚠️ {schemaWarning}
         </div>
       ) : null}
 

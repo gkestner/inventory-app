@@ -1109,6 +1109,7 @@ model InventoryOrder {
 
 model Item {
   id  String @id @default(cuid())
+  labelNumber Int @unique @default(autoincrement())
   sku String @unique
 
   partNumber String?

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 type LabelItem = {
   id: string;
+  labelNumber?: number | null;
   sku: string;
   name: string;
   description: string;
@@ -204,7 +205,10 @@ export default function DymoClient({ items }: { items: LabelItem[] }) {
     const name = (item.name || "").toUpperCase().slice(0, 22);
     label.setObjectText("NAME", name);
 
-    const id = deriveLabelIdFromSku(item.sku);
+    const id =
+      typeof item.labelNumber === "number" && Number.isFinite(item.labelNumber)
+        ? String(item.labelNumber)
+        : deriveLabelIdFromSku(item.sku);
     const part = item.partNumber ? item.partNumber.slice(0, 16) : "—";
     label.setObjectText("BOTTOM", `ID# ${id}     PART# ${part}`);
 
