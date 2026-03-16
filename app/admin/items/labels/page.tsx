@@ -105,6 +105,7 @@ export default async function ItemLabelsPage({
           where: { id: { in: ids } },
           select: {
             id: true,
+            labelNumber: true,
             sku: true,
             name: true,
             description: true,
@@ -151,7 +152,10 @@ export default async function ItemLabelsPage({
           <div style={{ padding: 14, fontSize: 14 }}>No items selected.</div>
         ) : (
           printable.map((item) => {
-            const labelId = deriveLabelIdFromSku(item.sku);
+            const labelId =
+              typeof item.labelNumber === "number" && Number.isFinite(item.labelNumber)
+                ? String(item.labelNumber)
+                : deriveLabelIdFromSku(item.sku);
             const nameText = String(item.name ?? "")
               .toUpperCase()
               .replace(/\s+/g, " ")

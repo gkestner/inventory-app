@@ -476,6 +476,7 @@ export async function saveOrderDetailsAction(formData: FormData) {
         },
       });
       if (!existing) throw new Error("Order not found");
+      if (existing.status !== "ORDERED") return;
 
       const item = await tx.item.findUnique({
         where: { id: existing.itemId },
@@ -637,6 +638,9 @@ export async function addToInventoryAction(formData: FormData) {
       });
       if (!existing) throw new Error("Order not found");
       if (existing.status === "ADDED_TO_INVENTORY") return;
+      if (existing.status !== "ARRIVED") {
+        throw new Error("Order must be marked as arrived before adding to inventory.");
+      }
 
       const item = await tx.item.findUnique({
         where: { id: existing.itemId },
@@ -676,7 +680,6 @@ export async function addToInventoryAction(formData: FormData) {
         where: { id },
         data: {
           status: "ADDED_TO_INVENTORY",
-          arrivedAt: existing.status === "ORDERED" ? new Date() : undefined,
           addedToInventoryAt: existing.addedToInventoryAt ?? new Date(),
           note: existing.note ? `${existing.note}\n${auditLine}` : auditLine,
         },
