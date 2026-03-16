@@ -421,6 +421,9 @@ export default async function MaintenanceReceiptPage() {
     padding: "10px 12px",
     background: "var(--background)",
     color: "var(--foreground)",
+    width: "100%",
+    minWidth: 0,
+    boxSizing: "border-box",
   };
 
   const btn: CSSProperties = {
@@ -457,13 +460,13 @@ export default async function MaintenanceReceiptPage() {
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>New Receipt</h2>
 
         <form action={createReceiptAction} style={{ display: "grid", gap: 12 }}>
-          <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
-            <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
+          <div className="receipt-form-grid" style={{ display: "grid", gap: 12 }}>
+            <label style={{ display: "grid", gap: 6, fontWeight: 800, minWidth: 0 }}>
               Date
               <input type="date" name="receiptDate" defaultValue={todayNy} required style={input} disabled={!canCreateOnAnyLocation} />
             </label>
 
-            <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
+            <label style={{ display: "grid", gap: 6, fontWeight: 800, minWidth: 0 }}>
               Location
               <select
                 id="receipt-location-select"
@@ -488,7 +491,7 @@ export default async function MaintenanceReceiptPage() {
               </select>
             </label>
 
-            <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
+            <label style={{ display: "grid", gap: 6, fontWeight: 800, minWidth: 0 }}>
               User
               <select name="createdByUserId" defaultValue={me.id} required style={input} disabled={!canCreateOnAnyLocation}>
                 <option value="">Select user</option>
@@ -500,7 +503,7 @@ export default async function MaintenanceReceiptPage() {
               </select>
             </label>
 
-            <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
+            <label style={{ display: "grid", gap: 6, fontWeight: 800, minWidth: 0 }}>
               Amount
               <input type="number" name="amount" min="0.01" step="0.01" placeholder="0.00" required style={input} disabled={!canCreateOnAnyLocation} />
             </label>
@@ -605,6 +608,24 @@ export default async function MaintenanceReceiptPage() {
             ) : null}
           </div>
         </form>
+
+        <style jsx>{`
+          .receipt-form-grid {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+          }
+
+          @media (max-width: 1100px) {
+            .receipt-form-grid {
+              grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+          }
+
+          @media (max-width: 640px) {
+            .receipt-form-grid {
+              grid-template-columns: minmax(0, 1fr);
+            }
+          }
+        `}</style>
       </section>
 
       <section style={card}>
