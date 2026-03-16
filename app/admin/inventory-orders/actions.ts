@@ -476,7 +476,6 @@ export async function saveOrderDetailsAction(formData: FormData) {
         },
       });
       if (!existing) throw new Error("Order not found");
-      if (existing.status !== "ORDERED") return;
 
       const item = await tx.item.findUnique({
         where: { id: existing.itemId },
