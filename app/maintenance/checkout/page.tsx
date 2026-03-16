@@ -281,6 +281,7 @@ export default async function MaintenanceCheckoutPage({
             onHandQty: { decrement: quantity },
             usedQty: { increment: quantity },
           },
+          select: { id: true },
         });
 
         // Create ticket (uses snapshots for invoicing stability)
