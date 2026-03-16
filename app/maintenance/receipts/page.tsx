@@ -609,23 +609,6 @@ export default async function MaintenanceReceiptPage() {
           </div>
         </form>
 
-        <style jsx>{`
-          .receipt-form-grid {
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-          }
-
-          @media (max-width: 1100px) {
-            .receipt-form-grid {
-              grid-template-columns: repeat(2, minmax(0, 1fr));
-            }
-          }
-
-          @media (max-width: 640px) {
-            .receipt-form-grid {
-              grid-template-columns: minmax(0, 1fr);
-            }
-          }
-        `}</style>
       </section>
 
       <section style={card}>
