@@ -300,13 +300,13 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
       });
     } catch (e: unknown) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-                  "Receipt Entry",
+        redirect("/admin/locations?err=" + encodeURIComponent("That Location # is already in use."));
       }
 
       const msg = e instanceof Error ? e.message : "Create failed";
       const friendly =
         msg.toLowerCase().includes("unique") || msg.toLowerCase().includes("constraint")
-                  "Receipt Entry Toggle",
+          ? "That location name (or number) already exists."
           : msg;
 
       redirect("/admin/locations?err=" + encodeURIComponent(friendly));
