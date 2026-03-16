@@ -187,11 +187,23 @@ export async function POST(req: NextRequest) {
       if (!store || !store.active) throw new Error("Store not found");
 
       // 2) Resolve createdBy user
-      let createdByUser = null as null | { id: string; name: string; active: boolean };
+      let createdByUser = null as null | {
+        id: string;
+        name: string;
+        active: boolean;
+        locationId: string | null;
+        allowedLocations: { locationId: string }[];
+      };
       if (isNonEmptyString(body.createdByUserId)) {
         createdByUser = await tx.user.findUnique({
           where: { id: body.createdByUserId.trim() },
-          select: { id: true, name: true, active: true },
+          select: {
+            id: true,
+            name: true,
+            active: true,
+            locationId: true,
+            allowedLocations: { select: { locationId: true } },
+          },
         });
       }
 
@@ -199,18 +211,37 @@ export async function POST(req: NextRequest) {
         if (sessionUserId) {
           createdByUser = await tx.user.findUnique({
             where: { id: sessionUserId },
-            select: { id: true, name: true, active: true },
+            select: {
+              id: true,
+              name: true,
+              active: true,
+              locationId: true,
+              allowedLocations: { select: { locationId: true } },
+            },
           });
         } else if (sessionUserEmail) {
           createdByUser = await tx.user.findUnique({
             where: { email: sessionUserEmail },
-            select: { id: true, name: true, active: true },
+            select: {
+              id: true,
+              name: true,
+              active: true,
+              locationId: true,
+              allowedLocations: { select: { locationId: true } },
+            },
           });
         }
       }
 
       if (!createdByUser || !createdByUser.active) {
         throw new Error("Created-by user not found/active");
+      }
+
+      const createdByAllowedStores = new Set<string>();
+      if (createdByUser.locationId) createdByAllowedStores.add(createdByUser.locationId);
+      for (const ul of createdByUser.allowedLocations) createdByAllowedStores.add(ul.locationId);
+      if (!createdByAllowedStores.has(store.id)) {
+        throw new Error("Selected user is not assigned to the selected store.");
       }
 
       // 3) Snapshot into ItemVersion
