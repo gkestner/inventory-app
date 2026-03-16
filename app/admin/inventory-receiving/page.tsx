@@ -259,7 +259,7 @@ export default async function AdminInventoryReceivingPage({ searchParams }: { se
       select: { id: true, sku: true, partNumber: true, name: true },
     }),
     prisma.location.findMany({
-      where: { active: true },
+      where: { active: true, receiptEnabled: true },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),

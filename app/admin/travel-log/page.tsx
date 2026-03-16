@@ -173,7 +173,7 @@ export default async function AdminTravelLogPage({
   const q = typeof sp.q === "string" ? sp.q.trim() : "";
 
   const [locations, users] = await Promise.all([
-    prisma.location.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.location.findMany({ where: { active: true, receiptEnabled: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.user.findMany({
       where: { active: true, workOrdersCreated: { some: { status: WorkOrderStatus.SUBMITTED } } },
       orderBy: { name: "asc" },

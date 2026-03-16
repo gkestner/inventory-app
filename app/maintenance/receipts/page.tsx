@@ -222,7 +222,7 @@ export default async function MaintenanceReceiptPage() {
   const allowedLocations: Array<{ id: string; name: string; source: "PRIMARY" | "OPTIONAL"; locationNumber: string | null }> = [];
   const seen = new Set<string>();
 
-  if (me.location && me.location.active && me.location.receiptEnabled) {
+  if (me.location && me.location.active) {
     seen.add(me.location.id);
     allowedLocations.push({
       id: me.location.id,
@@ -233,7 +233,7 @@ export default async function MaintenanceReceiptPage() {
   }
   for (const ul of me.allowedLocations) {
     if (!ul.location) continue;
-    if (!ul.location.active || !ul.location.receiptEnabled) continue;
+    if (!ul.location.active) continue;
     if (seen.has(ul.location.id)) continue;
     seen.add(ul.location.id);
     allowedLocations.push({
@@ -330,9 +330,9 @@ export default async function MaintenanceReceiptPage() {
     if (!createdByUserId) throw new Error("User is required.");
 
     const allowed = new Set<string>();
-    if (me.locationId && me.location?.active && me.location.receiptEnabled) allowed.add(me.locationId);
+    if (me.locationId && me.location?.active) allowed.add(me.locationId);
     for (const a of me.allowedLocations) {
-      if (a.location?.active && a.location.receiptEnabled) allowed.add(a.locationId);
+      if (a.location?.active) allowed.add(a.locationId);
     }
     if (!allowed.has(locationId)) throw new Error("Invalid location selection.");
 
@@ -340,8 +340,8 @@ export default async function MaintenanceReceiptPage() {
       where: { id: locationId },
       select: { id: true, name: true, active: true, receiptEnabled: true, locationNumber: true },
     });
-    if (!selectedLocation || !selectedLocation.active || !selectedLocation.receiptEnabled) {
-      throw new Error("Selected location is not enabled for receipt entry.");
+    if (!selectedLocation || !selectedLocation.active) {
+      throw new Error("Selected location is not active.");
     }
 
     const selectedUser = await prisma.user.findUnique({

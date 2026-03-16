@@ -142,7 +142,11 @@ export default async function WorkOrderSchedulesPage() {
   }
 
   const [locations, users] = await Promise.all([
-    (getCompatDb() as any).location.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    (getCompatDb() as any).location.findMany({
+      where: { active: true, receiptEnabled: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
     (getCompatDb() as any).user.findMany({ where: { active: true }, orderBy: [{ name: "asc" }], select: { id: true, name: true, email: true } }),
   ]);
 

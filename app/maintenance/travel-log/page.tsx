@@ -156,10 +156,15 @@ export default async function MaintenanceTravelLogPage({
       name: true,
       active: true,
       locationId: true,
-      location: { select: { id: true, name: true } },
+      location: { select: { id: true, name: true, active: true, receiptEnabled: true } },
       allowedLocations: {
         orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
-        select: { locationId: true, isPrimary: true, sortOrder: true, location: { select: { id: true, name: true } } },
+        select: {
+          locationId: true,
+          isPrimary: true,
+          sortOrder: true,
+          location: { select: { id: true, name: true, active: true, receiptEnabled: true } },
+        },
       },
     },
   });
@@ -171,12 +176,13 @@ export default async function MaintenanceTravelLogPage({
   const allowedLocations: Array<{ id: string; name: string; source: "PRIMARY" | "OPTIONAL" }> = [];
   const seen = new Set<string>();
 
-  if (me.location) {
+  if (me.location?.active && me.location.receiptEnabled) {
     seen.add(me.location.id);
     allowedLocations.push({ id: me.location.id, name: me.location.name, source: "PRIMARY" });
   }
   for (const ul of me.allowedLocations) {
     if (!ul.location) continue;
+    if (!ul.location.active || !ul.location.receiptEnabled) continue;
     if (seen.has(ul.location.id)) continue;
     seen.add(ul.location.id);
     allowedLocations.push({ id: ul.location.id, name: ul.location.name, source: ul.isPrimary ? "PRIMARY" : "OPTIONAL" });

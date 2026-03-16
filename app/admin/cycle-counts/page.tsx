@@ -117,7 +117,11 @@ export default async function CycleCountsPage() {
   }
 
   const [locations, sessions, items] = await Promise.all([
-    (getCompatDb() as any).location.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    (getCompatDb() as any).location.findMany({
+      where: { active: true, receiptEnabled: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
     getCompatDb().cycleCountSession?.findMany
       ? getCompatDb().cycleCountSession!.findMany({
           orderBy: { createdAt: "desc" },

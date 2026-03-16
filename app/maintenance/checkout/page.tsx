@@ -96,9 +96,9 @@ export default async function MaintenanceCheckoutPage({
       select: {
         id: true,
         active: true,
-        location: { select: { id: true, name: true, active: true } },
+        location: { select: { id: true, name: true, active: true, receiptEnabled: true } },
         allowedLocations: {
-          select: { isPrimary: true, location: { select: { id: true, name: true, active: true } } },
+          select: { isPrimary: true, location: { select: { id: true, name: true, active: true, receiptEnabled: true } } },
           orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
         },
       },
@@ -110,13 +110,13 @@ export default async function MaintenanceCheckoutPage({
     const optional: Array<{ id: string; name: string }> = [];
     const seen = new Set<string>();
 
-    if (me.location?.active) {
+    if (me.location?.active && me.location.receiptEnabled) {
       seen.add(me.location.id);
       primary.push({ id: me.location.id, name: me.location.name });
     }
 
     for (const ul of me.allowedLocations) {
-      if (!ul.location?.active) continue;
+      if (!ul.location?.active || !ul.location.receiptEnabled) continue;
       if (seen.has(ul.location.id)) continue;
       seen.add(ul.location.id);
       if (ul.isPrimary) primary.push({ id: ul.location.id, name: ul.location.name });
@@ -146,7 +146,7 @@ export default async function MaintenanceCheckoutPage({
       },
     }),
     prisma.location.findMany({
-      where: { active: true },
+      where: { active: true, receiptEnabled: true },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
@@ -209,9 +209,9 @@ export default async function MaintenanceCheckoutPage({
       // Lookups (outside tx is okay, but we keep the write path atomic)
       const store = await prisma.location.findUnique({
         where: { id: storeId },
-        select: { id: true, name: true, active: true },
+        select: { id: true, name: true, active: true, receiptEnabled: true },
       });
-      if (!store || !store.active) throw new Error("Store not found");
+      if (!store || !store.active || !store.receiptEnabled) throw new Error("Store not found");
 
       const createdBy = await prisma.user.findUnique({ where: { id: createdByUserId } });
       if (!createdBy) throw new Error("Created-by user not found");

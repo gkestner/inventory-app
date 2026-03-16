@@ -1119,7 +1119,7 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
                 </td>
 
                 <td style={tdStyle}>
-                  <span style={{ fontWeight: 900 }}>{l.receiptEnabled ? "ENABLED" : "DISABLED"}</span>
+                  <span style={{ fontWeight: 900 }}>{l.receiptEnabled ? "EVERYWHERE" : "RECEIPT ONLY"}</span>
                 </td>
 
                 <td style={tdStyle}>{new Date(l.createdAt).toLocaleString()}</td>
@@ -1214,7 +1214,7 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
                     <input type="hidden" name="id" value={l.id} />
                     <input type="hidden" name="nextReceiptEnabled" value={l.receiptEnabled ? "false" : "true"} />
                     <button type="submit" style={{ padding: "6px 10px", fontWeight: 900, whiteSpace: "nowrap" }}>
-                      {l.receiptEnabled ? "Disable Receipt Entry" : "Enable Receipt Entry"}
+                      {l.receiptEnabled ? "Make Receipt-Only" : "Show Everywhere"}
                     </button>
                   </form>
                 </td>
@@ -1264,8 +1264,8 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
       </div>
 
       <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-        Receipt Entry toggle only affects the Receipt Entry page. It does not change checkout, work orders, or other
-        location pickers.
+        Receipt mode toggle: "Make Receipt-Only" hides that location from non-receipt pages (checkout, work orders,
+        etc.) while keeping it available on Receipt Entry.
       </div>
     </div>
     

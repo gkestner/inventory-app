@@ -253,10 +253,15 @@ export default async function MaintenanceWorkOrdersPage() {
       active: true,
       role: true,
       locationId: true,
-      location: { select: { id: true, name: true } },
+      location: { select: { id: true, name: true, active: true, receiptEnabled: true } },
       allowedLocations: {
         orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
-        select: { locationId: true, isPrimary: true, sortOrder: true, location: { select: { id: true, name: true } } },
+        select: {
+          locationId: true,
+          isPrimary: true,
+          sortOrder: true,
+          location: { select: { id: true, name: true, active: true, receiptEnabled: true } },
+        },
       },
     },
   });
@@ -266,13 +271,14 @@ export default async function MaintenanceWorkOrdersPage() {
   const allowedLocations: Array<{ id: string; name: string; source: "PRIMARY" | "OPTIONAL" }> = [];
   const seen = new Set<string>();
 
-  if (me.location) {
+  if (me.location?.active && me.location.receiptEnabled) {
     seen.add(me.location.id);
     allowedLocations.push({ id: me.location.id, name: me.location.name, source: "PRIMARY" });
   }
 
   for (const ul of me.allowedLocations) {
     if (!ul.location) continue;
+    if (!ul.location.active || !ul.location.receiptEnabled) continue;
     if (seen.has(ul.location.id)) continue;
     seen.add(ul.location.id);
     allowedLocations.push({ id: ul.location.id, name: ul.location.name, source: ul.isPrimary ? "PRIMARY" : "OPTIONAL" });
@@ -455,7 +461,11 @@ export default async function MaintenanceWorkOrdersPage() {
         id: true,
         active: true,
         locationId: true,
-        allowedLocations: { select: { locationId: true }, orderBy: { sortOrder: "asc" } },
+        location: { select: { id: true, active: true, receiptEnabled: true } },
+        allowedLocations: {
+          select: { locationId: true, location: { select: { active: true, receiptEnabled: true } } },
+          orderBy: { sortOrder: "asc" },
+        },
       },
     });
     if (!me || !me.active) redirect("/login");
@@ -471,8 +481,10 @@ export default async function MaintenanceWorkOrdersPage() {
     if (!locationId) throw new Error("Location is required");
 
     const allowed = new Set<string>();
-    if (me.locationId) allowed.add(me.locationId);
-    for (const ul of me.allowedLocations) allowed.add(ul.locationId);
+    if (me.locationId && me.location?.active && me.location.receiptEnabled) allowed.add(me.locationId);
+    for (const ul of me.allowedLocations) {
+      if (ul.location?.active && ul.location.receiptEnabled) allowed.add(ul.locationId);
+    }
     if (!allowed.has(locationId)) throw new Error("You are not allowed to create a work order for that location.");
 
     const notes = String(formData.get("notes") ?? "");

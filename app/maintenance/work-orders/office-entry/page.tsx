@@ -183,8 +183,11 @@ export default async function WorkOrderOfficeEntryPage() {
     });
     if (!targetUser || !targetUser.active) throw new Error("Selected technician is not active.");
 
-    const location = await prisma.location.findUnique({ where: { id: locationId }, select: { id: true, active: true } });
-    if (!location || !location.active) throw new Error("Selected location is invalid.");
+    const location = await prisma.location.findUnique({
+      where: { id: locationId },
+      select: { id: true, active: true, receiptEnabled: true },
+    });
+    if (!location || !location.active || !location.receiptEnabled) throw new Error("Selected location is invalid.");
 
     if (!startTime) throw new Error("Start time is required.");
 
@@ -230,7 +233,7 @@ export default async function WorkOrderOfficeEntryPage() {
       select: { id: true, name: true, email: true },
     }),
     prisma.location.findMany({
-      where: { active: true },
+      where: { active: true, receiptEnabled: true },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),

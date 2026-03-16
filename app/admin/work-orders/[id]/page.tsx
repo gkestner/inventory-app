@@ -348,7 +348,7 @@ export default async function AdminWorkOrderDetailPage({
   const { id } = await params;
 
   const [locations, workOrder] = await Promise.all([
-    db.location.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    db.location.findMany({ where: { active: true, receiptEnabled: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     db.workOrder.findUnique({
       where: { id },
       include: {
