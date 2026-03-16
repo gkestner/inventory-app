@@ -8,6 +8,7 @@ import { revalidatePath } from "next/cache";
 import type { CSSProperties } from "react";
 import { Permission } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { parseHiddenFromDropdowns } from "@/app/lib/user-preferences";
 
 // ✅ Reuse the same searchable picker used on inventory-orders
 import ItemPicker from "@/app/admin/inventory-orders/ItemPicker";
@@ -153,8 +154,17 @@ export default async function MaintenanceCheckoutPage({
     prisma.user.findMany({
       where: { active: true },
       orderBy: { name: "asc" },
-      select: { id: true, name: true, role: true },
-    }),
+      select: {
+        id: true,
+        name: true,
+        role: true,
+        active: true,
+        locationId: true,
+        allowedLocations: { select: { locationId: true } },
+        uiPreferences: true,
+      },
+    }).then((rows) => rows.filter((u) => !parseHiddenFromDropdowns(u.uiPreferences).includes("checkout"))),
+
   ]);
 
   const locations = orderedAllowedLocations ?? locationsAllActive;
@@ -213,8 +223,24 @@ export default async function MaintenanceCheckoutPage({
       });
       if (!store || !store.active || !store.receiptEnabled) throw new Error("Store not found");
 
-      const createdBy = await prisma.user.findUnique({ where: { id: createdByUserId } });
-      if (!createdBy) throw new Error("Created-by user not found");
+      const createdBy = await prisma.user.findUnique({
+        where: { id: createdByUserId },
+        select: {
+          id: true,
+          name: true,
+          active: true,
+          locationId: true,
+          allowedLocations: { select: { locationId: true } },
+        },
+      });
+      if (!createdBy || !createdBy.active) throw new Error("Created-by user not found");
+
+      const createdByAllowedStores = new Set<string>();
+      if (createdBy.locationId) createdByAllowedStores.add(createdBy.locationId);
+      for (const ul of createdBy.allowedLocations) createdByAllowedStores.add(ul.locationId);
+      if (!createdByAllowedStores.has(storeId)) {
+        throw new Error("Selected user is not assigned to the selected store.");
+      }
 
       await prisma.$transaction(async (tx) => {
         const item = await tx.item.findUnique({
@@ -514,18 +540,64 @@ export default async function MaintenanceCheckoutPage({
 
         <label style={labelStyle}>
           <span style={{ fontWeight: 700 }}>Created by</span>
-          <select name="createdByUserId" required defaultValue={sessionUserId ?? ""} style={fieldStyle}>
+          <select id="checkout-created-by" name="createdByUserId" required defaultValue={sessionUserId ?? ""} style={fieldStyle}>
             <option value="">Select user…</option>
             {users.map((u) => (
-              <option key={u.id} value={u.id}>
+              <option
+                key={u.id}
+                value={u.id}
+                data-store-ids={Array.from(new Set([u.locationId, ...u.allowedLocations.map((x) => x.locationId)].filter(Boolean))).join(",")}
+              >
                 {u.name} ({u.role})
               </option>
             ))}
           </select>
           <div style={{ fontSize: 12, opacity: 0.75 }}>
-            Defaults to your session user. Can be changed to another maintenance user.
+            Shows only users assigned to the selected store. Manage assignments in Admin Users.
           </div>
         </label>
+
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(() => {
+  const storeSelect = document.querySelector('select[name="storeId"]');
+  const userSelect = document.getElementById("checkout-created-by");
+  if (!storeSelect || !userSelect) return;
+
+  const syncUsers = () => {
+    const storeId = String(storeSelect.value || "").trim();
+    const options = Array.from(userSelect.options);
+
+    let visibleCount = 0;
+    for (const opt of options) {
+      if (!opt.value) {
+        opt.hidden = false;
+        continue;
+      }
+
+      const raw = String(opt.dataset.storeIds || "");
+      const ids = raw.split(",").map((s) => s.trim()).filter(Boolean);
+      const allowed = storeId ? ids.includes(storeId) : true;
+      opt.hidden = !allowed;
+      if (allowed) visibleCount++;
+    }
+
+    const selected = userSelect.options[userSelect.selectedIndex];
+    const selectedHidden = !!selected && selected.hidden;
+    if (selectedHidden) {
+      userSelect.value = "";
+      if (storeId && visibleCount > 0) {
+        const firstVisible = options.find((o) => !!o.value && !o.hidden);
+        if (firstVisible) userSelect.value = firstVisible.value;
+      }
+    }
+  };
+
+  syncUsers();
+  storeSelect.addEventListener("change", syncUsers);
+})();`,
+          }}
+        />
 
         <label style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <input type="checkbox" name="needToOrderMore" />

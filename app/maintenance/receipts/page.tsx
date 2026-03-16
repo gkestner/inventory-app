@@ -6,6 +6,7 @@ import { Permission } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
+import { parseHiddenFromDropdowns } from "@/app/lib/user-preferences";
 import { getCompatDb } from "@/app/lib/workflow-foundations";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { CREATE_RECEIPTS, VIEW_RECEIPTS } from "@/app/lib/permission-constants";
@@ -247,7 +248,7 @@ export default async function MaintenanceReceiptPage() {
   const allowedLocationIds = allowedLocations.map((l) => l.id);
   const canCreateOnAnyLocation = canCreateReceipts && allowedLocationIds.length > 0;
 
-  const usersForReceipts = await prisma.user.findMany({
+  const usersForReceipts = (await prisma.user.findMany({
     where: {
       active: true,
       OR: [
@@ -262,8 +263,9 @@ export default async function MaintenanceReceiptPage() {
       email: true,
       locationId: true,
       allowedLocations: { select: { locationId: true } },
+      uiPreferences: true,
     },
-  });
+  })).filter((u) => !parseHiddenFromDropdowns(u.uiPreferences).includes("receipts"));
 
   const db = getCompatDb() as any;
   const rows: ReceiptRow[] = db.receiptEntry?.findMany

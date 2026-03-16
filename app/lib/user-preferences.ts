@@ -44,6 +44,26 @@ function toCopies(v: unknown): number {
   return Math.max(1, Math.min(20, Math.floor(n)));
 }
 
+/**
+ * Keys used to hide a user from specific dropdowns across the app.
+ * Stored as `uiPreferences.hiddenFromDropdowns` (string[]).
+ */
+export const DROPDOWN_KEYS = {
+  receipts: "receipts",
+  checkout: "checkout",
+} as const;
+
+export type DropdownKey = (typeof DROPDOWN_KEYS)[keyof typeof DROPDOWN_KEYS];
+
+/** Parse which dropdowns a user is hidden from (stored in uiPreferences JSON). */
+export function parseHiddenFromDropdowns(raw: unknown): DropdownKey[] {
+  const root = asRecord(raw);
+  const arr = root.hiddenFromDropdowns;
+  if (!Array.isArray(arr)) return [];
+  const valid = new Set<string>(Object.values(DROPDOWN_KEYS));
+  return arr.map((x) => String(x ?? "").trim()).filter((x): x is DropdownKey => valid.has(x));
+}
+
 export function normalizeUserPreferences(raw: unknown): UserPreferences {
   const obj = asRecord(raw);
   return {

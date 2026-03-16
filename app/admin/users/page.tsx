@@ -12,6 +12,7 @@ import { Permission, Prisma, Role } from "@prisma/client";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { canAccessAdmin } from "@/app/lib/admin-access";
+import { parseHiddenFromDropdowns, DROPDOWN_KEYS } from "@/app/lib/user-preferences";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -705,6 +706,44 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     redirect("/admin/users?ok=1");
   }
 
+  async function saveDropdownVisibilityAction(formData: FormData) {
+    "use server";
+    await requireAdmin();
+
+    const userId = nonEmpty(formData.get("userId"));
+    if (!userId) redirect("/admin/users?error=" + encodeURIComponent("Missing userId"));
+
+    const hiddenFrom = safeIdsFromFormData(formData, "hiddenFromDropdowns");
+    const validKeys = new Set<string>(Object.values(DROPDOWN_KEYS));
+    const sanitized = hiddenFrom.filter((k) => validKeys.has(k));
+
+    try {
+      const existing = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, uiPreferences: true },
+      });
+      if (!existing) throw new Error("User not found");
+
+      const root: Record<string, unknown> =
+        existing.uiPreferences && typeof existing.uiPreferences === "object" && !Array.isArray(existing.uiPreferences)
+          ? { ...(existing.uiPreferences as Record<string, unknown>) }
+          : {};
+
+      root.hiddenFromDropdowns = sanitized;
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: { uiPreferences: root as Prisma.InputJsonValue },
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Update failed";
+      redirect("/admin/users?error=" + encodeURIComponent(msg));
+    }
+
+    revalidatePath("/admin/users");
+    redirect("/admin/users?ok=1");
+  }
+
   async function saveVacationRoutingAction(formData: FormData) {
     "use server";
     await requireAdmin();
@@ -1252,6 +1291,40 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       <button type="submit" style={btn}>Save Vacation Routing</button>
+                    </div>
+                  </form>
+                </details>
+
+                <details style={{ marginTop: 12 }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 900 }}>Dropdown Visibility</summary>
+
+                  <form action={saveDropdownVisibilityAction} style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                    <input type="hidden" name="userId" value={u.id} />
+
+                    <div style={{ fontSize: 13, opacity: 0.8 }}>
+                      Hide this user from specific dropdowns across the app. They remain active and can still log in.
+                    </div>
+
+                    {[
+                      { key: DROPDOWN_KEYS.receipts, label: "Receipts — User dropdown" },
+                      { key: DROPDOWN_KEYS.checkout, label: "Checkout — Created By dropdown" },
+                    ].map(({ key, label }) => {
+                      const hidden = parseHiddenFromDropdowns(u.uiPreferences);
+                      return (
+                        <label key={`ddvis-${u.id}-${key}`} style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                          <input
+                            type="checkbox"
+                            name="hiddenFromDropdowns"
+                            value={key}
+                            defaultChecked={hidden.includes(key)}
+                          />
+                          <span>Hide from: <strong>{label}</strong></span>
+                        </label>
+                      );
+                    })}
+
+                    <div>
+                      <button type="submit" style={btn}>Save Dropdown Visibility</button>
                     </div>
                   </form>
                 </details>
