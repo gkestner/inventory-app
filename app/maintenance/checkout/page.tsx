@@ -217,7 +217,26 @@ export default async function MaintenanceCheckoutPage({
       if (!createdBy) throw new Error("Created-by user not found");
 
       await prisma.$transaction(async (tx) => {
-        const item = await tx.item.findUnique({ where: { id: itemId } });
+        const item = await tx.item.findUnique({
+          where: { id: itemId },
+          select: {
+            id: true,
+            sku: true,
+            partNumber: true,
+            vendor: true,
+            name: true,
+            description: true,
+            category: true,
+            cost: true,
+            price: true,
+            taxable: true,
+            active: true,
+            onHandQty: true,
+            orderedQty: true,
+            usedQty: true,
+            minQty: true,
+          },
+        });
         if (!item) throw new Error("Item not found");
 
         // Determine next version number (simple + safe)

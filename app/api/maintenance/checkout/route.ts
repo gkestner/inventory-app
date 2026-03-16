@@ -157,7 +157,26 @@ export async function POST(req: NextRequest) {
     const result = await prisma.$transaction(async (tx) => {
       // 1) Load item + store
       const [item, store] = await Promise.all([
-        tx.item.findUnique({ where: { id: itemId } }),
+        tx.item.findUnique({
+          where: { id: itemId },
+          select: {
+            id: true,
+            sku: true,
+            partNumber: true,
+            vendor: true,
+            name: true,
+            description: true,
+            category: true,
+            cost: true,
+            price: true,
+            taxable: true,
+            active: true,
+            onHandQty: true,
+            orderedQty: true,
+            usedQty: true,
+            minQty: true,
+          },
+        }),
         tx.location.findUnique({
           where: { id: storeId },
           select: { id: true, name: true, active: true },
