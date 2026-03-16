@@ -300,13 +300,13 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
       });
     } catch (e: unknown) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-        redirect("/admin/locations?err=" + encodeURIComponent("That Location # is already in use."));
+                  "Receipt Entry",
       }
 
       const msg = e instanceof Error ? e.message : "Create failed";
       const friendly =
         msg.toLowerCase().includes("unique") || msg.toLowerCase().includes("constraint")
-          ? "That location name (or number) already exists."
+                  "Receipt Entry Toggle",
           : msg;
 
       redirect("/admin/locations?err=" + encodeURIComponent(friendly));
@@ -1119,7 +1119,7 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
                 </td>
 
                 <td style={tdStyle}>
-                  <span style={{ fontWeight: 900 }}>{l.receiptEnabled ? "ON" : "OFF"}</span>
+                  <span style={{ fontWeight: 900 }}>{l.receiptEnabled ? "ENABLED" : "DISABLED"}</span>
                 </td>
 
                 <td style={tdStyle}>{new Date(l.createdAt).toLocaleString()}</td>
@@ -1214,7 +1214,7 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
                     <input type="hidden" name="id" value={l.id} />
                     <input type="hidden" name="nextReceiptEnabled" value={l.receiptEnabled ? "false" : "true"} />
                     <button type="submit" style={{ padding: "6px 10px", fontWeight: 900, whiteSpace: "nowrap" }}>
-                      {l.receiptEnabled ? "Turn Receipts Off" : "Turn Receipts On"}
+                      {l.receiptEnabled ? "Disable Receipt Entry" : "Enable Receipt Entry"}
                     </button>
                   </form>
                 </td>
@@ -1261,6 +1261,11 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
       <div style={{ fontSize: 12, opacity: 0.75, marginTop: 10 }}>
         Tip: if actions are off-screen, scroll horizontally inside the table area. Inactive locations are hidden from
         assignment pick-lists and maintenance checkout store selection.
+      </div>
+
+      <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
+        Receipt Entry toggle only affects the Receipt Entry page. It does not change checkout, work orders, or other
+        location pickers.
       </div>
     </div>
     
