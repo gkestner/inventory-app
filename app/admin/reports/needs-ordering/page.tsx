@@ -284,6 +284,11 @@ export default async function NeedsOrderingReportPage({
         AND ia."resolvedAt" IS NULL
         AND pct."needToOrderMore" = true
       GROUP BY ia."itemId"
+    ),
+    active_order_history AS (
+      SELECT DISTINCT io."itemId"
+      FROM "InventoryOrder" io
+      WHERE io."status" IN ('ORDERED'::"InventoryOrderStatus", 'ARRIVED'::"InventoryOrderStatus")
     )
     SELECT
       i."id",
@@ -300,7 +305,9 @@ export default async function NeedsOrderingReportPage({
       COALESCE(t."openTechRequests", 0) AS "openTechRequests"
     FROM "Item" i
     LEFT JOIN tech_req t ON t."itemId" = i."id"
+    LEFT JOIN active_order_history aoh ON aoh."itemId" = i."id"
     WHERE "active" = true
+      AND aoh."itemId" IS NULL
       AND (
         i."minQty" > (i."onHandQty" + i."orderedQty")
         OR COALESCE(t."openTechRequests", 0) > 0

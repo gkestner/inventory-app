@@ -1114,7 +1114,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
         ) : null}
 
         {/* CREATE ORDER */}
-        <details style={{ marginTop: 12 }}>
+        <details open style={{ marginTop: 12 }}>
           <summary
             style={{
               cursor: "pointer",
@@ -1299,10 +1299,30 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
         </details>
 
         {/* FILTERS */}
-        <div style={{ marginTop: 14, border, borderRadius: 14, background: surface, padding: 12 }}>
-          <div style={{ fontWeight: 900, marginBottom: 8, fontSize: 14 }}>Search & Filters</div>
+        <details style={{ marginTop: 14 }}>
+          <summary
+            style={{
+              cursor: "pointer",
+              userSelect: "none",
+              fontWeight: 900,
+              padding: 12,
+              border,
+              borderRadius: 14,
+              background: surface,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 10,
+            }}
+          >
+            <span>Search & Filters</span>
+            <span style={{ fontSize: 12, opacity: 0.75 }}>Click to expand</span>
+          </summary>
 
-          <form action="/admin/inventory-orders" method="get" style={{ display: "grid", gap: 10 }}>
+          <div style={{ marginTop: 10, border, borderRadius: 14, background: surface, padding: 12 }}>
+            <div style={{ fontWeight: 900, marginBottom: 8, fontSize: 14 }}>Search & Filters</div>
+
+            <form action="/admin/inventory-orders" method="get" style={{ display: "grid", gap: 10 }}>
             <div style={wrapRow}>
               <label style={{ ...controlLabel, ...flexItem(240, 2) }}>
                 Search
@@ -1398,8 +1418,9 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
             <div style={{ fontSize: 12, opacity: 0.8 }}>
               Showing <b>{orders.length}</b> of <b>{total}</b> results • Page <b>{page}</b> / <b>{pageCount}</b>
             </div>
-          </form>
-        </div>
+            </form>
+          </div>
+        </details>
 
         {/* Responsive “no overlap, no horizontal scroll” layout */}
         <style>{`

@@ -88,8 +88,15 @@ function cleanPartNumber(value: unknown): string {
 
 function toFinitePrice(value: unknown): number | null {
   const n = Number(value);
-  if (!Number.isFinite(n) || n < 0) return null;
+  if (!Number.isFinite(n) || n <= 0) return null;
   return Math.round(n * 100) / 100;
+}
+
+function compareByLowestPrice(a: PriceResult, b: PriceResult): number {
+  if (a.price == null && b.price == null) return 0;
+  if (a.price == null) return 1;
+  if (b.price == null) return -1;
+  return a.price - b.price;
 }
 
 function normalizeVendorList(value: unknown): string[] {
@@ -230,6 +237,7 @@ export async function POST(req: Request) {
     "If alternative, include matchedPartNumber with the alternative/replacement number.",
     "If exact and part number is clear, matchedPartNumber can repeat the same part number.",
     "Return only valid buy-page URLs.",
+    "If a page does not show a real price, set price to null. Never use 0 as a placeholder price.",
     "Prefer US suppliers and include item title, vendor, price, currency, shipping (if visible), stock status (if visible).",
     includeVendors.length > 0
       ? `Prioritize these vendors when available: ${includeVendors.join(", ")}.`
@@ -306,21 +314,11 @@ export async function POST(req: Request) {
         if (includeVendors.length > 0 && !matchesVendorRule(row.vendor, includeVendors)) return false;
         return true;
       })
-      .sort((a, b) => {
-        if (a.price == null && b.price == null) return 0;
-        if (a.price == null) return 1;
-        if (b.price == null) return -1;
-        return a.price - b.price;
-      });
+      .sort(compareByLowestPrice);
 
-    const normalized = normalizedBase
-      .sort((a, b) => {
-        if (a.price == null && b.price == null) return 0;
-        if (a.price == null) return 1;
-        if (b.price == null) return -1;
-        return a.price - b.price;
-      })
-      .slice(0, maxResults);
+    const exactMatches = normalizedBase.filter((r) => r.matchType !== "alternative").sort(compareByLowestPrice);
+    const alternatives = normalizedBase.filter((r) => r.matchType === "alternative").sort(compareByLowestPrice);
+    const normalized = [...exactMatches, ...alternatives].slice(0, maxResults);
 
     return NextResponse.json({
       partNumber,
