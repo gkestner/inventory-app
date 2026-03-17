@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "playwright install chromium && prisma generate && next build",
-    "postinstall": "playwright install chromium",
+    "playwright:install": "npx playwright install chromium",
+    "build": "npm run playwright:install && prisma generate && next build",
+    "postinstall": "npm run playwright:install",
     "migrate:deploy": "prisma migrate deploy",
     "start": "next start",
     "lint": "eslint",
