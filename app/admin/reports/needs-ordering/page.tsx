@@ -605,9 +605,9 @@ export default async function NeedsOrderingReportPage({
                     <div style={{ fontSize: 12, opacity: 0.82 }}>{row.manufacturer || ""}</div>
                   </td>
                   <td style={{ padding: 10 }}>
-                    {itemUrl ? (
-                      <a
-                        href={itemUrl}
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <Link
+                        href={`/admin/price-lookup?partNumber=${encodeURIComponent(String(row.partNumber || row.sku || "").trim())}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         style={{
@@ -621,11 +621,30 @@ export default async function NeedsOrderingReportPage({
                           display: "inline-block",
                         }}
                       >
-                        Open
-                      </a>
-                    ) : (
-                      <span style={{ opacity: 0.6 }}>—</span>
-                    )}
+                        AI Lookup
+                      </Link>
+                      {itemUrl ? (
+                        <a
+                          href={itemUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            padding: "6px 10px",
+                            borderRadius: 10,
+                            border: "1px solid rgba(128,128,128,0.25)",
+                            background: "var(--background)",
+                            color: "var(--foreground)",
+                            fontWeight: 800,
+                            textDecoration: "none",
+                            display: "inline-block",
+                          }}
+                        >
+                          Open
+                        </a>
+                      ) : (
+                        <span style={{ opacity: 0.6 }}>—</span>
+                      )}
+                    </div>
                   </td>
                   <td style={{ padding: 10 }}>{row.onHandQty}</td>
                   <td style={{ padding: 10 }}>{row.orderedQty}</td>

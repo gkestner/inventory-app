@@ -354,6 +354,11 @@ export default async function AdminNav() {
                     Items
                   </Link>
                 ) : null}
+                {canAdminItems ? (
+                  <Link href="/admin/price-lookup" style={menuItemStyle}>
+                    AI Price Lookup
+                  </Link>
+                ) : null}
                 {canAdminOrderHistory ? (
                   <Link href="/admin/inventory-orders" style={menuItemStyle}>
                     Order History

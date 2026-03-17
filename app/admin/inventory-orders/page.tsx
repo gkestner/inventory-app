@@ -313,6 +313,20 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
             >
               ← Items
             </Link>
+            <Link
+              href="/admin/price-lookup"
+              style={{
+                padding: "8px 12px",
+                borderRadius: 12,
+                border: "1px solid rgba(128,128,128,0.25)",
+                background: "var(--background)",
+                color: "var(--foreground)",
+                textDecoration: "none",
+                fontWeight: 900,
+              }}
+            >
+              AI Price Lookup
+            </Link>
           </div>
 
           <div
@@ -1032,6 +1046,22 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
             }}
           >
             Live Orders →
+          </Link>
+
+          <Link
+            href="/admin/price-lookup"
+            style={{
+              padding: "10px 14px",
+              borderRadius: 12,
+              border,
+              background: surface,
+              color: fg,
+              textDecoration: "none",
+              fontWeight: 900,
+              opacity: 0.92,
+            }}
+          >
+            AI Price Lookup
           </Link>
 
           <Link

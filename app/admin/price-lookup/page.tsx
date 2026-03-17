@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 type PriceResult = {
   vendor: string;
@@ -38,12 +39,14 @@ function formatMoney(amount: number | null, currency: string): string {
 }
 
 export default function PriceLookupPage() {
+  const searchParams = useSearchParams();
   const [partNumber, setPartNumber] = useState("");
   const [includeVendorsText, setIncludeVendorsText] = useState("");
   const [excludeVendorsText, setExcludeVendorsText] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [data, setData] = useState<LookupResponse | null>(null);
+  const autoRanFor = useRef<string>("");
 
   function parseVendorCsv(input: string): string[] {
     return Array.from(
@@ -61,12 +64,11 @@ export default function PriceLookupPage() {
     return data.results.find((x) => x.price != null) ?? null;
   }, [data]);
 
-  async function onSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function runLookup(rawPartNumber: string) {
     setError("");
     setData(null);
 
-    const normalized = partNumber.trim();
+    const normalized = rawPartNumber.trim();
     if (!normalized) {
       setError("Enter a part number first.");
       return;
@@ -99,6 +101,21 @@ export default function PriceLookupPage() {
       setLoading(false);
     }
   }
+
+  async function onSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    await runLookup(partNumber);
+  }
+
+  useEffect(() => {
+    const queryPart = (searchParams.get("partNumber") || searchParams.get("pn") || "").trim();
+    if (!queryPart) return;
+    if (autoRanFor.current === queryPart) return;
+
+    autoRanFor.current = queryPart;
+    setPartNumber(queryPart);
+    void runLookup(queryPart);
+  }, [searchParams]);
 
   return (
     <main style={{ display: "grid", gap: 14, maxWidth: 980 }}>

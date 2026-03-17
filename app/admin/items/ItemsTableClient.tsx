@@ -1876,6 +1876,30 @@ export default function ItemsTableClient({
                                 Inventory
                               </a>
 
+                              <a
+                                href={`/admin/price-lookup?partNumber=${encodeURIComponent((row.partNumber || row.sku || "").trim())}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={() => {
+                                  setOpenActionsForId(null);
+                                  setActionsMenuPos(null);
+                                }}
+                                style={{
+                                  display: "inline-block",
+                                  padding: "6px 10px",
+                                  borderRadius: 10,
+                                  border: "1px solid var(--border)",
+                                  background: surface,
+                                  color: "var(--text)",
+                                  textDecoration: "none",
+                                  fontWeight: 700,
+                                  lineHeight: 1.1,
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                AI Price Lookup
+                              </a>
+
                               {web ? (
                                 <a
                                   href={web}
