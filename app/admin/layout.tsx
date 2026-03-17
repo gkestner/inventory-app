@@ -286,6 +286,13 @@ export default async function AdminLayout({ children }: { children: ReactNode })
             </Link>
           ) : null}
 
+          {canOrders ? (
+            <Link href="/admin/auto-orders" style={linkStyle}>
+              <span>Auto Orders</span>
+              <span style={pill}>Approval</span>
+            </Link>
+          ) : null}
+
           {canAlerts ? (
             <Link href="/admin/inventory-alerts" style={linkStyle}>
               <span>Inventory Alerts</span>

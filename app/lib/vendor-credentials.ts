@@ -62,23 +62,8 @@ function toObject(value: unknown): Record<string, unknown> {
 }
 
 export function normalizeSiteKey(input: unknown): string {
-  const raw = String(input ?? "").trim().toLowerCase();
-  if (!raw) return "";
-
-  // Accept full URLs and normalize them to just the hostname for stable keys.
-  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-
-  let host = "";
-  try {
-    host = new URL(withProtocol).hostname.toLowerCase();
-  } catch {
-    host = raw;
-  }
-
-  return host
-    .replace(/[^a-z0-9.-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 128);
+  // Preserve the user-entered site/path exactly (except outer whitespace) so URLs are never rewritten.
+  return String(input ?? "").trim().slice(0, 512);
 }
 
 export function getVaultFromUiPreferences(uiPreferences: unknown): VendorVault {

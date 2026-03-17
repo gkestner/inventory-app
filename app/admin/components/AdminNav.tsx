@@ -364,6 +364,11 @@ export default async function AdminNav() {
                     Order History
                   </Link>
                 ) : null}
+                {canAdminOrderHistory ? (
+                  <Link href="/admin/auto-orders" style={menuItemStyle}>
+                    Auto Orders (Approval)
+                  </Link>
+                ) : null}
                 {canAdminInventoryAlerts ? (
                   <Link href="/admin/inventory-alerts" style={menuItemStyle}>
                     Alerts
