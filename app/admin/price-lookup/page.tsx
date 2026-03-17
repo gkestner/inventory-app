@@ -580,13 +580,24 @@ export default function PriceLookupPage() {
                   flexWrap: "wrap",
                 }}
               >
-                <div style={{ display: "grid", gap: 2 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ display: "grid", gap: 2, flex: "1 1 320px", minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap", minWidth: 0 }}>
                     <a
                       href={toCredentialSiteUrl(row.site)}
                       target="_blank"
                       rel="noreferrer"
-                      style={{ fontWeight: 800, textDecoration: "underline", textUnderlineOffset: 2, color: "inherit", wordBreak: "break-all" }}
+                      style={{
+                        fontWeight: 800,
+                        textDecoration: "underline",
+                        textUnderlineOffset: 2,
+                        color: "inherit",
+                        display: "block",
+                        minWidth: 0,
+                        maxWidth: "100%",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
                       title={`Open ${row.site}`}
                     >
                       {row.site}
