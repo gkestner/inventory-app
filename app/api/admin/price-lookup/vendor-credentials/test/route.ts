@@ -158,6 +158,65 @@ function discoverLoginCandidates(baseUrl: string, html: string): string[] {
   return Array.from(found).slice(0, 8);
 }
 
+function buildInitialLoginCandidates(base: string): string[] {
+  const out = new Set<string>();
+  const cleanBase = base.replace(/\/+$/, "");
+  out.add(base);
+
+  const commonPaths = [
+    "/login",
+    "/signin",
+    "/sign-in",
+    "/account/login",
+    "/account/signin",
+    "/customer/login",
+    "/customer/account/login",
+    "/users/sign_in",
+    "/user/login",
+    "/auth/login",
+    "/identity/login",
+    "/my-account",
+    "/my-account/login",
+  ];
+
+  for (const path of commonPaths) {
+    out.add(`${cleanBase}${path}`);
+  }
+
+  try {
+    const hostname = new URL(base).hostname.toLowerCase();
+    const hostHints: Array<{ hint: RegExp; paths: string[] }> = [
+      {
+        hint: /(shopify|store)/,
+        paths: ["/account/login", "/account"],
+      },
+      {
+        hint: /(woocommerce|wordpress|wp)/,
+        paths: ["/my-account", "/wp-login.php"],
+      },
+      {
+        hint: /(magento|adobecommerce)/,
+        paths: ["/customer/account/login", "/customer/account"],
+      },
+      {
+        hint: /(parts|supply|equipment|restaurant|kitchen)/,
+        paths: ["/account", "/customer/login", "/user/login"],
+      },
+    ];
+
+    for (const rule of hostHints) {
+      if (!rule.hint.test(hostname)) continue;
+      for (const path of rule.paths) {
+        out.add(`${cleanBase}${path}`);
+      }
+    }
+  } catch {
+    // Ignore hostname-specific candidate generation when URL parsing fails.
+  }
+
+  return Array.from(out).slice(0, 20);
+}
+
 async function probeCredential(siteInput: string, username: string, password: string): Promise<CredentialTestResult> {
   const checkedAt = new Date().toISOString();
   const site = String(siteInput ?? "").trim();
@@ -171,7 +230,7 @@ async function probeCredential(siteInput: string, username: string, password: st
 
   const hasProtocol = /^https?:\/\//i.test(site);
   const base = hasProtocol ? site : `https://${site}`;
-  const queue = [base, `${base.replace(/\/+$/, "")}/login`, `${base.replace(/\/+$/, "")}/account/login`];
+  const queue = buildInitialLoginCandidates(base);
   const visited = new Set<string>();
   let reachableUrl = "";
 
