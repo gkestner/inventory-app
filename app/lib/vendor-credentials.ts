@@ -15,6 +15,12 @@ export type VendorCredentialSummary = {
   updatedAt: string;
 };
 
+export type VendorCredentialForTest = {
+  site: string;
+  username: string;
+  password: string;
+};
+
 const VAULT_KEY = "vendorAuthVault";
 
 function getCipherKey(): Buffer {
@@ -101,6 +107,24 @@ export function listVendorCredentials(uiPreferences: unknown): VendorCredentialS
       });
     } catch {
       // Skip unreadable entries rather than failing entire page.
+    }
+  }
+
+  rows.sort((a, b) => a.site.localeCompare(b.site));
+  return rows;
+}
+
+export function listVendorCredentialsForTest(uiPreferences: unknown): VendorCredentialForTest[] {
+  const vault = getVaultFromUiPreferences(uiPreferences);
+  const rows: VendorCredentialForTest[] = [];
+
+  for (const [site, entry] of Object.entries(vault)) {
+    try {
+      const username = decryptText(entry.usernameEnc);
+      const password = decryptText(entry.passwordEnc);
+      rows.push({ site, username, password });
+    } catch {
+      // Skip unreadable entries rather than failing entire probe.
     }
   }
 

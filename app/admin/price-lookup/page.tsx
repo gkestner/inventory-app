@@ -9,6 +9,8 @@ type PriceResult = {
   price: number | null;
   currency: string;
   url: string;
+  matchType?: "exact" | "alternative";
+  matchedPartNumber?: string;
   shipping?: string;
   inStock?: string;
   notes?: string;
@@ -45,6 +47,24 @@ type EnvStatusResponse = {
   error?: string;
 };
 
+type CredentialTestStatus = "ok" | "warning" | "error";
+
+type CredentialTestResult = {
+  site: string;
+  status: CredentialTestStatus;
+  message: string;
+  checkedAt: string;
+};
+
+type CredentialTestSummary = {
+  total: number;
+  ok: number;
+  warning: number;
+  error: number;
+};
+
+const MASKED_PASSWORD = "********";
+
 function formatMoney(amount: number | null, currency: string): string {
   if (amount == null) return "N/A";
   try {
@@ -63,13 +83,19 @@ export default function PriceLookupPage() {
   const [partNumber, setPartNumber] = useState("");
   const [includeVendorsText, setIncludeVendorsText] = useState("");
   const [excludeVendorsText, setExcludeVendorsText] = useState("");
-  const [site, setSite] = useState("");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  const [newSite, setNewSite] = useState("");
+  const [newUsername, setNewUsername] = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const [editingSite, setEditingSite] = useState<string | null>(null);
+  const [editSiteValue, setEditSiteValue] = useState("");
+  const [editUsernameValue, setEditUsernameValue] = useState("");
+  const [editPasswordValue, setEditPasswordValue] = useState("");
   const [credsLoading, setCredsLoading] = useState(false);
   const [credsError, setCredsError] = useState("");
   const [credentials, setCredentials] = useState<VendorCredentialSummary[]>([]);
+  const [testingAllCreds, setTestingAllCreds] = useState(false);
+  const [testSummary, setTestSummary] = useState<CredentialTestSummary | null>(null);
+  const [testBySite, setTestBySite] = useState<Record<string, CredentialTestResult>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [data, setData] = useState<LookupResponse | null>(null);
@@ -91,6 +117,11 @@ export default function PriceLookupPage() {
   const lowest = useMemo(() => {
     if (!data?.results?.length) return null;
     return data.results.find((x) => x.price != null) ?? null;
+  }, [data]);
+
+  const alternativesCount = useMemo(() => {
+    if (!data?.results?.length) return 0;
+    return data.results.filter((r) => r.matchType === "alternative").length;
   }, [data]);
 
   async function runLookup(rawPartNumber: string) {
@@ -162,7 +193,18 @@ export default function PriceLookupPage() {
         setCredsError(payload.error || "Failed to load saved vendor credentials.");
         return;
       }
-      setCredentials(Array.isArray(payload.credentials) ? payload.credentials : []);
+      const next = Array.isArray(payload.credentials) ? payload.credentials : [];
+      setCredentials(next);
+
+      // Trim stale test statuses when list changes.
+      const allowed = new Set(next.map((x) => x.site));
+      setTestBySite((prev) => {
+        const out: Record<string, CredentialTestResult> = {};
+        for (const [k, v] of Object.entries(prev)) {
+          if (allowed.has(k)) out[k] = v;
+        }
+        return out;
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load saved vendor credentials.";
       setCredsError(msg);
@@ -175,24 +217,23 @@ export default function PriceLookupPage() {
     e.preventDefault();
     setCredsError("");
 
-    const normalizedSite = site.trim();
-    const normalizedUsername = username.trim();
-    const normalizedPassword = password.trim();
-    if (!normalizedSite || !normalizedUsername || (!editingSite && !normalizedPassword)) {
-      setCredsError("Site and username are required. Password is required for new credentials.");
+    const normalizedSite = newSite.trim();
+    const normalizedUsername = newUsername.trim();
+    const normalizedPassword = newPassword.trim();
+    if (!normalizedSite || !normalizedUsername || !normalizedPassword) {
+      setCredsError("Site, username, and password are required.");
       return;
     }
 
     setCredsLoading(true);
     try {
       const res = await fetch("/api/admin/price-lookup/vendor-credentials", {
-        method: editingSite ? "PATCH" : "POST",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          site: editingSite || normalizedSite,
-          nextSite: normalizedSite,
+          site: normalizedSite,
           username: normalizedUsername,
-          password: normalizedPassword || undefined,
+          password: normalizedPassword,
         }),
       });
       const payload = (await res.json().catch(() => ({}))) as {
@@ -205,12 +246,64 @@ export default function PriceLookupPage() {
       }
 
       setCredentials(Array.isArray(payload.credentials) ? payload.credentials : []);
-      setPassword("");
-      setSite("");
-      setUsername("");
-      setEditingSite(null);
+      setNewPassword("");
+      setNewSite("");
+      setNewUsername("");
+      setTestSummary(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to save credential.";
+      setCredsError(msg);
+    } finally {
+      setCredsLoading(false);
+    }
+  }
+
+  function beginEdit(row: VendorCredentialSummary) {
+    setEditingSite(row.site);
+    setEditSiteValue(row.site);
+    setEditUsernameValue(row.username);
+    setEditPasswordValue(MASKED_PASSWORD);
+    setCredsError("");
+  }
+
+  function cancelEdit() {
+    setEditingSite(null);
+    setEditSiteValue("");
+    setEditUsernameValue("");
+    setEditPasswordValue("");
+  }
+
+  async function saveCredentialEdit(originalSite: string) {
+    setCredsLoading(true);
+    setCredsError("");
+    const trimmedPassword = editPasswordValue.trim();
+    const nextPassword = !trimmedPassword || trimmedPassword === MASKED_PASSWORD ? undefined : trimmedPassword;
+
+    try {
+      const res = await fetch("/api/admin/price-lookup/vendor-credentials", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          site: originalSite,
+          nextSite: editSiteValue.trim(),
+          username: editUsernameValue.trim(),
+          password: nextPassword,
+        }),
+      });
+      const payload = (await res.json().catch(() => ({}))) as {
+        credentials?: VendorCredentialSummary[];
+        error?: string;
+      };
+      if (!res.ok) {
+        setCredsError(payload.error || "Failed to update credential.");
+        return;
+      }
+
+      setCredentials(Array.isArray(payload.credentials) ? payload.credentials : []);
+      setTestSummary(null);
+      cancelEdit();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to update credential.";
       setCredsError(msg);
     } finally {
       setCredsLoading(false);
@@ -235,17 +328,54 @@ export default function PriceLookupPage() {
         return;
       }
       setCredentials(Array.isArray(payload.credentials) ? payload.credentials : []);
+      setTestSummary(null);
+      setTestBySite((prev) => {
+        const out = { ...prev };
+        delete out[targetSite];
+        return out;
+      });
       if (editingSite === targetSite) {
-        setEditingSite(null);
-        setSite("");
-        setUsername("");
-        setPassword("");
+        cancelEdit();
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to remove credential.";
       setCredsError(msg);
     } finally {
       setCredsLoading(false);
+    }
+  }
+
+  async function testAllCredentials() {
+    setTestingAllCreds(true);
+    setCredsError("");
+    try {
+      const res = await fetch("/api/admin/price-lookup/vendor-credentials/test", {
+        method: "POST",
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        results?: CredentialTestResult[];
+        summary?: CredentialTestSummary;
+        error?: string;
+      };
+
+      if (!res.ok) {
+        setCredsError(payload.error || "Failed to test credentials.");
+        return;
+      }
+
+      const results = Array.isArray(payload.results) ? payload.results : [];
+      const map: Record<string, CredentialTestResult> = {};
+      for (const row of results) {
+        if (row?.site) map[row.site] = row;
+      }
+      setTestBySite(map);
+      setTestSummary(payload.summary ?? null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to test credentials.";
+      setCredsError(msg);
+    } finally {
+      setTestingAllCreds(false);
     }
   }
 
@@ -314,6 +444,22 @@ export default function PriceLookupPage() {
             Save vendor login credentials per site. They are encrypted server-side and never returned in plaintext.
           </div>
 
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => void testAllCredentials()}
+              disabled={testingAllCreds || credsLoading}
+              style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--button, transparent)", color: "inherit", fontWeight: 800, cursor: testingAllCreds || credsLoading ? "default" : "pointer", opacity: testingAllCreds || credsLoading ? 0.7 : 1 }}
+            >
+              {testingAllCreds ? "Testing credentials..." : "Test All Credentials"}
+            </button>
+            {testSummary ? (
+              <span style={{ opacity: 0.9, fontWeight: 700 }}>
+                OK: {testSummary.ok} | Warning: {testSummary.warning} | Error: {testSummary.error}
+              </span>
+            ) : null}
+          </div>
+
           {editingSite ? (
             <div style={{ fontWeight: 700, opacity: 0.9 }}>
               Editing: {editingSite}. Leave password blank to keep the existing password.
@@ -322,21 +468,21 @@ export default function PriceLookupPage() {
 
           <form onSubmit={saveCredential} style={{ display: "grid", gap: 8, maxWidth: 680 }}>
             <input
-              value={site}
-              onChange={(e) => setSite(e.target.value)}
+              value={newSite}
+              onChange={(e) => setNewSite(e.target.value)}
               placeholder="Vendor site (example: partstown.com)"
               style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--input, transparent)", color: "inherit" }}
             />
             <input
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              value={newUsername}
+              onChange={(e) => setNewUsername(e.target.value)}
               placeholder="Login username / email"
               style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--input, transparent)", color: "inherit" }}
             />
             <input
               type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
               placeholder="Password"
               style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--input, transparent)", color: "inherit" }}
             />
@@ -346,22 +492,8 @@ export default function PriceLookupPage() {
                 disabled={credsLoading}
                 style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--button, transparent)", color: "inherit", fontWeight: 800, cursor: credsLoading ? "default" : "pointer" }}
               >
-                {credsLoading ? "Saving..." : editingSite ? "Update Credential" : "Save Credential"}
+                {credsLoading ? "Saving..." : "Save Credential"}
               </button>
-              {editingSite ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingSite(null);
-                    setSite("");
-                    setUsername("");
-                    setPassword("");
-                  }}
-                  style={{ marginLeft: 8, padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--button, transparent)", color: "inherit", fontWeight: 800, cursor: "pointer" }}
-                >
-                  Cancel Edit
-                </button>
-              ) : null}
             </div>
           </form>
 
@@ -384,31 +516,103 @@ export default function PriceLookupPage() {
                 }}
               >
                 <div style={{ display: "grid", gap: 2 }}>
-                  <div style={{ fontWeight: 800 }}>{row.site}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <div style={{ fontWeight: 800 }}>{row.site}</div>
+                    {(() => {
+                      const test = testBySite[row.site];
+                      if (!test) return null;
+
+                      const color =
+                        test.status === "ok"
+                          ? "#22c55e"
+                          : test.status === "warning"
+                            ? "#f59e0b"
+                            : "#ef4444";
+
+                      return (
+                        <span
+                          title={test.message}
+                          style={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: 999,
+                            display: "inline-block",
+                            background: color,
+                            border: "1px solid rgba(0,0,0,0.25)",
+                          }}
+                        />
+                      );
+                    })()}
+                  </div>
                   <div style={{ opacity: 0.85 }}>Username: {row.username}</div>
                   <div style={{ opacity: 0.75, fontSize: 12 }}>Updated: {new Date(row.updatedAt).toLocaleString()}</div>
+                  {testBySite[row.site] ? (
+                    <div style={{ opacity: 0.75, fontSize: 12 }}>
+                      {testBySite[row.site].message} (checked {new Date(testBySite[row.site].checkedAt).toLocaleString()})
+                    </div>
+                  ) : null}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingSite(row.site);
-                    setSite(row.site);
-                    setUsername(row.username);
-                    setPassword("");
-                  }}
-                  disabled={credsLoading}
-                  style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--button, transparent)", color: "inherit", fontWeight: 800, cursor: credsLoading ? "default" : "pointer", marginRight: 8 }}
-                >
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void removeCredential(row.site)}
-                  disabled={credsLoading}
-                  style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--button, transparent)", color: "inherit", fontWeight: 800, cursor: credsLoading ? "default" : "pointer" }}
-                >
-                  Remove
-                </button>
+
+                <div style={{ display: "flex", gap: 8, minWidth: 210, justifyContent: "flex-end" }}>
+                  <button
+                    type="button"
+                    onClick={() => beginEdit(row)}
+                    disabled={credsLoading}
+                    style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--button, transparent)", color: "inherit", fontWeight: 800, cursor: credsLoading ? "default" : "pointer" }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void removeCredential(row.site)}
+                    disabled={credsLoading}
+                    style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--button, transparent)", color: "inherit", fontWeight: 800, cursor: credsLoading ? "default" : "pointer" }}
+                  >
+                    Remove
+                  </button>
+                </div>
+
+                {editingSite === row.site ? (
+                  <div style={{ width: "100%", marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--border, rgba(0,0,0,0.2))", display: "grid", gap: 8 }}>
+                    <input
+                      value={editSiteValue}
+                      onChange={(e) => setEditSiteValue(e.target.value)}
+                      placeholder="Vendor site"
+                      style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--input, transparent)", color: "inherit" }}
+                    />
+                    <input
+                      value={editUsernameValue}
+                      onChange={(e) => setEditUsernameValue(e.target.value)}
+                      placeholder="Login username / email"
+                      style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--input, transparent)", color: "inherit" }}
+                    />
+                    <input
+                      type="password"
+                      value={editPasswordValue}
+                      onChange={(e) => setEditPasswordValue(e.target.value)}
+                      placeholder="Password"
+                      style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--input, transparent)", color: "inherit" }}
+                    />
+                    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={() => void saveCredentialEdit(row.site)}
+                        disabled={credsLoading}
+                        style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--button, transparent)", color: "inherit", fontWeight: 800, cursor: credsLoading ? "default" : "pointer" }}
+                      >
+                        {credsLoading ? "Saving..." : "Save Changes"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelEdit}
+                        disabled={credsLoading}
+                        style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--button, transparent)", color: "inherit", fontWeight: 800, cursor: credsLoading ? "default" : "pointer" }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>
@@ -515,6 +719,11 @@ export default function PriceLookupPage() {
                 Lowest found: {formatMoney(lowest.price, lowest.currency)} from {lowest.vendor}
               </div>
             ) : null}
+            {data.results.length > 0 ? (
+              <div style={{ opacity: 0.85 }}>
+                Exact matches: {data.results.length - alternativesCount} | Alternatives: {alternativesCount}
+              </div>
+            ) : null}
           </div>
 
           <div style={{ display: "grid", gap: 10 }}>
@@ -531,10 +740,27 @@ export default function PriceLookupPage() {
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                  <strong>{row.vendor}</strong>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <strong>{row.vendor}</strong>
+                    <span
+                      style={{
+                        padding: "2px 8px",
+                        borderRadius: 999,
+                        border: "1px solid var(--border, rgba(0,0,0,0.2))",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        opacity: 0.9,
+                      }}
+                    >
+                      {row.matchType === "alternative" ? "Alternative" : "Exact"}
+                    </span>
+                  </div>
                   <strong>{formatMoney(row.price, row.currency)}</strong>
                 </div>
                 <div>{row.title}</div>
+                {row.matchedPartNumber ? (
+                  <div style={{ opacity: 0.85 }}>Matched Part #: {row.matchedPartNumber}</div>
+                ) : null}
                 <a href={row.url} target="_blank" rel="noreferrer" style={{ wordBreak: "break-all" }}>
                   {row.url}
                 </a>

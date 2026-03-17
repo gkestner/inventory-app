@@ -16,6 +16,8 @@ type PriceResult = {
   price: number | null;
   currency: string;
   url: string;
+  matchType?: "exact" | "alternative";
+  matchedPartNumber?: string;
   shipping?: string;
   inStock?: string;
   notes?: string;
@@ -54,11 +56,24 @@ const LOOKUP_JSON_SCHEMA = {
           price: { anyOf: [{ type: "number" }, { type: "null" }] },
           currency: { type: "string" },
           url: { type: "string" },
+          matchType: { type: "string", enum: ["exact", "alternative"] },
+          matchedPartNumber: { anyOf: [{ type: "string" }, { type: "null" }] },
           shipping: { anyOf: [{ type: "string" }, { type: "null" }] },
           inStock: { anyOf: [{ type: "string" }, { type: "null" }] },
           notes: { anyOf: [{ type: "string" }, { type: "null" }] },
         },
-        required: ["vendor", "title", "price", "currency", "url", "shipping", "inStock", "notes"],
+        required: [
+          "vendor",
+          "title",
+          "price",
+          "currency",
+          "url",
+          "matchType",
+          "matchedPartNumber",
+          "shipping",
+          "inStock",
+          "notes",
+        ],
       },
     },
   },
@@ -194,7 +209,11 @@ export async function POST(req: Request) {
 
   const prompt = [
     "You are a sourcing analyst for restaurant maintenance parts.",
-    `Find online offers for this exact part number: ${partNumber}`,
+    `Find online offers for this exact part number: ${partNumber}.`,
+    "Also include compatible alternatives / replacements when available.",
+    "Set matchType='exact' for direct part matches and matchType='alternative' for substitutes.",
+    "If alternative, include matchedPartNumber with the alternative/replacement number.",
+    "If exact and part number is clear, matchedPartNumber can repeat the same part number.",
     "Return only valid buy-page URLs.",
     "Prefer US suppliers and include item title, vendor, price, currency, shipping (if visible), stock status (if visible).",
     includeVendors.length > 0
@@ -209,7 +228,7 @@ export async function POST(req: Request) {
     "Keep the summary under 20 words and keep notes concise.",
     `Return up to ${maxResults} results sorted by lowest total price first.`,
     "Respond as strict JSON with this shape and no extra text:",
-    '{"summary":"short text","results":[{"vendor":"","title":"","price":0,"currency":"USD","url":"https://...","shipping":"","inStock":"","notes":""}]}'
+    '{"summary":"short text","results":[{"vendor":"","title":"","price":0,"currency":"USD","url":"https://...","matchType":"exact","matchedPartNumber":"","shipping":"","inStock":"","notes":""}]}'
   ]
     .filter(Boolean)
     .join("\n");
@@ -259,6 +278,11 @@ export async function POST(req: Request) {
           price: toFinitePrice((row as { price?: unknown }).price),
           currency: String(row?.currency ?? "USD").trim() || "USD",
           url,
+          matchType:
+            String((row as { matchType?: unknown }).matchType ?? "exact").trim().toLowerCase() === "alternative"
+              ? "alternative"
+              : "exact",
+          matchedPartNumber: String((row as { matchedPartNumber?: unknown }).matchedPartNumber ?? "").trim() || undefined,
           shipping: String(row?.shipping ?? "").trim() || undefined,
           inStock: String(row?.inStock ?? "").trim() || undefined,
           notes: String(row?.notes ?? "").trim() || undefined,
