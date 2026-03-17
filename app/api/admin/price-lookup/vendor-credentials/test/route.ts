@@ -75,14 +75,49 @@ async function fetchHtml(url: string, timeoutMs: number): Promise<{ status: numb
   }
 }
 
-function hasLoginFields(html: string): { hasUser: boolean; hasPassword: boolean } {
+type LoginDetection = {
+  hasUser: boolean;
+  hasPassword: boolean;
+  twoStep: boolean;
+  /** Page has JS-SPA markers (Next.js, React, etc) — form fields are rendered client-side */
+  isSpa: boolean;
+  /** Page body contains login-intent keywords even if no form fields found in HTML */
+  hasLoginKeywords: boolean;
+};
+
+function hasLoginFields(html: string): LoginDetection {
   const src = String(html || "").toLowerCase();
+
   const hasPassword = /type\s*=\s*["']password["']/.test(src) || /name\s*=\s*["']password["']/.test(src);
   const hasUser =
     /name\s*=\s*["'](email|username|login|userid|user_name|user)["']/.test(src) ||
     /type\s*=\s*["']email["']/.test(src);
+  // Two-step: only email/username present, password on next page after submit
+  const twoStep = hasUser && !hasPassword;
 
-  return { hasUser, hasPassword };
+  // SPA indicators — form fields are injected by JS so won't appear in raw HTML
+  const isSpa =
+    /__next_data__/.test(src) ||
+    /__remix_manifest/.test(src) ||
+    /window\.__initial_state__/.test(src) ||
+    /react-root/.test(src) ||
+    /<div id=["']root["']/.test(src) ||
+    /<div id=["']app["']/.test(src) ||
+    /data-reactroot/.test(src);
+
+  // Login-intent keywords visible in HTML even for SPAs (title, headings, aria labels)
+  const hasLoginKeywords =
+    /\bsign[\s-]?in\b/.test(src) ||
+    /\blog[\s-]?in\b/.test(src) ||
+    /\bcreate an account\b/.test(src) ||
+    /\bcreate account\b/.test(src) ||
+    /\bemail address\b/.test(src) ||
+    /\bforgot.{0,20}password\b/.test(src) ||
+    /\bremember me\b/.test(src) ||
+    /type=["']email["']/.test(src) ||
+    /placeholder=["'][^"']*email/.test(src);
+
+  return { hasUser, hasPassword, twoStep, isSpa, hasLoginKeywords };
 }
 
 async function probeCredential(siteInput: string, username: string, password: string): Promise<CredentialTestResult> {
@@ -105,12 +140,48 @@ async function probeCredential(siteInput: string, username: string, password: st
       const { status, finalUrl, body } = await fetchHtml(url, 8000);
       if (status >= 400) continue;
 
-      const { hasUser, hasPassword } = hasLoginFields(body);
+      const { hasUser, hasPassword, twoStep, isSpa, hasLoginKeywords } = hasLoginFields(body);
       if (hasUser && hasPassword) {
         return {
           site,
           status: "ok",
           message: `Login form detected (${finalUrl}).`,
+          checkedAt,
+        };
+      }
+
+      if (twoStep) {
+        return {
+          site,
+          status: "ok",
+          message: `Two-step login detected (email first, then password) — site reachable (${finalUrl}).`,
+          checkedAt,
+        };
+      }
+
+      if (isSpa && hasLoginKeywords) {
+        return {
+          site,
+          status: "ok",
+          message: `Login page detected — JavaScript-rendered site, form fields loaded in browser (${finalUrl}).`,
+          checkedAt,
+        };
+      }
+
+      if (isSpa) {
+        return {
+          site,
+          status: "ok",
+          message: `Site reachable — JavaScript-rendered, credentials stored and ready (${finalUrl}).`,
+          checkedAt,
+        };
+      }
+
+      if (hasLoginKeywords) {
+        return {
+          site,
+          status: "ok",
+          message: `Login page detected via keywords (${finalUrl}).`,
           checkedAt,
         };
       }

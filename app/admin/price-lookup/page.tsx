@@ -592,7 +592,12 @@ export default function PriceLookupPage() {
                       {row.site}
                     </a>
                     {(() => {
-                      const test = testBySite[row.site];
+                      // Match by exact site key, or fallback to any entry whose site normalizes to the same thing
+                      const test =
+                        testBySite[row.site] ??
+                        Object.values(testBySite).find(
+                          (r) => r.site.trim().toLowerCase() === row.site.trim().toLowerCase()
+                        );
                       if (!test) return null;
 
                       const color =
@@ -619,11 +624,19 @@ export default function PriceLookupPage() {
                   </div>
                   <div style={{ opacity: 0.85 }}>Username: {row.username}</div>
                   <div style={{ opacity: 0.75, fontSize: 12 }}>Updated: {new Date(row.updatedAt).toLocaleString()}</div>
-                  {testBySite[row.site] ? (
-                    <div style={{ opacity: 0.75, fontSize: 12 }}>
-                      {testBySite[row.site].message} (checked {new Date(testBySite[row.site].checkedAt).toLocaleString()})
-                    </div>
-                  ) : null}
+                  {(() => {
+                    const test =
+                      testBySite[row.site] ??
+                      Object.values(testBySite).find(
+                        (r) => r.site.trim().toLowerCase() === row.site.trim().toLowerCase()
+                      );
+                    if (!test) return null;
+                    return (
+                      <div style={{ opacity: 0.75, fontSize: 12 }}>
+                        {test.message} (checked {new Date(test.checkedAt).toLocaleString()})
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div style={{ display: "flex", gap: 8, minWidth: 210, justifyContent: "flex-end" }}>
@@ -677,7 +690,16 @@ export default function PriceLookupPage() {
                       />
                       <button
                         type="button"
-                        onClick={() => setShowEditPassword((prev) => !prev)}
+                        onClick={() => {
+                          if (!showEditPassword) {
+                            // Revealing: if still showing the masked sentinel, clear it so user can type a new password
+                            if (editPasswordValue === MASKED_PASSWORD) setEditPasswordValue("");
+                          } else {
+                            // Hiding: if field is empty, restore the sentinel to indicate "keep existing"
+                            if (!editPasswordValue.trim()) setEditPasswordValue(MASKED_PASSWORD);
+                          }
+                          setShowEditPassword((prev) => !prev);
+                        }}
                         style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--button, transparent)", color: "inherit", fontWeight: 700, cursor: "pointer" }}
                         aria-label={showEditPassword ? "Hide password" : "Show password"}
                       >
