@@ -6,7 +6,8 @@ import { Permission } from "@prisma/client";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import { getConfiguredVendorSites } from "@/app/lib/vendor-credentials";
+import { getConfiguredVendorSites, listVendorCredentialsForTest } from "@/app/lib/vendor-credentials";
+import { getAuthenticatedPriceOverlay } from "@/app/lib/authenticated-vendor-pricing";
 
 export const runtime = "nodejs";
 
@@ -267,7 +268,7 @@ export async function POST(req: Request) {
       });
     }
 
-    const normalized = parsed.results
+    const normalizedBase = parsed.results
       .map((row): PriceResult | null => {
         const url = String(row?.url ?? "").trim();
         if (!/^https?:\/\//i.test(url)) return null;
@@ -293,6 +294,47 @@ export async function POST(req: Request) {
         if (excludeVendors.length > 0 && matchesVendorRule(row.vendor, excludeVendors)) return false;
         if (includeVendors.length > 0 && !matchesVendorRule(row.vendor, includeVendors)) return false;
         return true;
+      })
+      .sort((a, b) => {
+        if (a.price == null && b.price == null) return 0;
+        if (a.price == null) return 1;
+        if (b.price == null) return -1;
+        return a.price - b.price;
+      });
+
+    const credentialRows = listVendorCredentialsForTest(currentUser?.uiPreferences);
+    const authCandidates = normalizedBase.filter((row) => /^https?:\/\//i.test(row.url)).slice(0, Math.min(5, normalizedBase.length));
+
+    const authOverlayByUrl = new Map<string, Awaited<ReturnType<typeof getAuthenticatedPriceOverlay>>>();
+    if (credentialRows.length > 0 && authCandidates.length > 0) {
+      const overlays = await Promise.all(
+        authCandidates.map(async (row) => {
+          const overlay = await getAuthenticatedPriceOverlay({
+            result: { vendor: row.vendor, url: row.url },
+            credentials: credentialRows,
+          });
+          return [row.url, overlay] as const;
+        })
+      );
+
+      for (const [url, overlay] of overlays) {
+        authOverlayByUrl.set(url, overlay);
+      }
+    }
+
+    const normalized = normalizedBase
+      .map((row) => {
+        const overlay = authOverlayByUrl.get(row.url) ?? null;
+        if (!overlay) return row;
+
+        const next: PriceResult = { ...row };
+        if (overlay.price != null) {
+          next.price = overlay.price;
+          if (overlay.currency) next.currency = overlay.currency;
+        }
+        if (overlay.inStock) next.inStock = overlay.inStock;
+        next.notes = [next.notes, overlay.notes].filter(Boolean).join(" | ");
+        return next;
       })
       .sort((a, b) => {
         if (a.price == null && b.price == null) return 0;
