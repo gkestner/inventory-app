@@ -161,6 +161,12 @@ function parseTokenLimit(raw: string | undefined, fallback: number): number {
   return v;
 }
 
+function isPartsTownResult(vendor: string, url: string): boolean {
+  const v = String(vendor || "").toLowerCase();
+  const u = String(url || "").toLowerCase();
+  return v.includes("parts town") || u.includes("partstown.com");
+}
+
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -303,7 +309,10 @@ export async function POST(req: Request) {
       });
 
     const credentialRows = listVendorCredentialsForTest(currentUser?.uiPreferences);
-    const authCandidates = normalizedBase.filter((row) => /^https?:\/\//i.test(row.url)).slice(0, Math.min(5, normalizedBase.length));
+    const authCandidates = normalizedBase
+      .filter((row) => /^https?:\/\//i.test(row.url))
+      .filter((row) => isPartsTownResult(row.vendor, row.url))
+      .slice(0, 1);
 
     const authOverlayByUrl = new Map<string, Awaited<ReturnType<typeof getAuthenticatedPriceOverlay>>>();
     if (credentialRows.length > 0 && authCandidates.length > 0) {

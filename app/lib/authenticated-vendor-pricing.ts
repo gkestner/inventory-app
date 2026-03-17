@@ -21,6 +21,11 @@ type FormDescriptor = {
   passwordField: string;
 };
 
+function isPartsTownHost(host: string): boolean {
+  const normalized = String(host || "").toLowerCase();
+  return normalized === "partstown.com" || normalized.endsWith(".partstown.com") || normalized.includes("partstown");
+}
+
 function parseHost(input: string): string {
   try {
     return new URL(input).hostname.toLowerCase();
@@ -36,16 +41,16 @@ function normalizeSiteToHost(site: string): string {
   return parseHost(`https://${raw}`);
 }
 
-function findMatchingCredential(url: string, creds: VendorCredentialForTest[]): VendorCredentialForTest | null {
+function findPartsTownCredential(url: string, creds: VendorCredentialForTest[]): VendorCredentialForTest | null {
   const targetHost = parseHost(url);
-  if (!targetHost) return null;
+  if (!targetHost || !isPartsTownHost(targetHost)) return null;
 
   let best: VendorCredentialForTest | null = null;
   let bestScore = -1;
 
   for (const cred of creds) {
     const credHost = normalizeSiteToHost(cred.site);
-    if (!credHost) continue;
+    if (!credHost || !isPartsTownHost(credHost)) continue;
 
     let score = -1;
     if (targetHost === credHost) score = 100;
@@ -81,12 +86,25 @@ function detectBotChallenge(html: string): { blocked: boolean; provider?: string
   return { blocked: false };
 }
 
-function extractPrice(html: string): { price: number | null; currency?: string } {
+function extractPartsTownPrice(html: string): { price: number | null; currency?: string } {
   const src = String(html || "");
+
+  const jsonPrice = src.match(/"price"\s*:\s*"?([0-9]+(?:\.[0-9]{1,2})?)"?/i);
+  if (jsonPrice?.[1]) {
+    const p = Number(jsonPrice[1]);
+    if (Number.isFinite(p) && p >= 0) return { price: p, currency: "USD" };
+  }
 
   const itemprop = src.match(/itemprop=["']price["'][^>]*content=["']([0-9]+(?:\.[0-9]{1,2})?)["']/i);
   if (itemprop?.[1]) {
     const p = Number(itemprop[1]);
+    if (Number.isFinite(p) && p >= 0) return { price: p, currency: "USD" };
+  }
+
+  const partstownSpecific = src.match(/(?:our price|price)[^$]{0,80}\$\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?)/i);
+  if (partstownSpecific?.[1]) {
+    const normalized = partstownSpecific[1].replace(/,/g, "");
+    const p = Number(normalized);
     if (Number.isFinite(p) && p >= 0) return { price: p, currency: "USD" };
   }
 
@@ -210,28 +228,34 @@ async function fetchWithCookieJar(
   return { response, body };
 }
 
-function buildLoginCandidates(site: string): string[] {
+function buildPartsTownLoginCandidates(site: string): string[] {
   const raw = String(site || "").trim();
-  if (!raw) return [];
-  const base = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-  const clean = base.replace(/\/+$/, "");
+  const base = raw ? (/^https?:\/\//i.test(raw) ? raw : `https://${raw}`) : "https://www.partstown.com";
+  const origin = (() => {
+    try {
+      const parsed = new URL(base);
+      return `${parsed.protocol}//${parsed.host}`;
+    } catch {
+      return "https://www.partstown.com";
+    }
+  })();
+
   return [
-    base,
-    `${clean}/login`,
-    `${clean}/signin`,
-    `${clean}/account/login`,
-    `${clean}/customer/account/login`,
-    `${clean}/my-account`,
+    `${origin}/login`,
+    `${origin}/register`,
+    `${origin}/account/login`,
+    `${origin}/customer/account/login`,
+    origin,
   ];
 }
 
-async function attemptAuthenticatedSession(
+async function attemptPartsTownAuthenticatedSession(
   credential: VendorCredentialForTest,
   targetUrl: string
 ): Promise<AuthenticatedPriceOverlay> {
   const cookieJar = { cookie: "" };
 
-  for (const loginUrl of buildLoginCandidates(credential.site)) {
+  for (const loginUrl of buildPartsTownLoginCandidates(credential.site)) {
     try {
       const landing = await fetchWithCookieJar(loginUrl, { method: "GET" }, cookieJar);
       const challenge = detectBotChallenge(landing.body);
@@ -275,7 +299,7 @@ async function attemptAuthenticatedSession(
         };
       }
 
-      const price = extractPrice(afterLogin.body);
+      const price = extractPartsTownPrice(afterLogin.body);
       const inStock = extractStock(afterLogin.body);
       if (price.price != null) {
         return {
@@ -283,7 +307,7 @@ async function attemptAuthenticatedSession(
           price: price.price,
           currency: price.currency || "USD",
           inStock,
-          notes: `Authenticated vendor session used (${afterLogin.response.url}).`,
+          notes: `Authenticated Parts Town session used (${afterLogin.response.url}).`,
         };
       }
 
@@ -291,7 +315,7 @@ async function attemptAuthenticatedSession(
         status: "failed",
         price: null,
         inStock,
-        notes: `Signed in session attempted, but no parsable price found at ${afterLogin.response.url}.`,
+        notes: `Parts Town sign-in session attempted, but no parsable price was found at ${afterLogin.response.url}.`,
       };
     } catch {
       // Try next login candidate.
@@ -309,8 +333,11 @@ export async function getAuthenticatedPriceOverlay(args: {
   result: PriceResultLite;
   credentials: VendorCredentialForTest[];
 }): Promise<AuthenticatedPriceOverlay | null> {
-  const credential = findMatchingCredential(args.result.url, args.credentials);
+  const targetHost = parseHost(args.result.url);
+  if (!isPartsTownHost(targetHost)) return null;
+
+  const credential = findPartsTownCredential(args.result.url, args.credentials);
   if (!credential) return null;
 
-  return attemptAuthenticatedSession(credential, args.result.url);
+  return attemptPartsTownAuthenticatedSession(credential, args.result.url);
 }
