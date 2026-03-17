@@ -64,6 +64,43 @@ function toObject(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function hostFromSite(siteInput: string): string {
+  const raw = String(siteInput || "").trim();
+  if (!raw) return "";
+  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    return new URL(withProtocol).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function resolveVaultKey(vault: VendorVault, siteInput: unknown): string {
+  const requestedRaw = String(siteInput ?? "").trim();
+  const requested = normalizeSiteKey(requestedRaw);
+  if (!requested) return "";
+
+  if (vault[requested]) return requested;
+
+  // Backward compatibility: some historical entries used transformed keys while siteRaw may differ.
+  for (const [key, row] of Object.entries(vault)) {
+    const candidateRaw = String(row.siteRaw ?? key).trim();
+    if (normalizeSiteKey(candidateRaw) === requested) return key;
+  }
+
+  const requestedHost = hostFromSite(requestedRaw);
+  if (!requestedHost) return "";
+
+  for (const [key, row] of Object.entries(vault)) {
+    const candidateRaw = String(row.siteRaw ?? key).trim();
+    const candidateHost = hostFromSite(candidateRaw);
+    if (!candidateHost) continue;
+    if (candidateHost === requestedHost) return key;
+  }
+
+  return "";
+}
+
 export function normalizeSiteKey(input: unknown): string {
   // Preserve the user-entered site/path exactly (except outer whitespace) so URLs are never rewritten.
   return String(input ?? "").trim().slice(0, 512);
@@ -181,10 +218,12 @@ export function updateVendorCredential(
 
   const root = toObject(uiPreferences);
   const vault = getVaultFromUiPreferences(uiPreferences);
-  const existing = vault[site];
+  const resolvedSiteKey = resolveVaultKey(vault, rawSite);
+  const existing = resolvedSiteKey ? vault[resolvedSiteKey] : undefined;
   if (!existing) throw new Error("Credential not found for site.");
 
-  if (site !== nextSite && vault[nextSite]) {
+  const resolvedNextKey = resolveVaultKey(vault, rawNextSite);
+  if (resolvedNextKey && resolvedNextKey !== resolvedSiteKey) {
     throw new Error("A credential already exists for that site.");
   }
 
@@ -194,7 +233,7 @@ export function updateVendorCredential(
   if (!username) throw new Error("Username is required.");
   if (!password) throw new Error("Password is required.");
 
-  if (site !== nextSite) delete vault[site];
+  if (resolvedSiteKey && resolvedSiteKey !== nextSite) delete vault[resolvedSiteKey];
 
   vault[nextSite] = {
     label: nextLabel ?? String(existing.label ?? "").trim(),
@@ -216,7 +255,8 @@ export function removeVendorCredential(uiPreferences: unknown, siteInput: unknow
 
   const root = toObject(uiPreferences);
   const vault = getVaultFromUiPreferences(uiPreferences);
-  delete vault[site];
+  const resolvedKey = resolveVaultKey(vault, siteInput);
+  delete vault[resolvedKey || site];
 
   return {
     ...root,

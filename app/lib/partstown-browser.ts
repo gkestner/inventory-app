@@ -229,8 +229,9 @@ async function loginToPartsTown(page: any, credential: VendorCredentialForTest):
 export async function verifyPartsTownCredentialInBrowser(
   credential: VendorCredentialForTest
 ): Promise<PartsTownBrowserLoginResult> {
-  const session = await createBrowserSession();
+  let session: Awaited<ReturnType<typeof createBrowserSession>> | null = null;
   try {
+    session = await createBrowserSession();
     return await loginToPartsTown(session.page, credential);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown browser automation error.";
@@ -245,7 +246,7 @@ export async function verifyPartsTownCredentialInBrowser(
       message: `Parts Town browser verification failed: ${message}`,
     };
   } finally {
-    await session.browser.close().catch(() => null);
+    if (session) await session.browser.close().catch(() => null);
   }
 }
 
@@ -253,9 +254,10 @@ export async function fetchPartsTownAuthenticatedPriceInBrowser(args: {
   credential: VendorCredentialForTest;
   targetUrl: string;
 }): Promise<PartsTownBrowserPriceResult> {
-  const session = await createBrowserSession();
+  let session: Awaited<ReturnType<typeof createBrowserSession>> | null = null;
 
   try {
+    session = await createBrowserSession();
     const login = await loginToPartsTown(session.page, args.credential);
     if (login.status === "blocked") {
       return { status: "blocked", price: null, notes: login.message };
@@ -332,6 +334,6 @@ export async function fetchPartsTownAuthenticatedPriceInBrowser(args: {
       notes: `Parts Town browser pricing failed: ${message}`,
     };
   } finally {
-    await session.browser.close().catch(() => null);
+    if (session) await session.browser.close().catch(() => null);
   }
 }

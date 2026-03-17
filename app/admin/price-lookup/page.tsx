@@ -595,7 +595,9 @@ export default function PriceLookupPage() {
                 }}
               >
                 <div style={{ display: "grid", gap: 2, flex: "1 1 320px", minWidth: 0 }}>
-                  {row.label ? <div style={{ fontWeight: 900 }}>{row.label}</div> : null}
+                  <div style={{ fontWeight: 900, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.label || row.site}>
+                    {row.label || row.site}
+                  </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap", minWidth: 0 }}>
                     <a
                       href={toCredentialSiteUrl(row.site)}
@@ -612,10 +614,11 @@ export default function PriceLookupPage() {
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
+                        opacity: 0.75,
                       }}
                       title={`Open ${row.site}`}
                     >
-                      {row.site}
+                      Open Site
                     </a>
                     {(() => {
                       // Match by exact site key, or fallback to any entry whose site normalizes to the same thing
