@@ -21,6 +21,20 @@ function installPlaywrightChromiumRuntime(): void {
   }
 }
 
+async function launchWithLocalBrowserPath(chromium: { launch: (options: { headless: boolean }) => Promise<any> }) {
+  const previous = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  process.env.PLAYWRIGHT_BROWSERS_PATH = "0";
+  try {
+    return await chromium.launch({ headless: true });
+  } finally {
+    if (typeof previous === "undefined") {
+      delete process.env.PLAYWRIGHT_BROWSERS_PATH;
+    } else {
+      process.env.PLAYWRIGHT_BROWSERS_PATH = previous;
+    }
+  }
+}
+
 export type PartsTownBrowserLoginResult = {
   status: "ok" | "blocked" | "failed";
   message: string;
@@ -167,17 +181,18 @@ async function getBodyText(page: { locator: (selector: string) => { innerText: (
 }
 
 async function createBrowserSession() {
-  process.env.PLAYWRIGHT_BROWSERS_PATH = "0";
   const { chromium } = await import("playwright");
   let browser;
   try {
+    // Prefer any browser already available in the platform default path.
     browser = await chromium.launch({ headless: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error || "");
     if (!isMissingPlaywrightExecutableError(message)) throw error;
 
+    // Fallback: install to app-local path and launch from that path.
     installPlaywrightChromiumRuntime();
-    browser = await chromium.launch({ headless: true });
+    browser = await launchWithLocalBrowserPath(chromium);
   }
 
   const context = await browser.newContext({
