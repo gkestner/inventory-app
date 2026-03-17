@@ -306,6 +306,13 @@ export default async function AdminLayout({ children }: { children: ReactNode })
               <span style={pill}>Catalog</span>
             </Link>
           ) : null}
+
+          {canItems ? (
+            <Link href="/admin/price-lookup" style={linkStyle}>
+              <span>AI Price Lookup</span>
+              <span style={pill}>GPT</span>
+            </Link>
+          ) : null}
         </nav>
 
         <div style={sectionTitle}>Admin</div>
