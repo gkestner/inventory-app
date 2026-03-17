@@ -109,6 +109,15 @@ function detectQuotaOrRateLimit(error: unknown): boolean {
   return message.includes("exceeded your current quota") || message.includes("rate limit");
 }
 
+function parseTokenLimit(raw: string | undefined, fallback: number): number {
+  const n = Number(raw ?? "");
+  if (!Number.isFinite(n)) return fallback;
+  const v = Math.trunc(n);
+  if (v < 200) return 200;
+  if (v > 2000) return 2000;
+  return v;
+}
+
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -151,6 +160,10 @@ export async function POST(req: Request) {
   }
 
   const client = new OpenAI({ apiKey });
+  const model = String(process.env.OPENAI_PRICE_LOOKUP_MODEL || "gpt-4.1-mini").trim() || "gpt-4.1-mini";
+  const envTokenCap = parseTokenLimit(process.env.OPENAI_PRICE_LOOKUP_MAX_TOKENS, 700);
+  const dynamicTokenCap = Math.min(900, 260 + maxResults * 70);
+  const maxOutputTokens = Math.min(envTokenCap, dynamicTokenCap);
 
   const prompt = [
     "You are a sourcing analyst for restaurant maintenance parts.",
@@ -166,6 +179,7 @@ export async function POST(req: Request) {
     excludeVendors.length > 0
       ? `Exclude these vendors from results: ${excludeVendors.join(", ")}.`
       : "",
+    "Keep the summary under 20 words and keep notes concise.",
     `Return up to ${maxResults} results sorted by lowest total price first.`,
     "Respond as strict JSON with this shape and no extra text:",
     '{"summary":"short text","results":[{"vendor":"","title":"","price":0,"currency":"USD","url":"https://...","shipping":"","inStock":"","notes":""}]}'
@@ -175,10 +189,10 @@ export async function POST(req: Request) {
 
   try {
     const response = await client.responses.create({
-      model: "gpt-4.1-mini",
+      model,
       tools: [{ type: "web_search_preview" }],
       input: prompt,
-      max_output_tokens: 1400,
+      max_output_tokens: maxOutputTokens,
     });
 
     const outputText = (response.output_text ?? "").trim();
