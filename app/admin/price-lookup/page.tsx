@@ -66,6 +66,7 @@ export default function PriceLookupPage() {
   const [site, setSite] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [editingSite, setEditingSite] = useState<string | null>(null);
   const [credsLoading, setCredsLoading] = useState(false);
   const [credsError, setCredsError] = useState("");
   const [credentials, setCredentials] = useState<VendorCredentialSummary[]>([]);
@@ -177,20 +178,21 @@ export default function PriceLookupPage() {
     const normalizedSite = site.trim();
     const normalizedUsername = username.trim();
     const normalizedPassword = password.trim();
-    if (!normalizedSite || !normalizedUsername || !normalizedPassword) {
-      setCredsError("Site, username, and password are required.");
+    if (!normalizedSite || !normalizedUsername || (!editingSite && !normalizedPassword)) {
+      setCredsError("Site and username are required. Password is required for new credentials.");
       return;
     }
 
     setCredsLoading(true);
     try {
       const res = await fetch("/api/admin/price-lookup/vendor-credentials", {
-        method: "POST",
+        method: editingSite ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          site: normalizedSite,
+          site: editingSite || normalizedSite,
+          nextSite: normalizedSite,
           username: normalizedUsername,
-          password: normalizedPassword,
+          password: normalizedPassword || undefined,
         }),
       });
       const payload = (await res.json().catch(() => ({}))) as {
@@ -206,6 +208,7 @@ export default function PriceLookupPage() {
       setPassword("");
       setSite("");
       setUsername("");
+      setEditingSite(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to save credential.";
       setCredsError(msg);
@@ -232,6 +235,12 @@ export default function PriceLookupPage() {
         return;
       }
       setCredentials(Array.isArray(payload.credentials) ? payload.credentials : []);
+      if (editingSite === targetSite) {
+        setEditingSite(null);
+        setSite("");
+        setUsername("");
+        setPassword("");
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to remove credential.";
       setCredsError(msg);
@@ -305,6 +314,12 @@ export default function PriceLookupPage() {
             Save vendor login credentials per site. They are encrypted server-side and never returned in plaintext.
           </div>
 
+          {editingSite ? (
+            <div style={{ fontWeight: 700, opacity: 0.9 }}>
+              Editing: {editingSite}. Leave password blank to keep the existing password.
+            </div>
+          ) : null}
+
           <form onSubmit={saveCredential} style={{ display: "grid", gap: 8, maxWidth: 680 }}>
             <input
               value={site}
@@ -331,8 +346,22 @@ export default function PriceLookupPage() {
                 disabled={credsLoading}
                 style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--button, transparent)", color: "inherit", fontWeight: 800, cursor: credsLoading ? "default" : "pointer" }}
               >
-                {credsLoading ? "Saving..." : "Save Credential"}
+                {credsLoading ? "Saving..." : editingSite ? "Update Credential" : "Save Credential"}
               </button>
+              {editingSite ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingSite(null);
+                    setSite("");
+                    setUsername("");
+                    setPassword("");
+                  }}
+                  style={{ marginLeft: 8, padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--button, transparent)", color: "inherit", fontWeight: 800, cursor: "pointer" }}
+                >
+                  Cancel Edit
+                </button>
+              ) : null}
             </div>
           </form>
 
@@ -359,6 +388,19 @@ export default function PriceLookupPage() {
                   <div style={{ opacity: 0.85 }}>Username: {row.username}</div>
                   <div style={{ opacity: 0.75, fontSize: 12 }}>Updated: {new Date(row.updatedAt).toLocaleString()}</div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingSite(row.site);
+                    setSite(row.site);
+                    setUsername(row.username);
+                    setPassword("");
+                  }}
+                  disabled={credsLoading}
+                  style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--button, transparent)", color: "inherit", fontWeight: 800, cursor: credsLoading ? "default" : "pointer", marginRight: 8 }}
+                >
+                  Edit
+                </button>
                 <button
                   type="button"
                   onClick={() => void removeCredential(row.site)}

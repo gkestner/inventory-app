@@ -8,6 +8,7 @@ import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import {
   listVendorCredentials,
   removeVendorCredential,
+  updateVendorCredential,
   upsertVendorCredential,
 } from "@/app/lib/vendor-credentials";
 
@@ -100,6 +101,44 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ credentials: listVendorCredentials(saved.uiPreferences) });
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Failed to remove vendor credential.";
+    const status = msg === "Unauthorized" ? 401 : msg === "Forbidden" ? 403 : 500;
+    return NextResponse.json({ error: msg }, { status });
+  }
+}
+
+export async function PATCH(req: Request) {
+  try {
+    const body = (await req.json().catch(() => ({}))) as {
+      site?: unknown;
+      nextSite?: unknown;
+      username?: unknown;
+      password?: unknown;
+    };
+    const site = String(body.site ?? "").trim();
+    const nextSite = String(body.nextSite ?? "").trim();
+    const username = String(body.username ?? "").trim();
+    const password = String(body.password ?? "").trim();
+
+    if (!site) return NextResponse.json({ error: "Site is required." }, { status: 400 });
+    if (!nextSite) return NextResponse.json({ error: "Next site is required." }, { status: 400 });
+
+    const user = await resolveCurrentUser();
+    const nextPrefs = updateVendorCredential(user.uiPreferences, {
+      site,
+      nextSite,
+      username,
+      password,
+    });
+
+    const saved = await prisma.user.update({
+      where: { id: user.id },
+      data: { uiPreferences: nextPrefs as Prisma.InputJsonValue },
+      select: { uiPreferences: true },
+    });
+
+    return NextResponse.json({ credentials: listVendorCredentials(saved.uiPreferences) });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "Failed to update vendor credential.";
     const status = msg === "Unauthorized" ? 401 : msg === "Forbidden" ? 403 : 500;
     return NextResponse.json({ error: msg }, { status });
   }

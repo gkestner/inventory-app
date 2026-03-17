@@ -199,7 +199,18 @@ export async function POST(req: Request) {
     const parsed = extractJson(outputText);
 
     if (!parsed || !Array.isArray(parsed.results)) {
-      return NextResponse.json({ error: "Unable to parse AI response." }, { status: 502 });
+      return NextResponse.json({
+        partNumber,
+        summary: "AI returned a non-standard response. Showing direct vendor search links as fallback.",
+        results: [],
+        fallbackLinks: getFallbackLinks(partNumber),
+        warning: "Unable to parse AI response. You can still use the links below.",
+        filters: {
+          includeVendors,
+          excludeVendors,
+        },
+        generatedAt: new Date().toISOString(),
+      });
     }
 
     const normalized = parsed.results

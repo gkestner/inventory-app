@@ -131,6 +131,47 @@ export function upsertVendorCredential(uiPreferences: unknown, args: { site: str
   };
 }
 
+export function updateVendorCredential(
+  uiPreferences: unknown,
+  args: { site: string; nextSite?: string; username?: string; password?: string }
+) {
+  const site = normalizeSiteKey(args.site);
+  const nextSite = normalizeSiteKey(args.nextSite ?? args.site);
+  const nextUsernameRaw = typeof args.username === "string" ? args.username.trim() : "";
+  const nextPasswordRaw = typeof args.password === "string" ? args.password.trim() : "";
+
+  if (!site) throw new Error("Site is required.");
+  if (!nextSite) throw new Error("Next site is required.");
+
+  const root = toObject(uiPreferences);
+  const vault = getVaultFromUiPreferences(uiPreferences);
+  const existing = vault[site];
+  if (!existing) throw new Error("Credential not found for site.");
+
+  if (site !== nextSite && vault[nextSite]) {
+    throw new Error("A credential already exists for that site.");
+  }
+
+  const username = nextUsernameRaw || decryptText(existing.usernameEnc);
+  const password = nextPasswordRaw || decryptText(existing.passwordEnc);
+
+  if (!username) throw new Error("Username is required.");
+  if (!password) throw new Error("Password is required.");
+
+  if (site !== nextSite) delete vault[site];
+
+  vault[nextSite] = {
+    usernameEnc: encryptText(username),
+    passwordEnc: encryptText(password),
+    updatedAt: new Date().toISOString(),
+  };
+
+  return {
+    ...root,
+    [VAULT_KEY]: vault,
+  };
+}
+
 export function removeVendorCredential(uiPreferences: unknown, siteInput: unknown) {
   const site = normalizeSiteKey(siteInput);
   if (!site) throw new Error("Site is required.");
