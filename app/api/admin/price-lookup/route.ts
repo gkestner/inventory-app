@@ -4,7 +4,9 @@ import { getServerSession } from "next-auth";
 import { Permission } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
+import { prisma } from "@/app/lib/prisma";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { getConfiguredVendorSites } from "@/app/lib/vendor-credentials";
 
 export const runtime = "nodejs";
 
@@ -17,6 +19,11 @@ type PriceResult = {
   shipping?: string;
   inStock?: string;
   notes?: string;
+};
+
+type FallbackLink = {
+  vendor: string;
+  url: string;
 };
 
 type ModelPayload = {
@@ -78,6 +85,30 @@ function extractJson(text: string): ModelPayload | null {
   }
 }
 
+function getFallbackLinks(partNumber: string): FallbackLink[] {
+  const q = encodeURIComponent(partNumber.trim());
+  return [
+    { vendor: "Parts Town", url: `https://www.partstown.com/search?q=${q}` },
+    { vendor: "WebstaurantStore", url: `https://www.webstaurantstore.com/search/${q}.html` },
+    { vendor: "Grainger", url: `https://www.grainger.com/search?searchQuery=${q}` },
+    { vendor: "KaTom", url: `https://www.katom.com/search?w=${q}` },
+    { vendor: "Parts FPS", url: `https://www.partsfps.com/search?type=product&q=${q}` },
+  ];
+}
+
+function detectQuotaOrRateLimit(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const e = error as { status?: unknown; code?: unknown; message?: unknown; error?: { code?: unknown; type?: unknown } };
+  const status = Number(e.status);
+  if (status === 429) return true;
+
+  const code = String(e.code ?? e.error?.code ?? "").toLowerCase();
+  if (code.includes("insufficient_quota") || code.includes("rate_limit")) return true;
+
+  const message = String(e.message ?? "").toLowerCase();
+  return message.includes("exceeded your current quota") || message.includes("rate limit");
+}
+
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -96,6 +127,15 @@ export async function POST(req: Request) {
   const maxResults = Number.isFinite(maxResultsRaw) ? Math.min(12, Math.max(1, Math.trunc(maxResultsRaw))) : 8;
   const includeVendors = normalizeVendorList(body.includeVendors);
   const excludeVendors = normalizeVendorList(body.excludeVendors);
+
+  const sessionUserId = (session.user as unknown as { id?: string | null } | null)?.id ?? null;
+  const sessionEmail = (session.user as unknown as { email?: string | null } | null)?.email ?? null;
+  const currentUser = sessionUserId
+    ? await prisma.user.findUnique({ where: { id: sessionUserId }, select: { uiPreferences: true } })
+    : sessionEmail
+      ? await prisma.user.findUnique({ where: { email: sessionEmail }, select: { uiPreferences: true } })
+      : null;
+  const connectedVendorSites = getConfiguredVendorSites(currentUser?.uiPreferences);
 
   const apiKey =
     process.env.OPENAI_API_KEY ||
@@ -119,6 +159,9 @@ export async function POST(req: Request) {
     "Prefer US suppliers and include item title, vendor, price, currency, shipping (if visible), stock status (if visible).",
     includeVendors.length > 0
       ? `Prioritize these vendors when available: ${includeVendors.join(", ")}.`
+      : "",
+    connectedVendorSites.length > 0
+      ? `The user has saved vendor account credentials for: ${connectedVendorSites.join(", ")}. Prioritize these sites first when available.`
       : "",
     excludeVendors.length > 0
       ? `Exclude these vendors from results: ${excludeVendors.join(", ")}.`
@@ -186,6 +229,22 @@ export async function POST(req: Request) {
       generatedAt: new Date().toISOString(),
     });
   } catch (error) {
+    if (detectQuotaOrRateLimit(error)) {
+      return NextResponse.json({
+        partNumber,
+        summary: "OpenAI quota/rate limit reached. Showing direct vendor search links as fallback.",
+        results: [],
+        fallbackLinks: getFallbackLinks(partNumber),
+        warning:
+          "OpenAI quota exceeded or rate-limited. Add billing/credits or wait for reset. You can still use the links below.",
+        filters: {
+          includeVendors,
+          excludeVendors,
+        },
+        generatedAt: new Date().toISOString(),
+      });
+    }
+
     const message = error instanceof Error ? error.message : "Price lookup failed.";
     return NextResponse.json({ error: message }, { status: 500 });
   }

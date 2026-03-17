@@ -14,15 +14,29 @@ type PriceResult = {
   notes?: string;
 };
 
+type FallbackLink = {
+  vendor: string;
+  url: string;
+};
+
 type LookupResponse = {
   partNumber: string;
   summary?: string;
   generatedAt?: string;
+  warning?: string;
+  fallbackLinks?: FallbackLink[];
   filters?: {
     includeVendors?: string[];
     excludeVendors?: string[];
   };
   results: PriceResult[];
+};
+
+type VendorCredentialSummary = {
+  site: string;
+  username: string;
+  hasPassword: boolean;
+  updatedAt: string;
 };
 
 type EnvStatusResponse = {
@@ -49,6 +63,12 @@ export default function PriceLookupPage() {
   const [partNumber, setPartNumber] = useState("");
   const [includeVendorsText, setIncludeVendorsText] = useState("");
   const [excludeVendorsText, setExcludeVendorsText] = useState("");
+  const [site, setSite] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [credsLoading, setCredsLoading] = useState(false);
+  const [credsError, setCredsError] = useState("");
+  const [credentials, setCredentials] = useState<VendorCredentialSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [data, setData] = useState<LookupResponse | null>(null);
@@ -128,6 +148,98 @@ export default function PriceLookupPage() {
     }
   }
 
+  async function loadCredentials() {
+    setCredsLoading(true);
+    setCredsError("");
+    try {
+      const res = await fetch("/api/admin/price-lookup/vendor-credentials", { method: "GET" });
+      const payload = (await res.json().catch(() => ({}))) as {
+        credentials?: VendorCredentialSummary[];
+        error?: string;
+      };
+      if (!res.ok) {
+        setCredsError(payload.error || "Failed to load saved vendor credentials.");
+        return;
+      }
+      setCredentials(Array.isArray(payload.credentials) ? payload.credentials : []);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to load saved vendor credentials.";
+      setCredsError(msg);
+    } finally {
+      setCredsLoading(false);
+    }
+  }
+
+  async function saveCredential(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setCredsError("");
+
+    const normalizedSite = site.trim();
+    const normalizedUsername = username.trim();
+    const normalizedPassword = password.trim();
+    if (!normalizedSite || !normalizedUsername || !normalizedPassword) {
+      setCredsError("Site, username, and password are required.");
+      return;
+    }
+
+    setCredsLoading(true);
+    try {
+      const res = await fetch("/api/admin/price-lookup/vendor-credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          site: normalizedSite,
+          username: normalizedUsername,
+          password: normalizedPassword,
+        }),
+      });
+      const payload = (await res.json().catch(() => ({}))) as {
+        credentials?: VendorCredentialSummary[];
+        error?: string;
+      };
+      if (!res.ok) {
+        setCredsError(payload.error || "Failed to save credential.");
+        return;
+      }
+
+      setCredentials(Array.isArray(payload.credentials) ? payload.credentials : []);
+      setPassword("");
+      setSite("");
+      setUsername("");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to save credential.";
+      setCredsError(msg);
+    } finally {
+      setCredsLoading(false);
+    }
+  }
+
+  async function removeCredential(targetSite: string) {
+    setCredsLoading(true);
+    setCredsError("");
+    try {
+      const res = await fetch("/api/admin/price-lookup/vendor-credentials", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site: targetSite }),
+      });
+      const payload = (await res.json().catch(() => ({}))) as {
+        credentials?: VendorCredentialSummary[];
+        error?: string;
+      };
+      if (!res.ok) {
+        setCredsError(payload.error || "Failed to remove credential.");
+        return;
+      }
+      setCredentials(Array.isArray(payload.credentials) ? payload.credentials : []);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to remove credential.";
+      setCredsError(msg);
+    } finally {
+      setCredsLoading(false);
+    }
+  }
+
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     await runLookup(partNumber);
@@ -145,6 +257,10 @@ export default function PriceLookupPage() {
 
   useEffect(() => {
     void checkEnvStatus();
+  }, []);
+
+  useEffect(() => {
+    void loadCredentials();
   }, []);
 
   return (
@@ -181,6 +297,81 @@ export default function PriceLookupPage() {
           </span>
         ) : null}
       </div>
+
+      <details style={{ border: "1px solid var(--border, rgba(0,0,0,0.2))", borderRadius: 12, padding: 10 }}>
+        <summary style={{ cursor: "pointer", fontWeight: 900 }}>Vendor Login Credentials (Encrypted Vault)</summary>
+        <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+          <div style={{ opacity: 0.85 }}>
+            Save vendor login credentials per site. They are encrypted server-side and never returned in plaintext.
+          </div>
+
+          <form onSubmit={saveCredential} style={{ display: "grid", gap: 8, maxWidth: 680 }}>
+            <input
+              value={site}
+              onChange={(e) => setSite(e.target.value)}
+              placeholder="Vendor site (example: partstown.com)"
+              style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--input, transparent)", color: "inherit" }}
+            />
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Login username / email"
+              style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--input, transparent)", color: "inherit" }}
+            />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--input, transparent)", color: "inherit" }}
+            />
+            <div>
+              <button
+                type="submit"
+                disabled={credsLoading}
+                style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--button, transparent)", color: "inherit", fontWeight: 800, cursor: credsLoading ? "default" : "pointer" }}
+              >
+                {credsLoading ? "Saving..." : "Save Credential"}
+              </button>
+            </div>
+          </form>
+
+          {credsError ? <div style={{ fontWeight: 700 }}>Error: {credsError}</div> : null}
+
+          <div style={{ display: "grid", gap: 8 }}>
+            {credentials.length === 0 ? <div style={{ opacity: 0.8 }}>No vendor credentials saved yet.</div> : null}
+            {credentials.map((row) => (
+              <div
+                key={row.site}
+                style={{
+                  border: "1px solid var(--border, rgba(0,0,0,0.2))",
+                  borderRadius: 10,
+                  padding: 10,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 10,
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                }}
+              >
+                <div style={{ display: "grid", gap: 2 }}>
+                  <div style={{ fontWeight: 800 }}>{row.site}</div>
+                  <div style={{ opacity: 0.85 }}>Username: {row.username}</div>
+                  <div style={{ opacity: 0.75, fontSize: 12 }}>Updated: {new Date(row.updatedAt).toLocaleString()}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void removeCredential(row.site)}
+                  disabled={credsLoading}
+                  style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--button, transparent)", color: "inherit", fontWeight: 800, cursor: credsLoading ? "default" : "pointer" }}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </details>
 
       <form onSubmit={onSubmit} style={{ display: "grid", gap: 10 }}>
         <label style={{ display: "grid", gap: 6, maxWidth: 420 }}>
@@ -270,6 +461,7 @@ export default function PriceLookupPage() {
           <div style={{ display: "grid", gap: 4 }}>
             <div style={{ fontWeight: 900 }}>Part: {data.partNumber}</div>
             {data.summary ? <div style={{ opacity: 0.85 }}>{data.summary}</div> : null}
+            {data.warning ? <div style={{ fontWeight: 800 }}>Warning: {data.warning}</div> : null}
             {data.filters?.includeVendors?.length ? (
               <div style={{ opacity: 0.85 }}>Include: {data.filters.includeVendors.join(", ")}</div>
             ) : null}
@@ -311,6 +503,23 @@ export default function PriceLookupPage() {
                 {row.notes ? <div style={{ opacity: 0.85 }}>Notes: {row.notes}</div> : null}
               </article>
             ))}
+
+            {data.fallbackLinks?.length ? (
+              <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                <div style={{ fontWeight: 900 }}>Quick Vendor Search Links</div>
+                {data.fallbackLinks.map((link) => (
+                  <a
+                    key={`${link.vendor}-${link.url}`}
+                    href={link.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ wordBreak: "break-all" }}
+                  >
+                    {link.vendor}: {link.url}
+                  </a>
+                ))}
+              </div>
+            ) : null}
           </div>
         </section>
       ) : null}
