@@ -1,6 +1,7 @@
 import crypto from "crypto";
 
 export type VendorVaultEntry = {
+  siteRaw?: string;
   usernameEnc: string;
   passwordEnc: string;
   updatedAt: string;
@@ -89,18 +90,19 @@ export function getVaultFromUiPreferences(uiPreferences: unknown): VendorVault {
     const key = normalizeSiteKey(site);
     if (!key) continue;
     const item = toObject(row);
+    const siteRaw = String(item.siteRaw ?? site).trim();
     const usernameEnc = String(item.usernameEnc ?? "").trim();
     const passwordEnc = String(item.passwordEnc ?? "").trim();
     const updatedAt = String(item.updatedAt ?? "").trim() || new Date(0).toISOString();
     if (!usernameEnc || !passwordEnc) continue;
-    out[key] = { usernameEnc, passwordEnc, updatedAt };
+    out[key] = { siteRaw, usernameEnc, passwordEnc, updatedAt };
   }
 
   return out;
 }
 
 export function getConfiguredVendorSites(uiPreferences: unknown): string[] {
-  return Object.keys(getVaultFromUiPreferences(uiPreferences));
+  return Object.values(getVaultFromUiPreferences(uiPreferences)).map((x) => String(x.siteRaw ?? "").trim()).filter(Boolean);
 }
 
 export function listVendorCredentials(uiPreferences: unknown): VendorCredentialSummary[] {
@@ -110,8 +112,9 @@ export function listVendorCredentials(uiPreferences: unknown): VendorCredentialS
   for (const [site, entry] of Object.entries(vault)) {
     try {
       const username = decryptText(entry.usernameEnc);
+      const displaySite = String(entry.siteRaw ?? site).trim() || site;
       rows.push({
-        site,
+        site: displaySite,
         username,
         hasPassword: true,
         updatedAt: entry.updatedAt,
@@ -133,7 +136,8 @@ export function listVendorCredentialsForTest(uiPreferences: unknown): VendorCred
     try {
       const username = decryptText(entry.usernameEnc);
       const password = decryptText(entry.passwordEnc);
-      rows.push({ site, username, password });
+      const displaySite = String(entry.siteRaw ?? site).trim() || site;
+      rows.push({ site: displaySite, username, password });
     } catch {
       // Skip unreadable entries rather than failing entire probe.
     }
@@ -144,7 +148,8 @@ export function listVendorCredentialsForTest(uiPreferences: unknown): VendorCred
 }
 
 export function upsertVendorCredential(uiPreferences: unknown, args: { site: string; username: string; password: string }) {
-  const site = normalizeSiteKey(args.site);
+  const rawSite = String(args.site ?? "").trim();
+  const site = normalizeSiteKey(rawSite);
   const username = String(args.username ?? "").trim();
   const password = String(args.password ?? "").trim();
 
@@ -155,6 +160,7 @@ export function upsertVendorCredential(uiPreferences: unknown, args: { site: str
   const root = toObject(uiPreferences);
   const vault = getVaultFromUiPreferences(uiPreferences);
   vault[site] = {
+    siteRaw: rawSite,
     usernameEnc: encryptText(username),
     passwordEnc: encryptText(password),
     updatedAt: new Date().toISOString(),
@@ -170,8 +176,10 @@ export function updateVendorCredential(
   uiPreferences: unknown,
   args: { site: string; nextSite?: string; username?: string; password?: string }
 ) {
-  const site = normalizeSiteKey(args.site);
-  const nextSite = normalizeSiteKey(args.nextSite ?? args.site);
+  const rawSite = String(args.site ?? "").trim();
+  const rawNextSite = String(args.nextSite ?? args.site ?? "").trim();
+  const site = normalizeSiteKey(rawSite);
+  const nextSite = normalizeSiteKey(rawNextSite);
   const nextUsernameRaw = typeof args.username === "string" ? args.username.trim() : "";
   const nextPasswordRaw = typeof args.password === "string" ? args.password.trim() : "";
 
@@ -196,6 +204,7 @@ export function updateVendorCredential(
   if (site !== nextSite) delete vault[site];
 
   vault[nextSite] = {
+    siteRaw: rawNextSite,
     usernameEnc: encryptText(username),
     passwordEnc: encryptText(password),
     updatedAt: new Date().toISOString(),

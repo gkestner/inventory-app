@@ -87,7 +87,7 @@ function hasLoginFields(html: string): { hasUser: boolean; hasPassword: boolean 
 
 async function probeCredential(siteInput: string, username: string, password: string): Promise<CredentialTestResult> {
   const checkedAt = new Date().toISOString();
-  const site = normalizeSiteKey(siteInput);
+  const site = String(siteInput ?? "").trim();
   if (!site) {
     return { site: String(siteInput || ""), status: "error", message: "Invalid site value.", checkedAt };
   }
@@ -96,7 +96,9 @@ async function probeCredential(siteInput: string, username: string, password: st
     return { site, status: "error", message: "Username/password missing.", checkedAt };
   }
 
-  const candidates = [`https://${site}`, `https://${site}/login`, `https://${site}/account/login`];
+  const hasProtocol = /^https?:\/\//i.test(site);
+  const base = hasProtocol ? site : `https://${site}`;
+  const candidates = [base, `${base.replace(/\/+$/, "")}/login`, `${base.replace(/\/+$/, "")}/account/login`];
 
   for (const url of candidates) {
     try {
@@ -146,20 +148,23 @@ export async function POST(req: Request) {
     const user = await resolveCurrentUser();
     const allCreds = listVendorCredentialsForTest(user.uiPreferences);
 
-    let requestedSite = "";
+    let requestedSiteRaw = "";
+    let requestedSiteKey = "";
     try {
       const body = (await req.json().catch(() => null)) as { site?: unknown } | null;
-      requestedSite = normalizeSiteKey(String(body?.site ?? ""));
+      requestedSiteRaw = String(body?.site ?? "").trim();
+      requestedSiteKey = normalizeSiteKey(requestedSiteRaw);
     } catch {
-      requestedSite = "";
+      requestedSiteRaw = "";
+      requestedSiteKey = "";
     }
 
-    const creds = requestedSite
-      ? allCreds.filter((c) => normalizeSiteKey(c.site) === requestedSite)
+    const creds = requestedSiteRaw
+      ? allCreds.filter((c) => c.site === requestedSiteRaw || normalizeSiteKey(c.site) === requestedSiteKey)
       : allCreds;
 
-    if (requestedSite && creds.length === 0) {
-      return NextResponse.json({ error: `Credential not found for site: ${requestedSite}` }, { status: 404 });
+    if (requestedSiteRaw && creds.length === 0) {
+      return NextResponse.json({ error: `Credential not found for site: ${requestedSiteRaw}` }, { status: 404 });
     }
 
     if (creds.length === 0) {
