@@ -7,6 +7,13 @@ function isMissingPlaywrightExecutableError(message: string): boolean {
   );
 }
 
+function getMissingRuntimeMessage(): string {
+  if (process.env.VERCEL) {
+    return "Playwright Chromium is unavailable in this Vercel Serverless runtime. Use a remote browser endpoint (set PLAYWRIGHT_WS_ENDPOINT) or run PartsTown browser checks on a non-serverless worker.";
+  }
+  return "Playwright browser runtime is missing on the server. The deployment must run `PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install chromium` during build.";
+}
+
 function installPlaywrightChromiumRuntime(): void {
   try {
     // Keep browser binaries inside the app bundle path used at runtime.
@@ -182,6 +189,21 @@ async function getBodyText(page: { locator: (selector: string) => { innerText: (
 
 async function createBrowserSession() {
   const { chromium } = await import("playwright");
+  const remoteWsEndpoint = String(process.env.PLAYWRIGHT_WS_ENDPOINT || "").trim();
+
+  if (remoteWsEndpoint) {
+    const browser = await chromium.connect(remoteWsEndpoint);
+    const context = await browser.newContext({
+      userAgent:
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+      viewport: { width: 1440, height: 960 },
+      locale: "en-US",
+    });
+    const page = await context.newPage();
+    page.setDefaultTimeout(30000);
+    return { browser, context, page };
+  }
+
   let browser;
   try {
     // Prefer any browser already available in the platform default path.
@@ -285,8 +307,7 @@ export async function verifyPartsTownCredentialInBrowser(
     if (isMissingPlaywrightExecutableError(message)) {
       return {
         status: "blocked",
-        message:
-          "Playwright browser runtime is missing on the server. The deployment must run `PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install chromium` during build.",
+        message: getMissingRuntimeMessage(),
       };
     }
     return {
@@ -373,8 +394,7 @@ export async function fetchPartsTownAuthenticatedPriceInBrowser(args: {
       return {
         status: "blocked",
         price: null,
-        notes:
-          "Playwright browser runtime is missing on the server. The deployment must run `PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install chromium` during build.",
+        notes: getMissingRuntimeMessage(),
       };
     }
     return {

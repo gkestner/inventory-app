@@ -5,8 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "playwright:install": "node scripts/install-playwright-chromium.js",
-    "postinstall": "npm run playwright:install",
-    "build": "npm run playwright:install && prisma generate && next build",
+    "build": "prisma generate && next build",
     "migrate:deploy": "prisma migrate deploy",
     "start": "next start",
     "lint": "eslint",
