@@ -4,7 +4,6 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "playwright:install": "node scripts/install-playwright-chromium.js",
     "build": "prisma generate && next build",
     "migrate:deploy": "prisma migrate deploy",
     "start": "next start",
@@ -18,12 +17,13 @@
   "dependencies": {
     "@google-cloud/storage": "^7.19.0",
     "@prisma/client": "^6.11.1",
+    "@sparticuz/chromium": "^143.0.4",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.3",
     "next": "16.1.4",
     "next-auth": "^4.24.13",
     "openai": "^6.31.0",
-    "playwright": "^1.58.2",
+    "playwright-core": "^1.58.2",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },

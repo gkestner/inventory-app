@@ -1,45 +1,20 @@
 import type { VendorCredentialForTest } from "@/app/lib/vendor-credentials";
+import serverlessChromium from "@sparticuz/chromium";
 
 function isMissingPlaywrightExecutableError(message: string): boolean {
   return (
     /Executable doesn't exist/i.test(message) ||
-    /Please run the following command to download new browsers/i.test(message)
+    /Please run the following command to download new browsers/i.test(message) ||
+    /browserType\.launch: Executable doesn't exist/i.test(message) ||
+    /Failed to launch the browser process/i.test(message)
   );
 }
 
 function getMissingRuntimeMessage(): string {
   if (process.env.VERCEL) {
-    return "Playwright Chromium is unavailable in this Vercel Serverless runtime. Use a remote browser endpoint (set PLAYWRIGHT_WS_ENDPOINT) or run PartsTown browser checks on a non-serverless worker.";
+    return "Chromium could not start in this Vercel runtime. Verify the deployment includes @sparticuz/chromium and playwright-core, or set PLAYWRIGHT_WS_ENDPOINT to a remote browser endpoint.";
   }
-  return "Playwright browser runtime is missing on the server. The deployment must run `PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install chromium` during build.";
-}
-
-function installPlaywrightChromiumRuntime(): void {
-  try {
-    // Keep browser binaries inside the app bundle path used at runtime.
-    const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
-    const cmd = process.platform === "win32" ? "npx.cmd" : "npx";
-    spawnSync(cmd, ["playwright", "install", "chromium"], {
-      stdio: "ignore",
-      env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: "0" },
-    });
-  } catch {
-    // Best-effort fallback only.
-  }
-}
-
-async function launchWithLocalBrowserPath(chromium: { launch: (options: { headless: boolean }) => Promise<any> }) {
-  const previous = process.env.PLAYWRIGHT_BROWSERS_PATH;
-  process.env.PLAYWRIGHT_BROWSERS_PATH = "0";
-  try {
-    return await chromium.launch({ headless: true });
-  } finally {
-    if (typeof previous === "undefined") {
-      delete process.env.PLAYWRIGHT_BROWSERS_PATH;
-    } else {
-      process.env.PLAYWRIGHT_BROWSERS_PATH = previous;
-    }
-  }
+  return "Chromium is unavailable on this server. Set PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH to a local browser or PLAYWRIGHT_WS_ENDPOINT to a remote browser endpoint.";
 }
 
 export type PartsTownBrowserLoginResult = {
@@ -188,7 +163,7 @@ async function getBodyText(page: { locator: (selector: string) => { innerText: (
 }
 
 async function createBrowserSession() {
-  const { chromium } = await import("playwright");
+  const { chromium } = await import("playwright-core");
   const remoteWsEndpoint = String(process.env.PLAYWRIGHT_WS_ENDPOINT || "").trim();
 
   if (remoteWsEndpoint) {
@@ -204,18 +179,21 @@ async function createBrowserSession() {
     return { browser, context, page };
   }
 
-  let browser;
-  try {
-    // Prefer any browser already available in the platform default path.
-    browser = await chromium.launch({ headless: true });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error || "");
-    if (!isMissingPlaywrightExecutableError(message)) throw error;
+  const launchOptions: {
+    headless: boolean;
+    executablePath?: string;
+    args?: string[];
+  } = { headless: true };
 
-    // Fallback: install to app-local path and launch from that path.
-    installPlaywrightChromiumRuntime();
-    browser = await launchWithLocalBrowserPath(chromium);
+  if (process.env.VERCEL) {
+    launchOptions.args = serverlessChromium.args;
+    launchOptions.executablePath = await serverlessChromium.executablePath();
+  } else {
+    const executablePath = String(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || "").trim();
+    if (executablePath) launchOptions.executablePath = executablePath;
   }
+
+  const browser = await chromium.launch(launchOptions);
 
   const context = await browser.newContext({
     userAgent:

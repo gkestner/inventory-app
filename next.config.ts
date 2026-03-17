@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["playwright", "playwright-core"],
+  serverExternalPackages: ["playwright-core", "@sparticuz/chromium"],
   async headers() {
     return [
       {
