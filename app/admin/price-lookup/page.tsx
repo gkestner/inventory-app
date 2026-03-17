@@ -78,6 +78,13 @@ function formatMoney(amount: number | null, currency: string): string {
   }
 }
 
+function toCredentialSiteUrl(site: string): string {
+  const normalized = String(site || "").trim();
+  if (!normalized) return "#";
+  if (/^https?:\/\//i.test(normalized)) return normalized;
+  return `https://${normalized}`;
+}
+
 export default function PriceLookupPage() {
   const searchParams = useSearchParams();
   const [partNumber, setPartNumber] = useState("");
@@ -86,10 +93,12 @@ export default function PriceLookupPage() {
   const [newSite, setNewSite] = useState("");
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [editingSite, setEditingSite] = useState<string | null>(null);
   const [editSiteValue, setEditSiteValue] = useState("");
   const [editUsernameValue, setEditUsernameValue] = useState("");
   const [editPasswordValue, setEditPasswordValue] = useState("");
+  const [showEditPassword, setShowEditPassword] = useState(false);
   const [credsLoading, setCredsLoading] = useState(false);
   const [credsError, setCredsError] = useState("");
   const [credentials, setCredentials] = useState<VendorCredentialSummary[]>([]);
@@ -249,6 +258,7 @@ export default function PriceLookupPage() {
       setNewPassword("");
       setNewSite("");
       setNewUsername("");
+      setShowNewPassword(false);
       setTestSummary(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to save credential.";
@@ -263,6 +273,7 @@ export default function PriceLookupPage() {
     setEditSiteValue(row.site);
     setEditUsernameValue(row.username);
     setEditPasswordValue(MASKED_PASSWORD);
+    setShowEditPassword(false);
     setCredsError("");
   }
 
@@ -271,6 +282,7 @@ export default function PriceLookupPage() {
     setEditSiteValue("");
     setEditUsernameValue("");
     setEditPasswordValue("");
+    setShowEditPassword(false);
   }
 
   async function saveCredentialEdit(originalSite: string) {
@@ -479,13 +491,23 @@ export default function PriceLookupPage() {
               placeholder="Login username / email"
               style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--input, transparent)", color: "inherit" }}
             />
-            <input
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="Password"
-              style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--input, transparent)", color: "inherit" }}
-            />
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                type={showNewPassword ? "text" : "password"}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Password"
+                style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--input, transparent)", color: "inherit", flex: 1 }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewPassword((prev) => !prev)}
+                style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--button, transparent)", color: "inherit", fontWeight: 700, cursor: "pointer" }}
+                aria-label={showNewPassword ? "Hide password" : "Show password"}
+              >
+                {showNewPassword ? "Hide" : "Show"}
+              </button>
+            </div>
             <div>
               <button
                 type="submit"
@@ -517,7 +539,15 @@ export default function PriceLookupPage() {
               >
                 <div style={{ display: "grid", gap: 2 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <div style={{ fontWeight: 800 }}>{row.site}</div>
+                    <a
+                      href={toCredentialSiteUrl(row.site)}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ fontWeight: 800, textDecoration: "underline", textUnderlineOffset: 2, color: "inherit", wordBreak: "break-all" }}
+                      title={`Open ${row.site}`}
+                    >
+                      {row.site}
+                    </a>
                     {(() => {
                       const test = testBySite[row.site];
                       if (!test) return null;
@@ -586,13 +616,23 @@ export default function PriceLookupPage() {
                       placeholder="Login username / email"
                       style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--input, transparent)", color: "inherit" }}
                     />
-                    <input
-                      type="password"
-                      value={editPasswordValue}
-                      onChange={(e) => setEditPasswordValue(e.target.value)}
-                      placeholder="Password"
-                      style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--input, transparent)", color: "inherit" }}
-                    />
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <input
+                        type={showEditPassword ? "text" : "password"}
+                        value={editPasswordValue}
+                        onChange={(e) => setEditPasswordValue(e.target.value)}
+                        placeholder="Password"
+                        style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--input, transparent)", color: "inherit", flex: 1 }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowEditPassword((prev) => !prev)}
+                        style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--button, transparent)", color: "inherit", fontWeight: 700, cursor: "pointer" }}
+                        aria-label={showEditPassword ? "Hide password" : "Show password"}
+                      >
+                        {showEditPassword ? "Hide" : "Show"}
+                      </button>
+                    </div>
                     <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
                       <button
                         type="button"

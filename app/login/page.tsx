@@ -11,6 +11,7 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -50,15 +51,25 @@ export default function LoginPage() {
           style={{ padding: 10, border: "1px solid #ccc", borderRadius: 8 }}
         />
 
-        <input
-          name="password"
-          placeholder="Password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete="current-password"
-          style={{ padding: 10, border: "1px solid #ccc", borderRadius: 8 }}
-        />
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input
+            name="password"
+            placeholder="Password"
+            type={showPassword ? "text" : "password"}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            style={{ padding: 10, border: "1px solid #ccc", borderRadius: 8, flex: 1 }}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword((prev) => !prev)}
+            style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #ccc", background: "transparent" }}
+            aria-label={showPassword ? "Hide password" : "Show password"}
+          >
+            {showPassword ? "Hide" : "Show"}
+          </button>
+        </div>
 
         <button
           type="submit"
