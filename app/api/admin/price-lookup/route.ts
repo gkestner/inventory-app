@@ -134,6 +134,40 @@ function extractJson(text: string): ModelPayload | null {
   }
 }
 
+function extractJsonFromResponse(response: unknown): ModelPayload | null {
+  const r = response as {
+    output_text?: unknown;
+    output?: Array<{
+      content?: Array<{ text?: unknown; json?: unknown }>;
+    }>;
+  };
+
+  const candidates: string[] = [];
+  if (typeof r.output_text === "string") {
+    candidates.push(r.output_text);
+  }
+
+  const output = Array.isArray(r.output) ? r.output : [];
+  for (const item of output) {
+    const content = Array.isArray(item?.content) ? item.content : [];
+    for (const c of content) {
+      if (typeof c?.json === "object" && c.json && !Array.isArray(c.json)) {
+        return c.json as ModelPayload;
+      }
+      if (typeof c?.text === "string") {
+        candidates.push(c.text);
+      }
+    }
+  }
+
+  for (const text of candidates) {
+    const parsed = extractJson(text);
+    if (parsed) return parsed;
+  }
+
+  return null;
+}
+
 function getFallbackLinks(partNumber: string): FallbackLink[] {
   const q = encodeURIComponent(partNumber.trim());
   return [
@@ -162,8 +196,8 @@ function parseTokenLimit(raw: string | undefined, fallback: number): number {
   const n = Number(raw ?? "");
   if (!Number.isFinite(n)) return fallback;
   const v = Math.trunc(n);
-  if (v < 200) return 200;
-  if (v > 2000) return 2000;
+  if (v < 300) return 300;
+  if (v > 4000) return 4000;
   return v;
 }
 
@@ -225,8 +259,8 @@ export async function POST(req: Request) {
 
   const client = new OpenAI({ apiKey });
   const model = String(process.env.OPENAI_PRICE_LOOKUP_MODEL || "gpt-4.1-mini").trim() || "gpt-4.1-mini";
-  const envTokenCap = parseTokenLimit(process.env.OPENAI_PRICE_LOOKUP_MAX_TOKENS, 700);
-  const dynamicTokenCap = Math.min(900, 260 + maxResults * 70);
+  const envTokenCap = parseTokenLimit(process.env.OPENAI_PRICE_LOOKUP_MAX_TOKENS, 1400);
+  const dynamicTokenCap = Math.min(2200, 500 + maxResults * 150);
   const maxOutputTokens = Math.min(envTokenCap, dynamicTokenCap);
 
   const prompt = [
@@ -269,16 +303,24 @@ export async function POST(req: Request) {
       },
     });
 
-    const outputText = (response.output_text ?? "").trim();
-    const parsed = extractJson(outputText);
+    const parsed = extractJsonFromResponse(response);
+    const incompleteReason = String(
+      (response as unknown as { incomplete_details?: { reason?: unknown } }).incomplete_details?.reason ?? ""
+    ).trim();
 
     if (!parsed || !Array.isArray(parsed.results)) {
       return NextResponse.json({
         partNumber,
-        summary: "AI returned a non-standard response. Showing direct vendor search links as fallback.",
+        summary:
+          incompleteReason === "max_output_tokens"
+            ? "AI response was truncated by token limit. Showing direct vendor search links as fallback."
+            : "AI returned a non-standard response. Showing direct vendor search links as fallback.",
         results: [],
         fallbackLinks: getFallbackLinks(partNumber),
-        warning: "Unable to parse AI response. You can still use the links below.",
+        warning:
+          incompleteReason === "max_output_tokens"
+            ? "AI output hit max token limit before finishing JSON. You can still use the links below."
+            : "Unable to parse AI response. You can still use the links below.",
         filters: {
           includeVendors,
           excludeVendors,
