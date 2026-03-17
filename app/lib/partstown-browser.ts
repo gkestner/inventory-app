@@ -167,6 +167,7 @@ async function getBodyText(page: { locator: (selector: string) => { innerText: (
 }
 
 async function createBrowserSession() {
+  process.env.PLAYWRIGHT_BROWSERS_PATH = "0";
   const { chromium } = await import("playwright");
   let browser;
   try {

@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "playwright:install": "node -e \"const { spawnSync } = require('node:child_process'); const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx'; const result = spawnSync(cmd, ['playwright', 'install', 'chromium'], { stdio: 'inherit', env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: '0' } }); process.exit(result.status ?? 1);\"",
+    "playwright:install": "node scripts/install-playwright-chromium.js",
+    "postinstall": "npm run playwright:install",
     "build": "npm run playwright:install && prisma generate && next build",
     "migrate:deploy": "prisma migrate deploy",
     "start": "next start",
