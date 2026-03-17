@@ -1,5 +1,26 @@
 import type { VendorCredentialForTest } from "@/app/lib/vendor-credentials";
 
+function isMissingPlaywrightExecutableError(message: string): boolean {
+  return (
+    /Executable doesn't exist/i.test(message) ||
+    /Please run the following command to download new browsers/i.test(message)
+  );
+}
+
+function installPlaywrightChromiumRuntime(): void {
+  try {
+    // Keep browser binaries inside the app bundle path used at runtime.
+    const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
+    const cmd = process.platform === "win32" ? "npx.cmd" : "npx";
+    spawnSync(cmd, ["playwright", "install", "chromium"], {
+      stdio: "ignore",
+      env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: "0" },
+    });
+  } catch {
+    // Best-effort fallback only.
+  }
+}
+
 export type PartsTownBrowserLoginResult = {
   status: "ok" | "blocked" | "failed";
   message: string;
@@ -147,7 +168,17 @@ async function getBodyText(page: { locator: (selector: string) => { innerText: (
 
 async function createBrowserSession() {
   const { chromium } = await import("playwright");
-  const browser = await chromium.launch({ headless: true });
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || "");
+    if (!isMissingPlaywrightExecutableError(message)) throw error;
+
+    installPlaywrightChromiumRuntime();
+    browser = await chromium.launch({ headless: true });
+  }
+
   const context = await browser.newContext({
     userAgent:
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
@@ -235,7 +266,7 @@ export async function verifyPartsTownCredentialInBrowser(
     return await loginToPartsTown(session.page, credential);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown browser automation error.";
-    if (/Executable doesn't exist/i.test(message) || /Please run the following command to download new browsers/i.test(message)) {
+    if (isMissingPlaywrightExecutableError(message)) {
       return {
         status: "blocked",
         message:
@@ -322,7 +353,7 @@ export async function fetchPartsTownAuthenticatedPriceInBrowser(args: {
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown browser automation error.";
-    if (/Executable doesn't exist/i.test(message) || /Please run the following command to download new browsers/i.test(message)) {
+    if (isMissingPlaywrightExecutableError(message)) {
       return {
         status: "blocked",
         price: null,
