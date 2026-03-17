@@ -99,6 +99,13 @@ function compareByLowestPrice(a: PriceResult, b: PriceResult): number {
   return a.price - b.price;
 }
 
+function compareByIncludePriority(a: PriceResult, b: PriceResult, includeRules: string[]): number {
+  const aPreferred = matchesVendorRule(a.vendor, includeRules) ? 0 : 1;
+  const bPreferred = matchesVendorRule(b.vendor, includeRules) ? 0 : 1;
+  if (aPreferred !== bPreferred) return aPreferred - bPreferred;
+  return compareByLowestPrice(a, b);
+}
+
 function normalizeVendorList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   const out = new Set<string>();
@@ -432,18 +439,27 @@ export async function POST(req: Request) {
       .filter((row): row is PriceResult => row !== null)
       .filter((row) => {
         if (excludeVendors.length > 0 && matchesVendorRule(row.vendor, excludeVendors)) return false;
-        if (includeVendors.length > 0 && !matchesVendorRule(row.vendor, includeVendors)) return false;
         return true;
-      })
-      .sort(compareByLowestPrice);
+      });
 
-    const exactMatches = normalizedBase.filter((r) => r.matchType !== "alternative").sort(compareByLowestPrice);
-    const alternatives = normalizedBase.filter((r) => r.matchType === "alternative").sort(compareByLowestPrice);
+    const rankedBase = [...normalizedBase].sort((a, b) => {
+      if (includeVendors.length > 0) {
+        return compareByIncludePriority(a, b, includeVendors);
+      }
+      return compareByLowestPrice(a, b);
+    });
+
+    const exactMatches = rankedBase.filter((r) => r.matchType !== "alternative");
+    const alternatives = rankedBase.filter((r) => r.matchType === "alternative");
     const normalized = [...exactMatches, ...alternatives].slice(0, maxResults);
+    const finalSummary =
+      normalized.length === 0 && finalParsed.results.length > 0
+        ? "Offers were found but filtered out by current rules. Try clearing exclude filters."
+        : String(finalParsed.summary ?? "").trim();
 
     return NextResponse.json({
       partNumber,
-      summary: String(finalParsed.summary ?? "").trim(),
+      summary: finalSummary,
       results: normalized,
       filters: {
         includeVendors,
