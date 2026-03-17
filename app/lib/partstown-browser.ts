@@ -238,7 +238,8 @@ export async function verifyPartsTownCredentialInBrowser(
     if (/Executable doesn't exist/i.test(message) || /Please run the following command to download new browsers/i.test(message)) {
       return {
         status: "blocked",
-        message: "Playwright browser runtime is missing on the server. The deployment must run `npx playwright install chromium` during build.",
+        message:
+          "Playwright browser runtime is missing on the server. The deployment must run `PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install chromium` during build.",
       };
     }
     return {
@@ -325,7 +326,8 @@ export async function fetchPartsTownAuthenticatedPriceInBrowser(args: {
       return {
         status: "blocked",
         price: null,
-        notes: "Playwright browser runtime is missing on the server. The deployment must run `npx playwright install chromium` during build.",
+        notes:
+          "Playwright browser runtime is missing on the server. The deployment must run `PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install chromium` during build.",
       };
     }
     return {
