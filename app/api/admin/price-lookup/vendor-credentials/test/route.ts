@@ -257,6 +257,26 @@ function buildInitialLoginCandidates(base: string): string[] {
   return Array.from(out).slice(0, 20);
 }
 
+function detectBotChallenge(html: string): { blocked: boolean; provider?: string } {
+  const src = String(html || "").toLowerCase();
+  if (!src) return { blocked: false };
+
+  if (
+    src.includes("enable javascript and cookies to continue") ||
+    src.includes("cf-challenge") ||
+    src.includes("cloudflare") ||
+    src.includes("/cdn-cgi/challenge-platform/")
+  ) {
+    return { blocked: true, provider: "Cloudflare" };
+  }
+
+  if (src.includes("distil_r_captcha") || src.includes("perimeterx") || src.includes("px-captcha")) {
+    return { blocked: true, provider: "Bot protection" };
+  }
+
+  return { blocked: false };
+}
+
 async function probeCredential(siteInput: string, username: string, password: string): Promise<CredentialTestResult> {
   const checkedAt = new Date().toISOString();
   const site = String(siteInput ?? "").trim();
@@ -283,6 +303,17 @@ async function probeCredential(siteInput: string, username: string, password: st
       const { status, finalUrl, body } = await fetchHtml(url, 8000);
       if (status >= 400) continue;
       reachableUrl = finalUrl;
+
+      const botChallenge = detectBotChallenge(body);
+      if (botChallenge.blocked) {
+        const provider = botChallenge.provider || "site security";
+        return {
+          site,
+          status: "warning",
+          message: `${provider} challenge blocked automated verification (${finalUrl}). Credentials may still be valid in a normal browser session.`,
+          checkedAt,
+        };
+      }
 
       const { hasUser, hasPassword, twoStep, isSpa, hasLoginKeywords } = hasLoginFields(body);
       if (hasUser && hasPassword) {
