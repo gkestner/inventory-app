@@ -97,10 +97,16 @@ export async function POST(req: Request) {
   const includeVendors = normalizeVendorList(body.includeVendors);
   const excludeVendors = normalizeVendorList(body.excludeVendors);
 
-  const apiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY;
+  const apiKey =
+    process.env.OPENAI_API_KEY ||
+    process.env.OPENAI_KEY ||
+    process.env.OPENAI_APIKEY ||
+    process.env.OPENAIKEY ||
+    process.env.NEXT_PUBLIC_OPENAI_API_KEY;
   if (!apiKey) {
     return NextResponse.json({
-      error: "Missing OpenAI API key. Set OPENAI_API_KEY (or OPENAI_KEY) in your server environment.",
+      error:
+        "Missing OpenAI API key. Set OPENAI_API_KEY (or OPENAI_KEY). Also accepted: OPENAI_APIKEY, OPENAIKEY.",
     }, { status: 500 });
   }
 
