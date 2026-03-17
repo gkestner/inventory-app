@@ -158,6 +158,46 @@ function discoverLoginCandidates(baseUrl: string, html: string): string[] {
   return Array.from(found).slice(0, 8);
 }
 
+function discoverLoginCandidatesFromScripts(baseUrl: string, html: string): string[] {
+  const src = String(html || "");
+  const found = new Set<string>();
+  const currentOrigin = (() => {
+    try {
+      return new URL(baseUrl).origin;
+    } catch {
+      return "";
+    }
+  })();
+
+  // Capture script blocks where route strings may appear for JS-only login buttons.
+  const scriptRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
+  let scriptMatch: RegExpExecArray | null;
+
+  while ((scriptMatch = scriptRegex.exec(src)) !== null) {
+    const scriptBody = String(scriptMatch[1] || "");
+    if (!scriptBody) continue;
+
+    const routeRegex = /(["'`])((?:https?:\/\/[^"'`\s]+)|(?:\/[a-z0-9\-_/]*?(?:login|log-in|signin|sign-in|account|auth|identity)[a-z0-9\-_/]*))(\1)/gi;
+    let routeMatch: RegExpExecArray | null;
+
+    while ((routeMatch = routeRegex.exec(scriptBody)) !== null) {
+      const raw = String(routeMatch[2] || "").trim();
+      if (!raw) continue;
+
+      try {
+        const resolved = new URL(raw, baseUrl);
+        if (currentOrigin && resolved.origin !== currentOrigin) continue;
+        if (resolved.protocol !== "http:" && resolved.protocol !== "https:") continue;
+        found.add(resolved.toString());
+      } catch {
+        // Ignore malformed script route.
+      }
+    }
+  }
+
+  return Array.from(found).slice(0, 8);
+}
+
 function buildInitialLoginCandidates(base: string): string[] {
   const out = new Set<string>();
   const cleanBase = base.replace(/\/+$/, "");
@@ -293,6 +333,13 @@ async function probeCredential(siteInput: string, username: string, password: st
       if (body.length > 0) {
         const discovered = discoverLoginCandidates(finalUrl, body);
         for (const candidate of discovered) {
+          if (!visited.has(candidate) && !queue.includes(candidate)) {
+            queue.push(candidate);
+          }
+        }
+
+        const scriptDiscovered = discoverLoginCandidatesFromScripts(finalUrl, body);
+        for (const candidate of scriptDiscovered) {
           if (!visited.has(candidate) && !queue.includes(candidate)) {
             queue.push(candidate);
           }
