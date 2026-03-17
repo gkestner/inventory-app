@@ -134,6 +134,32 @@ function extractJson(text: string): ModelPayload | null {
   }
 }
 
+function collectResponseTexts(response: unknown): string[] {
+  const r = response as {
+    output_text?: unknown;
+    output?: Array<{
+      content?: Array<{ text?: unknown }>;
+    }>;
+  };
+
+  const out: string[] = [];
+  if (typeof r.output_text === "string" && r.output_text.trim()) {
+    out.push(r.output_text);
+  }
+
+  const output = Array.isArray(r.output) ? r.output : [];
+  for (const item of output) {
+    const content = Array.isArray(item?.content) ? item.content : [];
+    for (const c of content) {
+      if (typeof c?.text === "string" && c.text.trim()) {
+        out.push(c.text);
+      }
+    }
+  }
+
+  return out;
+}
+
 function extractJsonFromResponse(response: unknown): ModelPayload | null {
   const r = response as {
     output_text?: unknown;
@@ -166,6 +192,47 @@ function extractJsonFromResponse(response: unknown): ModelPayload | null {
   }
 
   return null;
+}
+
+async function repairModelPayloadFromText(args: {
+  client: OpenAI;
+  model: string;
+  partNumber: string;
+  maxResults: number;
+  maxOutputTokens: number;
+  rawTexts: string[];
+}): Promise<ModelPayload | null> {
+  const { client, model, partNumber, maxResults, maxOutputTokens, rawTexts } = args;
+  if (!rawTexts.length) return null;
+
+  const combined = rawTexts.join("\n\n").trim();
+  if (!combined) return null;
+
+  const repairPrompt = [
+    "Normalize the following source text into strict JSON only.",
+    `Part number: ${partNumber}`,
+    `Return at most ${maxResults} results.`,
+    "Do not invent offers. If price is missing, set price to null.",
+    "Output schema must be exactly: {\"summary\":\"\",\"results\":[{\"vendor\":\"\",\"title\":\"\",\"price\":null,\"currency\":\"USD\",\"url\":\"https://...\",\"matchType\":\"exact\",\"matchedPartNumber\":\"\",\"shipping\":\"\",\"inStock\":\"\",\"notes\":\"\"}]}",
+    "Source text:",
+    combined.slice(0, 12000),
+  ].join("\n");
+
+  const repairedResponse = await client.responses.create({
+    model,
+    input: repairPrompt,
+    max_output_tokens: Math.min(2200, Math.max(900, maxOutputTokens)),
+    text: {
+      format: {
+        type: "json_schema",
+        name: "price_lookup_repair",
+        schema: LOOKUP_JSON_SCHEMA,
+        strict: true,
+      },
+    },
+  });
+
+  return extractJsonFromResponse(repairedResponse);
 }
 
 function getFallbackLinks(partNumber: string): FallbackLink[] {
@@ -304,11 +371,23 @@ export async function POST(req: Request) {
     });
 
     const parsed = extractJsonFromResponse(response);
+    const rawTexts = collectResponseTexts(response);
+    const repairedParsed = !parsed
+      ? await repairModelPayloadFromText({
+          client,
+          model,
+          partNumber,
+          maxResults,
+          maxOutputTokens,
+          rawTexts,
+        }).catch(() => null)
+      : null;
+    const finalParsed = parsed ?? repairedParsed;
     const incompleteReason = String(
       (response as unknown as { incomplete_details?: { reason?: unknown } }).incomplete_details?.reason ?? ""
     ).trim();
 
-    if (!parsed || !Array.isArray(parsed.results)) {
+    if (!finalParsed || !Array.isArray(finalParsed.results)) {
       return NextResponse.json({
         partNumber,
         summary:
@@ -329,7 +408,7 @@ export async function POST(req: Request) {
       });
     }
 
-    const normalizedBase = parsed.results
+    const normalizedBase = finalParsed.results
       .map((row): PriceResult | null => {
         const url = String(row?.url ?? "").trim();
         if (!/^https?:\/\//i.test(url)) return null;
@@ -364,7 +443,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       partNumber,
-      summary: String(parsed.summary ?? "").trim(),
+      summary: String(finalParsed.summary ?? "").trim(),
       results: normalized,
       filters: {
         includeVendors,
