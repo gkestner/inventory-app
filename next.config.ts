@@ -2,13 +2,6 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["playwright", "playwright-core"],
-  outputFileTracingIncludes: {
-    "/*": [
-      "./node_modules/playwright/.local-browsers/**",
-      "./node_modules/playwright-core/.local-browsers/**",
-      "./node_modules/playwright-core/lib/**",
-    ],
-  },
   async headers() {
     return [
       {
