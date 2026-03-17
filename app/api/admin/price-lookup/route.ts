@@ -6,8 +6,6 @@ import { Permission, type Prisma } from "@prisma/client";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import { getConfiguredVendorSites, listVendorCredentialsForTest } from "@/app/lib/vendor-credentials";
-import { getAuthenticatedPriceOverlay } from "@/app/lib/authenticated-vendor-pricing";
 import { getPriceLookupPreferences, setPriceLookupPreferences } from "@/app/lib/price-lookup-preferences";
 
 export const runtime = "nodejs";
@@ -162,12 +160,6 @@ function parseTokenLimit(raw: string | undefined, fallback: number): number {
   return v;
 }
 
-function isPartsTownResult(vendor: string, url: string): boolean {
-  const v = String(vendor || "").toLowerCase();
-  const u = String(url || "").toLowerCase();
-  return v.includes("parts town") || u.includes("partstown.com");
-}
-
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -198,7 +190,6 @@ export async function POST(req: Request) {
   const savedPrefs = getPriceLookupPreferences(currentUser?.uiPreferences);
   const includeVendors = includeVendorsInput.length > 0 ? includeVendorsInput : savedPrefs.includeVendors;
   const excludeVendors = excludeVendorsInput.length > 0 ? excludeVendorsInput : savedPrefs.excludeVendors;
-  const connectedVendorSites = getConfiguredVendorSites(currentUser?.uiPreferences);
 
   if (currentUser?.id) {
     const nextUiPreferences = setPriceLookupPreferences(currentUser.uiPreferences, {
@@ -242,9 +233,6 @@ export async function POST(req: Request) {
     "Prefer US suppliers and include item title, vendor, price, currency, shipping (if visible), stock status (if visible).",
     includeVendors.length > 0
       ? `Prioritize these vendors when available: ${includeVendors.join(", ")}.`
-      : "",
-    connectedVendorSites.length > 0
-      ? `The user has saved vendor account credentials for: ${connectedVendorSites.join(", ")}. Prioritize these sites first when available.`
       : "",
     excludeVendors.length > 0
       ? `Exclude these vendors from results: ${excludeVendors.join(", ")}.`
@@ -325,43 +313,7 @@ export async function POST(req: Request) {
         return a.price - b.price;
       });
 
-    const credentialRows = listVendorCredentialsForTest(currentUser?.uiPreferences);
-    const authCandidates = normalizedBase
-      .filter((row) => /^https?:\/\//i.test(row.url))
-      .filter((row) => isPartsTownResult(row.vendor, row.url))
-      .slice(0, 1);
-
-    const authOverlayByUrl = new Map<string, Awaited<ReturnType<typeof getAuthenticatedPriceOverlay>>>();
-    if (credentialRows.length > 0 && authCandidates.length > 0) {
-      const overlays = await Promise.all(
-        authCandidates.map(async (row) => {
-          const overlay = await getAuthenticatedPriceOverlay({
-            result: { vendor: row.vendor, url: row.url },
-            credentials: credentialRows,
-          });
-          return [row.url, overlay] as const;
-        })
-      );
-
-      for (const [url, overlay] of overlays) {
-        authOverlayByUrl.set(url, overlay);
-      }
-    }
-
     const normalized = normalizedBase
-      .map((row) => {
-        const overlay = authOverlayByUrl.get(row.url) ?? null;
-        if (!overlay) return row;
-
-        const next: PriceResult = { ...row };
-        if (overlay.price != null) {
-          next.price = overlay.price;
-          if (overlay.currency) next.currency = overlay.currency;
-        }
-        if (overlay.inStock) next.inStock = overlay.inStock;
-        next.notes = [next.notes, overlay.notes].filter(Boolean).join(" | ");
-        return next;
-      })
       .sort((a, b) => {
         if (a.price == null && b.price == null) return 0;
         if (a.price == null) return 1;

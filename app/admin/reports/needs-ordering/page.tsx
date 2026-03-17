@@ -26,6 +26,19 @@ type SearchParams = {
   ok?: string;
   sortBy?: string;
   sortDir?: string;
+  sku?: string;
+  item?: string;
+  part?: string;
+  supplier?: string;
+  manufacturer?: string;
+  status?: string;
+  onHand?: string;
+  ordered?: string;
+  available?: string;
+  min?: string;
+  shortBy?: string;
+  techReq?: string;
+  ignored?: string;
 };
 
 type SortField =
@@ -113,6 +126,20 @@ function normalizeExternalUrl(v: string | null): string | null {
   return `https://${raw}`;
 }
 
+function includesCI(value: string | null | undefined, needle: string): boolean {
+  const n = String(needle || "").trim().toLowerCase();
+  if (!n) return true;
+  return String(value ?? "").toLowerCase().includes(n);
+}
+
+function numEquals(value: number, rawFilter: string): boolean {
+  const f = String(rawFilter || "").trim();
+  if (!f) return true;
+  const n = Number(f);
+  if (!Number.isFinite(n)) return true;
+  return value === n;
+}
+
 export default async function NeedsOrderingReportPage({
   searchParams,
 }: {
@@ -130,6 +157,19 @@ export default async function NeedsOrderingReportPage({
   const okMsg = String(sp.ok ?? "").trim();
   const sortBy = parseSortField(sp.sortBy);
   const sortDir = parseSortDir(sp.sortDir);
+  const skuFilter = String(sp.sku ?? "").trim();
+  const itemFilter = String(sp.item ?? "").trim();
+  const partFilter = String(sp.part ?? "").trim();
+  const supplierFilter = String(sp.supplier ?? "").trim();
+  const manufacturerFilter = String(sp.manufacturer ?? "").trim();
+  const statusFilter = String(sp.status ?? "").trim().toLowerCase();
+  const onHandFilter = String(sp.onHand ?? "").trim();
+  const orderedFilter = String(sp.ordered ?? "").trim();
+  const availableFilter = String(sp.available ?? "").trim();
+  const minFilter = String(sp.min ?? "").trim();
+  const shortByFilter = String(sp.shortBy ?? "").trim();
+  const techReqFilter = String(sp.techReq ?? "").trim();
+  const ignoredFilter = String(sp.ignored ?? "").trim().toLowerCase();
 
   async function setIgnoredAction(formData: FormData) {
     "use server";
@@ -146,6 +186,19 @@ export default async function NeedsOrderingReportPage({
     const focusBack = String(formData.get("focus") ?? "").trim();
     const sortByBack = String(formData.get("sortBy") ?? "").trim();
     const sortDirBack = String(formData.get("sortDir") ?? "").trim();
+    const skuBack = String(formData.get("sku") ?? "").trim();
+    const itemBack = String(formData.get("item") ?? "").trim();
+    const partBack = String(formData.get("part") ?? "").trim();
+    const supplierBack = String(formData.get("supplier") ?? "").trim();
+    const manufacturerBack = String(formData.get("manufacturer") ?? "").trim();
+    const statusBack = String(formData.get("status") ?? "").trim();
+    const onHandBack = String(formData.get("onHand") ?? "").trim();
+    const orderedBack = String(formData.get("ordered") ?? "").trim();
+    const availableBack = String(formData.get("available") ?? "").trim();
+    const minBack = String(formData.get("min") ?? "").trim();
+    const shortByBack = String(formData.get("shortBy") ?? "").trim();
+    const techReqBack = String(formData.get("techReq") ?? "").trim();
+    const ignoredBack = String(formData.get("ignored") ?? "").trim();
 
     if (!itemId) {
       redirect(
@@ -155,6 +208,19 @@ export default async function NeedsOrderingReportPage({
           focus: focusBack || undefined,
           sortBy: sortByBack || undefined,
           sortDir: sortDirBack || undefined,
+          sku: skuBack || undefined,
+          item: itemBack || undefined,
+          part: partBack || undefined,
+          supplier: supplierBack || undefined,
+          manufacturer: manufacturerBack || undefined,
+          status: statusBack || undefined,
+          onHand: onHandBack || undefined,
+          ordered: orderedBack || undefined,
+          available: availableBack || undefined,
+          min: minBack || undefined,
+          shortBy: shortByBack || undefined,
+          techReq: techReqBack || undefined,
+          ignored: ignoredBack || undefined,
           ok: "Missing item id",
         })}`
       );
@@ -175,6 +241,19 @@ export default async function NeedsOrderingReportPage({
         focus: focusBack || undefined,
         sortBy: sortByBack || undefined,
         sortDir: sortDirBack || undefined,
+        sku: skuBack || undefined,
+        item: itemBack || undefined,
+        part: partBack || undefined,
+        supplier: supplierBack || undefined,
+        manufacturer: manufacturerBack || undefined,
+        status: statusBack || undefined,
+        onHand: onHandBack || undefined,
+        ordered: orderedBack || undefined,
+        available: availableBack || undefined,
+        min: minBack || undefined,
+        shortBy: shortByBack || undefined,
+        techReq: techReqBack || undefined,
+        ignored: ignoredBack || undefined,
         ok: nextIgnored ? "Item ignored" : "Item restored",
       })}`
     );
@@ -252,10 +331,35 @@ export default async function NeedsOrderingReportPage({
           ? "red"
           : "yellow"
         : "blue";
-      return { ...item, available, shortBy, hasTechRequest, priority };
+      const statusText = item.reorderIgnored
+        ? "ignored"
+        : priority === "blue"
+          ? "tech requested"
+          : priority === "red"
+            ? "out"
+            : "below min";
+      return { ...item, available, shortBy, hasTechRequest, priority, statusText };
     })
     .filter((item) => item.shortBy > 0 || item.hasTechRequest)
     .filter((item) => (focus === "all" ? true : item.priority === focus))
+    .filter((item) => includesCI(item.sku, skuFilter))
+    .filter((item) => includesCI(item.name, itemFilter))
+    .filter((item) => includesCI(item.partNumber, partFilter))
+    .filter((item) => includesCI(item.orderFrom, supplierFilter))
+    .filter((item) => includesCI(item.manufacturer, manufacturerFilter))
+    .filter((item) => includesCI(item.statusText, statusFilter))
+    .filter((item) => numEquals(item.onHandQty, onHandFilter))
+    .filter((item) => numEquals(item.orderedQty, orderedFilter))
+    .filter((item) => numEquals(item.available, availableFilter))
+    .filter((item) => numEquals(item.minQty, minFilter))
+    .filter((item) => numEquals(item.shortBy, shortByFilter))
+    .filter((item) => numEquals(item.openTechRequests, techReqFilter))
+    .filter((item) => {
+      if (!ignoredFilter) return true;
+      if (["yes", "true", "1", "ignored"].includes(ignoredFilter)) return item.reorderIgnored;
+      if (["no", "false", "0", "active"].includes(ignoredFilter)) return !item.reorderIgnored;
+      return true;
+    })
     .sort((a, b) => {
       const priorityRank = { blue: 0, red: 1, yellow: 2 } as const;
       const statusRank = { "Tech Requested": 0, Out: 1, "Below Min": 2, Ignored: 3 } as const;
@@ -436,6 +540,22 @@ export default async function NeedsOrderingReportPage({
             </select>
           </label>
 
+          <div style={{ width: "100%", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 8 }}>
+            <input name="sku" defaultValue={skuFilter} placeholder="Filter SKU" style={{ padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(128,128,128,0.25)", background: "var(--background)", color: "var(--foreground)" }} />
+            <input name="item" defaultValue={itemFilter} placeholder="Filter Item" style={{ padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(128,128,128,0.25)", background: "var(--background)", color: "var(--foreground)" }} />
+            <input name="part" defaultValue={partFilter} placeholder="Filter Part #" style={{ padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(128,128,128,0.25)", background: "var(--background)", color: "var(--foreground)" }} />
+            <input name="supplier" defaultValue={supplierFilter} placeholder="Filter Supplier" style={{ padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(128,128,128,0.25)", background: "var(--background)", color: "var(--foreground)" }} />
+            <input name="manufacturer" defaultValue={manufacturerFilter} placeholder="Filter Manufacturer" style={{ padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(128,128,128,0.25)", background: "var(--background)", color: "var(--foreground)" }} />
+            <input name="status" defaultValue={statusFilter} placeholder="Filter Status" style={{ padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(128,128,128,0.25)", background: "var(--background)", color: "var(--foreground)" }} />
+            <input name="onHand" defaultValue={onHandFilter} placeholder="On Hand =" style={{ padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(128,128,128,0.25)", background: "var(--background)", color: "var(--foreground)" }} />
+            <input name="ordered" defaultValue={orderedFilter} placeholder="Ordered =" style={{ padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(128,128,128,0.25)", background: "var(--background)", color: "var(--foreground)" }} />
+            <input name="available" defaultValue={availableFilter} placeholder="Available =" style={{ padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(128,128,128,0.25)", background: "var(--background)", color: "var(--foreground)" }} />
+            <input name="min" defaultValue={minFilter} placeholder="Min =" style={{ padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(128,128,128,0.25)", background: "var(--background)", color: "var(--foreground)" }} />
+            <input name="shortBy" defaultValue={shortByFilter} placeholder="Short By =" style={{ padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(128,128,128,0.25)", background: "var(--background)", color: "var(--foreground)" }} />
+            <input name="techReq" defaultValue={techReqFilter} placeholder="Tech Requests =" style={{ padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(128,128,128,0.25)", background: "var(--background)", color: "var(--foreground)" }} />
+            <input name="ignored" defaultValue={ignoredFilter} placeholder="Ignored (yes/no)" style={{ padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(128,128,128,0.25)", background: "var(--background)", color: "var(--foreground)" }} />
+          </div>
+
           <button
             type="submit"
             style={{
@@ -461,6 +581,19 @@ export default async function NeedsOrderingReportPage({
               focus: "red",
               sortBy,
               sortDir,
+              sku: skuFilter || undefined,
+              item: itemFilter || undefined,
+              part: partFilter || undefined,
+              supplier: supplierFilter || undefined,
+              manufacturer: manufacturerFilter || undefined,
+              status: statusFilter || undefined,
+              onHand: onHandFilter || undefined,
+              ordered: orderedFilter || undefined,
+              available: availableFilter || undefined,
+              min: minFilter || undefined,
+              shortBy: shortByFilter || undefined,
+              techReq: techReqFilter || undefined,
+              ignored: ignoredFilter || undefined,
             })}`}
             style={{
               padding: "10px 12px",
@@ -482,6 +615,19 @@ export default async function NeedsOrderingReportPage({
               focus: "yellow",
               sortBy,
               sortDir,
+              sku: skuFilter || undefined,
+              item: itemFilter || undefined,
+              part: partFilter || undefined,
+              supplier: supplierFilter || undefined,
+              manufacturer: manufacturerFilter || undefined,
+              status: statusFilter || undefined,
+              onHand: onHandFilter || undefined,
+              ordered: orderedFilter || undefined,
+              available: availableFilter || undefined,
+              min: minFilter || undefined,
+              shortBy: shortByFilter || undefined,
+              techReq: techReqFilter || undefined,
+              ignored: ignoredFilter || undefined,
             })}`}
             style={{
               padding: "10px 12px",
@@ -670,6 +816,19 @@ export default async function NeedsOrderingReportPage({
                         <input type="hidden" name="focus" value={focus} />
                         <input type="hidden" name="sortBy" value={sortBy} />
                         <input type="hidden" name="sortDir" value={sortDir} />
+                        <input type="hidden" name="sku" value={skuFilter} />
+                        <input type="hidden" name="item" value={itemFilter} />
+                        <input type="hidden" name="part" value={partFilter} />
+                        <input type="hidden" name="supplier" value={supplierFilter} />
+                        <input type="hidden" name="manufacturer" value={manufacturerFilter} />
+                        <input type="hidden" name="status" value={statusFilter} />
+                        <input type="hidden" name="onHand" value={onHandFilter} />
+                        <input type="hidden" name="ordered" value={orderedFilter} />
+                        <input type="hidden" name="available" value={availableFilter} />
+                        <input type="hidden" name="min" value={minFilter} />
+                        <input type="hidden" name="shortBy" value={shortByFilter} />
+                        <input type="hidden" name="techReq" value={techReqFilter} />
+                        <input type="hidden" name="ignored" value={ignoredFilter} />
                         <button
                           type="submit"
                           style={{
