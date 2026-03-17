@@ -25,6 +25,12 @@ type LookupResponse = {
   results: PriceResult[];
 };
 
+type EnvStatusResponse = {
+  hasOpenAiKey: boolean;
+  presentVars: string[];
+  error?: string;
+};
+
 function formatMoney(amount: number | null, currency: string): string {
   if (amount == null) return "N/A";
   try {
@@ -46,6 +52,8 @@ export default function PriceLookupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [data, setData] = useState<LookupResponse | null>(null);
+  const [envStatus, setEnvStatus] = useState<EnvStatusResponse | null>(null);
+  const [envLoading, setEnvLoading] = useState(false);
   const autoRanFor = useRef<string>("");
 
   function parseVendorCsv(input: string): string[] {
@@ -102,6 +110,24 @@ export default function PriceLookupPage() {
     }
   }
 
+  async function checkEnvStatus() {
+    setEnvLoading(true);
+    try {
+      const res = await fetch("/api/admin/price-lookup/env-status", { method: "GET" });
+      const payload = (await res.json().catch(() => ({}))) as EnvStatusResponse;
+      if (!res.ok) {
+        setEnvStatus({ hasOpenAiKey: false, presentVars: [], error: payload.error || "Unable to check key status." });
+        return;
+      }
+      setEnvStatus(payload);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unable to check key status.";
+      setEnvStatus({ hasOpenAiKey: false, presentVars: [], error: msg });
+    } finally {
+      setEnvLoading(false);
+    }
+  }
+
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     await runLookup(partNumber);
@@ -117,12 +143,44 @@ export default function PriceLookupPage() {
     void runLookup(queryPart);
   }, [searchParams]);
 
+  useEffect(() => {
+    void checkEnvStatus();
+  }, []);
+
   return (
     <main style={{ display: "grid", gap: 14, maxWidth: 980 }}>
       <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>AI Part Price Lookup</h1>
       <p style={{ margin: 0, opacity: 0.85 }}>
         Enter a part number to search online suppliers and compare pricing with direct links.
       </p>
+
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <button
+          type="button"
+          onClick={() => void checkEnvStatus()}
+          disabled={envLoading}
+          style={{
+            padding: "8px 12px",
+            borderRadius: 10,
+            border: "1px solid var(--border, rgba(0,0,0,0.2))",
+            background: "var(--button, transparent)",
+            color: "inherit",
+            fontWeight: 800,
+            cursor: envLoading ? "default" : "pointer",
+            opacity: envLoading ? 0.7 : 1,
+          }}
+        >
+          {envLoading ? "Checking key..." : "Check API Key Setup"}
+        </button>
+
+        {envStatus ? (
+          <span style={{ opacity: 0.9, fontWeight: 700 }}>
+            {envStatus.hasOpenAiKey
+              ? `OpenAI key detected (${envStatus.presentVars.join(", ")}).`
+              : envStatus.error || "No OpenAI key env var detected in server runtime."}
+          </span>
+        ) : null}
+      </div>
 
       <form onSubmit={onSubmit} style={{ display: "grid", gap: 10 }}>
         <label style={{ display: "grid", gap: 6, maxWidth: 420 }}>
