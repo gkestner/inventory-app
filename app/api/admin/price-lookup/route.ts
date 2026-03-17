@@ -208,8 +208,9 @@ async function repairModelPayloadFromText(args: {
   maxResults: number;
   maxOutputTokens: number;
   rawTexts: string[];
+  includeVendors: string[];
 }): Promise<ModelPayload | null> {
-  const { client, model, partNumber, maxResults, maxOutputTokens, rawTexts } = args;
+  const { client, model, partNumber, maxResults, maxOutputTokens, rawTexts, includeVendors } = args;
   if (!rawTexts.length) return null;
 
   const combined = rawTexts.join("\n\n").trim();
@@ -220,10 +221,13 @@ async function repairModelPayloadFromText(args: {
     `Part number: ${partNumber}`,
     `Return at most ${maxResults} results.`,
     "Do not invent offers. If price is missing, set price to null.",
+    rawTexts.length > 0 && includeVendors.length > 0
+      ? `Only include results from these sites: ${includeVendors.join(", ")}.`
+      : "",
     "Output schema must be exactly: {\"summary\":\"\",\"results\":[{\"vendor\":\"\",\"title\":\"\",\"price\":null,\"currency\":\"USD\",\"url\":\"https://...\",\"matchType\":\"exact\",\"matchedPartNumber\":\"\",\"shipping\":\"\",\"inStock\":\"\",\"notes\":\"\"}]}",
     "Source text:",
     combined.slice(0, 12000),
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
   const repairedResponse = await client.responses.create({
     model,
@@ -348,10 +352,10 @@ export async function POST(req: Request) {
     "If a page does not show a real price, set price to null. Never use 0 as a placeholder price.",
     "Prefer US suppliers and include item title, vendor, price, currency, shipping (if visible), stock status (if visible).",
     includeVendors.length > 0
-      ? `Prioritize these vendors when available: ${includeVendors.join(", ")}.`
+      ? `IMPORTANT: Search ONLY the following specific websites for this part: ${includeVendors.join(", ")}. Use site-search (e.g., site:example.com ${partNumber}) for each. Only include results found on those sites. If none of them carry the part, say so in the summary and return an empty results array.`
       : "",
     excludeVendors.length > 0
-      ? `Exclude these vendors from results: ${excludeVendors.join(", ")}.`
+      ? `Do NOT include any results from these vendors or domains: ${excludeVendors.join(", ")}.`
       : "",
     "Keep the summary under 20 words and keep notes concise.",
     `Return up to ${maxResults} results sorted by lowest total price first.`,
@@ -387,6 +391,7 @@ export async function POST(req: Request) {
           maxResults,
           maxOutputTokens,
           rawTexts,
+          includeVendors,
         }).catch(() => null)
       : null;
     const finalParsed = parsed ?? repairedParsed;

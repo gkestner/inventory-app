@@ -249,7 +249,7 @@ export default function PriceLookupPage() {
         </label>
 
         <label style={{ display: "grid", gap: 6, maxWidth: 620 }}>
-          <span style={{ fontWeight: 700 }}>Include Vendors (optional, comma-separated)</span>
+          <span style={{ fontWeight: 700 }}>Search Only These Sites (optional, comma-separated)</span>
           <input
             value={includeVendorsText}
             onChange={(e) => setIncludeVendorsText(e.target.value)}
