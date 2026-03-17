@@ -38,6 +38,33 @@ type LookupBody = {
   excludeVendors?: unknown;
 };
 
+const LOOKUP_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    summary: { type: "string" },
+    results: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          vendor: { type: "string" },
+          title: { type: "string" },
+          price: { anyOf: [{ type: "number" }, { type: "null" }] },
+          currency: { type: "string" },
+          url: { type: "string" },
+          shipping: { anyOf: [{ type: "string" }, { type: "null" }] },
+          inStock: { anyOf: [{ type: "string" }, { type: "null" }] },
+          notes: { anyOf: [{ type: "string" }, { type: "null" }] },
+        },
+        required: ["vendor", "title", "price", "currency", "url", "shipping", "inStock", "notes"],
+      },
+    },
+  },
+  required: ["summary", "results"],
+} as const;
+
 function cleanPartNumber(value: unknown): string {
   return String(value ?? "")
     .trim()
@@ -193,6 +220,14 @@ export async function POST(req: Request) {
       tools: [{ type: "web_search_preview" }],
       input: prompt,
       max_output_tokens: maxOutputTokens,
+      text: {
+        format: {
+          type: "json_schema",
+          name: "price_lookup",
+          schema: LOOKUP_JSON_SCHEMA,
+          strict: true,
+        },
+      },
     });
 
     const outputText = (response.output_text ?? "").trim();
