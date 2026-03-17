@@ -1,4 +1,5 @@
 import type { VendorCredentialForTest } from "@/app/lib/vendor-credentials";
+import { fetchPartsTownAuthenticatedPriceInBrowser, isPartsTownSite } from "@/app/lib/partstown-browser";
 
 type PriceResultLite = {
   vendor: string;
@@ -22,8 +23,7 @@ type FormDescriptor = {
 };
 
 function isPartsTownHost(host: string): boolean {
-  const normalized = String(host || "").toLowerCase();
-  return normalized === "partstown.com" || normalized.endsWith(".partstown.com") || normalized.includes("partstown");
+  return isPartsTownSite(host);
 }
 
 function parseHost(input: string): string {
@@ -317,121 +317,7 @@ async function attemptPartsTownAuthenticatedSession(
   credential: VendorCredentialForTest,
   targetUrl: string
 ): Promise<AuthenticatedPriceOverlay> {
-  const cookieJar = { cookie: "" };
-
-  for (const loginUrl of buildPartsTownLoginCandidates(credential.site)) {
-    try {
-      const landing = await fetchWithCookieJar(loginUrl, { method: "GET" }, cookieJar);
-      const challenge = detectBotChallenge(landing.body);
-      if (challenge.blocked) {
-        return {
-          status: "blocked",
-          price: null,
-          notes: `${challenge.provider || "Site security"} blocked automated sign-in at ${loginUrl}`,
-        };
-      }
-
-      const form = parseLoginForm(landing.response.url || loginUrl, landing.body);
-      if (!form) continue;
-
-      const fields = { ...form.fields };
-      fields[form.userField] = credential.username;
-      fields[form.passwordField] = credential.password;
-
-      const payload = new URLSearchParams();
-      for (const [k, v] of Object.entries(fields)) {
-        payload.set(k, String(v ?? ""));
-      }
-
-      const submitResult = await fetchWithCookieJar(
-        form.method === "GET" ? `${form.actionUrl}?${payload.toString()}` : form.actionUrl,
-        {
-          method: form.method,
-          headers: form.method === "POST" ? { "content-type": "application/x-www-form-urlencoded" } : {},
-          body: form.method === "POST" ? payload.toString() : undefined,
-        },
-        cookieJar
-      );
-
-      const submitState = detectPartsTownLoginState(submitResult.body);
-      if (submitState === "login-page") {
-        return {
-          status: "failed",
-          price: null,
-          notes: `Parts Town sign-in appears to have failed or returned to the login screen (${submitResult.response.url}).`,
-        };
-      }
-
-      const afterLogin = await fetchWithCookieJar(targetUrl, { method: "GET" }, cookieJar);
-      const blocked = detectBotChallenge(afterLogin.body);
-      if (blocked.blocked) {
-        return {
-          status: "blocked",
-          price: null,
-          notes: `${blocked.provider || "Site security"} blocked authenticated pricing fetch at ${afterLogin.response.url}`,
-        };
-      }
-
-      let workingUrl = afterLogin.response.url;
-      let workingHtml = afterLogin.body;
-      const afterLoginState = detectPartsTownLoginState(workingHtml);
-      if (afterLoginState === "login-page") {
-        return {
-          status: "failed",
-          price: null,
-          notes: `Parts Town redirected the session back to login while fetching pricing (${workingUrl}).`,
-        };
-      }
-
-      if (isPartsTownSearchUrl(workingUrl)) {
-        const productUrl = findPartsTownProductUrl(workingUrl, workingHtml);
-        if (productUrl) {
-          const productPage = await fetchWithCookieJar(productUrl, { method: "GET" }, cookieJar);
-          const productBlocked = detectBotChallenge(productPage.body);
-          if (productBlocked.blocked) {
-            return {
-              status: "blocked",
-              price: null,
-              notes: `${productBlocked.provider || "Site security"} blocked Parts Town product-page pricing fetch at ${productPage.response.url}`,
-            };
-          }
-
-          const productState = detectPartsTownLoginState(productPage.body);
-          if (productState !== "login-page") {
-            workingUrl = productPage.response.url;
-            workingHtml = productPage.body;
-          }
-        }
-      }
-
-      const price = extractPartsTownPrice(workingHtml);
-      const inStock = extractStock(workingHtml);
-      if (price.price != null) {
-        return {
-          status: "authenticated",
-          price: price.price,
-          currency: price.currency || "USD",
-          inStock,
-          notes: `Authenticated Parts Town session used (${workingUrl}).`,
-        };
-      }
-
-      return {
-        status: "failed",
-        price: null,
-        inStock,
-        notes: `Parts Town sign-in session attempted, but no parsable price was found at ${workingUrl}.`,
-      };
-    } catch {
-      // Try next login candidate.
-    }
-  }
-
-  return {
-    status: "failed",
-    price: null,
-    notes: "Could not complete authenticated sign-in flow with stored credentials.",
-  };
+  return fetchPartsTownAuthenticatedPriceInBrowser({ credential, targetUrl });
 }
 
 export async function getAuthenticatedPriceOverlay(args: {

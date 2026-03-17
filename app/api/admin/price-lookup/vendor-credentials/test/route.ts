@@ -6,6 +6,7 @@ import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { listVendorCredentialsForTest, normalizeSiteKey } from "@/app/lib/vendor-credentials";
+import { isPartsTownSite, verifyPartsTownCredentialInBrowser } from "@/app/lib/partstown-browser";
 
 export const runtime = "nodejs";
 
@@ -286,6 +287,21 @@ async function probeCredential(siteInput: string, username: string, password: st
 
   if (!username.trim() || !password.trim()) {
     return { site, status: "error", message: "Username/password missing.", checkedAt };
+  }
+
+  if (isPartsTownSite(site)) {
+    const browserResult = await verifyPartsTownCredentialInBrowser({ site, username, password });
+    return {
+      site,
+      status:
+        browserResult.status === "ok"
+          ? "ok"
+          : browserResult.status === "blocked"
+            ? "warning"
+            : "error",
+      message: browserResult.message,
+      checkedAt,
+    };
   }
 
   const hasProtocol = /^https?:\/\//i.test(site);
