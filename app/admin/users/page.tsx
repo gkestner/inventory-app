@@ -1062,7 +1062,21 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         <h2 style={{ fontSize: 16, fontWeight: 900, marginBottom: 10 }}>Users</h2>
 
         <div style={{ display: "grid", gap: 12 }}>
-          {users.map((u) => {
+          {[
+            { key: "active", label: "Active Users", items: users.filter((u) => u.active), open: true },
+            { key: "disabled", label: "Disabled Users", items: users.filter((u) => !u.active), open: false },
+          ].map((section) => (
+            <details
+              key={section.key}
+              open={section.open}
+              style={{ border: "1px solid rgba(128,128,128,0.25)", borderRadius: 10, padding: 10 }}
+            >
+              <summary style={{ cursor: "pointer", fontWeight: 900 }}>
+                {section.label} ({section.items.length})
+              </summary>
+
+              <div style={{ display: "grid", gap: 12, marginTop: 10 }}>
+                {section.items.map((u) => {
             const { primary, optional } = splitLocations(u);
             const legacyName = u.location?.name ?? "";
 
@@ -1491,7 +1505,10 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                 </details>
               </details>
             );
-          })}
+                })}
+              </div>
+            </details>
+          ))}
         </div>
       </div>
     </div>
