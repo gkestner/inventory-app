@@ -126,6 +126,70 @@ function extractStock(html: string): string | undefined {
   return undefined;
 }
 
+function looksLikePartsTownLoginPage(html: string): boolean {
+  const src = String(html || "").toLowerCase();
+  if (!src) return false;
+  return (
+    src.includes("forgot your password") &&
+    src.includes("remember me") &&
+    src.includes("create an account") &&
+    src.includes("email address") &&
+    src.includes("password")
+  );
+}
+
+function detectPartsTownLoginState(html: string): "logged-in" | "login-page" | "unknown" {
+  const src = String(html || "").toLowerCase();
+  if (!src) return "unknown";
+
+  if (looksLikePartsTownLoginPage(src)) return "login-page";
+
+  if (
+    src.includes("track my order") ||
+    src.includes("add to my parts") ||
+    src.includes("my location") ||
+    src.includes("your cart") ||
+    src.includes("multi-sku order")
+  ) {
+    return "logged-in";
+  }
+
+  return "unknown";
+}
+
+function isPartsTownSearchUrl(url: string): boolean {
+  const normalized = String(url || "").toLowerCase();
+  return normalized.includes("partstown.com/search");
+}
+
+function findPartsTownProductUrl(baseUrl: string, html: string): string | null {
+  const src = String(html || "");
+  if (!src) return null;
+
+  const anchorRegex = /<a\b[^>]*href=["'](https?:\/\/www\.partstown\.com\/[^"'#]+|\/[^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = anchorRegex.exec(src)) !== null) {
+    const rawHref = String(match[1] || "").trim();
+    const anchorText = String(match[2] || "").replace(/<[^>]+>/g, " ").trim();
+    if (!rawHref) continue;
+
+    try {
+      const resolved = new URL(rawHref, baseUrl).toString();
+      const path = new URL(resolved).pathname.toLowerCase();
+      if (!isPartsTownHost(parseHost(resolved))) continue;
+      if (path === "/" || path.startsWith("/search") || path.startsWith("/login") || path.startsWith("/register")) continue;
+      if (path.split("/").filter(Boolean).length < 2) continue;
+      if (!anchorText || anchorText.length < 4) continue;
+      return resolved;
+    } catch {
+      // Ignore malformed search result link.
+    }
+  }
+
+  return null;
+}
+
 function parseInputAttrs(tag: string): Record<string, string> {
   const out: Record<string, string> = {};
   const attrRegex = /(\w[\w:-]*)\s*=\s*["']([^"']*)["']/g;
@@ -279,7 +343,7 @@ async function attemptPartsTownAuthenticatedSession(
         payload.set(k, String(v ?? ""));
       }
 
-      await fetchWithCookieJar(
+      const submitResult = await fetchWithCookieJar(
         form.method === "GET" ? `${form.actionUrl}?${payload.toString()}` : form.actionUrl,
         {
           method: form.method,
@@ -288,6 +352,15 @@ async function attemptPartsTownAuthenticatedSession(
         },
         cookieJar
       );
+
+      const submitState = detectPartsTownLoginState(submitResult.body);
+      if (submitState === "login-page") {
+        return {
+          status: "failed",
+          price: null,
+          notes: `Parts Town sign-in appears to have failed or returned to the login screen (${submitResult.response.url}).`,
+        };
+      }
 
       const afterLogin = await fetchWithCookieJar(targetUrl, { method: "GET" }, cookieJar);
       const blocked = detectBotChallenge(afterLogin.body);
@@ -299,15 +372,47 @@ async function attemptPartsTownAuthenticatedSession(
         };
       }
 
-      const price = extractPartsTownPrice(afterLogin.body);
-      const inStock = extractStock(afterLogin.body);
+      let workingUrl = afterLogin.response.url;
+      let workingHtml = afterLogin.body;
+      const afterLoginState = detectPartsTownLoginState(workingHtml);
+      if (afterLoginState === "login-page") {
+        return {
+          status: "failed",
+          price: null,
+          notes: `Parts Town redirected the session back to login while fetching pricing (${workingUrl}).`,
+        };
+      }
+
+      if (isPartsTownSearchUrl(workingUrl)) {
+        const productUrl = findPartsTownProductUrl(workingUrl, workingHtml);
+        if (productUrl) {
+          const productPage = await fetchWithCookieJar(productUrl, { method: "GET" }, cookieJar);
+          const productBlocked = detectBotChallenge(productPage.body);
+          if (productBlocked.blocked) {
+            return {
+              status: "blocked",
+              price: null,
+              notes: `${productBlocked.provider || "Site security"} blocked Parts Town product-page pricing fetch at ${productPage.response.url}`,
+            };
+          }
+
+          const productState = detectPartsTownLoginState(productPage.body);
+          if (productState !== "login-page") {
+            workingUrl = productPage.response.url;
+            workingHtml = productPage.body;
+          }
+        }
+      }
+
+      const price = extractPartsTownPrice(workingHtml);
+      const inStock = extractStock(workingHtml);
       if (price.price != null) {
         return {
           status: "authenticated",
           price: price.price,
           currency: price.currency || "USD",
           inStock,
-          notes: `Authenticated Parts Town session used (${afterLogin.response.url}).`,
+          notes: `Authenticated Parts Town session used (${workingUrl}).`,
         };
       }
 
@@ -315,7 +420,7 @@ async function attemptPartsTownAuthenticatedSession(
         status: "failed",
         price: null,
         inStock,
-        notes: `Parts Town sign-in session attempted, but no parsable price was found at ${afterLogin.response.url}.`,
+        notes: `Parts Town sign-in session attempted, but no parsable price was found at ${workingUrl}.`,
       };
     } catch {
       // Try next login candidate.
