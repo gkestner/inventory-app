@@ -48,6 +48,12 @@ type EnvStatusResponse = {
   error?: string;
 };
 
+type LookupPreferencesResponse = {
+  includeVendors?: string[];
+  excludeVendors?: string[];
+  error?: string;
+};
+
 type CredentialTestStatus = "ok" | "warning" | "error";
 
 type CredentialTestResult = {
@@ -114,6 +120,8 @@ export default function PriceLookupPage() {
   const [data, setData] = useState<LookupResponse | null>(null);
   const [envStatus, setEnvStatus] = useState<EnvStatusResponse | null>(null);
   const [envLoading, setEnvLoading] = useState(false);
+  const [prefsLoading, setPrefsLoading] = useState(false);
+  const [prefsError, setPrefsError] = useState("");
   const autoRanFor = useRef<string>("");
 
   function parseVendorCsv(input: string): string[] {
@@ -190,6 +198,29 @@ export default function PriceLookupPage() {
       setEnvStatus({ hasOpenAiKey: false, presentVars: [], error: msg });
     } finally {
       setEnvLoading(false);
+    }
+  }
+
+  async function loadLookupPreferences() {
+    setPrefsLoading(true);
+    setPrefsError("");
+    try {
+      const res = await fetch("/api/admin/price-lookup/preferences", { method: "GET" });
+      const payload = (await res.json().catch(() => ({}))) as LookupPreferencesResponse;
+      if (!res.ok) {
+        setPrefsError(payload.error || "Failed to load saved vendor filters.");
+        return;
+      }
+
+      const include = Array.isArray(payload.includeVendors) ? payload.includeVendors : [];
+      const exclude = Array.isArray(payload.excludeVendors) ? payload.excludeVendors : [];
+      setIncludeVendorsText(include.join(", "));
+      setExcludeVendorsText(exclude.join(", "));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to load saved vendor filters.";
+      setPrefsError(msg);
+    } finally {
+      setPrefsLoading(false);
     }
   }
 
@@ -462,6 +493,10 @@ export default function PriceLookupPage() {
   }, []);
 
   useEffect(() => {
+    void loadLookupPreferences();
+  }, []);
+
+  useEffect(() => {
     void loadCredentials();
   }, []);
 
@@ -470,6 +505,9 @@ export default function PriceLookupPage() {
       <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>AI Part Price Lookup</h1>
       <p style={{ margin: 0, opacity: 0.85 }}>
         Enter a part number to search online suppliers and compare pricing with direct links.
+      </p>
+      <p style={{ margin: 0, opacity: 0.75, fontSize: 13 }}>
+        Include/Exclude vendor lists are saved per user and reused on every run until you change or clear them.
       </p>
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -662,7 +700,13 @@ export default function PriceLookupPage() {
                     if (!test) return null;
                     return (
                       <div style={{ opacity: 0.75, fontSize: 12 }}>
-                        {test.message} (checked {new Date(test.checkedAt).toLocaleString()})
+                        <span
+                          title={test.message}
+                          style={{ display: "block", maxWidth: "100%", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                        >
+                          {test.message}
+                        </span>
+                        <span>(checked {new Date(test.checkedAt).toLocaleString()})</span>
                       </div>
                     );
                   })()}
@@ -799,6 +843,9 @@ export default function PriceLookupPage() {
             }}
           />
         </label>
+
+        {prefsLoading ? <div style={{ opacity: 0.75, fontSize: 13 }}>Loading saved vendor filters...</div> : null}
+        {prefsError ? <div style={{ opacity: 0.9, fontSize: 13, fontWeight: 700 }}>Vendor filter load error: {prefsError}</div> : null}
 
         <label style={{ display: "grid", gap: 6, maxWidth: 620 }}>
           <span style={{ fontWeight: 700 }}>Exclude Vendors (optional, comma-separated)</span>

@@ -19,6 +19,18 @@ type CredentialTestResult = {
   checkedAt: string;
 };
 
+function summarizeUrl(input: string): string {
+  try {
+    const u = new URL(input);
+    const path = u.pathname === "/" ? "" : u.pathname;
+    const out = `${u.origin}${path}`;
+    return out.length > 140 ? `${out.slice(0, 137)}...` : out;
+  } catch {
+    const raw = String(input || "").trim();
+    return raw.length > 140 ? `${raw.slice(0, 137)}...` : raw;
+  }
+}
+
 async function requireLookupAccess() {
   const session = await getServerSession(authOptions);
   if (!session) throw new Error("Unauthorized");
@@ -291,15 +303,29 @@ async function probeCredential(siteInput: string, username: string, password: st
 
   if (isPartsTownSite(site)) {
     const browserResult = await verifyPartsTownCredentialInBrowser({ site, username, password });
+    const baseMessage = browserResult.message;
+    if (browserResult.status === "ok") {
+      return {
+        site,
+        status: "ok",
+        message: `Login verified in browser session. ${baseMessage}`,
+        checkedAt,
+      };
+    }
+
+    if (browserResult.status === "blocked") {
+      return {
+        site,
+        status: "warning",
+        message: `Blocked by site protection. Credentials may still be valid in a normal browser session. ${baseMessage}`,
+        checkedAt,
+      };
+    }
+
     return {
       site,
-      status:
-        browserResult.status === "ok"
-          ? "ok"
-          : browserResult.status === "blocked"
-            ? "warning"
-            : "error",
-      message: browserResult.message,
+      status: "error",
+      message: `Login verification failed. ${baseMessage}`,
       checkedAt,
     };
   }
@@ -325,7 +351,7 @@ async function probeCredential(siteInput: string, username: string, password: st
         return {
           site,
           status: "warning",
-          message: `${provider} challenge blocked automated verification (${finalUrl}). Credentials may still be valid in a normal browser session.`,
+          message: `Blocked by ${provider}. Credentials may still be valid in a normal browser session (${summarizeUrl(finalUrl)}).`,
           checkedAt,
         };
       }
@@ -335,8 +361,8 @@ async function probeCredential(siteInput: string, username: string, password: st
         if (hasUser && hasPassword) {
           return {
             site,
-            status: "ok",
-            message: `Login form detected (${finalUrl}).`,
+            status: "warning",
+            message: `Login page found (form detected), but credentials were not verified (${summarizeUrl(finalUrl)}).`,
             checkedAt,
           };
         }
@@ -344,8 +370,8 @@ async function probeCredential(siteInput: string, username: string, password: st
         if (twoStep) {
           return {
             site,
-            status: "ok",
-            message: `Two-step login detected (email first, then password) — site reachable (${finalUrl}).`,
+            status: "warning",
+            message: `Login page found (two-step flow), but credentials were not verified (${summarizeUrl(finalUrl)}).`,
             checkedAt,
           };
         }
@@ -353,8 +379,8 @@ async function probeCredential(siteInput: string, username: string, password: st
         if (isSpa && hasLoginKeywords) {
           return {
             site,
-            status: "ok",
-            message: `Login page detected — JavaScript-rendered site, form fields loaded in browser (${finalUrl}).`,
+            status: "warning",
+            message: `Login page likely found on JavaScript-rendered site, but credentials were not verified (${summarizeUrl(finalUrl)}).`,
             checkedAt,
           };
         }
@@ -363,7 +389,7 @@ async function probeCredential(siteInput: string, username: string, password: st
           return {
             site,
             status: "warning",
-            message: `Login page is reachable but returned HTTP ${status} (${finalUrl}). Credentials may still be valid in a browser session.`,
+            message: `Login page appears reachable but returned HTTP ${status} (${summarizeUrl(finalUrl)}). Credentials may still be valid in a browser session.`,
             checkedAt,
           };
         }
@@ -375,8 +401,8 @@ async function probeCredential(siteInput: string, username: string, password: st
       if (hasUser && hasPassword) {
         return {
           site,
-          status: "ok",
-          message: `Login form detected (${finalUrl}).`,
+          status: "warning",
+          message: `Login page found (form detected), but credentials were not verified (${summarizeUrl(finalUrl)}).`,
           checkedAt,
         };
       }
@@ -384,8 +410,8 @@ async function probeCredential(siteInput: string, username: string, password: st
       if (twoStep) {
         return {
           site,
-          status: "ok",
-          message: `Two-step login detected (email first, then password) — site reachable (${finalUrl}).`,
+          status: "warning",
+          message: `Login page found (two-step flow), but credentials were not verified (${summarizeUrl(finalUrl)}).`,
           checkedAt,
         };
       }
@@ -393,8 +419,8 @@ async function probeCredential(siteInput: string, username: string, password: st
       if (isSpa && hasLoginKeywords) {
         return {
           site,
-          status: "ok",
-          message: `Login page detected — JavaScript-rendered site, form fields loaded in browser (${finalUrl}).`,
+          status: "warning",
+          message: `Login page likely found on JavaScript-rendered site, but credentials were not verified (${summarizeUrl(finalUrl)}).`,
           checkedAt,
         };
       }
@@ -402,8 +428,8 @@ async function probeCredential(siteInput: string, username: string, password: st
       if (isSpa) {
         return {
           site,
-          status: "ok",
-          message: `Site reachable — JavaScript-rendered, credentials stored and ready (${finalUrl}).`,
+          status: "warning",
+          message: `Site reachable but login page not confirmed (JavaScript-rendered) (${summarizeUrl(finalUrl)}).`,
           checkedAt,
         };
       }
@@ -411,8 +437,8 @@ async function probeCredential(siteInput: string, username: string, password: st
       if (hasLoginKeywords) {
         return {
           site,
-          status: "ok",
-          message: `Login page detected via keywords (${finalUrl}).`,
+          status: "warning",
+          message: `Login page likely found by keywords, but credentials were not verified (${summarizeUrl(finalUrl)}).`,
           checkedAt,
         };
       }
@@ -445,7 +471,7 @@ async function probeCredential(siteInput: string, username: string, password: st
     return {
       site,
       status: "warning",
-      message: `Site reachable, but no login endpoint was detected after scanning likely links (${reachableUrl}).`,
+      message: `Login page not found after scanning likely links (${summarizeUrl(reachableUrl)}).`,
       checkedAt,
     };
   }

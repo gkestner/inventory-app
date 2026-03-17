@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getServerSession } from "next-auth";
-import { Permission } from "@prisma/client";
+import { Permission, type Prisma } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { getConfiguredVendorSites, listVendorCredentialsForTest } from "@/app/lib/vendor-credentials";
 import { getAuthenticatedPriceOverlay } from "@/app/lib/authenticated-vendor-pricing";
+import { getPriceLookupPreferences, setPriceLookupPreferences } from "@/app/lib/price-lookup-preferences";
 
 export const runtime = "nodejs";
 
@@ -183,17 +184,33 @@ export async function POST(req: Request) {
 
   const maxResultsRaw = Number(body.maxResults);
   const maxResults = Number.isFinite(maxResultsRaw) ? Math.min(12, Math.max(1, Math.trunc(maxResultsRaw))) : 8;
-  const includeVendors = normalizeVendorList(body.includeVendors);
-  const excludeVendors = normalizeVendorList(body.excludeVendors);
+  const includeVendorsInput = normalizeVendorList(body.includeVendors);
+  const excludeVendorsInput = normalizeVendorList(body.excludeVendors);
 
   const sessionUserId = (session.user as unknown as { id?: string | null } | null)?.id ?? null;
   const sessionEmail = (session.user as unknown as { email?: string | null } | null)?.email ?? null;
   const currentUser = sessionUserId
-    ? await prisma.user.findUnique({ where: { id: sessionUserId }, select: { uiPreferences: true } })
+    ? await prisma.user.findUnique({ where: { id: sessionUserId }, select: { id: true, uiPreferences: true } })
     : sessionEmail
-      ? await prisma.user.findUnique({ where: { email: sessionEmail }, select: { uiPreferences: true } })
+      ? await prisma.user.findUnique({ where: { email: sessionEmail }, select: { id: true, uiPreferences: true } })
       : null;
+
+  const savedPrefs = getPriceLookupPreferences(currentUser?.uiPreferences);
+  const includeVendors = includeVendorsInput.length > 0 ? includeVendorsInput : savedPrefs.includeVendors;
+  const excludeVendors = excludeVendorsInput.length > 0 ? excludeVendorsInput : savedPrefs.excludeVendors;
   const connectedVendorSites = getConfiguredVendorSites(currentUser?.uiPreferences);
+
+  if (currentUser?.id) {
+    const nextUiPreferences = setPriceLookupPreferences(currentUser.uiPreferences, {
+      includeVendors: includeVendorsInput,
+      excludeVendors: excludeVendorsInput,
+    });
+    await prisma.user.update({
+      where: { id: currentUser.id },
+      data: { uiPreferences: nextUiPreferences as Prisma.InputJsonValue },
+      select: { id: true },
+    });
+  }
 
   const apiKey =
     process.env.OPENAI_API_KEY ||
