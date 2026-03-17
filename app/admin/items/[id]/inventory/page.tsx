@@ -3,6 +3,7 @@ import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { canAccessAdmin } from "@/app/lib/admin-access";
 import { getServerSession } from "next-auth";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
@@ -38,6 +39,12 @@ function normStr(v: FormDataEntryValue | null): string | null {
 
 function enc(v: string) {
   return encodeURIComponent(v);
+}
+
+function isNextRedirectError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const digest = (error as { digest?: unknown }).digest;
+  return typeof digest === "string" && digest.startsWith("NEXT_REDIRECT");
 }
 
 function parseIso(v: FormDataEntryValue | null): string | null {
@@ -230,6 +237,7 @@ export default async function ItemInventoryPage({
 
       redirect(`/admin/items/${itemId}/inventory?ok=${enc("Inventory updated.")}`);
     } catch (e: unknown) {
+      if (isNextRedirectError(e)) throw e;
       const msg =
         e instanceof Prisma.PrismaClientKnownRequestError
           ? e.message
@@ -249,6 +257,22 @@ export default async function ItemInventoryPage({
 
   return (
     <main style={{ padding: 16 }}>
+      <div style={{ marginBottom: 10 }}>
+        <Link
+          href={`/admin/items?id=${encodeURIComponent(item.id)}`}
+          style={{
+            display: "inline-block",
+            padding: "8px 12px",
+            borderRadius: 10,
+            border: "1px solid var(--border, rgba(0,0,0,0.2))",
+            textDecoration: "none",
+            color: "inherit",
+            fontWeight: 800,
+          }}
+        >
+          Back to Item
+        </Link>
+      </div>
       <h1 style={{ fontSize: 20, fontWeight: 900 }}>Item Inventory</h1>
       <div style={{ marginTop: 6, opacity: 0.8 }}>
         <b>{item.sku}</b> — {item.name}

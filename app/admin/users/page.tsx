@@ -37,6 +37,12 @@ function nonEmpty(v: FormDataEntryValue | null): string {
   return String(v ?? "").trim();
 }
 
+function isNextRedirectError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const digest = (error as { digest?: unknown }).digest;
+  return typeof digest === "string" && digest.startsWith("NEXT_REDIRECT");
+}
+
 /**
  * ✅ Safe Role picker
  * - Works whether or not your Prisma Role enum includes MAINTENANCE
@@ -346,6 +352,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
 
       createdUserId = createdUser.id;
     } catch (e: unknown) {
+      if (isNextRedirectError(e)) throw e;
       const msg = e instanceof Error ? e.message : "Create failed";
       redirect("/admin/users?error=" + encodeURIComponent(msg));
     }
@@ -370,6 +377,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         data: { active: nextActive },
       });
     } catch (e: unknown) {
+      if (isNextRedirectError(e)) throw e;
       const msg = e instanceof Error ? e.message : "Update failed";
       redirect("/admin/users?error=" + encodeURIComponent(msg));
     }
@@ -415,6 +423,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         data: { passwordHash },
       });
     } catch (e: unknown) {
+      if (isNextRedirectError(e)) throw e;
       const msg = e instanceof Error ? e.message : "Reset failed";
       redirect("/admin/users?error=" + encodeURIComponent(msg));
     }
@@ -540,6 +549,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         });
       });
     } catch (e: unknown) {
+      if (isNextRedirectError(e)) throw e;
       const msg = e instanceof Error ? e.message : "Assign locations failed";
       redirect("/admin/users?error=" + encodeURIComponent(msg));
     }
@@ -584,6 +594,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         }
       });
     } catch (e: unknown) {
+      if (isNextRedirectError(e)) throw e;
       const msg = e instanceof Error ? e.message : "Assign permission titles failed";
       redirect("/admin/users?error=" + encodeURIComponent(msg));
     }
@@ -624,6 +635,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         });
       });
     } catch (e: unknown) {
+      if (isNextRedirectError(e)) throw e;
       const msg = e instanceof Error ? e.message : "Admin access update failed";
       redirect("/admin/users?error=" + encodeURIComponent(msg));
     }
@@ -655,6 +667,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
           },
         });
       } catch (e: unknown) {
+        if (isNextRedirectError(e)) throw e;
         const msg = e instanceof Error ? e.message : "Security question update failed";
         redirect("/admin/users?error=" + encodeURIComponent(msg));
       }
@@ -698,6 +711,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         },
       });
     } catch (e: unknown) {
+      if (isNextRedirectError(e)) throw e;
       const msg = e instanceof Error ? e.message : "Security question update failed";
       redirect("/admin/users?error=" + encodeURIComponent(msg));
     }
@@ -736,6 +750,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         data: { uiPreferences: root as Prisma.InputJsonValue },
       });
     } catch (e: unknown) {
+      if (isNextRedirectError(e)) throw e;
       const msg = e instanceof Error ? e.message : "Update failed";
       redirect("/admin/users?error=" + encodeURIComponent(msg));
     }
@@ -800,6 +815,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         },
       });
     } catch (e: unknown) {
+      if (isNextRedirectError(e)) throw e;
       const msg = e instanceof Error ? e.message : "Vacation routing update failed";
       redirect("/admin/users?error=" + encodeURIComponent(msg));
     }
