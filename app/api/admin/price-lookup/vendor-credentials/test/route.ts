@@ -120,6 +120,44 @@ function hasLoginFields(html: string): LoginDetection {
   return { hasUser, hasPassword, twoStep, isSpa, hasLoginKeywords };
 }
 
+function discoverLoginCandidates(baseUrl: string, html: string): string[] {
+  const src = String(html || "");
+  const found = new Set<string>();
+  const currentOrigin = (() => {
+    try {
+      return new URL(baseUrl).origin;
+    } catch {
+      return "";
+    }
+  })();
+
+  const loginHint = /(login|log[-_ ]?in|signin|sign[-_ ]?in|account|my-account|customer|auth|identity)/i;
+  const hrefRegex = /<a\b[^>]*\bhref\s*=\s*["']([^"'#]+)["'][^>]*>/gi;
+  const actionRegex = /<form\b[^>]*\baction\s*=\s*["']([^"'#]+)["'][^>]*>/gi;
+
+  for (const regex of [hrefRegex, actionRegex]) {
+    regex.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(src)) !== null) {
+      const raw = String(match[1] || "").trim();
+      if (!raw || raw.startsWith("javascript:")) continue;
+      if (!loginHint.test(raw)) continue;
+
+      try {
+        const resolved = new URL(raw, baseUrl);
+        // Prefer same-origin pages when exploring login links.
+        if (currentOrigin && resolved.origin !== currentOrigin) continue;
+        if (resolved.protocol !== "http:" && resolved.protocol !== "https:") continue;
+        found.add(resolved.toString());
+      } catch {
+        // Skip malformed link candidates.
+      }
+    }
+  }
+
+  return Array.from(found).slice(0, 8);
+}
+
 async function probeCredential(siteInput: string, username: string, password: string): Promise<CredentialTestResult> {
   const checkedAt = new Date().toISOString();
   const site = String(siteInput ?? "").trim();
@@ -133,12 +171,19 @@ async function probeCredential(siteInput: string, username: string, password: st
 
   const hasProtocol = /^https?:\/\//i.test(site);
   const base = hasProtocol ? site : `https://${site}`;
-  const candidates = [base, `${base.replace(/\/+$/, "")}/login`, `${base.replace(/\/+$/, "")}/account/login`];
+  const queue = [base, `${base.replace(/\/+$/, "")}/login`, `${base.replace(/\/+$/, "")}/account/login`];
+  const visited = new Set<string>();
+  let reachableUrl = "";
 
-  for (const url of candidates) {
+  while (queue.length > 0 && visited.size < 12) {
+    const url = String(queue.shift() || "").trim();
+    if (!url || visited.has(url)) continue;
+    visited.add(url);
+
     try {
       const { status, finalUrl, body } = await fetchHtml(url, 8000);
       if (status >= 400) continue;
+      reachableUrl = finalUrl;
 
       const { hasUser, hasPassword, twoStep, isSpa, hasLoginKeywords } = hasLoginFields(body);
       if (hasUser && hasPassword) {
@@ -187,23 +232,29 @@ async function probeCredential(siteInput: string, username: string, password: st
       }
 
       if (body.length > 0) {
-        return {
-          site,
-          status: "warning",
-          message: `Site reachable but login form not detected (${finalUrl}).`,
-          checkedAt,
-        };
+        const discovered = discoverLoginCandidates(finalUrl, body);
+        for (const candidate of discovered) {
+          if (!visited.has(candidate) && !queue.includes(candidate)) {
+            queue.push(candidate);
+          }
+        }
       }
 
-      return {
-        site,
-        status: "warning",
-        message: `Site reachable (${finalUrl}) but returned non-HTML content.`,
-        checkedAt,
-      };
+      if (body.length > 0) {
+        continue;
+      }
     } catch {
       // Try next candidate endpoint.
     }
+  }
+
+  if (reachableUrl) {
+    return {
+      site,
+      status: "warning",
+      message: `Site reachable, but no login endpoint was detected after scanning likely links (${reachableUrl}).`,
+      checkedAt,
+    };
   }
 
   return {
