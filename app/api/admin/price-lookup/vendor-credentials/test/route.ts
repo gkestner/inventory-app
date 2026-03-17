@@ -301,7 +301,6 @@ async function probeCredential(siteInput: string, username: string, password: st
 
     try {
       const { status, finalUrl, body } = await fetchHtml(url, 8000);
-      if (status >= 400) continue;
       reachableUrl = finalUrl;
 
       const botChallenge = detectBotChallenge(body);
@@ -313,6 +312,47 @@ async function probeCredential(siteInput: string, username: string, password: st
           message: `${provider} challenge blocked automated verification (${finalUrl}). Credentials may still be valid in a normal browser session.`,
           checkedAt,
         };
+      }
+
+      if (status >= 400) {
+        const { hasUser, hasPassword, twoStep, isSpa, hasLoginKeywords } = hasLoginFields(body);
+        if (hasUser && hasPassword) {
+          return {
+            site,
+            status: "ok",
+            message: `Login form detected (${finalUrl}).`,
+            checkedAt,
+          };
+        }
+
+        if (twoStep) {
+          return {
+            site,
+            status: "ok",
+            message: `Two-step login detected (email first, then password) — site reachable (${finalUrl}).`,
+            checkedAt,
+          };
+        }
+
+        if (isSpa && hasLoginKeywords) {
+          return {
+            site,
+            status: "ok",
+            message: `Login page detected — JavaScript-rendered site, form fields loaded in browser (${finalUrl}).`,
+            checkedAt,
+          };
+        }
+
+        if (hasLoginKeywords) {
+          return {
+            site,
+            status: "warning",
+            message: `Login page is reachable but returned HTTP ${status} (${finalUrl}). Credentials may still be valid in a browser session.`,
+            checkedAt,
+          };
+        }
+
+        continue;
       }
 
       const { hasUser, hasPassword, twoStep, isSpa, hasLoginKeywords } = hasLoginFields(body);
