@@ -103,6 +103,7 @@ export default function PriceLookupPage() {
   const [credsError, setCredsError] = useState("");
   const [credentials, setCredentials] = useState<VendorCredentialSummary[]>([]);
   const [testingAllCreds, setTestingAllCreds] = useState(false);
+  const [testingSite, setTestingSite] = useState<string | null>(null);
   const [testSummary, setTestSummary] = useState<CredentialTestSummary | null>(null);
   const [testBySite, setTestBySite] = useState<Record<string, CredentialTestResult>>({});
   const [loading, setLoading] = useState(false);
@@ -391,6 +392,48 @@ export default function PriceLookupPage() {
     }
   }
 
+  async function testSingleCredential(site: string) {
+    setTestingSite(site);
+    setCredsError("");
+    try {
+      const res = await fetch("/api/admin/price-lookup/vendor-credentials/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        results?: CredentialTestResult[];
+        error?: string;
+      };
+
+      if (!res.ok) {
+        setCredsError(payload.error || "Failed to test credential.");
+        return;
+      }
+
+      const first = Array.isArray(payload.results) ? payload.results[0] : undefined;
+      if (!first?.site) return;
+
+      setTestBySite((prev) => {
+        const next = { ...prev, [first.site]: first };
+        const summary = {
+          total: Object.keys(next).length,
+          ok: Object.values(next).filter((r) => r.status === "ok").length,
+          warning: Object.values(next).filter((r) => r.status === "warning").length,
+          error: Object.values(next).filter((r) => r.status === "error").length,
+        };
+        setTestSummary(summary);
+        return next;
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to test credential.";
+      setCredsError(msg);
+    } finally {
+      setTestingSite(null);
+    }
+  }
+
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     await runLookup(partNumber);
@@ -460,7 +503,7 @@ export default function PriceLookupPage() {
             <button
               type="button"
               onClick={() => void testAllCredentials()}
-              disabled={testingAllCreds || credsLoading}
+              disabled={testingAllCreds || credsLoading || testingSite !== null}
               style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--button, transparent)", color: "inherit", fontWeight: 800, cursor: testingAllCreds || credsLoading ? "default" : "pointer", opacity: testingAllCreds || credsLoading ? 0.7 : 1 }}
             >
               {testingAllCreds ? "Testing credentials..." : "Test All Credentials"}
@@ -584,6 +627,14 @@ export default function PriceLookupPage() {
                 </div>
 
                 <div style={{ display: "flex", gap: 8, minWidth: 210, justifyContent: "flex-end" }}>
+                  <button
+                    type="button"
+                    onClick={() => void testSingleCredential(row.site)}
+                    disabled={credsLoading || testingAllCreds || testingSite === row.site}
+                    style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--button, transparent)", color: "inherit", fontWeight: 800, cursor: credsLoading || testingAllCreds || testingSite === row.site ? "default" : "pointer", opacity: credsLoading || testingAllCreds || testingSite === row.site ? 0.7 : 1 }}
+                  >
+                    {testingSite === row.site ? "Testing..." : "Test"}
+                  </button>
                   <button
                     type="button"
                     onClick={() => beginEdit(row)}

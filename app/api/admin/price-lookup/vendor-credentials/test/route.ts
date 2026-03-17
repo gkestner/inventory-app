@@ -141,10 +141,26 @@ async function probeCredential(siteInput: string, username: string, password: st
   };
 }
 
-export async function POST() {
+export async function POST(req: Request) {
   try {
     const user = await resolveCurrentUser();
-    const creds = listVendorCredentialsForTest(user.uiPreferences);
+    const allCreds = listVendorCredentialsForTest(user.uiPreferences);
+
+    let requestedSite = "";
+    try {
+      const body = (await req.json().catch(() => null)) as { site?: unknown } | null;
+      requestedSite = normalizeSiteKey(String(body?.site ?? ""));
+    } catch {
+      requestedSite = "";
+    }
+
+    const creds = requestedSite
+      ? allCreds.filter((c) => normalizeSiteKey(c.site) === requestedSite)
+      : allCreds;
+
+    if (requestedSite && creds.length === 0) {
+      return NextResponse.json({ error: `Credential not found for site: ${requestedSite}` }, { status: 404 });
+    }
 
     if (creds.length === 0) {
       return NextResponse.json({

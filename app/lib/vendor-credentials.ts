@@ -61,12 +61,23 @@ function toObject(value: unknown): Record<string, unknown> {
 }
 
 export function normalizeSiteKey(input: unknown): string {
-  return String(input ?? "")
-    .trim()
-    .toLowerCase()
+  const raw = String(input ?? "").trim().toLowerCase();
+  if (!raw) return "";
+
+  // Accept full URLs and normalize them to just the hostname for stable keys.
+  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+
+  let host = "";
+  try {
+    host = new URL(withProtocol).hostname.toLowerCase();
+  } catch {
+    host = raw;
+  }
+
+  return host
     .replace(/[^a-z0-9.-]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 64);
+    .slice(0, 128);
 }
 
 export function getVaultFromUiPreferences(uiPreferences: unknown): VendorVault {
