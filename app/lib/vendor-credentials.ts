@@ -1,6 +1,7 @@
 import crypto from "crypto";
 
 export type VendorVaultEntry = {
+  label?: string;
   siteRaw?: string;
   usernameEnc: string;
   passwordEnc: string;
@@ -10,6 +11,7 @@ export type VendorVaultEntry = {
 export type VendorVault = Record<string, VendorVaultEntry>;
 
 export type VendorCredentialSummary = {
+  label?: string;
   site: string;
   username: string;
   hasPassword: boolean;
@@ -17,6 +19,7 @@ export type VendorCredentialSummary = {
 };
 
 export type VendorCredentialForTest = {
+  label?: string;
   site: string;
   username: string;
   password: string;
@@ -75,12 +78,13 @@ export function getVaultFromUiPreferences(uiPreferences: unknown): VendorVault {
     const key = normalizeSiteKey(site);
     if (!key) continue;
     const item = toObject(row);
+    const label = String(item.label ?? "").trim().slice(0, 120);
     const siteRaw = String(item.siteRaw ?? site).trim();
     const usernameEnc = String(item.usernameEnc ?? "").trim();
     const passwordEnc = String(item.passwordEnc ?? "").trim();
     const updatedAt = String(item.updatedAt ?? "").trim() || new Date(0).toISOString();
     if (!usernameEnc || !passwordEnc) continue;
-    out[key] = { siteRaw, usernameEnc, passwordEnc, updatedAt };
+    out[key] = { label, siteRaw, usernameEnc, passwordEnc, updatedAt };
   }
 
   return out;
@@ -99,6 +103,7 @@ export function listVendorCredentials(uiPreferences: unknown): VendorCredentialS
       const username = decryptText(entry.usernameEnc);
       const displaySite = String(entry.siteRaw ?? site).trim() || site;
       rows.push({
+        label: String(entry.label ?? "").trim() || undefined,
         site: displaySite,
         username,
         hasPassword: true,
@@ -109,7 +114,7 @@ export function listVendorCredentials(uiPreferences: unknown): VendorCredentialS
     }
   }
 
-  rows.sort((a, b) => a.site.localeCompare(b.site));
+  rows.sort((a, b) => (a.label || a.site).localeCompare(b.label || b.site));
   return rows;
 }
 
@@ -122,17 +127,18 @@ export function listVendorCredentialsForTest(uiPreferences: unknown): VendorCred
       const username = decryptText(entry.usernameEnc);
       const password = decryptText(entry.passwordEnc);
       const displaySite = String(entry.siteRaw ?? site).trim() || site;
-      rows.push({ site: displaySite, username, password });
+      rows.push({ label: String(entry.label ?? "").trim() || undefined, site: displaySite, username, password });
     } catch {
       // Skip unreadable entries rather than failing entire probe.
     }
   }
 
-  rows.sort((a, b) => a.site.localeCompare(b.site));
+  rows.sort((a, b) => (a.label || a.site).localeCompare(b.label || b.site));
   return rows;
 }
 
-export function upsertVendorCredential(uiPreferences: unknown, args: { site: string; username: string; password: string }) {
+export function upsertVendorCredential(uiPreferences: unknown, args: { label?: string; site: string; username: string; password: string }) {
+  const label = String(args.label ?? "").trim().slice(0, 120);
   const rawSite = String(args.site ?? "").trim();
   const site = normalizeSiteKey(rawSite);
   const username = String(args.username ?? "").trim();
@@ -145,6 +151,7 @@ export function upsertVendorCredential(uiPreferences: unknown, args: { site: str
   const root = toObject(uiPreferences);
   const vault = getVaultFromUiPreferences(uiPreferences);
   vault[site] = {
+    label,
     siteRaw: rawSite,
     usernameEnc: encryptText(username),
     passwordEnc: encryptText(password),
@@ -159,10 +166,11 @@ export function upsertVendorCredential(uiPreferences: unknown, args: { site: str
 
 export function updateVendorCredential(
   uiPreferences: unknown,
-  args: { site: string; nextSite?: string; username?: string; password?: string }
+  args: { site: string; nextSite?: string; label?: string; username?: string; password?: string }
 ) {
   const rawSite = String(args.site ?? "").trim();
   const rawNextSite = String(args.nextSite ?? args.site ?? "").trim();
+  const nextLabel = typeof args.label === "string" ? args.label.trim().slice(0, 120) : undefined;
   const site = normalizeSiteKey(rawSite);
   const nextSite = normalizeSiteKey(rawNextSite);
   const nextUsernameRaw = typeof args.username === "string" ? args.username.trim() : "";
@@ -189,6 +197,7 @@ export function updateVendorCredential(
   if (site !== nextSite) delete vault[site];
 
   vault[nextSite] = {
+    label: nextLabel ?? String(existing.label ?? "").trim(),
     siteRaw: rawNextSite,
     usernameEnc: encryptText(username),
     passwordEnc: encryptText(password),

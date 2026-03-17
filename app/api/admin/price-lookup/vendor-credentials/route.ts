@@ -57,7 +57,8 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json().catch(() => ({}))) as { site?: unknown; username?: unknown; password?: unknown };
+    const body = (await req.json().catch(() => ({}))) as { label?: unknown; site?: unknown; username?: unknown; password?: unknown };
+    const label = String(body.label ?? "").trim();
     const site = String(body.site ?? "").trim();
     const username = String(body.username ?? "").trim();
     const password = String(body.password ?? "").trim();
@@ -67,7 +68,7 @@ export async function POST(req: Request) {
     if (!password) return NextResponse.json({ error: "Password is required." }, { status: 400 });
 
     const user = await resolveCurrentUser();
-    const nextPrefs = upsertVendorCredential(user.uiPreferences, { site, username, password });
+  const nextPrefs = upsertVendorCredential(user.uiPreferences, { label, site, username, password });
 
     const saved = await prisma.user.update({
       where: { id: user.id },
@@ -111,11 +112,13 @@ export async function PATCH(req: Request) {
     const body = (await req.json().catch(() => ({}))) as {
       site?: unknown;
       nextSite?: unknown;
+      label?: unknown;
       username?: unknown;
       password?: unknown;
     };
     const site = String(body.site ?? "").trim();
     const nextSite = String(body.nextSite ?? "").trim();
+    const label = String(body.label ?? "").trim();
     const username = String(body.username ?? "").trim();
     const password = String(body.password ?? "").trim();
 
@@ -126,6 +129,7 @@ export async function PATCH(req: Request) {
     const nextPrefs = updateVendorCredential(user.uiPreferences, {
       site,
       nextSite,
+      label,
       username,
       password,
     });

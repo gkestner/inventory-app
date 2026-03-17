@@ -234,6 +234,12 @@ export async function verifyPartsTownCredentialInBrowser(
     return await loginToPartsTown(session.page, credential);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown browser automation error.";
+    if (/Executable doesn't exist/i.test(message) || /Please run the following command to download new browsers/i.test(message)) {
+      return {
+        status: "blocked",
+        message: "Playwright browser runtime is missing on the server. The deployment must run `npx playwright install chromium` during build.",
+      };
+    }
     return {
       status: "failed",
       message: `Parts Town browser verification failed: ${message}`,
@@ -313,6 +319,13 @@ export async function fetchPartsTownAuthenticatedPriceInBrowser(args: {
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown browser automation error.";
+    if (/Executable doesn't exist/i.test(message) || /Please run the following command to download new browsers/i.test(message)) {
+      return {
+        status: "blocked",
+        price: null,
+        notes: "Playwright browser runtime is missing on the server. The deployment must run `npx playwright install chromium` during build.",
+      };
+    }
     return {
       status: "failed",
       price: null,

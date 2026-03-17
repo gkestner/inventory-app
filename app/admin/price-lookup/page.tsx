@@ -35,6 +35,7 @@ type LookupResponse = {
 };
 
 type VendorCredentialSummary = {
+  label?: string;
   site: string;
   username: string;
   hasPassword: boolean;
@@ -90,11 +91,13 @@ export default function PriceLookupPage() {
   const [partNumber, setPartNumber] = useState("");
   const [includeVendorsText, setIncludeVendorsText] = useState("");
   const [excludeVendorsText, setExcludeVendorsText] = useState("");
+  const [newLabel, setNewLabel] = useState("");
   const [newSite, setNewSite] = useState("");
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [editingSite, setEditingSite] = useState<string | null>(null);
+  const [editLabelValue, setEditLabelValue] = useState("");
   const [editSiteValue, setEditSiteValue] = useState("");
   const [editUsernameValue, setEditUsernameValue] = useState("");
   const [editPasswordValue, setEditPasswordValue] = useState("");
@@ -241,6 +244,7 @@ export default function PriceLookupPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          label: newLabel.trim(),
           site: normalizedSite,
           username: normalizedUsername,
           password: normalizedPassword,
@@ -258,6 +262,7 @@ export default function PriceLookupPage() {
       setCredentials(Array.isArray(payload.credentials) ? payload.credentials : []);
       setNewPassword("");
       setNewSite("");
+      setNewLabel("");
       setNewUsername("");
       setShowNewPassword(false);
       setTestSummary(null);
@@ -271,6 +276,7 @@ export default function PriceLookupPage() {
 
   function beginEdit(row: VendorCredentialSummary) {
     setEditingSite(row.site);
+    setEditLabelValue(row.label || "");
     setEditSiteValue(row.site);
     setEditUsernameValue(row.username);
     setEditPasswordValue(MASKED_PASSWORD);
@@ -280,6 +286,7 @@ export default function PriceLookupPage() {
 
   function cancelEdit() {
     setEditingSite(null);
+    setEditLabelValue("");
     setEditSiteValue("");
     setEditUsernameValue("");
     setEditPasswordValue("");
@@ -299,6 +306,7 @@ export default function PriceLookupPage() {
         body: JSON.stringify({
           site: originalSite,
           nextSite: editSiteValue.trim(),
+          label: editLabelValue.trim(),
           username: editUsernameValue.trim(),
           password: nextPassword,
         }),
@@ -517,11 +525,17 @@ export default function PriceLookupPage() {
 
           {editingSite ? (
             <div style={{ fontWeight: 700, opacity: 0.9 }}>
-              Editing: {editingSite}. Leave password blank to keep the existing password.
+              Editing: {credentials.find((x) => x.site === editingSite)?.label || editingSite}. Leave password blank to keep the existing password.
             </div>
           ) : null}
 
           <form onSubmit={saveCredential} style={{ display: "grid", gap: 8, maxWidth: 680 }}>
+            <input
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              placeholder="Credential name (example: Parts Town Main)"
+              style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--input, transparent)", color: "inherit" }}
+            />
             <input
               value={newSite}
               onChange={(e) => setNewSite(e.target.value)}
@@ -581,6 +595,7 @@ export default function PriceLookupPage() {
                 }}
               >
                 <div style={{ display: "grid", gap: 2, flex: "1 1 320px", minWidth: 0 }}>
+                  {row.label ? <div style={{ fontWeight: 900 }}>{row.label}</div> : null}
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap", minWidth: 0 }}>
                     <a
                       href={toCredentialSiteUrl(row.site)}
@@ -679,6 +694,12 @@ export default function PriceLookupPage() {
 
                 {editingSite === row.site ? (
                   <div style={{ width: "100%", marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--border, rgba(0,0,0,0.2))", display: "grid", gap: 8 }}>
+                    <input
+                      value={editLabelValue}
+                      onChange={(e) => setEditLabelValue(e.target.value)}
+                      placeholder="Credential name"
+                      style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, rgba(0,0,0,0.2))", background: "var(--input, transparent)", color: "inherit" }}
+                    />
                     <input
                       value={editSiteValue}
                       onChange={(e) => setEditSiteValue(e.target.value)}

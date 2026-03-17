@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
+    "postinstall": "playwright install chromium",
     "migrate:deploy": "prisma migrate deploy",
     "start": "next start",
     "lint": "eslint",
