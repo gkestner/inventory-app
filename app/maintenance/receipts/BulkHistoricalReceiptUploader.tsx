@@ -1,19 +1,21 @@
 "use client";
 
 import { upload } from "@vercel/blob/client";
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PDFDocument } from "pdf-lib";
 
 type Props = {
   userId: string;
   allowedUsers: Array<{ id: string; name: string | null; email: string }>;
+  locationsByUserId: Record<string, Array<{ id: string; name: string }>>;
 };
 
 type FileWithDate = {
   file: File;
   date: string; // YYYY-MM-DD
   amount: string; // dollar amount
+  locationId: string;
 };
 
 function isPdf(file: File): boolean {
@@ -54,6 +56,7 @@ function errText(err: unknown): string {
 export default function BulkHistoricalReceiptUploader({
   userId: initialUserId,
   allowedUsers,
+  locationsByUserId,
 }: Props) {
   const router = useRouter();
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -66,6 +69,22 @@ export default function BulkHistoricalReceiptUploader({
   const [dragOver, setDragOver] = useState(false);
 
   const todayIso = new Intl.DateTimeFormat("en-CA").format(new Date());
+  const currentUserLocations = useMemo(
+    () => locationsByUserId[selectedUserId] ?? [],
+    [locationsByUserId, selectedUserId]
+  );
+  const defaultLocationId = currentUserLocations[0]?.id ?? "";
+
+  useEffect(() => {
+    if (selectedFiles.length === 0) return;
+    const allowed = new Set(currentUserLocations.map((l) => l.id));
+    setSelectedFiles((prev) =>
+      prev.map((item) => ({
+        ...item,
+        locationId: allowed.has(item.locationId) ? item.locationId : defaultLocationId,
+      }))
+    );
+  }, [currentUserLocations, defaultLocationId, selectedFiles.length]);
 
   async function handleFilesSelected(files: FileList | null) {
     if (!files) return;
@@ -91,6 +110,7 @@ export default function BulkHistoricalReceiptUploader({
                 file: p,
                 date: todayIso,
                 amount: "",
+                locationId: defaultLocationId,
               });
             }
           } catch {
@@ -99,6 +119,7 @@ export default function BulkHistoricalReceiptUploader({
               file,
               date: todayIso,
               amount: "",
+              locationId: defaultLocationId,
             });
           }
         } else {
@@ -106,6 +127,7 @@ export default function BulkHistoricalReceiptUploader({
             file,
             date: todayIso,
             amount: "",
+            locationId: defaultLocationId,
           });
         }
       }
@@ -138,6 +160,12 @@ export default function BulkHistoricalReceiptUploader({
     setSelectedFiles(updated);
   }
 
+  function updateFileLocation(index: number, locationId: string) {
+    const updated = [...selectedFiles];
+    updated[index].locationId = locationId;
+    setSelectedFiles(updated);
+  }
+
   async function uploadBatch() {
     if (!selectedUserId) {
       setMessage("Please select a user.");
@@ -145,6 +173,14 @@ export default function BulkHistoricalReceiptUploader({
     }
     if (selectedFiles.length === 0) {
       setMessage("Please select files to upload.");
+      return;
+    }
+    if (currentUserLocations.length === 0) {
+      setMessage("Selected user has no active receipt-enabled locations.");
+      return;
+    }
+    if (selectedFiles.some((f) => !f.locationId)) {
+      setMessage("Please select a location for each file.");
       return;
     }
 
@@ -163,6 +199,7 @@ export default function BulkHistoricalReceiptUploader({
             amount: f.amount ? Math.round(parseFloat(f.amount) * 100) : 0,
             size: f.file.size,
             type: f.file.type,
+            locationId: f.locationId,
           })),
         }),
       });
@@ -279,7 +316,7 @@ export default function BulkHistoricalReceiptUploader({
           </label>
         </div>
         <div style={{ fontSize: 12, opacity: 0.85 }}>
-          Location will auto-fill from the selected user's assigned receipt-enabled location.
+          Select location per file. Locations are filtered to the selected user's receipt-enabled assignments.
         </div>
 
         <div
@@ -356,7 +393,7 @@ export default function BulkHistoricalReceiptUploader({
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "2fr 1fr 1.2fr auto",
+                gridTemplateColumns: "2fr 1fr 1.3fr 1.2fr auto",
                 gap: 8,
                 fontSize: 12,
                 fontWeight: 700,
@@ -367,6 +404,7 @@ export default function BulkHistoricalReceiptUploader({
             >
               <div>File Name</div>
               <div>Date</div>
+              <div>Location</div>
               <div>Amount ($)</div>
               <div></div>
             </div>
@@ -376,7 +414,7 @@ export default function BulkHistoricalReceiptUploader({
                 key={idx}
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "2fr 1fr 1.2fr auto",
+                  gridTemplateColumns: "2fr 1fr 1.3fr 1.2fr auto",
                   gap: 8,
                   alignItems: "center",
                   fontSize: 13,
@@ -400,6 +438,27 @@ export default function BulkHistoricalReceiptUploader({
                     fontSize: 12,
                   }}
                 />
+                <select
+                  value={item.locationId}
+                  onChange={(e) => updateFileLocation(idx, e.target.value)}
+                  disabled={busy}
+                  style={{
+                    border: "1px solid var(--border)",
+                    borderRadius: 6,
+                    padding: "6px 8px",
+                    background: "var(--surface)",
+                    color: "var(--foreground)",
+                    cursor: busy ? "not-allowed" : "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  <option value="">Select location</option>
+                  {currentUserLocations.map((location) => (
+                    <option key={location.id} value={location.id}>
+                      {location.name}
+                    </option>
+                  ))}
+                </select>
                 <input
                   type="number"
                   min="0"

@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { randomUUID } from "crypto";
-import { put } from "@vercel/blob";
+import { del, put } from "@vercel/blob";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -100,6 +100,8 @@ type ReceiptRow = {
   files: { id: string; fileName: string; url: string; createdAt: Date }[];
 };
 
+type ReceiptSearchParams = Record<string, string | string[] | undefined>;
+
 function getBlobReadWriteToken(): string {
   const token = process.env.BLOB_READ_WRITE_TOKEN?.trim() || process.env.Inventory_READ_WRITE_TOKEN?.trim() || "";
   if (!token) throw new Error("Blob is not configured. Set BLOB_READ_WRITE_TOKEN or Inventory_READ_WRITE_TOKEN.");
@@ -123,6 +125,18 @@ function parseYmdDateAsUtcNoon(raw: FormDataEntryValue | null): Date {
     throw new Error("Valid date is required.");
   }
 
+  return new Date(Date.UTC(y, mo - 1, d, 12, 0, 0));
+}
+
+function tryParseYmdDateAsUtcNoon(raw: string): Date | null {
+  const s = raw.trim();
+  if (!s) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
   return new Date(Date.UTC(y, mo - 1, d, 12, 0, 0));
 }
 
@@ -205,9 +219,20 @@ function fmtDateTime(d: Date | null): string {
   }).format(d);
 }
 
-export default async function MaintenanceReceiptPage() {
+export default async function MaintenanceReceiptPage({
+  searchParams,
+}: {
+  searchParams?: Promise<ReceiptSearchParams>;
+}) {
   const session = (await getServerSession(authOptions)) as SessionShape;
   requireSession(session);
+
+  const sp = (await searchParams) ?? {};
+  const q = String(sp.q ?? "").trim();
+  const fromDate = String(sp.from ?? "").trim();
+  const toDate = String(sp.to ?? "").trim();
+  const selectedLocationFilter = String(sp.locationId ?? "").trim();
+  const selectedUserFilter = String(sp.userId ?? "").trim();
 
   const perms = await loadUserPermissions(session);
   const canViewReceipts = perms.allowAll || hasAnyPermission(perms, [VIEW_RECEIPTS, CREATE_RECEIPTS]);
@@ -302,20 +327,76 @@ export default async function MaintenanceReceiptPage() {
       name: true,
       email: true,
       locationId: true,
-      allowedLocations: { select: { locationId: true } },
+      location: { select: { id: true, name: true, active: true, receiptEnabled: true } },
+      allowedLocations: {
+        select: {
+          locationId: true,
+          location: { select: { id: true, name: true, active: true, receiptEnabled: true } },
+        },
+      },
       uiPreferences: true,
     },
   })).filter((u) => !parseHiddenFromDropdowns(u.uiPreferences).includes("receipts"));
 
+  const locationsByUserId: Record<string, Array<{ id: string; name: string }>> = {};
+  for (const user of usersForReceipts) {
+    const seenLocations = new Set<string>();
+    const locationList: Array<{ id: string; name: string }> = [];
+
+    if (user.location?.active && user.location.receiptEnabled && !seenLocations.has(user.location.id)) {
+      seenLocations.add(user.location.id);
+      locationList.push({ id: user.location.id, name: user.location.name });
+    }
+    for (const ul of user.allowedLocations) {
+      if (!ul.location?.active || !ul.location.receiptEnabled) continue;
+      if (seenLocations.has(ul.location.id)) continue;
+      seenLocations.add(ul.location.id);
+      locationList.push({ id: ul.location.id, name: ul.location.name });
+    }
+
+    locationsByUserId[user.id] = locationList;
+  }
+
   const db = getCompatDb() as any;
+  const rowsWhere: any = {
+    locationId: { in: allowedLocationIds },
+    createdByUser: { active: true },
+  };
+  if (selectedLocationFilter) {
+    rowsWhere.locationId = selectedLocationFilter;
+  }
+  if (selectedUserFilter) {
+    rowsWhere.createdByUserId = selectedUserFilter;
+  }
+  const fromDateParsed = tryParseYmdDateAsUtcNoon(fromDate);
+  const toDateParsed = tryParseYmdDateAsUtcNoon(toDate);
+  if (fromDateParsed) {
+    rowsWhere.receiptDate = {
+      ...(rowsWhere.receiptDate || {}),
+      gte: fromDateParsed,
+    };
+  }
+  if (toDateParsed) {
+    rowsWhere.receiptDate = {
+      ...(rowsWhere.receiptDate || {}),
+      lte: toDateParsed,
+    };
+  }
+  if (q) {
+    rowsWhere.OR = [
+      { notes: { contains: q, mode: "insensitive" } },
+      { files: { some: { fileName: { contains: q, mode: "insensitive" } } } },
+      { createdByUser: { name: { contains: q, mode: "insensitive" } } },
+      { createdByUser: { email: { contains: q, mode: "insensitive" } } },
+      { location: { name: { contains: q, mode: "insensitive" } } },
+    ];
+  }
+
   const rows: ReceiptRow[] = db.receiptEntry?.findMany
     ? await db.receiptEntry.findMany({
-        where: {
-          locationId: { in: allowedLocationIds },
-          createdByUser: { active: true },
-        },
+        where: rowsWhere,
         orderBy: [{ receiptDate: "desc" }, { createdAt: "desc" }],
-        take: 75,
+        take: 300,
         select: {
           id: true,
           receiptDate: true,
@@ -332,6 +413,13 @@ export default async function MaintenanceReceiptPage() {
     : [];
 
   const todayNy = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
+  const currentFilterParams = new URLSearchParams();
+  if (q) currentFilterParams.set("q", q);
+  if (fromDate) currentFilterParams.set("from", fromDate);
+  if (toDate) currentFilterParams.set("to", toDate);
+  if (selectedLocationFilter) currentFilterParams.set("locationId", selectedLocationFilter);
+  if (selectedUserFilter) currentFilterParams.set("userId", selectedUserFilter);
+  const currentFilterQuery = currentFilterParams.toString();
 
   async function createReceiptAction(formData: FormData) {
     "use server";
@@ -504,6 +592,82 @@ export default async function MaintenanceReceiptPage() {
     revalidatePath("/maintenance/receipts");
     revalidatePath("/maintenance");
     redirect("/maintenance/receipts");
+  }
+
+  async function deleteReceiptAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as SessionShape;
+    requireSession(session);
+
+    const receiptEntryId = String(formData.get("receiptEntryId") ?? "").trim();
+    if (!receiptEntryId) throw new Error("Receipt entry id is required.");
+
+    const perms = await loadUserPermissions(session);
+    const canDeleteReceipts = perms.allowAll || hasAnyPermission(perms, [CREATE_RECEIPTS]);
+    if (!canDeleteReceipts) {
+      throw new Error("You do not have permission to delete receipt entries.");
+    }
+
+    const email = String(session?.user?.email ?? "").trim().toLowerCase();
+    const me = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        active: true,
+        locationId: true,
+        allowedLocations: { select: { locationId: true } },
+      },
+    });
+    if (!me || !me.active) redirect("/login");
+
+    const db = getCompatDb() as any;
+    if (!db.receiptEntry?.findUnique || !db.receiptEntry?.delete) {
+      throw new Error("Receipt tables are not available. Run latest migrations.");
+    }
+
+    const receipt = await db.receiptEntry.findUnique({
+      where: { id: receiptEntryId },
+      select: {
+        id: true,
+        locationId: true,
+        files: { select: { storageKey: true } },
+      },
+    });
+    if (!receipt) throw new Error("Receipt entry not found.");
+
+    if (!perms.allowAll) {
+      const allowed = new Set<string>();
+      if (me.locationId) allowed.add(me.locationId);
+      for (const ul of me.allowedLocations) allowed.add(ul.locationId);
+      if (!allowed.has(receipt.locationId)) {
+        throw new Error("You are not allowed to delete receipt entries for this location.");
+      }
+    }
+
+    await db.$transaction(async (tx: any) => {
+      if (tx.receiptFile?.deleteMany) {
+        await tx.receiptFile.deleteMany({ where: { receiptEntryId } });
+      }
+      if (tx.receiptEntryArea?.deleteMany) {
+        await tx.receiptEntryArea.deleteMany({ where: { receiptEntryId } });
+      }
+      await tx.receiptEntry.delete({ where: { id: receiptEntryId } });
+    });
+
+    const storageKeys = (receipt.files ?? [])
+      .map((f: { storageKey?: string | null }) => String(f.storageKey ?? "").trim())
+      .filter(Boolean);
+    if (storageKeys.length > 0) {
+      const blobToken = process.env.BLOB_READ_WRITE_TOKEN?.trim() || process.env.Inventory_READ_WRITE_TOKEN?.trim() || "";
+      if (blobToken) {
+        await Promise.allSettled(storageKeys.map((key: string) => del(key, { token: blobToken })));
+      }
+    }
+
+    revalidatePath("/maintenance/receipts");
+    revalidatePath("/maintenance");
+    redirect(`/maintenance/receipts${currentFilterQuery ? `?${currentFilterQuery}` : ""}`);
   }
 
   const border = "1px solid rgba(128,128,128,0.25)";
@@ -726,18 +890,79 @@ export default async function MaintenanceReceiptPage() {
           <BulkHistoricalReceiptUploader 
             userId={me.id} 
             allowedUsers={usersForReceipts}
+            locationsByUserId={locationsByUserId}
           />
         </div>
       </section>
 
       <section style={card}>
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Recent Entries</h2>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Receipt Entries</h2>
+
+        <form method="get" style={{ display: "grid", gap: 10 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "2fr 1fr 1fr 1.2fr 1.2fr auto",
+              gap: 8,
+              alignItems: "end",
+            }}
+          >
+            <label style={{ display: "grid", gap: 6, fontWeight: 700 }}>
+              Search
+              <input
+                name="q"
+                defaultValue={q}
+                placeholder="File name, user, location, or notes"
+                style={input}
+              />
+            </label>
+            <label style={{ display: "grid", gap: 6, fontWeight: 700 }}>
+              From
+              <input type="date" name="from" defaultValue={fromDate} style={input} />
+            </label>
+            <label style={{ display: "grid", gap: 6, fontWeight: 700 }}>
+              To
+              <input type="date" name="to" defaultValue={toDate} style={input} />
+            </label>
+            <label style={{ display: "grid", gap: 6, fontWeight: 700 }}>
+              Location
+              <select name="locationId" defaultValue={selectedLocationFilter} style={input}>
+                <option value="">All locations</option>
+                {allowedLocations.map((location) => (
+                  <option key={location.id} value={location.id}>
+                    {location.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={{ display: "grid", gap: 6, fontWeight: 700 }}>
+              User
+              <select name="userId" defaultValue={selectedUserFilter} style={input}>
+                <option value="">All users</option>
+                {usersForReceipts.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {(user.name?.trim() || "(No Name)") + " (" + user.email + ")"}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button type="submit" style={btn}>Apply</button>
+              <a href="/maintenance/receipts" style={{ ...btn, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+                Clear
+              </a>
+            </div>
+          </div>
+          <div style={{ fontSize: 12, color: "var(--muted)" }}>
+            Showing up to 300 entries. Use filters to pull older receipts and their uploaded documents quickly.
+          </div>
+        </form>
 
         <div style={{ border, borderRadius: 12, overflow: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
             <thead>
               <tr>
-                {["Date", "Location", "User", "Billed-Back Vendor", "Amount", "Areas", "Notes", "Files", "Created"].map((h) => (
+                {["Date", "Location", "User", "Billed-Back Vendor", "Amount", "Areas", "Notes", "Files", "Created", "Actions"].map((h) => (
                   <th
                     key={h}
                     style={{
@@ -791,12 +1016,29 @@ export default async function MaintenanceReceiptPage() {
                     )}
                   </td>
                   <td style={{ padding: 8, borderBottom: border, whiteSpace: "nowrap" }}>{fmtDateTime(r.createdAt)}</td>
+                  <td style={{ padding: 8, borderBottom: border, whiteSpace: "nowrap" }}>
+                    <form action={deleteReceiptAction}>
+                      <input type="hidden" name="receiptEntryId" value={r.id} />
+                      <button
+                        type="submit"
+                        style={{
+                          ...btn,
+                          background: "transparent",
+                          borderColor: "rgba(220, 38, 38, 0.45)",
+                          color: "#ef4444",
+                          padding: "6px 10px",
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </form>
+                  </td>
                 </tr>
               ))}
 
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} style={{ padding: 10, opacity: 0.75 }}>
+                  <td colSpan={10} style={{ padding: 10, opacity: 0.75 }}>
                     No receipt entries yet.
                   </td>
                 </tr>

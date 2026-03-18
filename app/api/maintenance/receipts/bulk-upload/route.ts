@@ -57,6 +57,7 @@ export async function POST(req: Request) {
             amount?: number;
             size?: number;
             type?: string;
+            locationId?: string;
           }>;
         }
       | null;
@@ -98,22 +99,12 @@ export async function POST(req: Request) {
       candidateLocationIds.push(ul.locationId);
     }
 
-    const locationId = requestedLocationId || candidateLocationIds[0] || "";
-    if (!locationId) {
+    if (candidateLocationIds.length === 0) {
       return json({ error: "Selected user has no active receipt-enabled location assigned." }, 400);
     }
 
     if (requestedLocationId && !candidateLocationIds.includes(requestedLocationId)) {
       return json({ error: "Selected location is not assigned to that user." }, 400);
-    }
-
-    // Validate location
-    const location = await prisma.location.findUnique({
-      where: { id: locationId },
-      select: { id: true, active: true, receiptEnabled: true },
-    });
-    if (!location || !location.active || !location.receiptEnabled) {
-      return json({ error: "Location not found, inactive, or not receipt-enabled." }, 404);
     }
 
     const uploadUrls: Array<{
@@ -148,13 +139,30 @@ export async function POST(req: Request) {
         );
       }
 
+      const targetLocationId = String(fileInfo.locationId ?? "").trim() || requestedLocationId || candidateLocationIds[0] || "";
+      if (!targetLocationId) {
+        return json({ error: `File ${i + 1}: selected user has no active receipt-enabled location assigned.` }, 400);
+      }
+
+      if (!candidateLocationIds.includes(targetLocationId)) {
+        return json({ error: `File ${i + 1}: selected location is not assigned to that user.` }, 400);
+      }
+
+      const targetLocation = await prisma.location.findUnique({
+        where: { id: targetLocationId },
+        select: { id: true, active: true, receiptEnabled: true },
+      });
+      if (!targetLocation || !targetLocation.active || !targetLocation.receiptEnabled) {
+        return json({ error: `File ${i + 1}: location not found, inactive, or not receipt-enabled.` }, 404);
+      }
+
       const receiptDate = parseYmdDateAsUtcNoon(dateStr);
 
       // Create receipt entry
       const receipt = await db.receiptEntry.create({
         data: {
           receiptDate,
-          locationId,
+          locationId: targetLocationId,
           amountCents,
           billedBackVendor: null,
           notes: `Bulk upload - ${fileName}`,
