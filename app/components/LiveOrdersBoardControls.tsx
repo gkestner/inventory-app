@@ -35,11 +35,13 @@ export default function LiveOrdersBoardControls({
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
+  const [controlsCollapsed, setControlsCollapsed] = useState(false);
 
   useEffect(() => {
     const syncFullscreen = () => {
       const active = typeof document !== "undefined" && !!document.fullscreenElement;
       setIsFullscreen(active);
+      setControlsCollapsed(active);
       if (typeof document !== "undefined") {
         if (active) document.documentElement.setAttribute("data-live-orders-fullscreen", "true");
         else document.documentElement.removeAttribute("data-live-orders-fullscreen");
@@ -209,6 +211,28 @@ export default function LiveOrdersBoardControls({
   };
 
   const hint: CSSProperties = { fontSize: 12, opacity: 0.78 };
+  const compactShell: CSSProperties = {
+    ...shell,
+    justifyContent: "flex-start",
+    gap: 8,
+    padding: "8px 10px",
+    width: "auto",
+  };
+
+  if (isFullscreen && controlsCollapsed) {
+    return (
+      <div className="live-orders-controls" style={compactShell}>
+        <div style={{ fontSize: 12, fontWeight: 900 }}>Board Controls</div>
+        <div style={hint}>{autoScrollEnabled ? "Auto-scroll on" : "Auto-scroll off"}</div>
+        <button type="button" style={neutralButton} onClick={() => setControlsCollapsed(false)}>
+          Expand
+        </button>
+        <button type="button" style={neutralButton} onClick={toggleFullscreen}>
+          Exit Fullscreen
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="live-orders-controls" style={shell}>
@@ -256,6 +280,12 @@ export default function LiveOrdersBoardControls({
         >
           Auto-scroll {autoScrollEnabled ? "On" : "Off"}
         </button>
+
+        {isFullscreen ? (
+          <button type="button" style={neutralButton} onClick={() => setControlsCollapsed(true)}>
+            Minimize Controls
+          </button>
+        ) : null}
 
         <div style={hint}>
           {isFullscreen && autoScrollEnabled
