@@ -13,6 +13,8 @@ import { Permission, Role } from "@prisma/client";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+const LIVE_BOARD_RETENTION_DAYS = 14;
+
 type AppSession = {
   user?: {
     id?: string | null;
@@ -73,11 +75,17 @@ function phaseLabel(s: string): string {
   return "ADDED TO INVENTORY";
 }
 
+function getLiveBoardRemovalDate(order: { status: string; addedToInventoryAt: Date | null; orderedAt: Date }): Date | null {
+  if (order.status !== "ADDED_TO_INVENTORY") return null;
+  const anchor = order.addedToInventoryAt ?? order.orderedAt;
+  return new Date(anchor.getTime() + LIVE_BOARD_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+}
+
 export default async function EmployeeLiveOrdersPage() {
   await requireLiveOrdersView();
 
   const now = new Date();
-  const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+  const twoWeeksAgo = new Date(now.getTime() - LIVE_BOARD_RETENTION_DAYS * 24 * 60 * 60 * 1000);
 
   const orders = await prisma.inventoryOrder.findMany({
     where: {
@@ -193,8 +201,15 @@ export default async function EmployeeLiveOrdersPage() {
               <tr key={o.id} style={rowPhaseStyle(o.status)}>
                 <td style={td}>{fmtDate(o.orderedAt)}</td>
                 <td style={td}>
-                  <div style={{ fontWeight: 900 }}>{o.item?.name ?? "—"}</div>
-                  <div style={{ ...mono, opacity: 0.8 }}>{o.item?.sku ?? "—"}</div>
+                  <div style={{ display: "flex", flexDirection: "column", minHeight: 42 }}>
+                    <div style={{ fontWeight: 900 }}>{o.item?.name ?? "—"}</div>
+                    <div style={{ ...mono, opacity: 0.8 }}>{o.item?.sku ?? "—"}</div>
+                    {getLiveBoardRemovalDate(o) ? (
+                      <div style={{ marginTop: 4, alignSelf: "flex-end", fontSize: 11, opacity: 0.76, whiteSpace: "nowrap" }}>
+                        Will be removed on {fmtDate(getLiveBoardRemovalDate(o))}
+                      </div>
+                    ) : null}
+                  </div>
                 </td>
                 <td style={{ ...td, fontWeight: 900 }}>{o.quantity}</td>
                 <td style={{ ...td, ...phaseTextStyle(o.status), fontWeight: 900 }}>{phaseLabel(o.status)}</td>

@@ -15,6 +15,8 @@ import { Permission, Role } from "@prisma/client";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+const LIVE_BOARD_RETENTION_DAYS = 14;
+
 type AdminSession = {
   user?: {
     id?: string | null;
@@ -73,6 +75,21 @@ function fmtDateTime(d: Date | null | undefined) {
   } catch {
     return d.toISOString();
   }
+}
+
+function fmtDate(d: Date | null | undefined) {
+  if (!d) return "—";
+  try {
+    return new Intl.DateTimeFormat("en-US", { year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+  } catch {
+    return d.toISOString().slice(0, 10);
+  }
+}
+
+function getLiveBoardRemovalDate(order: { status: string; addedToInventoryAt: Date | null; orderedAt: Date }): Date | null {
+  if (order.status !== "ADDED_TO_INVENTORY") return null;
+  const anchor = order.addedToInventoryAt ?? order.orderedAt;
+  return new Date(anchor.getTime() + LIVE_BOARD_RETENTION_DAYS * 24 * 60 * 60 * 1000);
 }
 
 function fmtMoney(v: unknown) {
@@ -333,6 +350,7 @@ export default async function LiveOrdersPage() {
           <tbody>
             {orders.map((o) => {
               const hidden = (o as any).hiddenFromUserLiveBoard === true;
+              const removalDate = getLiveBoardRemovalDate(o);
 
               return (
                 <tr key={o.id} style={rowPhaseStyle(o.status)}>
@@ -341,10 +359,17 @@ export default async function LiveOrdersPage() {
                     <span style={{ ...mono, ...phaseTextStyle(o.status), fontWeight: 900 }}>{o.status}</span>
                   </td>
                   <td style={td}>
-                    <div style={{ fontWeight: 900 }}>{o.item?.name ?? "—"}</div>
-                    <div style={{ ...mono, opacity: 0.8 }}>
-                      {o.item?.sku ?? "—"}
-                      {o.item?.partNumber ? ` · ${o.item.partNumber}` : ""}
+                    <div style={{ display: "flex", flexDirection: "column", minHeight: 42 }}>
+                      <div style={{ fontWeight: 900 }}>{o.item?.name ?? "—"}</div>
+                      <div style={{ ...mono, opacity: 0.8 }}>
+                        {o.item?.sku ?? "—"}
+                        {o.item?.partNumber ? ` · ${o.item.partNumber}` : ""}
+                      </div>
+                      {removalDate ? (
+                        <div style={{ marginTop: 4, alignSelf: "flex-end", fontSize: 11, opacity: 0.76, whiteSpace: "nowrap" }}>
+                          Will be removed on {fmtDate(removalDate)}
+                        </div>
+                      ) : null}
                     </div>
                   </td>
                   <td style={{ ...td, ...right, fontWeight: 900 }}>{o.quantity}</td>
