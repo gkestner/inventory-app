@@ -6,8 +6,6 @@ import { PDFDocument } from "pdf-lib";
 
 type Props = {
   userId: string;
-  locationId: string;
-  allowedLocations: Array<{ id: string; name: string }>;
   allowedUsers: Array<{ id: string; name: string | null; email: string }>;
 };
 
@@ -54,8 +52,6 @@ function errText(err: unknown): string {
 
 export default function BulkHistoricalReceiptUploader({
   userId: initialUserId,
-  locationId: initialLocationId,
-  allowedLocations,
   allowedUsers,
 }: Props) {
   const router = useRouter();
@@ -64,9 +60,9 @@ export default function BulkHistoricalReceiptUploader({
   const [message, setMessage] = useState<string>("");
   const [selectedFiles, setSelectedFiles] = useState<FileWithDate[]>([]);
   const [selectedUserId, setSelectedUserId] = useState(initialUserId);
-  const [selectedLocationId, setSelectedLocationId] = useState(initialLocationId);
   const [splitPdfPages, setSplitPdfPages] = useState(true);
   const [preparing, setPreparing] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   const todayIso = new Intl.DateTimeFormat("en-CA").format(new Date());
 
@@ -146,10 +142,6 @@ export default function BulkHistoricalReceiptUploader({
       setMessage("Please select a user.");
       return;
     }
-    if (!selectedLocationId) {
-      setMessage("Please select a location.");
-      return;
-    }
     if (selectedFiles.length === 0) {
       setMessage("Please select files to upload.");
       return;
@@ -164,7 +156,6 @@ export default function BulkHistoricalReceiptUploader({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId: selectedUserId,
-          locationId: selectedLocationId,
           files: selectedFiles.map((f) => ({
             name: f.file.name,
             date: f.date,
@@ -270,49 +261,44 @@ export default function BulkHistoricalReceiptUploader({
               ))}
             </select>
           </label>
-
-          <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
-            Location
-            <select
-              value={selectedLocationId}
-              onChange={(e) => setSelectedLocationId(e.target.value)}
-              disabled={busy}
-              style={{
-                border: "1px solid var(--border)",
-                borderRadius: 10,
-                padding: "10px 12px",
-                background: "var(--background)",
-                color: "var(--foreground)",
-                width: "100%",
-                cursor: busy ? "not-allowed" : "pointer",
-              }}
-            >
-              <option value="">Select location</option>
-              {allowedLocations.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
-          </label>
+        </div>
+        <div style={{ fontSize: 12, opacity: 0.85 }}>
+          Location will auto-fill from the selected user's assigned receipt-enabled location.
         </div>
 
-        <button
-          type="button"
-          disabled={busy || preparing}
-          onClick={() => uploadInputRef.current?.click()}
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            if (!busy && !preparing) setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOver(false);
+            if (busy || preparing) return;
+            void handleFilesSelected(e.dataTransfer.files);
+          }}
+          onClick={() => {
+            if (!busy && !preparing) uploadInputRef.current?.click();
+          }}
           style={{
-            padding: "10px 14px",
-            borderRadius: 10,
-            border: "1px solid var(--border)",
-            background: "var(--surface-2)",
-            fontWeight: 800,
+            border: `2px dashed ${dragOver ? "var(--brand)" : "rgba(128,128,128,0.35)"}`,
+            borderRadius: 12,
+            padding: "12px",
+            background: dragOver ? "color-mix(in srgb, var(--brand) 10%, transparent)" : "var(--background)",
             cursor: busy || preparing ? "not-allowed" : "pointer",
-            alignSelf: "start",
+            opacity: busy || preparing ? 0.7 : 1,
+            display: "grid",
+            gap: 6,
           }}
         >
-          {preparing ? "Preparing files..." : "Select Receipt Files"}
-        </button>
+          <div style={{ fontWeight: 800, fontSize: 14 }}>
+            {preparing ? "Preparing files..." : "Drag and drop receipt files here"}
+          </div>
+          <div style={{ fontSize: 12, opacity: 0.85 }}>
+            Or click to browse files from your computer/email downloads.
+          </div>
+        </div>
         <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700 }}>
           <input
             type="checkbox"

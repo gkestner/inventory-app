@@ -728,8 +728,6 @@ export default async function MaintenanceReceiptPage() {
         <div style={{ marginTop: 12 }}>
           <BulkHistoricalReceiptUploader 
             userId={me.id} 
-            locationId={allowedLocations[0]?.id ?? ""} 
-            allowedLocations={allowedLocations}
             allowedUsers={usersForReceipts}
           />
         </div>

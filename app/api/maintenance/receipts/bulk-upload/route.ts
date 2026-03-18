@@ -72,20 +72,50 @@ export async function POST(req: Request) {
       | null;
 
     const userId = String(body?.userId ?? "").trim();
-    const locationId = String(body?.locationId ?? "").trim();
+    const requestedLocationId = String(body?.locationId ?? "").trim();
     const filesRaw = Array.isArray(body?.files) ? body.files : [];
 
     if (!userId) return json({ error: "userId is required." }, 400);
-    if (!locationId) return json({ error: "locationId is required." }, 400);
     if (filesRaw.length === 0) return json({ error: "At least one file is required." }, 400);
     if (filesRaw.length > 100) return json({ error: "Maximum 100 files per upload." }, 400);
 
     // Validate user
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, active: true },
+      select: {
+        id: true,
+        active: true,
+        locationId: true,
+        location: { select: { id: true, active: true, receiptEnabled: true } },
+        allowedLocations: {
+          orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }],
+          select: {
+            locationId: true,
+            location: { select: { id: true, active: true, receiptEnabled: true } },
+          },
+        },
+      },
     });
     if (!user || !user.active) return json({ error: "User not found or inactive." }, 404);
+
+    const candidateLocationIds: string[] = [];
+    if (user.locationId && user.location?.active && user.location.receiptEnabled) {
+      candidateLocationIds.push(user.locationId);
+    }
+    for (const ul of user.allowedLocations) {
+      if (!ul.location?.active || !ul.location.receiptEnabled) continue;
+      if (candidateLocationIds.includes(ul.locationId)) continue;
+      candidateLocationIds.push(ul.locationId);
+    }
+
+    const locationId = requestedLocationId || candidateLocationIds[0] || "";
+    if (!locationId) {
+      return json({ error: "Selected user has no active receipt-enabled location assigned." }, 400);
+    }
+
+    if (requestedLocationId && !candidateLocationIds.includes(requestedLocationId)) {
+      return json({ error: "Selected location is not assigned to that user." }, 400);
+    }
 
     // Validate location
     const location = await prisma.location.findUnique({
