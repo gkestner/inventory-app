@@ -870,23 +870,39 @@ export default async function MaintenanceCheckoutPage({
         </div>
       </form>
 
-      <form
-        action={reverseCheckoutAction}
-        style={{
-          marginTop: 14,
-          border: "1px solid rgba(128,128,128,0.25)",
-          borderRadius: 10,
-          padding: 16,
-          display: "grid",
-          gap: 12,
-          background: "var(--background)",
-          color: "var(--foreground)",
-        }}
-      >
-        <div style={{ fontWeight: 800, fontSize: 16 }}>Reverse Checkout (Return to Inventory)</div>
-        <div style={{ fontSize: 12, opacity: 0.8 }}>
-          Use this when parts are returned. This will increase on-hand and reduce used quantity.
-        </div>
+      <details style={{ marginTop: 14 }}>
+        <summary
+          style={{
+            cursor: "pointer",
+            userSelect: "none",
+            fontWeight: 800,
+            fontSize: 16,
+            border: "1px solid rgba(128,128,128,0.25)",
+            borderRadius: 10,
+            padding: "12px 14px",
+            background: "var(--background)",
+            color: "var(--foreground)",
+          }}
+        >
+          Reverse Checkout (Return to Inventory)
+        </summary>
+
+        <form
+          action={reverseCheckoutAction}
+          style={{
+            marginTop: 10,
+            border: "1px solid rgba(128,128,128,0.25)",
+            borderRadius: 10,
+            padding: 16,
+            display: "grid",
+            gap: 12,
+            background: "var(--background)",
+            color: "var(--foreground)",
+          }}
+        >
+          <div style={{ fontSize: 12, opacity: 0.8 }}>
+            Use this when parts are returned. This will increase on-hand and reduce used quantity.
+          </div>
 
         <label style={labelStyle}>
           <span style={{ fontWeight: 700 }}>Part (Item)</span>
@@ -1052,23 +1068,24 @@ export default async function MaintenanceCheckoutPage({
           <input name="returnNote" placeholder="Optional reason for return…" style={fieldStyle} />
         </label>
 
-        <button
-          type="submit"
-          style={{
-            padding: "10px 12px",
-            fontWeight: 800,
-            width: 280,
-            borderRadius: 10,
-            background: "rgba(40, 167, 69, 0.16)",
-            border: "1px solid rgba(40, 167, 69, 0.55)",
-            color: "var(--foreground)",
-            cursor: "pointer",
-          }}
-          disabled={!perms.allowAll && locations.length === 0}
-        >
-          Submit Return (Reverse Checkout)
-        </button>
-      </form>
+          <button
+            type="submit"
+            style={{
+              padding: "10px 12px",
+              fontWeight: 800,
+              width: 280,
+              borderRadius: 10,
+              background: "rgba(40, 167, 69, 0.16)",
+              border: "1px solid rgba(40, 167, 69, 0.55)",
+              color: "var(--foreground)",
+              cursor: "pointer",
+            }}
+            disabled={!perms.allowAll && locations.length === 0}
+          >
+            Submit Return (Reverse Checkout)
+          </button>
+        </form>
+      </details>
     </div>
   );
 }
