@@ -441,6 +441,7 @@ model User {
   assignedMocreoHubs MocreoHub[] @relation("MocreoHubAssignedMaintenanceUser")
   mocreoHubRecipients MocreoHubRecipient[]
   receiptEntriesCreated ReceiptEntry[] @relation("ReceiptEntryCreatedBy")
+  receiptFilesUploadedBy ReceiptFile[] @relation("ReceiptFilesUploadedBy")
 }
 
 model UserPermission {
@@ -1032,6 +1033,7 @@ model ReceiptEntry {
   updatedAt DateTime @updatedAt
 
   areas ReceiptEntryArea[]
+  files ReceiptFile[] @relation("ReceiptFiles")
 
   @@index([receiptDate, createdAt])
   @@index([locationId, receiptDate])
@@ -1045,6 +1047,28 @@ model ReceiptEntryArea {
   receiptEntry ReceiptEntry @relation(fields: [receiptEntryId], references: [id], onDelete: Cascade)
 
   @@id([receiptEntryId, area])
+}
+
+model ReceiptFile {
+  id String @id @default(cuid())
+
+  receiptEntryId String
+  receiptEntry   ReceiptEntry @relation("ReceiptFiles", fields: [receiptEntryId], references: [id], onDelete: Cascade)
+
+  fileName    String
+  contentType String?
+  byteSize    Int?
+  storageKey  String?
+  url         String
+  
+  uploadedByUserId String
+  uploadedByUser   User @relation("ReceiptFilesUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+
+  @@index([receiptEntryId])
+  @@index([uploadedByUserId])
+  @@index([createdAt])
 }
 
 /**

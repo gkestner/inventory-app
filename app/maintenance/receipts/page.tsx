@@ -10,6 +10,9 @@ import { parseHiddenFromDropdowns } from "@/app/lib/user-preferences";
 import { getCompatDb } from "@/app/lib/workflow-foundations";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { CREATE_RECEIPTS, VIEW_RECEIPTS } from "@/app/lib/permission-constants";
+import ReceiptFileUploader from "./ReceiptFileUploader";
+import BatchReceiptFileUploader from "./BatchReceiptFileUploader";
+import BulkHistoricalReceiptUploader from "./BulkHistoricalReceiptUploader";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -92,6 +95,7 @@ type ReceiptRow = {
   location: { name: string };
   createdByUser: { name: string | null; email: string };
   areas: { area: string }[];
+  files: { id: string; fileName: string; url: string; createdAt: Date }[];
 };
 
 function requireSession(session: SessionShape) {
@@ -308,6 +312,7 @@ export default async function MaintenanceReceiptPage() {
           location: { select: { name: true } },
           createdByUser: { select: { name: true, email: true } },
           areas: { select: { area: true }, orderBy: { area: "asc" } },
+          files: { select: { id: true, fileName: true, url: true, createdAt: true }, orderBy: { createdAt: "desc" } },
         },
       })
     : [];
@@ -428,6 +433,101 @@ export default async function MaintenanceReceiptPage() {
       await tx.receiptEntryArea.createMany({
         data: areas.map((area) => ({ receiptEntryId: created.id, area })),
       });
+    });
+
+    revalidatePath("/maintenance/receipts");
+    revalidatePath("/maintenance");
+    redirect("/maintenance/receipts");
+  }
+
+  async function bulkCreateEmptyReceiptsAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as SessionShape;
+    requireSession(session);
+
+    const perms = await loadUserPermissions(session);
+    const canCreateReceipts = perms.allowAll || hasAnyPermission(perms, [CREATE_RECEIPTS]);
+    if (!canCreateReceipts) {
+      throw new Error("You do not have permission to create receipt entries.");
+    }
+
+    const createdByUserIdRaw = formData.get("bulkUserId");
+    const createdByUserId = typeof createdByUserIdRaw === "string" ? createdByUserIdRaw.trim() : "";
+    if (!createdByUserId) throw new Error("User is required.");
+
+    const locationIdRaw = formData.get("bulkLocationId");
+    const locationId = typeof locationIdRaw === "string" ? locationIdRaw.trim() : "";
+    if (!locationId) throw new Error("Location is required.");
+
+    const email = String(session?.user?.email ?? "").trim().toLowerCase();
+    const me = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        active: true,
+        locationId: true,
+        location: { select: { id: true, active: true, receiptEnabled: true } },
+        allowedLocations: {
+          select: { locationId: true, location: { select: { active: true, receiptEnabled: true } } },
+          orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }],
+        },
+      },
+    });
+
+    if (!me || !me.active) redirect("/login");
+
+    const allowed = new Set<string>();
+    if (perms.allowAll) {
+      const activeLocations = await prisma.location.findMany({
+        where: { active: true },
+        select: { id: true },
+      });
+      for (const location of activeLocations) allowed.add(location.id);
+    } else {
+      if (me.locationId && me.location?.active) allowed.add(me.locationId);
+      for (const a of me.allowedLocations) {
+        if (a.location?.active) allowed.add(a.locationId);
+      }
+    }
+    if (!allowed.has(locationId)) throw new Error("Invalid location selection.");
+
+    const selectedUser = await prisma.user.findUnique({
+      where: { id: createdByUserId },
+      select: {
+        id: true,
+        active: true,
+        locationId: true,
+        allowedLocations: { select: { locationId: true } },
+      },
+    });
+    if (!selectedUser || !selectedUser.active) throw new Error("Selected user is not active.");
+
+    const userAllowed = new Set<string>();
+    if (selectedUser.locationId) userAllowed.add(selectedUser.locationId);
+    for (const a of selectedUser.allowedLocations) userAllowed.add(a.locationId);
+    if (!userAllowed.has(locationId)) {
+      throw new Error("Selected user is not assigned to the selected location.");
+    }
+
+    const receiptDateRaw = formData.get("bulkReceiptDate");
+    const receiptDate = parseYmdDateAsUtcNoon(receiptDateRaw);
+
+    const db = getCompatDb() as any;
+    if (!db.receiptEntry?.create) {
+      throw new Error("Receipt tables are not available. Run latest migrations.");
+    }
+
+    // Create a placeholder receipt entry with minimal data that can be edited later
+    await db.receiptEntry.create({
+      data: {
+        receiptDate,
+        locationId,
+        amountCents: 0, // Placeholder - user should edit
+        billedBackVendor: null,
+        notes: "Bulk upload - awaiting details",
+        createdByUserId,
+      },
     });
 
     revalidatePath("/maintenance/receipts");
@@ -644,13 +744,79 @@ export default async function MaintenanceReceiptPage() {
       </section>
 
       <section style={card}>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Bulk Receipt Upload</h2>
+        <p style={{ margin: "8px 0 0 0", color: "var(--muted)", lineHeight: 1.5, fontSize: 14 }}>
+          Quickly create receipt entries for a user. A placeholder receipt will be created that you can edit to add amounts, areas, and more.
+        </p>
+
+        <form action={bulkCreateEmptyReceiptsAction} style={{ display: "grid", gap: 12, marginTop: 12 }}>
+          <div className="bulk-receipt-form-grid" style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+            <label style={{ display: "grid", gap: 6, fontWeight: 800, minWidth: 0 }}>
+              User
+              <select name="bulkUserId" defaultValue={me.id} required style={input} disabled={!canCreateOnAnyLocation}>
+                <option value="">Select user</option>
+                {usersForReceipts.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {(u.name?.trim() || "(No Name)") + " (" + u.email + ")"}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label style={{ display: "grid", gap: 6, fontWeight: 800, minWidth: 0 }}>
+              Location
+              <select name="bulkLocationId" defaultValue={allowedLocations[0]?.id ?? ""} required style={input} disabled={!canCreateOnAnyLocation}>
+                <option value="">Select location</option>
+                {allowedLocations.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}
+                    {l.source === "PRIMARY" ? " (Primary)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label style={{ display: "grid", gap: 6, fontWeight: 800, minWidth: 0 }}>
+              Receipt Date
+              <input type="date" name="bulkReceiptDate" defaultValue={todayNy} required style={input} disabled={!canCreateOnAnyLocation} />
+            </label>
+          </div>
+
+          <div>
+            <button type="submit" style={btn} disabled={!canCreateOnAnyLocation}>
+              Create Empty Receipt
+            </button>
+            <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
+              This creates a placeholder receipt that you can then attach files to and edit with amounts/areas.
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <section style={card}>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Bulk Historical Receipt Import</h2>
+        <p style={{ margin: "8px 0 0 0", color: "var(--muted)", lineHeight: 1.5, fontSize: 14 }}>
+          Import multiple historical receipts from before you started using this system. Each file will create a separate receipt entry with the date and amount you specify.
+        </p>
+
+        <div style={{ marginTop: 12 }}>
+          <BulkHistoricalReceiptUploader 
+            userId={me.id} 
+            locationId={allowedLocations[0]?.id ?? ""} 
+            allowedLocations={allowedLocations}
+            allowedUsers={usersForReceipts}
+          />
+        </div>
+      </section>
+
+      <section style={card}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Recent Entries</h2>
 
         <div style={{ border, borderRadius: 12, overflow: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
             <thead>
               <tr>
-                {["Date", "Location", "User", "Billed-Back Vendor", "Amount", "Areas", "Notes", "Created"].map((h) => (
+                {["Date", "Location", "User", "Billed-Back Vendor", "Amount", "Areas", "Notes", "Files", "Created"].map((h) => (
                   <th
                     key={h}
                     style={{
@@ -682,13 +848,34 @@ export default async function MaintenanceReceiptPage() {
                     {r.areas.length > 0 ? r.areas.map((a) => formatAreaLabel(a.area)).join(", ") : "-"}
                   </td>
                   <td style={{ padding: 8, borderBottom: border, minWidth: 240 }}>{r.notes?.trim() || "-"}</td>
+                  <td style={{ padding: 8, borderBottom: border, minWidth: 200 }}>
+                    {r.files.length > 0 ? (
+                      <div style={{ display: "grid", gap: 6 }}>
+                        {r.files.map((f) => (
+                          <div key={f.id} style={{ fontSize: 12 }}>
+                            <a
+                              href={f.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ color: "var(--brand)", textDecoration: "underline", wordBreak: "break-word" }}
+                            >
+                              {f.fileName}
+                            </a>
+                          </div>
+                        ))}
+                        <ReceiptFileUploader receiptEntryId={r.id} />
+                      </div>
+                    ) : (
+                      <ReceiptFileUploader receiptEntryId={r.id} />
+                    )}
+                  </td>
                   <td style={{ padding: 8, borderBottom: border, whiteSpace: "nowrap" }}>{fmtDateTime(r.createdAt)}</td>
                 </tr>
               ))}
 
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ padding: 10, opacity: 0.75 }}>
+                  <td colSpan={9} style={{ padding: 10, opacity: 0.75 }}>
                     No receipt entries yet.
                   </td>
                 </tr>
