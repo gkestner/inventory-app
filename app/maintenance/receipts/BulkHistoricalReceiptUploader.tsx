@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { PDFDocument } from "pdf-lib";
 
 type Props = {
   userId: string;
@@ -15,6 +16,36 @@ type FileWithDate = {
   date: string; // YYYY-MM-DD
   amount: string; // dollar amount
 };
+
+function isPdf(file: File): boolean {
+  return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+}
+
+function baseName(fileName: string): string {
+  const i = fileName.lastIndexOf(".");
+  if (i <= 0) return fileName;
+  return fileName.slice(0, i);
+}
+
+async function splitPdfToPages(file: File): Promise<File[]> {
+  const bytes = await file.arrayBuffer();
+  const source = await PDFDocument.load(bytes);
+  const pageCount = source.getPageCount();
+  const out: File[] = [];
+
+  for (let i = 0; i < pageCount; i++) {
+    const doc = await PDFDocument.create();
+    const [page] = await doc.copyPages(source, [i]);
+    doc.addPage(page);
+    const pageBytes = await doc.save();
+    const pageBytesCopy = new Uint8Array(pageBytes.byteLength);
+    pageBytesCopy.set(pageBytes);
+    const name = `${baseName(file.name)}-p${i + 1}.pdf`;
+    out.push(new File([pageBytesCopy], name, { type: "application/pdf" }));
+  }
+
+  return out;
+}
 
 function errText(err: unknown): string {
   if (err instanceof Error) return err.message;
@@ -34,25 +65,63 @@ export default function BulkHistoricalReceiptUploader({
   const [selectedFiles, setSelectedFiles] = useState<FileWithDate[]>([]);
   const [selectedUserId, setSelectedUserId] = useState(initialUserId);
   const [selectedLocationId, setSelectedLocationId] = useState(initialLocationId);
+  const [splitPdfPages, setSplitPdfPages] = useState(true);
+  const [preparing, setPreparing] = useState(false);
 
   const todayIso = new Intl.DateTimeFormat("en-CA").format(new Date());
 
-  function handleFilesSelected(files: FileList | null) {
+  async function handleFilesSelected(files: FileList | null) {
     if (!files) return;
 
     const newFiles: FileWithDate[] = [];
+    let splitSourceCount = 0;
+    let splitOutputCount = 0;
+    let splitFailedCount = 0;
+
+    setPreparing(true);
+    setMessage("");
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       if (file) {
-        newFiles.push({
-          file,
-          date: todayIso,
-          amount: "",
-        });
+        if (splitPdfPages && isPdf(file)) {
+          try {
+            const pages = await splitPdfToPages(file);
+            splitSourceCount += 1;
+            splitOutputCount += pages.length;
+            for (const p of pages) {
+              newFiles.push({
+                file: p,
+                date: todayIso,
+                amount: "",
+              });
+            }
+          } catch {
+            splitFailedCount += 1;
+            newFiles.push({
+              file,
+              date: todayIso,
+              amount: "",
+            });
+          }
+        } else {
+          newFiles.push({
+            file,
+            date: todayIso,
+            amount: "",
+          });
+        }
       }
     }
 
-    setSelectedFiles([...selectedFiles, ...newFiles]);
+    setSelectedFiles((prev) => [...prev, ...newFiles]);
+
+    if (splitSourceCount > 0) {
+      const failMsg = splitFailedCount > 0 ? ` (${splitFailedCount} PDF could not be split)` : "";
+      setMessage(`Split ${splitSourceCount} PDF into ${splitOutputCount} receipt page file(s)${failMsg}.`);
+    }
+
+    setPreparing(false);
   }
 
   function updateFileDate(index: number, date: string) {
@@ -230,7 +299,7 @@ export default function BulkHistoricalReceiptUploader({
 
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || preparing}
           onClick={() => uploadInputRef.current?.click()}
           style={{
             padding: "10px 14px",
@@ -238,18 +307,30 @@ export default function BulkHistoricalReceiptUploader({
             border: "1px solid var(--border)",
             background: "var(--surface-2)",
             fontWeight: 800,
-            cursor: busy ? "not-allowed" : "pointer",
+            cursor: busy || preparing ? "not-allowed" : "pointer",
             alignSelf: "start",
           }}
         >
-          Select Receipt Files
+          {preparing ? "Preparing files..." : "Select Receipt Files"}
         </button>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700 }}>
+          <input
+            type="checkbox"
+            checked={splitPdfPages}
+            onChange={(e) => setSplitPdfPages(e.target.checked)}
+            disabled={busy || preparing}
+          />
+          Split PDF into one receipt per page (recommended for ScanSnap bundles)
+        </label>
         <input
           ref={uploadInputRef}
           type="file"
           multiple
-          disabled={busy}
-          onChange={(e) => handleFilesSelected(e.currentTarget.files)}
+          disabled={busy || preparing}
+          onChange={(e) => {
+            void handleFilesSelected(e.currentTarget.files);
+            e.currentTarget.value = "";
+          }}
           style={{ display: "none" }}
         />
       </div>
@@ -358,7 +439,7 @@ export default function BulkHistoricalReceiptUploader({
           <button
             type="button"
             onClick={uploadBatch}
-            disabled={busy}
+            disabled={busy || preparing}
             style={{
               padding: "10px 14px",
               borderRadius: 10,
@@ -366,16 +447,20 @@ export default function BulkHistoricalReceiptUploader({
               background: "var(--brand)",
               color: "white",
               fontWeight: 800,
-              cursor: busy ? "not-allowed" : "pointer",
+              cursor: busy || preparing ? "not-allowed" : "pointer",
             }}
           >
-            {busy ? "Uploading..." : `Upload ${selectedFiles.length} Historical Receipt${selectedFiles.length !== 1 ? "s" : ""}`}
+            {busy
+              ? "Uploading..."
+              : preparing
+              ? "Preparing files..."
+              : `Upload ${selectedFiles.length} Historical Receipt${selectedFiles.length !== 1 ? "s" : ""}`}
           </button>
         </div>
       )}
 
       <div style={{ fontSize: 12, opacity: 0.85 }}>
-        Max file size per file: 25MB. Each file will create a separate receipt entry with the date and amount you specify.
+        Max file size per file: 25MB. Each file will create a separate receipt entry with the date and amount you specify. If split is enabled, each PDF page becomes its own receipt file.
       </div>
       {message && (
         <div
