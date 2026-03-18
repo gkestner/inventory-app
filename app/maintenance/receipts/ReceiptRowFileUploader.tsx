@@ -9,13 +9,11 @@ type Props = {
 
 type UploadInitResponse = {
   uploadUrl: string;
-  expiresAt: string;
   publicUrl: string;
   storageKey: string;
   fileName: string;
   contentType: string;
   byteSize: number;
-  receiptEntryId: string;
 };
 
 function errText(err: unknown): string {
@@ -23,11 +21,11 @@ function errText(err: unknown): string {
   return "Upload failed.";
 }
 
-export default function ReceiptFileUploader({ receiptEntryId }: Props) {
+export default function ReceiptRowFileUploader({ receiptEntryId }: Props) {
   const router = useRouter();
-  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string>("");
+  const [message, setMessage] = useState("");
 
   async function onFileSelected(file: File | null) {
     if (!file) return;
@@ -47,12 +45,9 @@ export default function ReceiptFileUploader({ receiptEntryId }: Props) {
         }),
       });
 
-      const initJson = (await initRes.json().catch(() => ({}))) as Partial<UploadInitResponse> & {
-        error?: string;
-      };
-
+      const initJson = (await initRes.json().catch(() => ({}))) as Partial<UploadInitResponse> & { error?: string };
       if (!initRes.ok || !initJson.uploadUrl || !initJson.publicUrl || !initJson.storageKey) {
-        throw new Error(initJson.error || "Unable to get upload URL.");
+        throw new Error(initJson.error || "Unable to initialize upload.");
       }
 
       const putRes = await fetch(initJson.uploadUrl, {
@@ -63,9 +58,7 @@ export default function ReceiptFileUploader({ receiptEntryId }: Props) {
         body: file,
       });
 
-      if (!putRes.ok) {
-        throw new Error(`Cloud upload failed (${putRes.status}).`);
-      }
+      if (!putRes.ok) throw new Error(`Cloud upload failed (${putRes.status}).`);
 
       const completeRes = await fetch("/api/maintenance/receipts/attachments/complete", {
         method: "POST",
@@ -81,14 +74,10 @@ export default function ReceiptFileUploader({ receiptEntryId }: Props) {
       });
 
       const completeJson = (await completeRes.json().catch(() => ({}))) as { error?: string };
-      if (!completeRes.ok) {
-        throw new Error(completeJson.error || "Failed to finalize file upload.");
-      }
+      if (!completeRes.ok) throw new Error(completeJson.error || "Failed to finalize upload.");
 
-      setMessage("File uploaded successfully.");
-      // Clear the file input
-      if (uploadInputRef.current) uploadInputRef.current.value = "";
-      // Refresh to show the new file
+      setMessage("Added");
+      if (inputRef.current) inputRef.current.value = "";
       router.refresh();
     } catch (err) {
       setMessage(errText(err));
@@ -98,33 +87,32 @@ export default function ReceiptFileUploader({ receiptEntryId }: Props) {
   }
 
   return (
-    <div style={{ display: "grid", gap: 8 }}>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => uploadInputRef.current?.click()}
-          style={{
-            padding: "8px 12px",
-            borderRadius: 10,
-            border: "1px solid var(--border)",
-            background: "var(--surface)",
-            fontWeight: 800,
-            cursor: busy ? "not-allowed" : "pointer",
-          }}
-        >
-          Upload File
-        </button>
-      </div>
+    <div style={{ display: "grid", gap: 4 }}>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => inputRef.current?.click()}
+        style={{
+          border: "1px solid rgba(128,128,128,0.35)",
+          borderRadius: 8,
+          padding: "6px 8px",
+          background: "var(--surface-2)",
+          fontSize: 12,
+          fontWeight: 700,
+          cursor: busy ? "not-allowed" : "pointer",
+          width: "fit-content",
+        }}
+      >
+        {busy ? "Uploading..." : "Add file"}
+      </button>
       <input
-        ref={uploadInputRef}
+        ref={inputRef}
         type="file"
         disabled={busy}
         onChange={(e) => onFileSelected(e.currentTarget.files?.[0] ?? null)}
         style={{ display: "none" }}
       />
-      <div style={{ fontSize: 12, opacity: 0.85 }}>Max file size: 25MB. Accepts images, PDFs, and documents.</div>
-      {message ? <div style={{ fontSize: 12, fontWeight: 800 }}>{message}</div> : null}
+      {message ? <div style={{ fontSize: 11, opacity: 0.85 }}>{message}</div> : null}
     </div>
   );
 }

@@ -1,4 +1,6 @@
 import type { CSSProperties } from "react";
+import { randomUUID } from "crypto";
+import { Storage } from "@google-cloud/storage";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -7,12 +9,12 @@ import { Permission } from "@prisma/client";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 import { parseHiddenFromDropdowns } from "@/app/lib/user-preferences";
-import { getCompatDb } from "@/app/lib/workflow-foundations";
+import { getCompatDb, getGcsConfig } from "@/app/lib/workflow-foundations";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { CREATE_RECEIPTS, VIEW_RECEIPTS } from "@/app/lib/permission-constants";
-import ReceiptFileUploader from "./ReceiptFileUploader";
-import BatchReceiptFileUploader from "./BatchReceiptFileUploader";
 import BulkHistoricalReceiptUploader from "./BulkHistoricalReceiptUploader";
+import ReceiptDropzone from "./ReceiptDropzone";
+import ReceiptRowFileUploader from "./ReceiptRowFileUploader";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -146,6 +148,20 @@ function parseAreas(formData: FormData): RequiredEquipmentArea[] {
     uniq.push(a);
   }
   return uniq;
+}
+
+function cleanSegment(v: string): string {
+  const s = v.trim();
+  if (!s) return "file";
+  return s.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/-+/g, "-").slice(0, 120) || "file";
+}
+
+function encodePathSegments(path: string): string {
+  return path
+    .split("/")
+    .filter(Boolean)
+    .map((p) => encodeURIComponent(p))
+    .join("/");
 }
 
 function formatAreaLabel(area: string): string {
@@ -409,6 +425,17 @@ export default async function MaintenanceReceiptPage() {
     const areas = parseAreas(formData);
     if (areas.length === 0) throw new Error("Please select at least one user area.");
 
+    const fileCandidates = formData
+      .getAll("receiptFiles")
+      .filter((v): v is File => v instanceof File && v.size > 0);
+
+    const maxBytes = 25 * 1024 * 1024;
+    for (const file of fileCandidates) {
+      if (file.size > maxBytes) {
+        throw new Error(`File ${file.name} exceeds max size (25MB).`);
+      }
+    }
+
     const notesRaw = formData.get("notes");
     const notes = typeof notesRaw === "string" ? notesRaw.trim() : "";
 
@@ -417,7 +444,7 @@ export default async function MaintenanceReceiptPage() {
       throw new Error("Receipt tables are not available. Run latest migrations.");
     }
 
-    await db.$transaction(async (tx: any) => {
+    const created = await db.$transaction(async (tx: any) => {
       const created = await tx.receiptEntry.create({
         data: {
           receiptDate,
@@ -433,102 +460,49 @@ export default async function MaintenanceReceiptPage() {
       await tx.receiptEntryArea.createMany({
         data: areas.map((area) => ({ receiptEntryId: created.id, area })),
       });
+
+      return created;
     });
 
-    revalidatePath("/maintenance/receipts");
-    revalidatePath("/maintenance");
-    redirect("/maintenance/receipts");
-  }
+    if (fileCandidates.length > 0) {
+      if (!db.receiptFile?.create) {
+        throw new Error("Receipt files table is not available. Run latest migrations.");
+      }
 
-  async function bulkCreateEmptyReceiptsAction(formData: FormData) {
-    "use server";
+      const gcs = getGcsConfig();
+      if (!gcs.bucket) {
+        throw new Error("GCS is not configured. Set GCS_BUCKET.");
+      }
 
-    const session = (await getServerSession(authOptions)) as SessionShape;
-    requireSession(session);
+      const storage = new Storage(gcs.projectId ? { projectId: gcs.projectId } : undefined);
+      const basePath = (gcs.basePath || "receipt-files/").replace(/^\/+/, "").replace(/\/+$/, "");
 
-    const perms = await loadUserPermissions(session);
-    const canCreateReceipts = perms.allowAll || hasAnyPermission(perms, [CREATE_RECEIPTS]);
-    if (!canCreateReceipts) {
-      throw new Error("You do not have permission to create receipt entries.");
-    }
+      for (const file of fileCandidates) {
+        const safeName = cleanSegment(file.name || "receipt-file");
+        const storageKey = `${basePath}/${created.id}/${Date.now()}-${randomUUID()}-${safeName}`;
+        const blob = storage.bucket(gcs.bucket).file(storageKey);
+        const bytes = Buffer.from(await file.arrayBuffer());
 
-    const createdByUserIdRaw = formData.get("bulkUserId");
-    const createdByUserId = typeof createdByUserIdRaw === "string" ? createdByUserIdRaw.trim() : "";
-    if (!createdByUserId) throw new Error("User is required.");
+        await blob.save(bytes, {
+          resumable: false,
+          contentType: file.type || "application/octet-stream",
+        });
 
-    const locationIdRaw = formData.get("bulkLocationId");
-    const locationId = typeof locationIdRaw === "string" ? locationIdRaw.trim() : "";
-    if (!locationId) throw new Error("Location is required.");
+        const url = `https://storage.googleapis.com/${encodeURIComponent(gcs.bucket)}/${encodePathSegments(storageKey)}`;
 
-    const email = String(session?.user?.email ?? "").trim().toLowerCase();
-    const me = await prisma.user.findUnique({
-      where: { email },
-      select: {
-        id: true,
-        active: true,
-        locationId: true,
-        location: { select: { id: true, active: true, receiptEnabled: true } },
-        allowedLocations: {
-          select: { locationId: true, location: { select: { active: true, receiptEnabled: true } } },
-          orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }],
-        },
-      },
-    });
-
-    if (!me || !me.active) redirect("/login");
-
-    const allowed = new Set<string>();
-    if (perms.allowAll) {
-      const activeLocations = await prisma.location.findMany({
-        where: { active: true },
-        select: { id: true },
-      });
-      for (const location of activeLocations) allowed.add(location.id);
-    } else {
-      if (me.locationId && me.location?.active) allowed.add(me.locationId);
-      for (const a of me.allowedLocations) {
-        if (a.location?.active) allowed.add(a.locationId);
+        await db.receiptFile.create({
+          data: {
+            receiptEntryId: created.id,
+            uploadedByUserId: me.id,
+            fileName: file.name || "receipt-file",
+            contentType: file.type || null,
+            byteSize: file.size,
+            storageKey,
+            url,
+          },
+        });
       }
     }
-    if (!allowed.has(locationId)) throw new Error("Invalid location selection.");
-
-    const selectedUser = await prisma.user.findUnique({
-      where: { id: createdByUserId },
-      select: {
-        id: true,
-        active: true,
-        locationId: true,
-        allowedLocations: { select: { locationId: true } },
-      },
-    });
-    if (!selectedUser || !selectedUser.active) throw new Error("Selected user is not active.");
-
-    const userAllowed = new Set<string>();
-    if (selectedUser.locationId) userAllowed.add(selectedUser.locationId);
-    for (const a of selectedUser.allowedLocations) userAllowed.add(a.locationId);
-    if (!userAllowed.has(locationId)) {
-      throw new Error("Selected user is not assigned to the selected location.");
-    }
-
-    const receiptDateRaw = formData.get("bulkReceiptDate");
-    const receiptDate = parseYmdDateAsUtcNoon(receiptDateRaw);
-
-    const db = getCompatDb() as any;
-    if (!db.receiptEntry?.create) {
-      throw new Error("Receipt tables are not available. Run latest migrations.");
-    }
-
-    // Create a placeholder receipt entry with minimal data that can be edited later
-    await db.receiptEntry.create({
-      data: {
-        receiptDate,
-        locationId,
-        amountCents: 0, // Placeholder - user should edit
-        billedBackVendor: null,
-        notes: "Bulk upload - awaiting details",
-        createdByUserId,
-      },
-    });
 
     revalidatePath("/maintenance/receipts");
     revalidatePath("/maintenance");
@@ -725,6 +699,8 @@ export default async function MaintenanceReceiptPage() {
             <textarea name="notes" rows={4} placeholder="Add any notes about this receipt" style={input} disabled={!canCreateOnAnyLocation} />
           </label>
 
+          <ReceiptDropzone disabled={!canCreateOnAnyLocation} />
+
           <div>
             <button type="submit" style={btn} disabled={!canCreateOnAnyLocation}>
               Save Receipt Entry
@@ -741,56 +717,6 @@ export default async function MaintenanceReceiptPage() {
           </div>
         </form>
 
-      </section>
-
-      <section style={card}>
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Bulk Receipt Upload</h2>
-        <p style={{ margin: "8px 0 0 0", color: "var(--muted)", lineHeight: 1.5, fontSize: 14 }}>
-          Quickly create receipt entries for a user. A placeholder receipt will be created that you can edit to add amounts, areas, and more.
-        </p>
-
-        <form action={bulkCreateEmptyReceiptsAction} style={{ display: "grid", gap: 12, marginTop: 12 }}>
-          <div className="bulk-receipt-form-grid" style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
-            <label style={{ display: "grid", gap: 6, fontWeight: 800, minWidth: 0 }}>
-              User
-              <select name="bulkUserId" defaultValue={me.id} required style={input} disabled={!canCreateOnAnyLocation}>
-                <option value="">Select user</option>
-                {usersForReceipts.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {(u.name?.trim() || "(No Name)") + " (" + u.email + ")"}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label style={{ display: "grid", gap: 6, fontWeight: 800, minWidth: 0 }}>
-              Location
-              <select name="bulkLocationId" defaultValue={allowedLocations[0]?.id ?? ""} required style={input} disabled={!canCreateOnAnyLocation}>
-                <option value="">Select location</option>
-                {allowedLocations.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name}
-                    {l.source === "PRIMARY" ? " (Primary)" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label style={{ display: "grid", gap: 6, fontWeight: 800, minWidth: 0 }}>
-              Receipt Date
-              <input type="date" name="bulkReceiptDate" defaultValue={todayNy} required style={input} disabled={!canCreateOnAnyLocation} />
-            </label>
-          </div>
-
-          <div>
-            <button type="submit" style={btn} disabled={!canCreateOnAnyLocation}>
-              Create Empty Receipt
-            </button>
-            <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
-              This creates a placeholder receipt that you can then attach files to and edit with amounts/areas.
-            </div>
-          </div>
-        </form>
       </section>
 
       <section style={card}>
@@ -863,10 +789,10 @@ export default async function MaintenanceReceiptPage() {
                             </a>
                           </div>
                         ))}
-                        <ReceiptFileUploader receiptEntryId={r.id} />
+                        <ReceiptRowFileUploader receiptEntryId={r.id} />
                       </div>
                     ) : (
-                      <ReceiptFileUploader receiptEntryId={r.id} />
+                      <ReceiptRowFileUploader receiptEntryId={r.id} />
                     )}
                   </td>
                   <td style={{ padding: 8, borderBottom: border, whiteSpace: "nowrap" }}>{fmtDateTime(r.createdAt)}</td>
