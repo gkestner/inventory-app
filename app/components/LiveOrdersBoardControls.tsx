@@ -74,6 +74,8 @@ export default function LiveOrdersBoardControls({
     let lastTimestamp = 0;
     let direction = 1;
     let pauseUntil = 0;
+    let activeScroller: HTMLElement | null = null;
+    let desiredTop = 0;
 
     const pxPerSecond = 18;
     const edgePauseMs = 1400;
@@ -85,6 +87,12 @@ export default function LiveOrdersBoardControls({
         return;
       }
 
+      if (scroller !== activeScroller) {
+        activeScroller = scroller;
+        desiredTop = scroller.scrollTop;
+        lastTimestamp = timestamp;
+      }
+
       const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
       if (maxScrollTop > 0) {
         if (lastTimestamp === 0) lastTimestamp = timestamp;
@@ -92,20 +100,24 @@ export default function LiveOrdersBoardControls({
         lastTimestamp = timestamp;
 
         if (timestamp >= pauseUntil) {
-          const nextTop = scroller.scrollTop + direction * ((pxPerSecond * dt) / 1000);
+          desiredTop += direction * ((pxPerSecond * dt) / 1000);
+          const nextTop = desiredTop;
           if (nextTop <= 0) {
+            desiredTop = 0;
             scroller.scrollTop = 0;
             direction = 1;
             pauseUntil = timestamp + edgePauseMs;
           } else if (nextTop >= maxScrollTop) {
+            desiredTop = maxScrollTop;
             scroller.scrollTop = maxScrollTop;
             direction = -1;
             pauseUntil = timestamp + edgePauseMs;
           } else {
-            scroller.scrollTop = nextTop;
+            scroller.scrollTop = Math.round(nextTop);
           }
         }
       } else {
+        desiredTop = 0;
         lastTimestamp = timestamp;
       }
 
