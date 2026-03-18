@@ -18,6 +18,7 @@ export const runtime = "nodejs";
 
 type SearchParams = {
   ok?: string;
+  okReturn?: string;
   err?: string;
 };
 
@@ -76,6 +77,7 @@ export default async function MaintenanceCheckoutPage({
 
   const sp = await searchParams;
   const ok = sp.ok === "1";
+  const okReturn = sp.okReturn === "1";
   const err = typeof sp.err === "string" && sp.err.trim() ? sp.err.trim() : null;
 
   const sessionUserId = getSessionUserId(session);
@@ -127,7 +129,7 @@ export default async function MaintenanceCheckoutPage({
     orderedAllowedLocations = [...primary, ...optional];
   }
 
-  const [items, locationsAllActive, users] = await Promise.all([
+  const [items, locationsAllActive, users, recentTickets] = await Promise.all([
     prisma.item.findMany({
       where: { active: true },
       orderBy: { sku: "asc" },
@@ -164,10 +166,94 @@ export default async function MaintenanceCheckoutPage({
         uiPreferences: true,
       },
     }).then((rows) => rows.filter((u) => !parseHiddenFromDropdowns(u.uiPreferences).includes("checkout"))),
+    prisma.partsCheckoutTicket.findMany({
+      where: { status: { in: ["OPEN", "INVOICED"] } },
+      orderBy: { createdAt: "desc" },
+      take: 120,
+      select: {
+        id: true,
+        status: true,
+        itemId: true,
+        storeId: true,
+        storeName: true,
+        quantity: true,
+        createdAt: true,
+        skuSnapshot: true,
+        nameSnapshot: true,
+      },
+    }),
 
   ]);
 
   const locations = orderedAllowedLocations ?? locationsAllActive;
+  const allowedStoreIds = new Set(locations.map((l) => l.id));
+  const recentReturnableTickets = perms.allowAll
+    ? recentTickets
+    : recentTickets.filter((t: { storeId: string }) => allowedStoreIds.has(t.storeId));
+
+  async function resolveStoreAndCreatedByForCheckout(args: {
+    session: Awaited<ReturnType<typeof getServerSession>>;
+    perms: Awaited<ReturnType<typeof loadUserPermissions>>;
+    storeId: string;
+    createdByUserId: string;
+  }) {
+    const { session: s, perms: p, storeId, createdByUserId } = args;
+
+    // Enforce allowed store locations for non-admin.
+    if (!p.allowAll) {
+      const sUser = (s as { user?: { email?: string | null } } | null)?.user;
+      const email = typeof sUser?.email === "string" ? sUser.email.toLowerCase().trim() : "";
+
+      if (!email) throw new Error("Unauthorized");
+
+      const me = await prisma.user.findUnique({
+        where: { email },
+        select: {
+          id: true,
+          active: true,
+          locationId: true,
+          allowedLocations: { select: { locationId: true } },
+        },
+      });
+
+      if (!me || !me.active) throw new Error("Unauthorized");
+
+      const allowed = new Set<string>();
+      if (me.locationId) allowed.add(me.locationId);
+      for (const ul of me.allowedLocations) allowed.add(ul.locationId);
+
+      if (!allowed.has(storeId)) {
+        throw new Error("You are not allowed to create a checkout ticket for that store.");
+      }
+    }
+
+    const store = await prisma.location.findUnique({
+      where: { id: storeId },
+      select: { id: true, name: true, active: true, receiptEnabled: true },
+    });
+    if (!store || !store.active || !store.receiptEnabled) throw new Error("Store not found");
+
+    const createdBy = await prisma.user.findUnique({
+      where: { id: createdByUserId },
+      select: {
+        id: true,
+        name: true,
+        active: true,
+        locationId: true,
+        allowedLocations: { select: { locationId: true } },
+      },
+    });
+    if (!createdBy || !createdBy.active) throw new Error("Created-by user not found");
+
+    const createdByAllowedStores = new Set<string>();
+    if (createdBy.locationId) createdByAllowedStores.add(createdBy.locationId);
+    for (const ul of createdBy.allowedLocations) createdByAllowedStores.add(ul.locationId);
+    if (!createdByAllowedStores.has(storeId)) {
+      throw new Error("Selected user is not assigned to the selected store.");
+    }
+
+    return { store, createdBy };
+  }
 
   async function checkoutAction(formData: FormData) {
     "use server";
@@ -186,61 +272,12 @@ export default async function MaintenanceCheckoutPage({
       if (!createdByUserId) throw new Error("Missing createdByUserId");
       if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("Invalid quantity");
 
-      // Enforce allowed store locations for non-admin.
-      if (!p.allowAll) {
-        const email =
-          typeof (s.user as unknown as { email?: unknown })?.email === "string"
-            ? ((s.user as unknown as { email?: string }).email ?? "").toLowerCase().trim()
-            : "";
-
-        if (!email) throw new Error("Unauthorized");
-
-        const me = await prisma.user.findUnique({
-          where: { email },
-          select: {
-            id: true,
-            active: true,
-            locationId: true,
-            allowedLocations: { select: { locationId: true } },
-          },
-        });
-
-        if (!me || !me.active) throw new Error("Unauthorized");
-
-        const allowed = new Set<string>();
-        if (me.locationId) allowed.add(me.locationId);
-        for (const ul of me.allowedLocations) allowed.add(ul.locationId);
-
-        if (!allowed.has(storeId)) {
-          throw new Error("You are not allowed to create a checkout ticket for that store.");
-        }
-      }
-
-      // Lookups (outside tx is okay, but we keep the write path atomic)
-      const store = await prisma.location.findUnique({
-        where: { id: storeId },
-        select: { id: true, name: true, active: true, receiptEnabled: true },
+      const { store, createdBy } = await resolveStoreAndCreatedByForCheckout({
+        session: s,
+        perms: p,
+        storeId,
+        createdByUserId,
       });
-      if (!store || !store.active || !store.receiptEnabled) throw new Error("Store not found");
-
-      const createdBy = await prisma.user.findUnique({
-        where: { id: createdByUserId },
-        select: {
-          id: true,
-          name: true,
-          active: true,
-          locationId: true,
-          allowedLocations: { select: { locationId: true } },
-        },
-      });
-      if (!createdBy || !createdBy.active) throw new Error("Created-by user not found");
-
-      const createdByAllowedStores = new Set<string>();
-      if (createdBy.locationId) createdByAllowedStores.add(createdBy.locationId);
-      for (const ul of createdBy.allowedLocations) createdByAllowedStores.add(ul.locationId);
-      if (!createdByAllowedStores.has(storeId)) {
-        throw new Error("Selected user is not assigned to the selected store.");
-      }
 
       await prisma.$transaction(async (tx) => {
         const item = await tx.item.findUnique({
@@ -420,6 +457,193 @@ export default async function MaintenanceCheckoutPage({
     }
   }
 
+  async function reverseCheckoutAction(formData: FormData) {
+    "use server";
+    try {
+      const { session: s, perms: p } = await requireCheckoutCreate();
+
+      const itemId = String(formData.get("returnItemId") || "");
+      const storeId = String(formData.get("returnStoreId") || "");
+      const createdByUserId = String(formData.get("returnCreatedByUserId") || "");
+      const quantity = toInt(formData.get("returnQuantity"));
+      const originalCheckoutIdSelect = String(formData.get("returnOriginalCheckoutIdSelect") || "").trim();
+      const originalCheckoutIdManual = String(formData.get("returnOriginalCheckoutId") || "").trim();
+      const note = String(formData.get("returnNote") || "").trim();
+
+      const originalCheckoutId = originalCheckoutIdManual || originalCheckoutIdSelect;
+      if (originalCheckoutIdManual && originalCheckoutIdSelect && originalCheckoutIdManual !== originalCheckoutIdSelect) {
+        throw new Error("Selected checkout ticket does not match the manually entered ticket ID.");
+      }
+
+      if (!itemId) throw new Error("Missing itemId");
+      if (!storeId) throw new Error("Missing storeId");
+      if (!createdByUserId) throw new Error("Missing createdByUserId");
+      if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("Invalid return quantity");
+
+      const { store, createdBy } = await resolveStoreAndCreatedByForCheckout({
+        session: s,
+        perms: p,
+        storeId,
+        createdByUserId,
+      });
+
+      await prisma.$transaction(async (tx) => {
+        let originalCheckout: {
+          id: string;
+          status: "OPEN" | "INVOICED" | "VOIDED";
+          itemId: string;
+          storeId: string;
+          quantity: number;
+        } | null = null;
+
+        if (originalCheckoutId) {
+          originalCheckout = await tx.partsCheckoutTicket.findUnique({
+            where: { id: originalCheckoutId },
+            select: {
+              id: true,
+              status: true,
+              itemId: true,
+              storeId: true,
+              quantity: true,
+            },
+          });
+          if (!originalCheckout) {
+            throw new Error("Original checkout ticket not found.");
+          }
+          if (originalCheckout.status === "VOIDED") {
+            throw new Error("Original checkout ticket is already voided and cannot be linked for return.");
+          }
+          if (originalCheckout.itemId !== itemId) {
+            throw new Error("Original checkout ticket item does not match selected return item.");
+          }
+          if (originalCheckout.storeId !== storeId) {
+            throw new Error("Original checkout ticket store does not match selected return store.");
+          }
+        }
+
+        const item = await tx.item.findUnique({
+          where: { id: itemId },
+          select: {
+            id: true,
+            sku: true,
+            partNumber: true,
+            vendor: true,
+            name: true,
+            description: true,
+            category: true,
+            cost: true,
+            price: true,
+            taxable: true,
+            active: true,
+            onHandQty: true,
+            orderedQty: true,
+            usedQty: true,
+            minQty: true,
+          },
+        });
+        if (!item) throw new Error("Item not found");
+
+        const last = await tx.itemVersion.findFirst({
+          where: { itemId },
+          orderBy: { version: "desc" },
+          select: { version: true },
+        });
+        const nextVersion = (last?.version ?? 0) + 1;
+
+        await tx.itemVersion.create({
+          data: {
+            itemId,
+            version: nextVersion,
+            sku: item.sku,
+            partNumber: item.partNumber,
+            vendor: item.vendor,
+            name: item.name,
+            description: item.description,
+            category: item.category,
+            cost: item.cost,
+            price: item.price,
+            taxable: item.taxable,
+            active: item.active,
+            onHandQty: item.onHandQty,
+            orderedQty: item.orderedQty,
+            usedQty: item.usedQty,
+            minQty: item.minQty,
+          },
+        });
+
+        const usedQtyAfter = Math.max(0, item.usedQty - quantity);
+        await tx.item.update({
+          where: { id: itemId },
+          data: {
+            onHandQty: { increment: quantity },
+            usedQty: usedQtyAfter,
+          },
+          select: { id: true },
+        });
+
+        const returnTicketNoteParts: string[] = [];
+        returnTicketNoteParts.push("[RETURN]");
+        if (originalCheckout) {
+          returnTicketNoteParts.push(`linkedToCheckout=${originalCheckout.id}`);
+        }
+        if (note) {
+          returnTicketNoteParts.push(note);
+        }
+
+        await tx.partsCheckoutTicket.create({
+          data: {
+            status: "VOIDED",
+            itemId,
+            storeId,
+            storeName: store.name,
+            quantity,
+            needToOrderMore: false,
+            createdByUserId,
+            createdByName: createdBy.name,
+            note:
+              returnTicketNoteParts.length > 1
+                ? returnTicketNoteParts.join(" ")
+                : "[RETURN] Item returned to inventory from checkout page.",
+            voidedAt: new Date(),
+            voidNote: originalCheckout
+              ? note
+                ? `[RETURN] Linked original checkout ${originalCheckout.id}. ${note}`
+                : `[RETURN] Linked original checkout ${originalCheckout.id}.`
+              : note
+                ? `[RETURN] ${note}`
+                : "[RETURN] Return to inventory entry.",
+            skuSnapshot: item.sku,
+            partNumberSnapshot: item.partNumber,
+            nameSnapshot: item.name,
+            costSnapshot: item.cost,
+            vendorSnapshot: item.vendor,
+            priceSnapshot: item.price,
+            taxableSnapshot: item.taxable,
+          },
+          select: { id: true },
+        });
+      });
+
+      revalidatePath("/admin/inventory-alerts");
+      revalidatePath("/admin/maintenance-tickets");
+      revalidatePath("/maintenance");
+      revalidatePath("/maintenance/checkout");
+
+      redirect(`/maintenance/checkout?okReturn=1`);
+    } catch (e: unknown) {
+      if (isRedirectError(e)) {
+        throw e;
+      }
+
+      const msg =
+        typeof e === "object" && e !== null && "message" in e && typeof (e as { message: unknown }).message === "string"
+          ? (e as { message: string }).message
+          : "Return failed";
+
+      redirect(`/maintenance/checkout?err=${encodeURIComponent(msg)}`);
+    }
+  }
+
   const fieldStyle: CSSProperties = {
     width: "100%",
     minWidth: 0,
@@ -461,6 +685,21 @@ export default async function MaintenanceCheckoutPage({
           }}
         >
           ✅ Checkout submitted.
+        </div>
+      ) : null}
+
+      {okReturn ? (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: 10,
+            borderRadius: 10,
+            border: "1px solid rgba(40,167,69,0.45)",
+            background: "rgba(40,167,69,0.08)",
+            color: "var(--foreground)",
+          }}
+        >
+          ✅ Return submitted. Inventory was restored.
         </div>
       ) : null}
 
@@ -629,6 +868,206 @@ export default async function MaintenanceCheckoutPage({
         <div style={{ fontSize: 12, opacity: 0.75 }}>
           Alerts created when: onHand goes negative, available falls below min, or “Need to order more” is checked.
         </div>
+      </form>
+
+      <form
+        action={reverseCheckoutAction}
+        style={{
+          marginTop: 14,
+          border: "1px solid rgba(128,128,128,0.25)",
+          borderRadius: 10,
+          padding: 16,
+          display: "grid",
+          gap: 12,
+          background: "var(--background)",
+          color: "var(--foreground)",
+        }}
+      >
+        <div style={{ fontWeight: 800, fontSize: 16 }}>Reverse Checkout (Return to Inventory)</div>
+        <div style={{ fontSize: 12, opacity: 0.8 }}>
+          Use this when parts are returned. This will increase on-hand and reduce used quantity.
+        </div>
+
+        <label style={labelStyle}>
+          <span style={{ fontWeight: 700 }}>Part (Item)</span>
+          <div style={{ marginTop: 2 }}>
+            <ItemPicker name="returnItemId" items={items} placeholder="Search ID, SKU, part #, name, category, manufacturer…" />
+          </div>
+        </label>
+
+        <div style={twoCol}>
+          <label style={labelStyle}>
+            <span style={{ fontWeight: 700 }}>Store (Location)</span>
+            <select name="returnStoreId" required style={fieldStyle} disabled={!perms.allowAll && locations.length === 0}>
+              <option value="">Select a store…</option>
+              {locations.map((l) => (
+                <option key={`return-store-${l.id}`} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label style={labelStyle}>
+            <span style={{ fontWeight: 700 }}>Quantity returned</span>
+            <input name="returnQuantity" type="number" min={1} step={1} required defaultValue={1} style={fieldStyle} />
+          </label>
+        </div>
+
+        <label style={labelStyle}>
+          <span style={{ fontWeight: 700 }}>Returned by</span>
+          <select id="checkout-return-created-by" name="returnCreatedByUserId" required defaultValue={sessionUserId ?? ""} style={fieldStyle}>
+            <option value="">Select user…</option>
+            {users.map((u) => (
+              <option
+                key={`return-user-${u.id}`}
+                value={u.id}
+                data-store-ids={Array.from(new Set([u.locationId, ...u.allowedLocations.map((x) => x.locationId)].filter(Boolean))).join(",")}
+              >
+                {u.name} ({u.role})
+              </option>
+            ))}
+          </select>
+          <div style={{ fontSize: 12, opacity: 0.75 }}>
+            Shows only users assigned to the selected store. Manage assignments in Admin Users.
+          </div>
+        </label>
+
+        <label style={labelStyle}>
+          <span style={{ fontWeight: 700 }}>Original checkout ticket (optional)</span>
+          <select id="checkout-return-original-ticket" name="returnOriginalCheckoutIdSelect" defaultValue="" style={fieldStyle}>
+            <option value="">Select recent ticket…</option>
+            {recentReturnableTickets.map((t: { id: string; itemId: string; storeId: string; skuSnapshot: string; nameSnapshot: string; storeName: string; quantity: number; status: string }) => (
+              <option key={`return-ticket-${t.id}`} value={t.id} data-item-id={t.itemId} data-store-id={t.storeId}>
+                {t.id.slice(0, 10)}… | {t.skuSnapshot} | {t.nameSnapshot} | {t.storeName} | Qty {t.quantity} | {t.status}
+              </option>
+            ))}
+          </select>
+          <div style={{ fontSize: 12, opacity: 0.75 }}>
+            Recent open/invoiced tickets for your allowed stores. This list auto-filters by selected item and store.
+          </div>
+        </label>
+
+        <label style={labelStyle}>
+          <span style={{ fontWeight: 700 }}>Original checkout ticket ID (optional)</span>
+          <input name="returnOriginalCheckoutId" placeholder="Paste checkout ticket ID to link this return…" style={fieldStyle} />
+          <div style={{ fontSize: 12, opacity: 0.75 }}>
+            You can use this instead of the dropdown above. If both are filled, they must match.
+          </div>
+        </label>
+
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(() => {
+  const storeSelect = document.querySelector('select[name="returnStoreId"]');
+  const itemIdInput = document.querySelector('input[name="returnItemId"]');
+  const userSelect = document.getElementById("checkout-return-created-by");
+  const ticketSelect = document.getElementById("checkout-return-original-ticket");
+  if (!storeSelect || !userSelect) return;
+
+  const syncUsers = () => {
+    const storeId = String(storeSelect.value || "").trim();
+    const options = Array.from(userSelect.options);
+
+    let visibleCount = 0;
+    for (const opt of options) {
+      if (!opt.value) {
+        opt.hidden = false;
+        continue;
+      }
+
+      const raw = String(opt.dataset.storeIds || "");
+      const ids = raw.split(",").map((s) => s.trim()).filter(Boolean);
+      const allowed = storeId ? ids.includes(storeId) : true;
+      opt.hidden = !allowed;
+      if (allowed) visibleCount++;
+    }
+
+    const selected = userSelect.options[userSelect.selectedIndex];
+    const selectedHidden = !!selected && selected.hidden;
+    if (selectedHidden) {
+      userSelect.value = "";
+      if (storeId && visibleCount > 0) {
+        const firstVisible = options.find((o) => !!o.value && !o.hidden);
+        if (firstVisible) userSelect.value = firstVisible.value;
+      }
+    }
+  };
+
+  const syncTickets = () => {
+    if (!ticketSelect) return;
+
+    const storeId = String(storeSelect.value || "").trim();
+    const itemId = String(itemIdInput && "value" in itemIdInput ? itemIdInput.value : "").trim();
+    const options = Array.from(ticketSelect.options);
+
+    let visibleCount = 0;
+    for (const opt of options) {
+      if (!opt.value) {
+        opt.hidden = false;
+        continue;
+      }
+
+      const optStoreId = String(opt.dataset.storeId || "").trim();
+      const optItemId = String(opt.dataset.itemId || "").trim();
+      const storeAllowed = storeId ? optStoreId === storeId : true;
+      const itemAllowed = itemId ? optItemId === itemId : true;
+      const allowed = storeAllowed && itemAllowed;
+      opt.hidden = !allowed;
+      if (allowed) visibleCount++;
+    }
+
+    const selected = ticketSelect.options[ticketSelect.selectedIndex];
+    const selectedHidden = !!selected && selected.hidden;
+    if (selectedHidden) {
+      ticketSelect.value = "";
+      if (visibleCount > 0) {
+        const firstVisible = options.find((o) => !!o.value && !o.hidden);
+        if (firstVisible) ticketSelect.value = firstVisible.value;
+      }
+    }
+  };
+
+  const syncAll = () => {
+    syncUsers();
+    syncTickets();
+  };
+
+  syncAll();
+  storeSelect.addEventListener("change", syncAll);
+
+  if (itemIdInput) {
+    itemIdInput.addEventListener("change", syncTickets);
+    itemIdInput.addEventListener("input", syncTickets);
+  }
+
+  // ItemPicker writes to a hidden input; this keeps ticket filtering responsive after click selections.
+  window.setInterval(syncTickets, 400);
+})();`,
+          }}
+        />
+
+        <label style={labelStyle}>
+          <span style={{ fontWeight: 700 }}>Return note (optional)</span>
+          <input name="returnNote" placeholder="Optional reason for return…" style={fieldStyle} />
+        </label>
+
+        <button
+          type="submit"
+          style={{
+            padding: "10px 12px",
+            fontWeight: 800,
+            width: 280,
+            borderRadius: 10,
+            background: "rgba(40, 167, 69, 0.16)",
+            border: "1px solid rgba(40, 167, 69, 0.55)",
+            color: "var(--foreground)",
+            cursor: "pointer",
+          }}
+          disabled={!perms.allowAll && locations.length === 0}
+        >
+          Submit Return (Reverse Checkout)
+        </button>
       </form>
     </div>
   );
