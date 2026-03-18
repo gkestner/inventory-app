@@ -21,6 +21,7 @@ export default function LiveOrdersBoardControls({
   const [intervalSec, setIntervalSec] = useState<number>(clampIntervalSec(defaultIntervalSec));
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
 
   useEffect(() => {
     const syncFullscreen = () => {
@@ -52,6 +53,50 @@ export default function LiveOrdersBoardControls({
 
     return () => window.clearInterval(id);
   }, [enabled, intervalSec, router]);
+
+  useEffect(() => {
+    if (!isFullscreen || !autoScrollEnabled) return;
+
+    const scroller = document.querySelector<HTMLElement>(".live-orders-board");
+    if (!scroller) return;
+
+    let frameId = 0;
+    let lastTimestamp = 0;
+    let direction = 1;
+    let pauseUntil = 0;
+
+    const pxPerSecond = 18;
+    const edgePauseMs = 1400;
+
+    const tick = (timestamp: number) => {
+      const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+      if (maxScrollTop > 0) {
+        if (lastTimestamp === 0) lastTimestamp = timestamp;
+        const dt = timestamp - lastTimestamp;
+        lastTimestamp = timestamp;
+
+        if (timestamp >= pauseUntil) {
+          const nextTop = scroller.scrollTop + direction * ((pxPerSecond * dt) / 1000);
+          if (nextTop <= 0) {
+            scroller.scrollTop = 0;
+            direction = 1;
+            pauseUntil = timestamp + edgePauseMs;
+          } else if (nextTop >= maxScrollTop) {
+            scroller.scrollTop = maxScrollTop;
+            direction = -1;
+            pauseUntil = timestamp + edgePauseMs;
+          } else {
+            scroller.scrollTop = nextTop;
+          }
+        }
+      }
+
+      frameId = window.requestAnimationFrame(tick);
+    };
+
+    frameId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [autoScrollEnabled, isFullscreen]);
 
   async function toggleFullscreen() {
     try {
@@ -174,8 +219,18 @@ export default function LiveOrdersBoardControls({
           {isFullscreen ? "Exit Fullscreen" : "Fullscreen Board"}
         </button>
 
+        <button
+          type="button"
+          style={autoScrollEnabled ? activeButton : neutralButton}
+          onClick={() => setAutoScrollEnabled((v) => !v)}
+        >
+          Auto-scroll {autoScrollEnabled ? "On" : "Off"}
+        </button>
+
         <div style={hint}>
-          {lastRefreshedAt
+          {isFullscreen && autoScrollEnabled
+            ? "Fullscreen scroll is active"
+            : lastRefreshedAt
             ? `Last refresh ${lastRefreshedAt.toLocaleTimeString("en-US", {
                 hour: "2-digit",
                 minute: "2-digit",

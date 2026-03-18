@@ -556,15 +556,18 @@ html[data-live-orders-fullscreen="true"] .admin-layout-content {
 }
 
 html[data-live-orders-fullscreen="true"] .live-orders-page {
-  padding: 0 !important;
+  padding: 88px 0 0 0 !important;
   gap: 0 !important;
   min-height: 100vh;
+  box-sizing: border-box;
 }
 
 html[data-live-orders-fullscreen="true"] .live-orders-board {
   border: none !important;
   border-radius: 0 !important;
-  min-height: 100vh;
+  min-height: calc(100vh - 88px);
+  max-height: calc(100vh - 88px);
+  overflow-y: auto;
 }
 
 html[data-live-orders-fullscreen="true"] .live-orders-controls {
