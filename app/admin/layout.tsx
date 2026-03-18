@@ -263,7 +263,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         }
       `}</style>
 
-      <aside style={sidebar}>
+      <aside className="admin-layout-sidebar" style={sidebar}>
         <div style={brand}>Admin</div>
         <div style={meta}>
           <div>{email}</div>
@@ -405,9 +405,9 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         </div>
       </aside>
 
-      <section style={main}>
+      <section className="admin-layout-main" style={main}>
         {/* ✅ Visible on every admin page */}
-        <div style={topBar}>
+        <div className="admin-layout-topbar" style={topBar}>
           <Link
             href="/settings"
             style={{
@@ -425,7 +425,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
           <SignOutButton label="Logout" callbackUrl="/login" style={topLogoutBtn} />
         </div>
 
-        <div style={contentWrap}>{children}</div>
+        <div className="admin-layout-content" style={contentWrap}>{children}</div>
       </section>
     </div>
   );

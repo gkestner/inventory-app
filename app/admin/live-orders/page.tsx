@@ -9,6 +9,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { loadUserPermissions, hasAnyPermission } from "@/app/lib/permissions";
+import LiveOrdersBoardControls from "@/app/components/LiveOrdersBoardControls";
 import { Permission, Role } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -88,17 +89,27 @@ function fmtMoney(v: unknown) {
 }
 
 function rowPhaseStyle(phase: string): CSSProperties {
-  const orderedBg = "var(--order-ordered-bg, rgba(255, 193, 7, 0.10))";
-  const arrivedBg = "var(--order-arrived-bg, rgba(33, 150, 243, 0.10))";
-  const addedBg = "var(--order-added-bg, rgba(76, 175, 80, 0.12))";
+  const orderedBg = "var(--order-ordered-bg, rgba(255, 193, 7, 0.20))";
+  const arrivedBg = "var(--order-arrived-bg, rgba(33, 150, 243, 0.20))";
+  const addedBg = "var(--order-added-bg, rgba(76, 175, 80, 0.24))";
 
-  const orderedBar = "var(--order-ordered-bar, rgba(255, 193, 7, 0.55))";
-  const arrivedBar = "var(--order-arrived-bar, rgba(33, 150, 243, 0.55))";
-  const addedBar = "var(--order-added-bar, rgba(76, 175, 80, 0.60))";
+  const orderedBar = "var(--order-ordered-bar, rgba(255, 193, 7, 0.92))";
+  const arrivedBar = "var(--order-arrived-bar, rgba(33, 150, 243, 0.92))";
+  const addedBar = "var(--order-added-bar, rgba(76, 175, 80, 0.95))";
 
-  if (phase === "ORDERED") return { background: orderedBg, borderLeft: `6px solid ${orderedBar}` };
-  if (phase === "ARRIVED") return { background: arrivedBg, borderLeft: `6px solid ${arrivedBar}` };
-  return { background: addedBg, borderLeft: `6px solid ${addedBar}` };
+  if (phase === "ORDERED") {
+    return { background: orderedBg, borderLeft: `8px solid ${orderedBar}`, boxShadow: `inset 0 0 0 1px ${orderedBar}` };
+  }
+  if (phase === "ARRIVED") {
+    return { background: arrivedBg, borderLeft: `8px solid ${arrivedBar}`, boxShadow: `inset 0 0 0 1px ${arrivedBar}` };
+  }
+  return { background: addedBg, borderLeft: `8px solid ${addedBar}`, boxShadow: `inset 0 0 0 1px ${addedBar}` };
+}
+
+function phaseTextStyle(phase: string): CSSProperties {
+  if (phase === "ORDERED") return { color: "var(--order-ordered-bar, rgba(255, 193, 7, 0.98))" };
+  if (phase === "ARRIVED") return { color: "var(--order-arrived-bar, rgba(33, 150, 243, 0.98))" };
+  return { color: "var(--order-added-bar, rgba(76, 175, 80, 0.98))" };
 }
 
 export default async function LiveOrdersPage() {
@@ -279,8 +290,10 @@ export default async function LiveOrdersPage() {
   });
 
   return (
-    <div style={wrap}>
-      <div style={headerRow}>
+    <div className="live-orders-page" style={wrap}>
+      <LiveOrdersBoardControls defaultEnabled defaultIntervalSec={30} />
+
+      <div className="live-orders-header" style={headerRow}>
         <div>
           <h1 style={h1}>Admin: Live Orders</h1>
           <div style={muted}>
@@ -298,7 +311,7 @@ export default async function LiveOrdersPage() {
         </div>
       </div>
 
-      <div style={tableWrap}>
+      <div className="live-orders-board" style={tableWrap}>
         <table style={table}>
           <thead>
             <tr>
@@ -325,7 +338,7 @@ export default async function LiveOrdersPage() {
                 <tr key={o.id} style={rowPhaseStyle(o.status)}>
                   <td style={td}>{fmtDateTime(o.orderedAt)}</td>
                   <td style={td}>
-                    <span style={{ ...mono, fontWeight: 900 }}>{o.status}</span>
+                    <span style={{ ...mono, ...phaseTextStyle(o.status), fontWeight: 900 }}>{o.status}</span>
                   </td>
                   <td style={td}>
                     <div style={{ fontWeight: 900 }}>{o.item?.name ?? "—"}</div>

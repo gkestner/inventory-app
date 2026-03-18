@@ -512,6 +512,72 @@ body:has(.labels-page) .app-content-shell > :not(.labels-page):not(:has(.labels-
   white-space: nowrap;
 }
 
+html[data-live-orders-fullscreen="true"],
+html[data-live-orders-fullscreen="true"] body {
+  overflow: hidden;
+}
+
+html[data-live-orders-fullscreen="true"] body > :not(.app-content-shell) {
+  display: none !important;
+}
+
+html[data-live-orders-fullscreen="true"] .site-nav-shell,
+html[data-live-orders-fullscreen="true"] .admin-layout-sidebar,
+html[data-live-orders-fullscreen="true"] .admin-layout-topbar,
+html[data-live-orders-fullscreen="true"] .live-orders-header {
+  display: none !important;
+}
+
+html[data-live-orders-fullscreen="true"] main {
+  padding: 0 !important;
+}
+
+html[data-live-orders-fullscreen="true"] main > div {
+  max-width: none !important;
+  margin: 0 !important;
+}
+
+html[data-live-orders-fullscreen="true"] .admin-layout-grid {
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 0 !important;
+  padding: 0 !important;
+  min-height: 100vh;
+}
+
+html[data-live-orders-fullscreen="true"] .admin-layout-main {
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  min-height: 100vh;
+}
+
+html[data-live-orders-fullscreen="true"] .admin-layout-content {
+  padding: 0 !important;
+}
+
+html[data-live-orders-fullscreen="true"] .live-orders-page {
+  padding: 0 !important;
+  gap: 0 !important;
+  min-height: 100vh;
+}
+
+html[data-live-orders-fullscreen="true"] .live-orders-board {
+  border: none !important;
+  border-radius: 0 !important;
+  min-height: 100vh;
+}
+
+html[data-live-orders-fullscreen="true"] .live-orders-controls {
+  position: fixed !important;
+  top: 12px;
+  right: 12px;
+  z-index: 2000;
+  max-width: min(92vw, 820px);
+  background: color-mix(in srgb, var(--surface) 90%, transparent) !important;
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow);
+}
+
 .labels-page .bottom {
   border-top: var(--b) solid #000;
   display: flex;
