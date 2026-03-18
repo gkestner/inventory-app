@@ -9,6 +9,19 @@ function clampIntervalSec(value: number): number {
   return Math.max(10, Math.min(300, Math.floor(value)));
 }
 
+function getScrollableTarget(): HTMLElement | null {
+  const board = document.querySelector<HTMLElement>(".live-orders-board");
+  if (board && board.scrollHeight - board.clientHeight > 8) return board;
+
+  const page = document.querySelector<HTMLElement>(".live-orders-page");
+  if (page && page.scrollHeight - page.clientHeight > 8) return page;
+
+  const root = document.scrollingElement;
+  if (root instanceof HTMLElement && root.scrollHeight - root.clientHeight > 8) return root;
+
+  return board ?? page ?? (root instanceof HTMLElement ? root : null);
+}
+
 export default function LiveOrdersBoardControls({
   defaultEnabled = true,
   defaultIntervalSec = 30,
@@ -57,9 +70,6 @@ export default function LiveOrdersBoardControls({
   useEffect(() => {
     if (!isFullscreen || !autoScrollEnabled) return;
 
-    const scroller = document.querySelector<HTMLElement>(".live-orders-board");
-    if (!scroller) return;
-
     let frameId = 0;
     let lastTimestamp = 0;
     let direction = 1;
@@ -69,6 +79,12 @@ export default function LiveOrdersBoardControls({
     const edgePauseMs = 1400;
 
     const tick = (timestamp: number) => {
+      const scroller = getScrollableTarget();
+      if (!scroller) {
+        frameId = window.requestAnimationFrame(tick);
+        return;
+      }
+
       const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
       if (maxScrollTop > 0) {
         if (lastTimestamp === 0) lastTimestamp = timestamp;
@@ -89,6 +105,8 @@ export default function LiveOrdersBoardControls({
             scroller.scrollTop = nextTop;
           }
         }
+      } else {
+        lastTimestamp = timestamp;
       }
 
       frameId = window.requestAnimationFrame(tick);
