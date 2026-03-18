@@ -3,10 +3,9 @@ import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { revalidatePath } from "next/cache";
 import type { CSSProperties } from "react";
-import { Permission } from "@prisma/client";
+import { InvoiceVendor, Permission } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { parseHiddenFromDropdowns } from "@/app/lib/user-preferences";
 
@@ -20,6 +19,16 @@ type SearchParams = {
   ok?: string;
   okReturn?: string;
   err?: string;
+};
+
+type UserOption = {
+  id: string;
+  name: string;
+  role: Permission | string;
+  active: boolean;
+  locationId: string | null;
+  allowedLocations: Array<{ locationId: string }>;
+  uiPreferences: unknown;
 };
 
 function toInt(v: FormDataEntryValue | null): number {
@@ -38,6 +47,65 @@ function getSessionUserId(session: unknown): string | null {
   if (!isRecord(user)) return null;
   const id = user.id;
   return typeof id === "string" && id.trim() ? id : null;
+}
+
+function isRedirectLikeError(err: unknown): boolean {
+  if (!isRecord(err)) return false;
+  const digest = err.digest;
+  return typeof digest === "string" && digest.startsWith("NEXT_REDIRECT");
+}
+
+function normalizeVendor(v: unknown): InvoiceVendor | null {
+  const s = String(v ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/[-\s]+/g, "_");
+  if (s === "AMERICAN_PLUS") return InvoiceVendor.AMERICAN_PLUS;
+  if (s === "SUCCESS_PLUS") return InvoiceVendor.SUCCESS_PLUS;
+  return null;
+}
+
+function toSafeActionErrorMessage(err: unknown, fallback: string): string {
+  const raw =
+    typeof err === "object" && err !== null && "message" in err && typeof (err as { message: unknown }).message === "string"
+      ? (err as { message: string }).message
+      : fallback;
+  return raw.replace(/\s+/g, " ").trim().slice(0, 220) || fallback;
+}
+
+async function loadCheckoutUsers(): Promise<UserOption[]> {
+  try {
+    const rows = await prisma.user.findMany({
+      where: { active: true },
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        role: true,
+        active: true,
+        locationId: true,
+        allowedLocations: { select: { locationId: true } },
+        uiPreferences: true,
+      },
+    });
+    return rows.filter((u) => !parseHiddenFromDropdowns(u.uiPreferences).includes("checkout"));
+  } catch {
+    const rows = await prisma.user.findMany({
+      where: { active: true },
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        role: true,
+        active: true,
+        locationId: true,
+        uiPreferences: true,
+      },
+    });
+    return rows
+      .map((u) => ({ ...u, allowedLocations: [] as Array<{ locationId: string }> }))
+      .filter((u) => !parseHiddenFromDropdowns(u.uiPreferences).includes("checkout"));
+  }
 }
 
 async function requireCheckoutView() {
@@ -94,18 +162,44 @@ export default async function MaintenanceCheckoutPage({
 
     if (!email) redirect("/login");
 
-    const me = await prisma.user.findUnique({
-      where: { email },
-      select: {
-        id: true,
-        active: true,
-        location: { select: { id: true, name: true, active: true, receiptEnabled: true } },
-        allowedLocations: {
-          select: { isPrimary: true, location: { select: { id: true, name: true, active: true, receiptEnabled: true } } },
-          orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
+    let me:
+      | {
+          id: string;
+          active: boolean;
+          location: { id: string; name: string; active: boolean; receiptEnabled: boolean } | null;
+          allowedLocations: Array<{
+            isPrimary?: boolean;
+            location: { id: string; name: string; active: boolean; receiptEnabled: boolean } | null;
+          }>;
+        }
+      | null = null;
+
+    try {
+      me = await prisma.user.findUnique({
+        where: { email },
+        select: {
+          id: true,
+          active: true,
+          location: { select: { id: true, name: true, active: true, receiptEnabled: true } },
+          allowedLocations: {
+            select: { isPrimary: true, location: { select: { id: true, name: true, active: true, receiptEnabled: true } } },
+            orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
+          },
         },
-      },
-    });
+      });
+    } catch {
+      me = await prisma.user.findUnique({
+        where: { email },
+        select: {
+          id: true,
+          active: true,
+          location: { select: { id: true, name: true, active: true, receiptEnabled: true } },
+          allowedLocations: {
+            select: { location: { select: { id: true, name: true, active: true, receiptEnabled: true } } },
+          },
+        },
+      });
+    }
 
     if (!me || !me.active) redirect("/login");
 
@@ -122,7 +216,7 @@ export default async function MaintenanceCheckoutPage({
       if (!ul.location?.active || !ul.location.receiptEnabled) continue;
       if (seen.has(ul.location.id)) continue;
       seen.add(ul.location.id);
-      if (ul.isPrimary) primary.push({ id: ul.location.id, name: ul.location.name });
+      if (ul.isPrimary === true) primary.push({ id: ul.location.id, name: ul.location.name });
       else optional.push({ id: ul.location.id, name: ul.location.name });
     }
 
@@ -153,19 +247,7 @@ export default async function MaintenanceCheckoutPage({
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
-    prisma.user.findMany({
-      where: { active: true },
-      orderBy: { name: "asc" },
-      select: {
-        id: true,
-        name: true,
-        role: true,
-        active: true,
-        locationId: true,
-        allowedLocations: { select: { locationId: true } },
-        uiPreferences: true,
-      },
-    }).then((rows) => rows.filter((u) => !parseHiddenFromDropdowns(u.uiPreferences).includes("checkout"))),
+    loadCheckoutUsers(),
     prisma.partsCheckoutTicket.findMany({
       where: { status: { in: ["OPEN", "INVOICED"] } },
       orderBy: { createdAt: "desc" },
@@ -367,7 +449,7 @@ export default async function MaintenanceCheckoutPage({
             partNumberSnapshot: item.partNumber,
             nameSnapshot: item.name,
             costSnapshot: item.cost,
-            vendorSnapshot: item.vendor,
+            vendorSnapshot: normalizeVendor(item.vendor) ?? InvoiceVendor.SUCCESS_PLUS,
             priceSnapshot: item.price,
             taxableSnapshot: item.taxable,
           },
@@ -444,14 +526,11 @@ export default async function MaintenanceCheckoutPage({
 
       redirect(`/maintenance/checkout?ok=1`);
     } catch (e: unknown) {
-      if (isRedirectError(e)) {
+      if (isRedirectLikeError(e)) {
         throw e;
       }
 
-      const msg =
-        typeof e === "object" && e !== null && "message" in e && typeof (e as { message: unknown }).message === "string"
-          ? (e as { message: string }).message
-          : "Checkout failed";
+      const msg = toSafeActionErrorMessage(e, "Checkout failed");
 
       redirect(`/maintenance/checkout?err=${encodeURIComponent(msg)}`);
     }
@@ -616,7 +695,7 @@ export default async function MaintenanceCheckoutPage({
             partNumberSnapshot: item.partNumber,
             nameSnapshot: item.name,
             costSnapshot: item.cost,
-            vendorSnapshot: item.vendor,
+            vendorSnapshot: normalizeVendor(item.vendor) ?? InvoiceVendor.SUCCESS_PLUS,
             priceSnapshot: item.price,
             taxableSnapshot: item.taxable,
           },
@@ -631,14 +710,11 @@ export default async function MaintenanceCheckoutPage({
 
       redirect(`/maintenance/checkout?okReturn=1`);
     } catch (e: unknown) {
-      if (isRedirectError(e)) {
+      if (isRedirectLikeError(e)) {
         throw e;
       }
 
-      const msg =
-        typeof e === "object" && e !== null && "message" in e && typeof (e as { message: unknown }).message === "string"
-          ? (e as { message: string }).message
-          : "Return failed";
+      const msg = toSafeActionErrorMessage(e, "Return failed");
 
       redirect(`/maintenance/checkout?err=${encodeURIComponent(msg)}`);
     }
