@@ -1,4 +1,5 @@
 import { getServerSession } from "next-auth";
+import { revalidatePath } from "next/cache";
 
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
@@ -111,6 +112,9 @@ export async function POST(req: Request) {
       message: `Uploaded receipt file ${file.fileName}`,
       metadata: { storageKey: file.storageKey, byteSize: file.byteSize },
     });
+
+    revalidatePath("/maintenance/receipts");
+    revalidatePath("/maintenance");
 
     return json({ ok: true, file });
   } catch (err) {

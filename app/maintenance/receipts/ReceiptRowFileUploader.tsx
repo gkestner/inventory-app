@@ -98,7 +98,7 @@ export default function ReceiptRowFileUploader({ receiptEntryId }: Props) {
           width: "fit-content",
         }}
       >
-        {busy ? "Uploading..." : "Add file"}
+        {busy ? "Uploading..." : "Upload file"}
       </button>
       <input
         ref={inputRef}

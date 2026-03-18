@@ -338,24 +338,10 @@ export default async function MaintenanceReceiptPage({
     },
   })).filter((u) => !parseHiddenFromDropdowns(u.uiPreferences).includes("receipts"));
 
-  const locationsByUserId: Record<string, Array<{ id: string; name: string }>> = {};
-  for (const user of usersForReceipts) {
-    const seenLocations = new Set<string>();
-    const locationList: Array<{ id: string; name: string }> = [];
-
-    if (user.location?.active && user.location.receiptEnabled && !seenLocations.has(user.location.id)) {
-      seenLocations.add(user.location.id);
-      locationList.push({ id: user.location.id, name: user.location.name });
-    }
-    for (const ul of user.allowedLocations) {
-      if (!ul.location?.active || !ul.location.receiptEnabled) continue;
-      if (seenLocations.has(ul.location.id)) continue;
-      seenLocations.add(ul.location.id);
-      locationList.push({ id: ul.location.id, name: ul.location.name });
-    }
-
-    locationsByUserId[user.id] = locationList;
-  }
+  const availableLocationsForBulk = allowedLocations.map((location) => ({
+    id: location.id,
+    name: location.name,
+  }));
 
   const db = getCompatDb() as any;
   const rowsWhere: any = {
@@ -890,7 +876,7 @@ export default async function MaintenanceReceiptPage({
           <BulkHistoricalReceiptUploader 
             userId={me.id} 
             allowedUsers={usersForReceipts}
-            locationsByUserId={locationsByUserId}
+            availableLocations={availableLocationsForBulk}
           />
         </div>
       </section>
@@ -1012,26 +998,59 @@ export default async function MaintenanceReceiptPage({
                         <ReceiptRowFileUploader receiptEntryId={r.id} />
                       </div>
                     ) : (
-                      <ReceiptRowFileUploader receiptEntryId={r.id} />
+                      <div style={{ display: "grid", gap: 6 }}>
+                        <div style={{ fontSize: 12, opacity: 0.8 }}>No upload yet</div>
+                        <ReceiptRowFileUploader receiptEntryId={r.id} />
+                      </div>
                     )}
                   </td>
                   <td style={{ padding: 8, borderBottom: border, whiteSpace: "nowrap" }}>{fmtDateTime(r.createdAt)}</td>
                   <td style={{ padding: 8, borderBottom: border, whiteSpace: "nowrap" }}>
-                    <form action={deleteReceiptAction}>
-                      <input type="hidden" name="receiptEntryId" value={r.id} />
-                      <button
-                        type="submit"
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <a
+                        href={`/maintenance/receipts/${r.id}`}
                         style={{
                           ...btn,
-                          background: "transparent",
-                          borderColor: "rgba(220, 38, 38, 0.45)",
-                          color: "#ef4444",
+                          textDecoration: "none",
                           padding: "6px 10px",
+                          display: "inline-flex",
+                          alignItems: "center",
                         }}
                       >
-                        Delete
-                      </button>
-                    </form>
+                        View Entry
+                      </a>
+                      {r.files[0] ? (
+                        <a
+                          href={r.files[0].url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            ...btn,
+                            textDecoration: "none",
+                            padding: "6px 10px",
+                            display: "inline-flex",
+                            alignItems: "center",
+                          }}
+                        >
+                          View Upload
+                        </a>
+                      ) : null}
+                      <form action={deleteReceiptAction}>
+                        <input type="hidden" name="receiptEntryId" value={r.id} />
+                        <button
+                          type="submit"
+                          style={{
+                            ...btn,
+                            background: "transparent",
+                            borderColor: "rgba(220, 38, 38, 0.45)",
+                            color: "#ef4444",
+                            padding: "6px 10px",
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </form>
+                    </div>
                   </td>
                 </tr>
               ))}

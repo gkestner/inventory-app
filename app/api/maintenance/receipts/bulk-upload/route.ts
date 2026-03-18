@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { getServerSession } from "next-auth";
+import { revalidatePath } from "next/cache";
 
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
@@ -186,6 +187,9 @@ export async function POST(req: Request) {
         index: i,
       });
     }
+
+    revalidatePath("/maintenance/receipts");
+    revalidatePath("/maintenance");
 
     return json({
       receiptIds,

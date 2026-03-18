@@ -1,14 +1,14 @@
 "use client";
 
 import { upload } from "@vercel/blob/client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PDFDocument } from "pdf-lib";
 
 type Props = {
   userId: string;
   allowedUsers: Array<{ id: string; name: string | null; email: string }>;
-  locationsByUserId: Record<string, Array<{ id: string; name: string }>>;
+  availableLocations: Array<{ id: string; name: string }>;
 };
 
 type FileWithDate = {
@@ -56,7 +56,7 @@ function errText(err: unknown): string {
 export default function BulkHistoricalReceiptUploader({
   userId: initialUserId,
   allowedUsers,
-  locationsByUserId,
+  availableLocations,
 }: Props) {
   const router = useRouter();
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -69,22 +69,7 @@ export default function BulkHistoricalReceiptUploader({
   const [dragOver, setDragOver] = useState(false);
 
   const todayIso = new Intl.DateTimeFormat("en-CA").format(new Date());
-  const currentUserLocations = useMemo(
-    () => locationsByUserId[selectedUserId] ?? [],
-    [locationsByUserId, selectedUserId]
-  );
-  const defaultLocationId = currentUserLocations[0]?.id ?? "";
-
-  useEffect(() => {
-    if (selectedFiles.length === 0) return;
-    const allowed = new Set(currentUserLocations.map((l) => l.id));
-    setSelectedFiles((prev) =>
-      prev.map((item) => ({
-        ...item,
-        locationId: allowed.has(item.locationId) ? item.locationId : defaultLocationId,
-      }))
-    );
-  }, [currentUserLocations, defaultLocationId, selectedFiles.length]);
+  const defaultLocationId = availableLocations[0]?.id ?? "";
 
   async function handleFilesSelected(files: FileList | null) {
     if (!files) return;
@@ -175,8 +160,8 @@ export default function BulkHistoricalReceiptUploader({
       setMessage("Please select files to upload.");
       return;
     }
-    if (currentUserLocations.length === 0) {
-      setMessage("Selected user has no active receipt-enabled locations.");
+    if (availableLocations.length === 0) {
+      setMessage("No active locations are available for receipt entry.");
       return;
     }
     if (selectedFiles.some((f) => !f.locationId)) {
@@ -214,15 +199,7 @@ export default function BulkHistoricalReceiptUploader({
         throw new Error(result.error || "Failed to initialize bulk upload.");
       }
 
-      const successfulUploads: Array<{
-        receiptId: string;
-        index: number;
-        fileName: string;
-        fileSize: number;
-        contentType: string;
-        storageKey: string;
-        url: string;
-      }> = [];
+      let completedCount = 0;
 
       // Upload each file to Vercel Blob
       for (let i = 0; i < selectedFiles.length; i++) {
@@ -241,41 +218,40 @@ export default function BulkHistoricalReceiptUploader({
             contentType: file.type || "application/octet-stream",
           });
 
-          successfulUploads.push({
-            receiptId: uploadInfo.receiptId,
-            index: i,
-            fileName: file.name,
-            fileSize: file.size,
-            contentType: file.type || "application/octet-stream",
-            storageKey: blob.pathname || uploadInfo.storageKey,
-            url: blob.url,
+          const completeRes = await fetch("/api/maintenance/receipts/attachments/complete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              receiptEntryId: uploadInfo.receiptId,
+              fileName: file.name,
+              contentType: file.type || "application/octet-stream",
+              byteSize: file.size,
+              storageKey: blob.pathname || uploadInfo.storageKey,
+              url: blob.url,
+            }),
           });
+          const completeJson = (await completeRes.json().catch(() => ({}))) as { error?: string };
+          if (!completeRes.ok) {
+            setMessage(`Error attaching ${file.name}: ${completeJson.error || "Finalize failed."}`);
+            continue;
+          }
+
+          completedCount += 1;
         } catch {
           setMessage(`Error uploading ${file.name}.`);
           continue;
         }
       }
 
-      if (successfulUploads.length === 0) {
-        throw new Error("No files were uploaded.");
+      if (completedCount === 0) {
+        throw new Error("No files were attached to receipt entries.");
       }
 
-      // Finalize all uploads
-      const finalizeRes = await fetch("/api/maintenance/receipts/bulk-upload-finalize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          uploads: successfulUploads,
-        }),
-      });
-
-      const finalizeResult = (await finalizeRes.json().catch(() => ({}))) as { error?: string };
-
-      if (!finalizeRes.ok) {
-        throw new Error(finalizeResult.error || "Failed to finalize bulk upload.");
+      if (completedCount === selectedFiles.length) {
+        setMessage(`Successfully uploaded ${completedCount} historical receipt${completedCount !== 1 ? "s" : ""}.`);
+      } else {
+        setMessage(`Uploaded ${completedCount} of ${selectedFiles.length} historical receipts. Check failed rows and retry.`);
       }
-
-      setMessage(`Successfully uploaded ${selectedFiles.length} historical receipt${selectedFiles.length !== 1 ? "s" : ""}.`);
       setSelectedFiles([]);
       if (uploadInputRef.current) uploadInputRef.current.value = "";
       router.refresh();
@@ -316,7 +292,7 @@ export default function BulkHistoricalReceiptUploader({
           </label>
         </div>
         <div style={{ fontSize: 12, opacity: 0.85 }}>
-          Select location per file. Locations are filtered to the selected user's receipt-enabled assignments.
+          Select location per file. This list uses the same locations shown in Receipt Entry.
         </div>
 
         <div
@@ -453,7 +429,7 @@ export default function BulkHistoricalReceiptUploader({
                   }}
                 >
                   <option value="">Select location</option>
-                  {currentUserLocations.map((location) => (
+                  {availableLocations.map((location) => (
                     <option key={location.id} value={location.id}>
                       {location.name}
                     </option>
