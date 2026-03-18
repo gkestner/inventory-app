@@ -4,9 +4,16 @@ import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+const LIVE_ORDERS_SCROLL_SPEED_KEY = "live-orders-scroll-speed";
+
 function clampIntervalSec(value: number): number {
   if (!Number.isFinite(value)) return 30;
   return Math.max(10, Math.min(300, Math.floor(value)));
+}
+
+function clampScrollSpeed(value: number): number {
+  if (!Number.isFinite(value)) return 18;
+  return Math.max(4, Math.min(120, Math.floor(value)));
 }
 
 function getScrollableTarget(): HTMLElement | null {
@@ -35,7 +42,26 @@ export default function LiveOrdersBoardControls({
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
+  const [scrollSpeed, setScrollSpeed] = useState(18);
   const [controlsCollapsed, setControlsCollapsed] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(LIVE_ORDERS_SCROLL_SPEED_KEY);
+      if (!raw) return;
+      setScrollSpeed(clampScrollSpeed(Number(raw)));
+    } catch {
+      // Ignore storage failures; defaults still work.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LIVE_ORDERS_SCROLL_SPEED_KEY, String(clampScrollSpeed(scrollSpeed)));
+    } catch {
+      // Ignore storage failures; runtime controls still work.
+    }
+  }, [scrollSpeed]);
 
   useEffect(() => {
     const syncFullscreen = () => {
@@ -79,7 +105,7 @@ export default function LiveOrdersBoardControls({
     let activeScroller: HTMLElement | null = null;
     let desiredTop = 0;
 
-    const pxPerSecond = 18;
+    const pxPerSecond = clampScrollSpeed(scrollSpeed);
     const edgePauseMs = 1400;
 
     const tick = (timestamp: number) => {
@@ -128,7 +154,7 @@ export default function LiveOrdersBoardControls({
 
     frameId = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(frameId);
-  }, [autoScrollEnabled, isFullscreen]);
+  }, [autoScrollEnabled, isFullscreen, scrollSpeed]);
 
   async function toggleFullscreen() {
     try {
@@ -280,6 +306,19 @@ export default function LiveOrdersBoardControls({
         >
           Auto-scroll {autoScrollEnabled ? "On" : "Off"}
         </button>
+
+        <label style={{ ...row, gap: 8 }}>
+          <span style={hint}>Speed</span>
+          <input
+            style={{ ...input, width: 78 }}
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={String(scrollSpeed)}
+            onChange={(e) => setScrollSpeed(clampScrollSpeed(Number(e.target.value)))}
+            aria-label="Auto-scroll speed in pixels per second"
+          />
+          <span style={hint}>px/sec</span>
+        </label>
 
         {isFullscreen ? (
           <button type="button" style={neutralButton} onClick={() => setControlsCollapsed(true)}>
