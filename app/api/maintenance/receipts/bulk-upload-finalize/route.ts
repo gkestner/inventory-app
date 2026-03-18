@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
-import { createAuditLog, getCompatDb, getGcsConfig } from "@/app/lib/workflow-foundations";
+import { createAuditLog, getCompatDb } from "@/app/lib/workflow-foundations";
 import { loadUserPermissions, hasAnyPermission } from "@/app/lib/permissions";
 import { CREATE_RECEIPTS } from "@/app/lib/permission-constants";
 
@@ -18,7 +18,6 @@ function json(body: unknown, status = 200) {
 function normalizeUrl(v: string): string | null {
   const t = v.trim();
   if (!t) return null;
-  if (t.startsWith("gs://")) return t;
   try {
     const u = new URL(t);
     if (u.protocol !== "https:" && u.protocol !== "http:") return null;
@@ -47,6 +46,7 @@ export async function POST(req: Request) {
             fileSize?: number;
             contentType?: string;
             storageKey?: string;
+            url?: string;
           }>;
         }
       | null;
@@ -75,19 +75,9 @@ export async function POST(req: Request) {
       const fileSize = Number.isFinite(fileSizeNum) && fileSizeNum > 0 ? Math.trunc(fileSizeNum) : null;
       const contentType = String(uploadInfo.contentType ?? "").trim() || null;
       const storageKey = String(uploadInfo.storageKey ?? "").trim() || null;
+      const publicUrl = normalizeUrl(String(uploadInfo.url ?? ""));
 
       if (!receiptId || !fileName) continue;
-
-      // Construct public URL from storage key
-      const gcsConfig = getGcsConfig();
-      let publicUrl = "";
-      if (storageKey && gcsConfig.bucket) {
-        publicUrl = `https://storage.googleapis.com/${encodeURIComponent(gcsConfig.bucket)}/${storageKey
-          .split("/")
-          .map((p) => encodeURIComponent(p))
-          .join("/")}`;
-      }
-
       if (!publicUrl) continue;
 
       try {

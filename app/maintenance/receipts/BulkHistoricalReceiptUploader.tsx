@@ -1,5 +1,6 @@
 "use client";
 
+import { upload } from "@vercel/blob/client";
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PDFDocument } from "pdf-lib";
@@ -169,14 +170,24 @@ export default function BulkHistoricalReceiptUploader({
       const result = (await response.json().catch(() => ({}))) as {
         error?: string;
         receiptIds?: string[];
-        uploadUrls?: Array<{ uploadUrl: string; storageKey: string; receiptId: string; index: number }>;
+        uploadUrls?: Array<{ storageKey: string; receiptId: string; index: number }>;
       };
 
       if (!response.ok || !result.uploadUrls) {
         throw new Error(result.error || "Failed to initialize bulk upload.");
       }
 
-      // Upload each file to its signed URL
+      const successfulUploads: Array<{
+        receiptId: string;
+        index: number;
+        fileName: string;
+        fileSize: number;
+        contentType: string;
+        storageKey: string;
+        url: string;
+      }> = [];
+
+      // Upload each file to Vercel Blob
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i].file;
         const uploadInfo = result.uploadUrls.find((u) => u.index === i);
@@ -186,18 +197,30 @@ export default function BulkHistoricalReceiptUploader({
           continue;
         }
 
-        const putRes = await fetch(uploadInfo.uploadUrl, {
-          method: "PUT",
-          headers: {
-            "Content-Type": file.type || "application/octet-stream",
-          },
-          body: file,
-        });
+        try {
+          const blob = await upload(uploadInfo.storageKey, file, {
+            access: "public",
+            handleUploadUrl: "/api/maintenance/receipts/blob-upload",
+            contentType: file.type || "application/octet-stream",
+          });
 
-        if (!putRes.ok) {
-          setMessage(`Error uploading ${file.name} (${putRes.status}).`);
+          successfulUploads.push({
+            receiptId: uploadInfo.receiptId,
+            index: i,
+            fileName: file.name,
+            fileSize: file.size,
+            contentType: file.type || "application/octet-stream",
+            storageKey: blob.pathname || uploadInfo.storageKey,
+            url: blob.url,
+          });
+        } catch {
+          setMessage(`Error uploading ${file.name}.`);
           continue;
         }
+      }
+
+      if (successfulUploads.length === 0) {
+        throw new Error("No files were uploaded.");
       }
 
       // Finalize all uploads
@@ -205,14 +228,7 @@ export default function BulkHistoricalReceiptUploader({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          uploads: result.uploadUrls.map((u, idx) => ({
-            receiptId: u.receiptId,
-            index: idx,
-            fileName: selectedFiles[idx]?.file.name || "",
-            fileSize: selectedFiles[idx]?.file.size || 0,
-            contentType: selectedFiles[idx]?.file.type || "application/octet-stream",
-            storageKey: u.storageKey,
-          })),
+          uploads: successfulUploads,
         }),
       });
 

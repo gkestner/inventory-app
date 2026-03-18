@@ -1,5 +1,6 @@
 "use client";
 
+import { upload } from "@vercel/blob/client";
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -8,9 +9,6 @@ type Props = {
 };
 
 type UploadInitResponse = {
-  uploadUrl: string;
-  expiresAt: string;
-  publicUrl: string;
   storageKey: string;
   fileName: string;
   contentType: string;
@@ -52,21 +50,15 @@ export default function AttachmentUploader({ workOrderId }: Props) {
         error?: string;
       };
 
-      if (!initRes.ok || !initJson.uploadUrl || !initJson.publicUrl || !initJson.storageKey) {
+      if (!initRes.ok || !initJson.storageKey) {
         throw new Error(initJson.error || "Unable to get upload URL.");
       }
 
-      const putRes = await fetch(initJson.uploadUrl, {
-        method: "PUT",
-        headers: {
-          "Content-Type": initJson.contentType || file.type || "application/octet-stream",
-        },
-        body: file,
+      const blob = await upload(initJson.storageKey, file, {
+        access: "public",
+        handleUploadUrl: "/api/maintenance/work-orders/attachments/blob-upload",
+        contentType: initJson.contentType || file.type || "application/octet-stream",
       });
-
-      if (!putRes.ok) {
-        throw new Error(`Cloud upload failed (${putRes.status}).`);
-      }
 
       const completeRes = await fetch("/api/maintenance/work-orders/attachments/complete", {
         method: "POST",
@@ -76,8 +68,8 @@ export default function AttachmentUploader({ workOrderId }: Props) {
           fileName: initJson.fileName || file.name,
           contentType: initJson.contentType || file.type || null,
           byteSize: initJson.byteSize || file.size,
-          storageKey: initJson.storageKey,
-          url: initJson.publicUrl,
+          storageKey: blob.pathname || initJson.storageKey,
+          url: blob.url,
         }),
       });
 

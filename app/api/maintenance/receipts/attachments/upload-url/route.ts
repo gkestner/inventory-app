@@ -1,10 +1,8 @@
 import { randomUUID } from "crypto";
 import { getServerSession } from "next-auth";
-import { Storage } from "@google-cloud/storage";
 
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
-import { getGcsConfig } from "@/app/lib/workflow-foundations";
 import { loadUserPermissions, hasAnyPermission } from "@/app/lib/permissions";
 import { CREATE_RECEIPTS, VIEW_RECEIPTS } from "@/app/lib/permission-constants";
 
@@ -23,14 +21,6 @@ function cleanSegment(v: string): string {
   const s = v.trim();
   if (!s) return "file";
   return s.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/-+/g, "-").slice(0, 120) || "file";
-}
-
-function encodePathSegments(path: string): string {
-  return path
-    .split("/")
-    .filter(Boolean)
-    .map((p) => encodeURIComponent(p))
-    .join("/");
 }
 
 export async function POST(req: Request) {
@@ -74,33 +64,14 @@ export async function POST(req: Request) {
     });
     if (!receipt) return json({ error: "Receipt entry not found." }, 404);
 
-    const gcs = getGcsConfig();
-    if (!gcs.bucket) {
-      return json({ error: "GCS is not configured. Set GCS_BUCKET." }, 500);
-    }
-
     const contentType = contentTypeRaw || "application/octet-stream";
     const safeName = cleanSegment(fileNameRaw);
-    const basePath = (gcs.basePath || "receipt-files/").replace(/^\/+/, "").replace(/\/+$/, "");
+    const basePath = (process.env.GCS_BASE_PATH?.trim() || "receipt-files/")
+      .replace(/^\/+/, "")
+      .replace(/\/+$/, "");
     const storageKey = `${basePath}/${receiptEntryId}/${Date.now()}-${randomUUID()}-${safeName}`;
 
-    const storage = new Storage(gcs.projectId ? { projectId: gcs.projectId } : undefined);
-    const file = storage.bucket(gcs.bucket).file(storageKey);
-
-    const expiresMs = Date.now() + 10 * 60 * 1000;
-    const [uploadUrl] = await file.getSignedUrl({
-      version: "v4",
-      action: "write",
-      expires: expiresMs,
-      contentType,
-    });
-
-    const publicUrl = `https://storage.googleapis.com/${encodeURIComponent(gcs.bucket)}/${encodePathSegments(storageKey)}`;
-
     return json({
-      uploadUrl,
-      expiresAt: new Date(expiresMs).toISOString(),
-      publicUrl,
       storageKey,
       fileName: fileNameRaw,
       contentType,

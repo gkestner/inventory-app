@@ -1,10 +1,8 @@
 import { randomUUID } from "crypto";
 import { getServerSession } from "next-auth";
-import { Storage } from "@google-cloud/storage";
 
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
-import { getGcsConfig } from "@/app/lib/workflow-foundations";
 import { loadUserPermissions, hasAnyPermission } from "@/app/lib/permissions";
 import { CREATE_RECEIPTS } from "@/app/lib/permission-constants";
 
@@ -23,14 +21,6 @@ function cleanSegment(v: string): string {
   const s = v.trim();
   if (!s) return "file";
   return s.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/-+/g, "-").slice(0, 120) || "file";
-}
-
-function encodePathSegments(path: string): string {
-  return path
-    .split("/")
-    .filter(Boolean)
-    .map((p) => encodeURIComponent(p))
-    .join("/");
 }
 
 function parseYmdDateAsUtcNoon(dateStr: string): Date {
@@ -126,13 +116,7 @@ export async function POST(req: Request) {
       return json({ error: "Location not found, inactive, or not receipt-enabled." }, 404);
     }
 
-    const gcs = getGcsConfig();
-    if (!gcs.bucket) {
-      return json({ error: "GCS is not configured." }, 500);
-    }
-
     const uploadUrls: Array<{
-      uploadUrl: string;
       storageKey: string;
       receiptId: string;
       index: number;
@@ -181,24 +165,14 @@ export async function POST(req: Request) {
 
       receiptIds.push(receipt.id);
 
-      // Create signed upload URL
+      // Create deterministic blob path for client upload.
       const safeName = cleanSegment(fileName);
-      const basePath = (gcs.basePath || "receipt-files/").replace(/^\/+/, "").replace(/\/+$/, "");
+      const basePath = (process.env.GCS_BASE_PATH?.trim() || "receipt-files/")
+        .replace(/^\/+/, "")
+        .replace(/\/+$/, "");
       const storageKey = `${basePath}/${receipt.id}/${Date.now()}-${randomUUID()}-${safeName}`;
 
-      const storage = new Storage(gcs.projectId ? { projectId: gcs.projectId } : undefined);
-      const file = storage.bucket(gcs.bucket).file(storageKey);
-
-      const expiresMs = Date.now() + 15 * 60 * 1000; // 15 minute expiry
-      const [uploadUrl] = await file.getSignedUrl({
-        version: "v4",
-        action: "write",
-        expires: expiresMs,
-        contentType,
-      });
-
       uploadUrls.push({
-        uploadUrl,
         storageKey,
         receiptId: receipt.id,
         index: i,

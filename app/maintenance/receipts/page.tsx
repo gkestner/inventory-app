@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { randomUUID } from "crypto";
-import { Storage } from "@google-cloud/storage";
+import { put } from "@vercel/blob";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -9,7 +9,7 @@ import { Permission } from "@prisma/client";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 import { parseHiddenFromDropdowns } from "@/app/lib/user-preferences";
-import { getCompatDb, getGcsConfig } from "@/app/lib/workflow-foundations";
+import { getCompatDb } from "@/app/lib/workflow-foundations";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { CREATE_RECEIPTS, VIEW_RECEIPTS } from "@/app/lib/permission-constants";
 import BulkHistoricalReceiptUploader from "./BulkHistoricalReceiptUploader";
@@ -100,6 +100,12 @@ type ReceiptRow = {
   files: { id: string; fileName: string; url: string; createdAt: Date }[];
 };
 
+function getBlobReadWriteToken(): string {
+  const token = process.env.BLOB_READ_WRITE_TOKEN?.trim() || process.env.Inventory_READ_WRITE_TOKEN?.trim() || "";
+  if (!token) throw new Error("Blob is not configured. Set BLOB_READ_WRITE_TOKEN or Inventory_READ_WRITE_TOKEN.");
+  return token;
+}
+
 function requireSession(session: SessionShape) {
   if (!session) redirect("/login");
   if (!session.user?.email) redirect("/login");
@@ -154,14 +160,6 @@ function cleanSegment(v: string): string {
   const s = v.trim();
   if (!s) return "file";
   return s.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/-+/g, "-").slice(0, 120) || "file";
-}
-
-function encodePathSegments(path: string): string {
-  return path
-    .split("/")
-    .filter(Boolean)
-    .map((p) => encodeURIComponent(p))
-    .join("/");
 }
 
 function formatAreaLabel(area: string): string {
@@ -469,26 +467,25 @@ export default async function MaintenanceReceiptPage() {
         throw new Error("Receipt files table is not available. Run latest migrations.");
       }
 
-      const gcs = getGcsConfig();
-      if (!gcs.bucket) {
-        throw new Error("GCS is not configured. Set GCS_BUCKET.");
-      }
+      const blobToken = getBlobReadWriteToken();
 
-      const storage = new Storage(gcs.projectId ? { projectId: gcs.projectId } : undefined);
-      const basePath = (gcs.basePath || "receipt-files/").replace(/^\/+/, "").replace(/\/+$/, "");
+      const basePath = (process.env.GCS_BASE_PATH?.trim() || "receipt-files/")
+        .replace(/^\/+/, "")
+        .replace(/\/+$/, "");
 
       for (const file of fileCandidates) {
         const safeName = cleanSegment(file.name || "receipt-file");
-        const storageKey = `${basePath}/${created.id}/${Date.now()}-${randomUUID()}-${safeName}`;
-        const blob = storage.bucket(gcs.bucket).file(storageKey);
+        const requestedPath = `${basePath}/${created.id}/${Date.now()}-${randomUUID()}-${safeName}`;
         const bytes = Buffer.from(await file.arrayBuffer());
 
-        await blob.save(bytes, {
-          resumable: false,
+        const blob = await put(requestedPath, bytes, {
+          access: "public",
           contentType: file.type || "application/octet-stream",
+          addRandomSuffix: false,
+          token: blobToken,
         });
-
-        const url = `https://storage.googleapis.com/${encodeURIComponent(gcs.bucket)}/${encodePathSegments(storageKey)}`;
+        const storageKey = blob.pathname || requestedPath;
+        const url = blob.url;
 
         await db.receiptFile.create({
           data: {

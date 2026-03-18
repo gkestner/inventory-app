@@ -1,11 +1,9 @@
 import { randomUUID } from "crypto";
 import { getServerSession } from "next-auth";
-import { Storage } from "@google-cloud/storage";
 
 import { authOptions } from "@/app/lib/auth";
 import { canAccessAdmin } from "@/app/lib/admin-access";
 import { prisma } from "@/app/lib/prisma";
-import { getGcsConfig } from "@/app/lib/workflow-foundations";
 
 export const dynamic = "force-dynamic";
 
@@ -22,14 +20,6 @@ function cleanSegment(v: string): string {
   const s = v.trim();
   if (!s) return "file";
   return s.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/-+/g, "-").slice(0, 120) || "file";
-}
-
-function encodePathSegments(path: string): string {
-  return path
-    .split("/")
-    .filter(Boolean)
-    .map((p) => encodeURIComponent(p))
-    .join("/");
 }
 
 export async function POST(req: Request) {
@@ -57,33 +47,14 @@ export async function POST(req: Request) {
     const wo = await prisma.workOrder.findUnique({ where: { id: workOrderId }, select: { id: true } });
     if (!wo) return json({ error: "Work order not found." }, 404);
 
-    const gcs = getGcsConfig();
-    if (!gcs.bucket) {
-      return json({ error: "GCS is not configured. Set GCS_BUCKET." }, 500);
-    }
-
     const contentType = contentTypeRaw || "application/octet-stream";
     const safeName = cleanSegment(fileNameRaw);
-    const basePath = (gcs.basePath || "work-order-attachments/").replace(/^\/+/, "").replace(/\/+$/, "");
+    const basePath = (process.env.GCS_BASE_PATH?.trim() || "work-order-attachments/")
+      .replace(/^\/+/, "")
+      .replace(/\/+$/, "");
     const storageKey = `${basePath}/${workOrderId}/${Date.now()}-${randomUUID()}-${safeName}`;
 
-    const storage = new Storage(gcs.projectId ? { projectId: gcs.projectId } : undefined);
-    const file = storage.bucket(gcs.bucket).file(storageKey);
-
-    const expiresMs = Date.now() + 10 * 60 * 1000;
-    const [uploadUrl] = await file.getSignedUrl({
-      version: "v4",
-      action: "write",
-      expires: expiresMs,
-      contentType,
-    });
-
-    const publicUrl = `https://storage.googleapis.com/${encodeURIComponent(gcs.bucket)}/${encodePathSegments(storageKey)}`;
-
     return json({
-      uploadUrl,
-      expiresAt: new Date(expiresMs).toISOString(),
-      publicUrl,
       storageKey,
       fileName: fileNameRaw,
       contentType,
@@ -91,7 +62,7 @@ export async function POST(req: Request) {
       workOrderId,
     });
   } catch (err) {
-    console.error("Create GCS signed upload URL failed:", err);
+    console.error("Create admin upload path failed:", err);
     return json({ error: "Failed to create upload URL." }, 500);
   }
 }

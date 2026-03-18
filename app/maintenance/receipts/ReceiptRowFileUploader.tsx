@@ -1,5 +1,6 @@
 "use client";
 
+import { upload } from "@vercel/blob/client";
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -8,8 +9,6 @@ type Props = {
 };
 
 type UploadInitResponse = {
-  uploadUrl: string;
-  publicUrl: string;
   storageKey: string;
   fileName: string;
   contentType: string;
@@ -46,19 +45,15 @@ export default function ReceiptRowFileUploader({ receiptEntryId }: Props) {
       });
 
       const initJson = (await initRes.json().catch(() => ({}))) as Partial<UploadInitResponse> & { error?: string };
-      if (!initRes.ok || !initJson.uploadUrl || !initJson.publicUrl || !initJson.storageKey) {
+      if (!initRes.ok || !initJson.storageKey) {
         throw new Error(initJson.error || "Unable to initialize upload.");
       }
 
-      const putRes = await fetch(initJson.uploadUrl, {
-        method: "PUT",
-        headers: {
-          "Content-Type": initJson.contentType || file.type || "application/octet-stream",
-        },
-        body: file,
+      const blob = await upload(initJson.storageKey, file, {
+        access: "public",
+        handleUploadUrl: "/api/maintenance/receipts/blob-upload",
+        contentType: initJson.contentType || file.type || "application/octet-stream",
       });
-
-      if (!putRes.ok) throw new Error(`Cloud upload failed (${putRes.status}).`);
 
       const completeRes = await fetch("/api/maintenance/receipts/attachments/complete", {
         method: "POST",
@@ -68,8 +63,8 @@ export default function ReceiptRowFileUploader({ receiptEntryId }: Props) {
           fileName: initJson.fileName || file.name,
           contentType: initJson.contentType || file.type || null,
           byteSize: initJson.byteSize || file.size,
-          storageKey: initJson.storageKey,
-          url: initJson.publicUrl,
+          storageKey: blob.pathname || initJson.storageKey,
+          url: blob.url,
         }),
       });
 
