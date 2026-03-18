@@ -24,6 +24,7 @@ type SearchParams = {
   includeIgnored?: string;
   focus?: string;
   ok?: string;
+  view?: string;
   sortBy?: string;
   sortDir?: string;
   sku?: string;
@@ -140,6 +141,11 @@ function numEquals(value: number, rawFilter: string): boolean {
   return value === n;
 }
 
+function normSupplier(value: string | null | undefined): string {
+  const trimmed = String(value ?? "").trim();
+  return trimmed || "Unassigned Supplier";
+}
+
 export default async function NeedsOrderingReportPage({
   searchParams,
 }: {
@@ -155,6 +161,8 @@ export default async function NeedsOrderingReportPage({
   const focus: "all" | "red" | "yellow" =
     focusRaw === "red" || focusRaw === "yellow" ? focusRaw : "all";
   const okMsg = String(sp.ok ?? "").trim();
+  const viewRaw = String(sp.view ?? "").trim().toLowerCase();
+  const groupedBySupplier = viewRaw === "supplier";
   const sortBy = parseSortField(sp.sortBy);
   const sortDir = parseSortDir(sp.sortDir);
   const skuFilter = String(sp.sku ?? "").trim();
@@ -186,6 +194,7 @@ export default async function NeedsOrderingReportPage({
     const focusBack = String(formData.get("focus") ?? "").trim();
     const sortByBack = String(formData.get("sortBy") ?? "").trim();
     const sortDirBack = String(formData.get("sortDir") ?? "").trim();
+    const viewBack = String(formData.get("view") ?? "").trim();
     const skuBack = String(formData.get("sku") ?? "").trim();
     const itemBack = String(formData.get("item") ?? "").trim();
     const partBack = String(formData.get("part") ?? "").trim();
@@ -208,6 +217,7 @@ export default async function NeedsOrderingReportPage({
           focus: focusBack || undefined,
           sortBy: sortByBack || undefined,
           sortDir: sortDirBack || undefined,
+          view: viewBack || undefined,
           sku: skuBack || undefined,
           item: itemBack || undefined,
           part: partBack || undefined,
@@ -241,6 +251,7 @@ export default async function NeedsOrderingReportPage({
         focus: focusBack || undefined,
         sortBy: sortByBack || undefined,
         sortDir: sortDirBack || undefined,
+        view: viewBack || undefined,
         sku: skuBack || undefined,
         item: itemBack || undefined,
         part: partBack || undefined,
@@ -453,6 +464,25 @@ export default async function NeedsOrderingReportPage({
   const blueCount = needsOrdering.filter((x) => x.priority === "blue").length;
   const orderMoreItems = needsOrdering.filter((x) => x.hasTechRequest);
 
+  const supplierGroups = Array.from(
+    needsOrdering.reduce((map, row) => {
+      const key = normSupplier(row.orderFrom);
+      const bucket = map.get(key) ?? [];
+      bucket.push(row);
+      map.set(key, bucket);
+      return map;
+    }, new Map<string, typeof needsOrdering>())
+  )
+    .sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base" }))
+    .map(([supplier, items]) => ({
+      supplier,
+      items: [...items].sort((a, b) => {
+        const shortDiff = b.shortBy - a.shortBy;
+        if (shortDiff !== 0) return shortDiff;
+        return a.sku.localeCompare(b.sku, undefined, { sensitivity: "base" });
+      }),
+    }));
+
   return (
     <main style={{ padding: 16 }}>
       <div style={{ padding: 16, maxWidth: 1300, margin: "0 auto", color: "var(--foreground)" }}>
@@ -507,6 +537,7 @@ export default async function NeedsOrderingReportPage({
           </label>
 
           <input type="hidden" name="focus" value={focus} />
+          <input type="hidden" name="view" value={groupedBySupplier ? "supplier" : "table"} />
 
           <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
             Sort By
@@ -586,6 +617,7 @@ export default async function NeedsOrderingReportPage({
               q: q || undefined,
               includeIgnored: includeIgnored ? "1" : undefined,
               focus: "red",
+              view: groupedBySupplier ? "supplier" : undefined,
               sortBy,
               sortDir,
               sku: skuFilter || undefined,
@@ -620,6 +652,7 @@ export default async function NeedsOrderingReportPage({
               q: q || undefined,
               includeIgnored: includeIgnored ? "1" : undefined,
               focus: "yellow",
+              view: groupedBySupplier ? "supplier" : undefined,
               sortBy,
               sortDir,
               sku: skuFilter || undefined,
@@ -647,6 +680,41 @@ export default async function NeedsOrderingReportPage({
             }}
           >
             Yellow Items
+          </Link>
+
+          <Link
+            href={`/admin/reports/needs-ordering${qs({
+              q: q || undefined,
+              includeIgnored: includeIgnored ? "1" : undefined,
+              focus,
+              view: groupedBySupplier ? undefined : "supplier",
+              sortBy,
+              sortDir,
+              sku: skuFilter || undefined,
+              item: itemFilter || undefined,
+              part: partFilter || undefined,
+              supplier: supplierFilter || undefined,
+              manufacturer: manufacturerFilter || undefined,
+              status: statusFilter || undefined,
+              onHand: onHandFilter || undefined,
+              ordered: orderedFilter || undefined,
+              available: availableFilter || undefined,
+              min: minFilter || undefined,
+              shortBy: shortByFilter || undefined,
+              techReq: techReqFilter || undefined,
+              ignored: ignoredFilter || undefined,
+            })}`}
+            style={{
+              padding: "10px 12px",
+              borderRadius: 12,
+              border: groupedBySupplier ? "1px solid rgba(16,185,129,0.85)" : "1px solid rgba(16,185,129,0.5)",
+              background: groupedBySupplier ? "rgba(16,185,129,0.22)" : "rgba(16,185,129,0.12)",
+              color: "var(--foreground)",
+              fontWeight: 900,
+              textDecoration: "none",
+            }}
+          >
+            {groupedBySupplier ? "Show Flat Table" : "Group By Supplier"}
           </Link>
         </form>
 
@@ -691,7 +759,180 @@ export default async function NeedsOrderingReportPage({
           )}
         </div>
 
-        <div style={{ marginTop: 12, border: "1px solid rgba(128,128,128,0.25)", borderRadius: 10, overflow: "hidden" }}>
+        {groupedBySupplier ? (
+          <section style={{ marginTop: 12, display: "grid", gap: 10 }}>
+            {supplierGroups.length === 0 ? (
+              <div style={{ padding: 14, opacity: 0.8, border: "1px solid rgba(128,128,128,0.25)", borderRadius: 10 }}>
+                No items currently need ordering for your filters.
+              </div>
+            ) : (
+              supplierGroups.map((group) => (
+                <details key={`supplier-${group.supplier}`} style={{ border: "1px solid rgba(128,128,128,0.25)", borderRadius: 10, overflow: "hidden" }}>
+                  <summary style={{ cursor: "pointer", padding: "12px 14px", fontWeight: 900, background: "rgba(128,128,128,0.08)" }}>
+                    {group.supplier} ({group.items.length})
+                  </summary>
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+                      <thead>
+                        <tr>
+                          {["SKU", "Item", "Web", "On Hand", "Ordered", "Available", "Min", "Short By", "Status", "Ignore"].map((h) => (
+                            <th
+                              key={h}
+                              style={{
+                                textAlign: "left",
+                                padding: "10px",
+                                borderBottom: "1px solid rgba(128,128,128,0.25)",
+                                fontSize: 12,
+                                opacity: 0.85,
+                              }}
+                            >
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.items.map((row) => {
+                          const itemUrl = normalizeExternalUrl(row.webUrl);
+                          const highlight =
+                            row.priority === "blue"
+                              ? "rgba(219,39,119,0.16)"
+                              : row.priority === "red"
+                                ? "rgba(220,38,38,0.12)"
+                                : "rgba(245,158,11,0.12)";
+                          const borderTint =
+                            row.priority === "blue"
+                              ? "rgba(219,39,119,0.38)"
+                              : row.priority === "red"
+                                ? "rgba(220,38,38,0.22)"
+                                : "rgba(245,158,11,0.24)";
+
+                          return (
+                            <tr
+                              key={row.id}
+                              style={{
+                                borderBottom: `1px solid ${borderTint}`,
+                                background: highlight,
+                                opacity: row.reorderIgnored ? 0.62 : 1,
+                              }}
+                            >
+                              <td style={{ padding: 10, fontWeight: 800, wordBreak: "break-word" }}>{row.sku}</td>
+                              <td style={{ padding: 10 }}>
+                                <div style={{ fontWeight: 700 }}>{row.name}</div>
+                                <div style={{ fontSize: 12, opacity: 0.82 }}>{row.partNumber || "—"}</div>
+                                <div style={{ fontSize: 12, opacity: 0.82 }}>{row.manufacturer || ""}</div>
+                              </td>
+                              <td style={{ padding: 10 }}>
+                                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                  <Link
+                                    href={`/admin/price-lookup?partNumber=${encodeURIComponent(String(row.partNumber || row.sku || "").trim())}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{
+                                      padding: "6px 10px",
+                                      borderRadius: 10,
+                                      border: "1px solid rgba(128,128,128,0.25)",
+                                      background: "var(--background)",
+                                      color: "var(--foreground)",
+                                      fontWeight: 800,
+                                      textDecoration: "none",
+                                      display: "inline-block",
+                                    }}
+                                  >
+                                    AI Lookup
+                                  </Link>
+                                  {itemUrl ? (
+                                    <a
+                                      href={itemUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      style={{
+                                        padding: "6px 10px",
+                                        borderRadius: 10,
+                                        border: "1px solid rgba(128,128,128,0.25)",
+                                        background: "var(--background)",
+                                        color: "var(--foreground)",
+                                        fontWeight: 800,
+                                        textDecoration: "none",
+                                        display: "inline-block",
+                                      }}
+                                    >
+                                      Open
+                                    </a>
+                                  ) : (
+                                    <span style={{ opacity: 0.6 }}>—</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td style={{ padding: 10 }}>{row.onHandQty}</td>
+                              <td style={{ padding: 10 }}>{row.orderedQty}</td>
+                              <td style={{ padding: 10 }}>{row.available}</td>
+                              <td style={{ padding: 10 }}>{row.minQty}</td>
+                              <td style={{ padding: 10, fontWeight: 900 }}>{row.shortBy}</td>
+                              <td style={{ padding: 10 }}>
+                                {row.reorderIgnored
+                                  ? "Ignored"
+                                  : row.priority === "blue"
+                                    ? "Tech Requested"
+                                    : row.priority === "red"
+                                      ? "Out"
+                                      : "Below Min"}
+                              </td>
+                              <td style={{ padding: 10 }}>
+                                {canEdit ? (
+                                  <form action={setIgnoredAction}>
+                                    <input type="hidden" name="itemId" value={row.id} />
+                                    <input type="hidden" name="nextIgnored" value={row.reorderIgnored ? "0" : "1"} />
+                                    <input type="hidden" name="q" value={q} />
+                                    <input type="hidden" name="includeIgnored" value={includeIgnored ? "1" : ""} />
+                                    <input type="hidden" name="focus" value={focus} />
+                                    <input type="hidden" name="sortBy" value={sortBy} />
+                                    <input type="hidden" name="sortDir" value={sortDir} />
+                                    <input type="hidden" name="view" value={groupedBySupplier ? "supplier" : "table"} />
+                                    <input type="hidden" name="sku" value={skuFilter} />
+                                    <input type="hidden" name="item" value={itemFilter} />
+                                    <input type="hidden" name="part" value={partFilter} />
+                                    <input type="hidden" name="supplier" value={supplierFilter} />
+                                    <input type="hidden" name="manufacturer" value={manufacturerFilter} />
+                                    <input type="hidden" name="status" value={statusFilter} />
+                                    <input type="hidden" name="onHand" value={onHandFilter} />
+                                    <input type="hidden" name="ordered" value={orderedFilter} />
+                                    <input type="hidden" name="available" value={availableFilter} />
+                                    <input type="hidden" name="min" value={minFilter} />
+                                    <input type="hidden" name="shortBy" value={shortByFilter} />
+                                    <input type="hidden" name="techReq" value={techReqFilter} />
+                                    <input type="hidden" name="ignored" value={ignoredFilter} />
+                                    <button
+                                      type="submit"
+                                      style={{
+                                        padding: "6px 10px",
+                                        borderRadius: 10,
+                                        border: "1px solid rgba(128,128,128,0.25)",
+                                        background: "var(--background)",
+                                        color: "var(--foreground)",
+                                        fontWeight: 800,
+                                        cursor: "pointer",
+                                      }}
+                                    >
+                                      {row.reorderIgnored ? "Unignore" : "Ignore"}
+                                    </button>
+                                  </form>
+                                ) : (
+                                  <span style={{ opacity: 0.65 }}>View only</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              ))
+            )}
+          </section>
+        ) : (
+          <div style={{ marginTop: 12, border: "1px solid rgba(128,128,128,0.25)", borderRadius: 10, overflow: "hidden" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
             <thead>
               <tr>
@@ -823,6 +1064,7 @@ export default async function NeedsOrderingReportPage({
                         <input type="hidden" name="focus" value={focus} />
                         <input type="hidden" name="sortBy" value={sortBy} />
                         <input type="hidden" name="sortDir" value={sortDir} />
+                        <input type="hidden" name="view" value={groupedBySupplier ? "supplier" : "table"} />
                         <input type="hidden" name="sku" value={skuFilter} />
                         <input type="hidden" name="item" value={itemFilter} />
                         <input type="hidden" name="part" value={partFilter} />
@@ -868,7 +1110,8 @@ export default async function NeedsOrderingReportPage({
               ) : null}
             </tbody>
             </table>
-        </div>
+          </div>
+        )}
       </div>
     </main>
   );

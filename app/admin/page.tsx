@@ -209,9 +209,6 @@ export default async function AdminHomePage() {
               <Link href="/admin/inventory-orders?tab=arrived" style={mutedLink}>
                 Arrived / Processing →
               </Link>
-              <Link href="/admin/auto-orders" style={mutedLink}>
-                Auto Order Approval →
-              </Link>
             </div>
           </div>
         ) : null}
