@@ -222,7 +222,7 @@ async function repairModelPayloadFromText(args: {
     `Return at most ${maxResults} results.`,
     "Do not invent offers. If price is missing, set price to null.",
     rawTexts.length > 0 && includeVendors.length > 0
-      ? `Only include results from these sites: ${includeVendors.join(", ")}.`
+      ? `Prefer results from these sites when present: ${includeVendors.join(", ")}. You may keep strong results from other sites too.`
       : "",
     "Output schema must be exactly: {\"summary\":\"\",\"results\":[{\"vendor\":\"\",\"title\":\"\",\"price\":null,\"currency\":\"USD\",\"url\":\"https://...\",\"matchType\":\"exact\",\"matchedPartNumber\":\"\",\"shipping\":\"\",\"inStock\":\"\",\"notes\":\"\"}]}",
     "Source text:",
@@ -352,7 +352,7 @@ export async function POST(req: Request) {
     "If a page does not show a real price, set price to null. Never use 0 as a placeholder price.",
     "Prefer US suppliers and include item title, vendor, price, currency, shipping (if visible), stock status (if visible).",
     includeVendors.length > 0
-      ? `IMPORTANT: Search ONLY the following specific websites for this part: ${includeVendors.join(", ")}. Use site-search (e.g., site:example.com ${partNumber}) for each. Only include results found on those sites. If none of them carry the part, say so in the summary and return an empty results array.`
+      ? `IMPORTANT: Prioritize searching these websites for this part: ${includeVendors.join(", ")}. Use site-search where helpful (e.g., site:example.com ${partNumber}) and prefer results from those sites, but you may also include strong matches from other vendors.`
       : "",
     excludeVendors.length > 0
       ? `Do NOT include any results from these vendors or domains: ${excludeVendors.join(", ")}.`

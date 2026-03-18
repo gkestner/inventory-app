@@ -249,7 +249,7 @@ export default function PriceLookupPage() {
         </label>
 
         <label style={{ display: "grid", gap: 6, maxWidth: 620 }}>
-          <span style={{ fontWeight: 700 }}>Search Only These Sites (optional, comma-separated)</span>
+          <span style={{ fontWeight: 700 }}>Prioritize These Sites (optional, comma-separated)</span>
           <input
             value={includeVendorsText}
             onChange={(e) => setIncludeVendorsText(e.target.value)}
@@ -262,6 +262,9 @@ export default function PriceLookupPage() {
               color: "inherit",
             }}
           />
+          <div style={{ fontSize: 12, opacity: 0.75 }}>
+            These vendors are searched first and weighted more heavily, but the AI can still return strong matches from other sites.
+          </div>
         </label>
 
         <label style={{ display: "grid", gap: 6, maxWidth: 620 }}>

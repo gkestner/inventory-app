@@ -14,6 +14,7 @@ import { Decimal } from "@prisma/client/runtime/library";
 
 import ItemPicker from "./ItemPicker";
 import NewItemAutoCheck from "./NewItemAutoCheck";
+import OrderTotalPreview from "./OrderTotalPreview";
 import {
   addToInventoryAction as addToInventoryServerAction,
   createOrderAction as createOrderServerAction,
@@ -1287,6 +1288,10 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                   Note (optional)
                   <input name="note" placeholder="Optional note…" style={controlBase} />
                 </label>
+
+                <div style={{ ...flexItem(280, 1), alignSelf: "end" }}>
+                  <OrderTotalPreview formId="create-order-form" />
+                </div>
 
                 <div style={{ ...flexItem(200, 0), display: "flex", gap: 10, justifyContent: "flex-end" }}>
                   <button type="submit" style={btnPrimary}>

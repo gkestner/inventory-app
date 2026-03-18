@@ -118,6 +118,52 @@ function parseBool(v: FormDataEntryValue | null): boolean {
   return s === "1" || s === "true" || s === "on" || s === "yes";
 }
 
+function normalizeSupplierNameInput(value: FormDataEntryValue | null): string {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+async function resolveCanonicalSupplierName(tx: Prisma.TransactionClient, rawSupplierName: string): Promise<string> {
+  const normalized = rawSupplierName.trim().replace(/\s+/g, " ");
+  if (!normalized) return "";
+
+  const existingOrder = await tx.inventoryOrder.findFirst({
+    where: {
+      supplierName: {
+        equals: normalized,
+        mode: "insensitive",
+      },
+    },
+    orderBy: {
+      orderedAt: "desc",
+    },
+    select: {
+      supplierName: true,
+    },
+  });
+  if (existingOrder?.supplierName?.trim()) {
+    return existingOrder.supplierName.trim().replace(/\s+/g, " ");
+  }
+
+  const existingItem = await tx.item.findFirst({
+    where: {
+      orderFrom: {
+        equals: normalized,
+        mode: "insensitive",
+      },
+    },
+    select: {
+      orderFrom: true,
+    },
+  });
+  if (existingItem?.orderFrom?.trim()) {
+    return existingItem.orderFrom.trim().replace(/\s+/g, " ");
+  }
+
+  return normalized;
+}
+
 function nonEmptyString(v: FormDataEntryValue | null): string {
   return String(v ?? "").trim();
 }
@@ -284,7 +330,7 @@ export async function createOrderAction(formData: FormData) {
     const isNewItem = requestedNewItem || (!itemId && hasNewItemSignals);
 
     const qty = parseRequiredInt(formData.get("qty"));
-    const supplierName = String(formData.get("supplierName") ?? "").trim();
+    const supplierName = normalizeSupplierNameInput(formData.get("supplierName"));
     const supplierPartNumber = String(formData.get("supplierPartNumber") ?? "").trim();
 
     const unitPriceStr = parseRequiredMoneyString(formData.get("unitPrice"));
@@ -311,6 +357,8 @@ export async function createOrderAction(formData: FormData) {
     if (!createdByUserId) throw new Error("Missing session user id");
 
     await prisma.$transaction(async (tx) => {
+      const canonicalSupplierName = await resolveCanonicalSupplierName(tx, supplierName);
+
       // If this order is for a brand-new item (SKU not in list), create it first (or reuse if it exists).
       if (isNewItem) {
         const vendor = newVendorRaw === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS";
@@ -361,7 +409,7 @@ export async function createOrderAction(formData: FormData) {
       const newCostStr = landedUnitCost.toFixed(2);
 
       const prevOrderFrom = item.orderFrom ?? null;
-      const newOrderFromFinal = supplierName ? supplierName : prevOrderFrom;
+      const newOrderFromFinal = canonicalSupplierName ? canonicalSupplierName : prevOrderFrom;
 
       const prevOrderedQty = item.orderedQty ?? 0;
       const newOrderedQty = prevOrderedQty + qty;
@@ -377,7 +425,7 @@ export async function createOrderAction(formData: FormData) {
         newOrderedQty,
         note: isNewItem
           ? "item created (or reused by sku) + item.cost updated"
-          : supplierName
+          : canonicalSupplierName
             ? "item.cost + item.orderFrom updated"
             : "item.cost updated",
       });
@@ -391,7 +439,7 @@ export async function createOrderAction(formData: FormData) {
           shippingCost: shippingCostStr ? new Decimal(shippingCostStr) : null,
           taxCost: taxCostStr ? new Decimal(taxCostStr) : null,
           orderedAt,
-          supplierName: supplierName || null,
+          supplierName: canonicalSupplierName || null,
           supplierPartNumber: supplierPartNumber || null,
           forStoreId: forStoreId || null,
           forUserId: forUserId || null,
@@ -405,7 +453,7 @@ export async function createOrderAction(formData: FormData) {
         data: {
           orderedQty: { increment: qty },
           cost: landedUnitCost,
-          orderFrom: supplierName ? supplierName : undefined,
+          orderFrom: canonicalSupplierName ? canonicalSupplierName : undefined,
         },
       });
 
@@ -440,7 +488,7 @@ export async function saveOrderDetailsAction(formData: FormData) {
     const qty = parseRequiredInt(formData.get("qty"));
     if (!Number.isFinite(qty) || qty <= 0) throw new Error("Invalid quantity");
 
-    const supplierName = String(formData.get("supplierName") ?? "").trim();
+    const supplierName = normalizeSupplierNameInput(formData.get("supplierName"));
     const supplierPartNumber = String(formData.get("supplierPartNumber") ?? "").trim();
 
     const unitPriceStr = parseRequiredMoneyString(formData.get("unitPrice"));
@@ -456,6 +504,8 @@ export async function saveOrderDetailsAction(formData: FormData) {
     if (!unitPriceStr) throw new Error("Unit price is required");
 
     await prisma.$transaction(async (tx) => {
+      const canonicalSupplierName = await resolveCanonicalSupplierName(tx, supplierName);
+
       const existing = await tx.inventoryOrder.findUnique({
         where: { id },
         select: {
@@ -518,7 +568,7 @@ export async function saveOrderDetailsAction(formData: FormData) {
       const newCostStr = landedUnitCost.toFixed(2);
 
       const prevOrderFrom = item.orderFrom ?? null;
-      const newOrderFrom = supplierName ? supplierName : prevOrderFrom;
+      const newOrderFrom = canonicalSupplierName ? canonicalSupplierName : prevOrderFrom;
 
       const auditLine = buildSystemAuditLine({
         action: "EDIT_ORDER",
@@ -543,7 +593,7 @@ export async function saveOrderDetailsAction(formData: FormData) {
           unitPrice: new Decimal(unitPriceStr),
           shippingCost: shippingCostStr ? new Decimal(shippingCostStr) : null,
           taxCost: taxCostStr ? new Decimal(taxCostStr) : null,
-          supplierName: supplierName || null,
+          supplierName: canonicalSupplierName || null,
           supplierPartNumber: supplierPartNumber || null,
           orderedAt: orderedAt ?? undefined,
           forStoreId: forStoreId || null,

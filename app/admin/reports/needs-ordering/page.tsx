@@ -146,6 +146,10 @@ function normSupplier(value: string | null | undefined): string {
   return trimmed || "Unassigned Supplier";
 }
 
+function normSupplierGroupKey(value: string | null | undefined): string {
+  return normSupplier(value).toLocaleLowerCase();
+}
+
 export default async function NeedsOrderingReportPage({
   searchParams,
 }: {
@@ -466,17 +470,19 @@ export default async function NeedsOrderingReportPage({
 
   const supplierGroups = Array.from(
     needsOrdering.reduce((map, row) => {
-      const key = normSupplier(row.orderFrom);
-      const bucket = map.get(key) ?? [];
-      bucket.push(row);
+      const supplier = normSupplier(row.orderFrom);
+      const key = normSupplierGroupKey(row.orderFrom);
+      const bucket = map.get(key) ?? { supplier, items: [] as typeof needsOrdering };
+      bucket.items.push(row);
       map.set(key, bucket);
       return map;
-    }, new Map<string, typeof needsOrdering>())
+    }, new Map<string, { supplier: string; items: typeof needsOrdering }>())
   )
-    .sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base" }))
-    .map(([supplier, items]) => ({
-      supplier,
-      items: [...items].sort((a, b) => {
+    .map(([, group]) => group)
+    .sort((a, b) => a.supplier.localeCompare(b.supplier, undefined, { sensitivity: "base" }))
+    .map((group) => ({
+      supplier: group.supplier,
+      items: [...group.items].sort((a, b) => {
         const shortDiff = b.shortBy - a.shortBy;
         if (shortDiff !== 0) return shortDiff;
         return a.sku.localeCompare(b.sku, undefined, { sensitivity: "base" });
