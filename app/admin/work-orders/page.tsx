@@ -328,69 +328,29 @@ export default async function AdminWorkOrdersPage({
     redirect(`/admin/work-orders/print?ids=${encodeURIComponent(generated.map((row) => row.id).join(","))}`);
   }
 
-  async function generateSelectedAction(formData: FormData) {
+  async function unarchiveAllAction() {
     "use server";
 
     const session = (await getServerSession(authOptions)) as AdminSession;
     await requireAdmin(session);
 
     const actorUserId = await getActorUserId(session);
-    const ids = formData
-      .getAll("ids")
-      .map((value) => String(value).trim())
-      .filter(Boolean)
-      .slice(0, 500);
 
-    if (ids.length === 0) {
-      redirect("/admin/work-orders");
-    }
-
-    const generated = await prisma.$transaction((tx) =>
-      finalizePendingWorkOrders(tx, {
-        actorUserId,
-        ids,
-      })
-    );
-
-    if (generated.length === 0) {
-      redirect("/admin/work-orders");
-    }
-
-    await createAuditLog({
-      actorUserId,
-      module: "work-orders",
-      action: "generate-selected",
-      entityType: "WorkOrder",
-      message: `Generated ${generated.length} selected work order(s).`,
-      metadata: { count: generated.length, ids: generated.map((row) => row.id) },
+    const latestBatch = await prisma.workOrder.findFirst({
+      where: { status: "FINALIZED", generatedAt: { not: null } },
+      orderBy: { generatedAt: "desc" },
+      select: { generatedAt: true },
     });
 
-    revalidatePath("/admin/work-orders");
-    revalidatePath("/maintenance/work-orders");
-
-    redirect(`/admin/work-orders/print?ids=${encodeURIComponent(generated.map((row) => row.id).join(","))}`);
-  }
-
-  async function unarchiveSelectedAction(formData: FormData) {
-    "use server";
-
-    const session = (await getServerSession(authOptions)) as AdminSession;
-    await requireAdmin(session);
-
-    const actorUserId = await getActorUserId(session);
-    const ids = formData
-      .getAll("ids")
-      .map((value) => String(value).trim())
-      .filter(Boolean)
-      .slice(0, 500);
-
-    if (ids.length === 0) {
+    const generatedAt = latestBatch?.generatedAt ?? null;
+    if (!generatedAt) {
       redirect("/admin/work-orders");
     }
 
     const rows = await prisma.workOrder.findMany({
-      where: { id: { in: ids }, status: "FINALIZED" },
+      where: { status: "FINALIZED", generatedAt },
       select: { id: true },
+      take: 5000,
     });
     const archivedIds = rows.map((row) => row.id);
 
@@ -411,10 +371,10 @@ export default async function AdminWorkOrdersPage({
     await createAuditLog({
       actorUserId,
       module: "work-orders",
-      action: "unarchive-selected",
+      action: "unarchive-last-batch",
       entityType: "WorkOrder",
-      message: `Moved ${archivedIds.length} archived work order(s) back to pending.`,
-      metadata: { count: archivedIds.length, ids: archivedIds },
+      message: `Undid last generated batch (${archivedIds.length} work order(s)).`,
+      metadata: { count: archivedIds.length, ids: archivedIds, generatedAt: generatedAt.toISOString() },
     });
 
     revalidatePath("/admin/work-orders");
@@ -784,6 +744,13 @@ export default async function AdminWorkOrdersPage({
               </span>
             </form>
 
+            <form action={unarchiveAllAction} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <button type="submit" style={btn}>Undo Generate</button>
+              <span style={{ fontSize: 12, opacity: 0.75 }}>
+                Undoes only the most recent generated batch and moves it back to pending.
+              </span>
+            </form>
+
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <span style={{ fontSize: 12, opacity: 0.85, fontWeight: 900 }}>Saved Views:</span>
               {savedViews.map((v) => {
@@ -893,12 +860,6 @@ export default async function AdminWorkOrdersPage({
                 <span id="selected-work-order-count" style={{ fontSize: 12, opacity: 0.8 }}>
                   0 selected
                 </span>
-                <button formAction={generateSelectedAction} style={btn}>
-                  Generate Selected
-                </button>
-                <button formAction={unarchiveSelectedAction} style={btn}>
-                  Undo Generate (Selected)
-                </button>
                 <button formAction={printSelectedAction} style={btn}>
                   Print Selected
                 </button>
