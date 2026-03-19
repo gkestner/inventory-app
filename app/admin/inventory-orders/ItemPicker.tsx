@@ -30,6 +30,7 @@ type Props = {
   placeholder?: string;
   style?: CSSProperties;
   inputStyle?: CSSProperties;
+  onSelectedIdChange?: (id: string) => void;
 };
 
 function normalize(s: string): string {
@@ -69,6 +70,7 @@ export default function ItemPicker({
   placeholder = "Search ID, SKU, part #, name, category, manufacturer…",
   style,
   inputStyle,
+  onSelectedIdChange,
 }: Props) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -158,6 +160,7 @@ export default function ItemPicker({
     setSelectedId(it.id);
     setQuery(label(it));
     setOpen(false);
+    onSelectedIdChange?.(it.id);
     requestAnimationFrame(() => inputRef.current?.focus());
   }
 
@@ -296,6 +299,7 @@ export default function ItemPicker({
           setQuery(e.target.value);
           setOpen(true);
           setSelectedId("");
+          onSelectedIdChange?.("");
           setActiveIndex(0);
           requestAnimationFrame(() => computeMenuPos());
         }}

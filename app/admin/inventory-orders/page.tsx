@@ -15,6 +15,7 @@ import { Decimal } from "@prisma/client/runtime/library";
 import ItemPicker from "./ItemPicker";
 import NewItemAutoCheck from "./NewItemAutoCheck";
 import OrderTotalPreview from "./OrderTotalPreview";
+import SearchFilters from "./SearchFilters";
 import {
   addToInventoryAction as addToInventoryServerAction,
   createOrderAction as createOrderServerAction,
@@ -1303,129 +1304,29 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           </div>
         </details>
 
-        {/* FILTERS */}
-        <details style={{ marginTop: 14 }}>
-          <summary
-            style={{
-              cursor: "pointer",
-              userSelect: "none",
-              fontWeight: 900,
-              padding: 12,
-              border,
-              borderRadius: 14,
-              background: surface,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 10,
-            }}
-          >
-            <span>Search & Filters</span>
-            <span style={{ fontSize: 12, opacity: 0.75 }}>Click to expand</span>
-          </summary>
-
-          <div style={{ marginTop: 10, border, borderRadius: 14, background: surface, padding: 12 }}>
-            <div style={{ fontWeight: 900, marginBottom: 8, fontSize: 14 }}>Search & Filters</div>
-
-            <form action="/admin/inventory-orders" method="get" style={{ display: "grid", gap: 10 }}>
-            <div style={wrapRow}>
-              <label style={{ ...controlLabel, ...flexItem(240, 2) }}>
-                Search
-                <input name="q" defaultValue={q} placeholder="id, sku, name, supplier, note…" style={controlBase} />
-              </label>
-
-
-                  <div style={{ fontSize: 12, opacity: 0.75 }}>
-                    Optional: Loc/Shelf/Bin overwrite the SKU middle segment as <code>LLSSBB</code>.
-                  </div>
-              <label style={{ ...controlLabel, ...flexItem(170, 0) }}>
-                Phase
-                <select name="phase" defaultValue={phase || ""} style={controlBase}>
-                  <option value="">All</option>
-                  {PHASES.map((s2) => (
-                    <option key={s2} value={s2}>
-                      {phaseLabel(s2)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label style={{ ...controlLabel, ...flexItem(320, 2) }}>
-                Item
-                <div style={{ marginTop: 2 }}>
-                  <ItemPicker name="itemId" items={pickerItems} defaultId={itemId} placeholder="Search item (sku, part #, name…)" />
-                </div>
-              </label>
-
-              <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
-                Supplier
-                <input name="supplier" defaultValue={supplier} placeholder="Supplier…" style={controlBase} />
-              </label>
-
-              <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
-                For Tech
-                <select name="forUserId" defaultValue={forUserId} style={controlBase}>
-                  <option value="">All</option>
-                  {users.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name} ({u.role})
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
-                For Store
-                <select name="forStoreId" defaultValue={forStoreId} style={controlBase}>
-                  <option value="">All</option>
-                  {locations.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            <div style={wrapRow}>
-              <label style={{ ...controlLabel, ...flexItem(150, 0) }}>
-                From
-                <input type="date" name="from" defaultValue={fromStr} style={controlBase} />
-              </label>
-
-              <label style={{ ...controlLabel, ...flexItem(150, 0) }}>
-                To
-                <input type="date" name="to" defaultValue={toStr} style={controlBase} />
-              </label>
-
-              <label style={{ ...controlLabel, ...flexItem(130, 0) }}>
-                Per page
-                <select name="perPage" defaultValue={String(perPage)} style={controlBase}>
-                  {[10, 25, 50, 100].map((n) => (
-                    <option key={n} value={String(n)}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <div style={{ ...flexItem(220, 0), display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                <input type="hidden" name="page" value="1" />
-                <button type="submit" style={btn}>
-                  Apply
-                </button>
-                <Link href="/admin/inventory-orders" style={{ ...btn, textDecoration: "none", display: "inline-block", opacity: 0.92 }}>
-                  Clear
-                </Link>
-              </div>
-            </div>
-
-            <div style={{ fontSize: 12, opacity: 0.8 }}>
-              Showing <b>{orders.length}</b> of <b>{total}</b> results • Page <b>{page}</b> / <b>{pageCount}</b>
-            </div>
-            </form>
-          </div>
-        </details>
+        <SearchFilters
+          items={pickerItems}
+          users={users.map((u) => ({ id: u.id, name: u.name, role: String(u.role) }))}
+          locations={locations}
+          phases={[...PHASES]}
+          values={{
+            q,
+            phase,
+            itemId,
+            supplier,
+            forUserId,
+            forStoreId,
+            from: fromStr,
+            to: toStr,
+            perPage,
+          }}
+          summary={{
+            orders: orders.length,
+            total,
+            page,
+            pageCount,
+          }}
+        />
 
         {/* Responsive “no overlap, no horizontal scroll” layout */}
         <style>{`
