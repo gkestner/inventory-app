@@ -306,6 +306,20 @@ function buildSystemAuditLine(args: {
   return parts.join(" ");
 }
 
+function computeLandedUnitCost(args: {
+  unitPrice: Decimal | string | number;
+  shippingCost?: Decimal | string | number | null;
+  taxCost?: Decimal | string | number | null;
+  quantity: number;
+}): Decimal {
+  const unit = new Decimal(args.unitPrice);
+  const shipping = args.shippingCost ? new Decimal(args.shippingCost) : new Decimal(0);
+  const tax = args.taxCost ? new Decimal(args.taxCost) : new Decimal(0);
+  const qty = Number.isFinite(args.quantity) && args.quantity > 0 ? Math.trunc(args.quantity) : 1;
+
+  return new Decimal(unit.add(shipping.add(tax).div(qty)).toFixed(2));
+}
+
 const ORDER_INCLUDE = {
   item: { select: { id: true, sku: true, partNumber: true, name: true } },
   forStore: { select: { id: true, name: true } },
@@ -564,7 +578,16 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     const latest = await tx.inventoryOrder.findFirst({
       where: { itemId: itemIdX },
       orderBy: { orderedAt: "desc" },
-      select: { id: true, unitPrice: true, supplierName: true, orderedAt: true, note: true },
+      select: {
+        id: true,
+        unitPrice: true,
+        shippingCost: true,
+        taxCost: true,
+        quantity: true,
+        supplierName: true,
+        orderedAt: true,
+        note: true,
+      },
     });
     if (!latest) return;
 
@@ -576,7 +599,13 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
 
     if (!latest.unitPrice) return;
 
-    const newCostStr = new Decimal(latest.unitPrice).toFixed(2);
+    const landedUnitCost = computeLandedUnitCost({
+      unitPrice: latest.unitPrice,
+      shippingCost: latest.shippingCost,
+      taxCost: latest.taxCost,
+      quantity: latest.quantity,
+    });
+    const newCostStr = landedUnitCost.toFixed(2);
     const prevCostStr = item.cost ? new Decimal(item.cost).toFixed(2) : null;
     const newOrderFrom = latest.supplierName ?? null;
 
@@ -593,7 +622,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     await tx.item.update({
       where: { id: itemIdX },
       data: {
-        cost: latest.unitPrice,
+        cost: landedUnitCost,
         orderFrom: newOrderFrom,
         inventoryOrders: {
           update: {
@@ -689,8 +718,14 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
         });
         if (!item) throw new Error("Item not found");
 
+        const landedUnitCost = computeLandedUnitCost({
+          unitPrice: unitPriceStr,
+          shippingCost: shippingCostStr,
+          taxCost: taxCostStr,
+          quantity: qty,
+        });
         const prevCostStr = item.cost ? new Decimal(item.cost).toFixed(2) : null;
-        const newCostStr = new Decimal(unitPriceStr).toFixed(2);
+        const newCostStr = landedUnitCost.toFixed(2);
 
         const prevOrderFrom = item.orderFrom ?? null;
         const newOrderFromFinal = supplierName ? supplierName : prevOrderFrom;
@@ -736,7 +771,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
           where: { id: finalItemId },
           data: {
             orderedQty: { increment: qty },
-            cost: new Decimal(unitPriceStr),
+            cost: landedUnitCost,
             orderFrom: supplierName ? supplierName : undefined,
           },
         });
@@ -824,8 +859,14 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
         }
       }
 
+      const landedUnitCost = computeLandedUnitCost({
+        unitPrice: unitPriceStr,
+        shippingCost: shippingCostStr,
+        taxCost: taxCostStr,
+        quantity: qty,
+      });
       const prevCostStr = item.cost ? new Decimal(item.cost).toFixed(2) : null;
-      const newCostStr = new Decimal(unitPriceStr).toFixed(2);
+      const newCostStr = landedUnitCost.toFixed(2);
 
       const prevOrderFrom = item.orderFrom ?? null;
       const newOrderFrom = supplierName ? supplierName : prevOrderFrom;
@@ -1483,7 +1524,9 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
             const unit = o.unitPrice ? Number(o.unitPrice) : 0;
             const ship = o.shippingCost ? Number(o.shippingCost) : 0;
             const tax = o.taxCost ? Number(o.taxCost) : 0;
-            const totalCost = unit * (o.quantity ?? 0) + ship + tax;
+            const qty = o.quantity ?? 0;
+            const totalCost = unit * qty + ship + tax;
+            const landedUnitCost = qty > 0 ? totalCost / qty : unit;
 
             const itemLabel = o.item
               ? `${o.item.sku}${o.item.partNumber ? ` • ${o.item.partNumber}` : ""} • ${o.item.name}`
@@ -1528,7 +1571,8 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                       <Field label="Qty">{o.quantity ?? "—"}</Field>
                       <Field label="Supplier">{o.supplierName ?? "—"}</Field>
                       <Field label="Supplier Part #">{o.supplierPartNumber ?? "—"}</Field>
-                      <Field label="Unit">{o.unitPrice ? money(Number(o.unitPrice)) : "—"}</Field>
+                      <Field label="Vendor Unit">{o.unitPrice ? money(Number(o.unitPrice)) : "—"}</Field>
+                      <Field label="Landed Cost/ea">{money(landedUnitCost)}</Field>
                       <Field label="Ship">{o.shippingCost ? money(Number(o.shippingCost)) : "—"}</Field>
                       <Field label="Tax">{o.taxCost ? money(Number(o.taxCost)) : "—"}</Field>
                       <Field label="Total">{money(totalCost)}</Field>

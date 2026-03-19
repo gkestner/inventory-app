@@ -155,7 +155,8 @@ export default async function MaintenanceCheckoutPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  const { session, perms } = await requireCheckoutView();
+  try {
+    const { session, perms } = await requireCheckoutView();
 
   const sp = await searchParams;
   const ok = sp.ok === "1";
@@ -692,12 +693,12 @@ export default async function MaintenanceCheckoutPage({
           },
         });
 
-        const usedQtyAfter = Math.max(0, item.usedQty - quantity);
+        const usedQtyDecrement = Math.min(quantity, Math.max(0, item.usedQty));
         await tx.item.update({
           where: { id: itemId },
           data: {
             onHandQty: { increment: quantity },
-            usedQty: usedQtyAfter,
+            usedQty: { decrement: usedQtyDecrement },
           },
           select: { id: true },
         });
@@ -783,7 +784,7 @@ export default async function MaintenanceCheckoutPage({
     alignItems: "start",
   };
 
-  return (
+    return (
     <div style={{ padding: 24, maxWidth: 980, margin: "0 auto" }}>
       <h1 style={{ fontSize: 20, fontWeight: 800, marginBottom: 6 }}>Maintenance Checkout</h1>
       <div style={{ opacity: 0.8, marginBottom: 12 }}>
@@ -1219,5 +1220,27 @@ export default async function MaintenanceCheckoutPage({
         </form>
       </details>
     </div>
-  );
+    );
+  } catch (e: unknown) {
+    if (isRedirectLikeError(e)) throw e;
+    console.error("[maintenance/checkout] unhandled render error", e);
+
+    return (
+      <div style={{ padding: 24, maxWidth: 980, margin: "0 auto" }}>
+        <h1 style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>Maintenance Checkout</h1>
+        <div
+          style={{
+            marginBottom: 12,
+            padding: 10,
+            borderRadius: 10,
+            border: "1px solid rgba(220,53,69,0.45)",
+            background: "rgba(220,53,69,0.08)",
+            color: "var(--foreground)",
+          }}
+        >
+          Checkout page failed to load safely. Please refresh, and if this continues contact admin support.
+        </div>
+      </div>
+    );
+  }
 }
