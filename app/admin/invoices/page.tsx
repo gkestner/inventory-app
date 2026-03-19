@@ -1007,7 +1007,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr>
-                      {["Store", "Ready tickets"].map((h) => (
+                      {["Store", "Ready tickets", "Preview"].map((h) => (
                         <th
                           key={h}
                           style={{
@@ -1029,6 +1029,14 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                       <tr key={r.storeId} style={{ borderBottom: border }}>
                         <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{r.storeName}</td>
                         <td style={{ padding: 10, whiteSpace: "nowrap" }}>{r._count._all}</td>
+                        <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                          <Link
+                            href={`/admin/invoices/preview?storeId=${encodeURIComponent(r.storeId)}&from=${encodeURIComponent(fromStr)}&to=${encodeURIComponent(toStr)}&vendor=${encodeURIComponent(vendor)}`}
+                            style={{ ...btn, textDecoration: "none", display: "inline-block" }}
+                          >
+                            Preview
+                          </Link>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
