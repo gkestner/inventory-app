@@ -12,7 +12,7 @@ import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { InvoiceVendor, Permission, PartsCheckoutStatus, Role, Prisma } from "@prisma/client";
 import InvoiceSelectionWiring from "./InvoiceSelectionWiring";
 
-import { createInvoicesForWindow } from "./actions";
+import { createInvoicesForWindow, refreshOpenTicketCostSnapshots } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +84,7 @@ type SearchParams = {
   perPage?: string;
   err?: string;
   cfg?: string;
+  refreshed?: string;
 };
 
 function safeReturnToPathFromReferer(referer: string | null): string {
@@ -501,6 +502,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
   const err = String(sp.err ?? "").trim();
   const cfg = String(sp.cfg ?? "").trim();
+  const refreshed = String(sp.refreshed ?? "").trim();
 
   let readyByStore: Array<{ storeId: string; storeName: string; _count: { _all: number } }> = [];
   let readyTotal = 0;
@@ -613,7 +615,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     const merged: SearchParams = { ...sp, ...patch };
 
     const qp = new URLSearchParams();
-    const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err", "cfg"];
+    const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err", "cfg", "refreshed"];
 
     for (const k of keys) {
       const v = merged[k];
@@ -625,6 +627,14 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
     const qs = qp.toString();
     return qs ? `/admin/invoices?${qs}` : "/admin/invoices";
+  }
+
+  async function refreshCostSnapshotsAction() {
+    "use server";
+    await requireInvoicesView();
+    const result = await refreshOpenTicketCostSnapshots();
+    revalidatePath("/admin/invoices");
+    redirect(`/admin/invoices?refreshed=${result.updated}`);
   }
 
   async function generateInvoicesAction(formData: FormData) {
@@ -734,7 +744,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
       const merged: SearchParams = { ...base, ...patch };
 
       const qp = new URLSearchParams();
-      const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err", "cfg"];
+      const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err", "cfg", "refreshed"];
       for (const k of keys) {
         const v = merged[k];
         if (typeof v !== "string") continue;
@@ -1089,6 +1099,25 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
               </div>
             </form>
           </div>
+        </div>
+
+        {/* Refresh cost snapshots */}
+        <div style={{ marginTop: 12, border, borderRadius: 14, background: surface, padding: 12 }}>
+          <div style={{ fontWeight: 900, marginBottom: 4 }}>Refresh cost snapshots on pending tickets</div>
+          <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 10 }}>
+            Updates the cost stored on each <b>open, not-yet-invoiced</b> ticket to match the item&apos;s current cost.
+            This fixes invoices being generated with outdated (lower or higher) costs.
+          </div>
+          {refreshed ? (
+            <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 10, border: "1px solid rgba(76,175,80,0.55)", background: "rgba(76,175,80,0.1)", fontSize: 13, fontWeight: 900 }}>
+              ✓ Updated {refreshed} ticket{refreshed === "1" ? "" : "s"} with the latest item cost.
+            </div>
+          ) : null}
+          <form action={refreshCostSnapshotsAction}>
+            <button type="submit" style={btnPrimary}>
+              Refresh cost snapshots
+            </button>
+          </form>
         </div>
 
         {/* Recent invoices */}

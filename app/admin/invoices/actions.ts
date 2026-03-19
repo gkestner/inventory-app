@@ -815,3 +815,57 @@ export async function createInvoicesForWindow(args: {
 
   return { results };
 }
+
+// ---------------------------------------------------------------------------
+// Refresh cost snapshots on all open (not yet invoiced) tickets
+// ---------------------------------------------------------------------------
+
+export async function refreshOpenTicketCostSnapshots(): Promise<{
+  updated: number;
+  skipped: number;
+}> {
+  // Load all open, non-voided, non-invoiced tickets with their current item cost
+  const tickets = await prisma.partsCheckoutTicket.findMany({
+    where: {
+      status: PartsCheckoutStatus.OPEN,
+      invoicedAt: null,
+      voidedAt: null,
+    },
+    select: {
+      id: true,
+      costSnapshot: true,
+      item: { select: { cost: true } },
+    },
+    take: 20000,
+  });
+
+  let updated = 0;
+  let skipped = 0;
+
+  for (const ticket of tickets) {
+    const currentCost = ticket.item?.cost ?? null;
+    // Skip if item has no cost set
+    if (currentCost === null || currentCost === undefined) {
+      skipped++;
+      continue;
+    }
+
+    const currentNum = Number(currentCost);
+    const snapshotNum = ticket.costSnapshot !== null ? Number(ticket.costSnapshot) : null;
+
+    // Skip if cost hasn't changed
+    if (snapshotNum !== null && Math.abs(currentNum - snapshotNum) < 0.001) {
+      skipped++;
+      continue;
+    }
+
+    await prisma.partsCheckoutTicket.update({
+      where: { id: ticket.id },
+      data: { costSnapshot: currentCost },
+    });
+
+    updated++;
+  }
+
+  return { updated, skipped };
+}
