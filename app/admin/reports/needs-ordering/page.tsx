@@ -150,6 +150,17 @@ function normSupplierGroupKey(value: string | null | undefined): string {
   return normSupplier(value).toLocaleLowerCase();
 }
 
+function money(v: number): string {
+  if (!Number.isFinite(v)) return "$0.00";
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v);
+}
+
+function decimalToNumber(v: Prisma.Decimal | null | undefined): number {
+  if (!v) return 0;
+  const n = Number(v.toString());
+  return Number.isFinite(n) ? n : 0;
+}
+
 export default async function NeedsOrderingReportPage({
   searchParams,
 }: {
@@ -279,6 +290,7 @@ export default async function NeedsOrderingReportPage({
     sku: string;
     partNumber: string | null;
     name: string;
+    cost: Prisma.Decimal | null;
     orderFrom: string | null;
     manufacturer: string | null;
     webUrl: string | null;
@@ -310,6 +322,7 @@ export default async function NeedsOrderingReportPage({
       i."sku",
       i."partNumber",
       i."name",
+      i."cost",
       i."orderFrom",
       i."manufacturer",
       i."webUrl",
@@ -482,6 +495,7 @@ export default async function NeedsOrderingReportPage({
     .sort((a, b) => a.supplier.localeCompare(b.supplier, undefined, { sensitivity: "base" }))
     .map((group) => ({
       supplier: group.supplier,
+      subtotal: group.items.reduce((sum, row) => sum + row.shortBy * decimalToNumber(row.cost), 0),
       items: [...group.items].sort((a, b) => {
         const shortDiff = b.shortBy - a.shortBy;
         if (shortDiff !== 0) return shortDiff;
@@ -774,8 +788,20 @@ export default async function NeedsOrderingReportPage({
             ) : (
               supplierGroups.map((group) => (
                 <details key={`supplier-${group.supplier}`} style={{ border: "1px solid rgba(128,128,128,0.25)", borderRadius: 10, overflow: "hidden" }}>
-                  <summary style={{ cursor: "pointer", padding: "12px 14px", fontWeight: 900, background: "rgba(128,128,128,0.08)" }}>
-                    {group.supplier} ({group.items.length})
+                  <summary
+                    style={{
+                      cursor: "pointer",
+                      padding: "12px 14px",
+                      fontWeight: 900,
+                      background: "rgba(128,128,128,0.08)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 10,
+                    }}
+                  >
+                    <span>{group.supplier} ({group.items.length})</span>
+                    <span style={{ whiteSpace: "nowrap" }}>Subtotal: {money(group.subtotal)}</span>
                   </summary>
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>

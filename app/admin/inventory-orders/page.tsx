@@ -151,6 +151,11 @@ function fmtLocal(d: Date | null): string {
   return new Date(d).toLocaleString();
 }
 
+function fmtDateOnly(d: Date | null): string {
+  if (!d) return "—";
+  return new Date(d).toLocaleDateString();
+}
+
 function fmtForDatetimeLocal(d: Date | null): string {
   if (!d) return "";
   return new Date(d).toISOString().slice(0, 16);
@@ -1390,8 +1395,32 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
             border: 1px solid rgba(128,128,128,0.25);
             border-radius: 14px;
             background: var(--background);
-            padding: 12px;
+            padding: 0;
             overflow: hidden;
+          }
+          .orderSummary {
+            list-style: none;
+            cursor: pointer;
+            padding: 12px;
+          }
+          .orderSummary::-webkit-details-marker {
+            display: none;
+          }
+          .orderSummaryRow {
+            display: grid;
+            gap: 10px;
+            grid-template-columns: 1fr;
+            align-items: center;
+          }
+          @media (min-width: 900px) {
+            .orderSummaryRow {
+              grid-template-columns: 170px 1fr 90px 220px;
+            }
+          }
+          .orderExpandedBody {
+            padding: 12px;
+            border-top: 1px solid rgba(128,128,128,0.22);
+            background: rgba(255,255,255,0.02);
           }
           .orderTop {
             display: grid;
@@ -1465,36 +1494,52 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
             const phaseText = phaseLabel(o.status as InventoryOrderPhase);
 
             return (
-              <div key={o.id} className="orderCard" style={{ ...rowPhaseStyle(o.status as InventoryOrderPhase) }}>
-                <div className="orderTop">
-                  <div style={{ display: "grid", gap: 10 }}>
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <details key={o.id} className="orderCard" style={{ ...rowPhaseStyle(o.status as InventoryOrderPhase) }}>
+                <summary className="orderSummary">
+                  <div className="orderSummaryRow">
+                    <div style={{ fontSize: 12, fontWeight: 900, opacity: 0.88 }}>Ordered: {fmtDateOnly(o.orderedAt)}</div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 900, lineHeight: 1.2, overflowWrap: "anywhere" }}>{itemLabel}</div>
+                      <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72, overflowWrap: "anywhere" }}>id: {o.id}</div>
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 950, textAlign: "left" }}>Qty: {o.quantity ?? "—"}</div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
                       <span className="pill">{phaseText}</span>
-                      <span className="pill">Ordered: {fmtLocal(o.orderedAt)}</span>
+                      <span style={{ fontSize: 12, opacity: 0.78, fontWeight: 900 }}>Click to expand</span>
+                    </div>
+                  </div>
+                </summary>
+
+                <div className="orderExpandedBody">
+                  <div className="orderTop">
+                    <div style={{ display: "grid", gap: 10 }}>
+                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                        <span className="pill">{phaseText}</span>
+                        <span className="pill">Ordered: {fmtLocal(o.orderedAt)}</span>
+                      </div>
+
+                      <div style={{ display: "grid", gap: 6 }}>
+                        <div style={{ fontSize: 16, fontWeight: 950, lineHeight: 1.2, overflowWrap: "anywhere" }}>{itemLabel}</div>
+                        <div style={{ fontSize: 12, opacity: 0.75, overflowWrap: "anywhere" }}>id: {o.id}</div>
+                      </div>
                     </div>
 
-                    <div style={{ display: "grid", gap: 6 }}>
-                      <div style={{ fontSize: 16, fontWeight: 950, lineHeight: 1.2, overflowWrap: "anywhere" }}>{itemLabel}</div>
-                      <div style={{ fontSize: 12, opacity: 0.75, overflowWrap: "anywhere" }}>id: {o.id}</div>
+                    <div className="metaGrid">
+                      <Field label="Qty">{o.quantity ?? "—"}</Field>
+                      <Field label="Supplier">{o.supplierName ?? "—"}</Field>
+                      <Field label="Supplier Part #">{o.supplierPartNumber ?? "—"}</Field>
+                      <Field label="Unit">{o.unitPrice ? money(Number(o.unitPrice)) : "—"}</Field>
+                      <Field label="Ship">{o.shippingCost ? money(Number(o.shippingCost)) : "—"}</Field>
+                      <Field label="Tax">{o.taxCost ? money(Number(o.taxCost)) : "—"}</Field>
+                      <Field label="Total">{money(totalCost)}</Field>
+                      <Field label="For Tech">{o.forUser?.name ?? "—"}</Field>
+                      <Field label="For Store">{o.forStore?.name ?? "—"}</Field>
+                      <Field label="Arrived">{fmtLocal(o.arrivedAt)}</Field>
+                      <Field label="Added">{fmtLocal(o.addedToInventoryAt)}</Field>
                     </div>
                   </div>
 
-                  <div className="metaGrid">
-                    <Field label="Qty">{o.quantity ?? "—"}</Field>
-                    <Field label="Supplier">{o.supplierName ?? "—"}</Field>
-                    <Field label="Supplier Part #">{o.supplierPartNumber ?? "—"}</Field>
-                    <Field label="Unit">{o.unitPrice ? money(Number(o.unitPrice)) : "—"}</Field>
-                    <Field label="Ship">{o.shippingCost ? money(Number(o.shippingCost)) : "—"}</Field>
-                    <Field label="Tax">{o.taxCost ? money(Number(o.taxCost)) : "—"}</Field>
-                    <Field label="Total">{money(totalCost)}</Field>
-                    <Field label="For Tech">{o.forUser?.name ?? "—"}</Field>
-                    <Field label="For Store">{o.forStore?.name ?? "—"}</Field>
-                    <Field label="Arrived">{fmtLocal(o.arrivedAt)}</Field>
-                    <Field label="Added">{fmtLocal(o.addedToInventoryAt)}</Field>
-                  </div>
-                </div>
-
-                <div className="actionsRow">
+                  <div className="actionsRow">
                   {canArrive ? (
                     <form action={markArrivedFormAction}>
                       <input type="hidden" name="id" value={o.id} />
@@ -1647,14 +1692,15 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                       </button>
                     </form>
                   </details>
-                </div>
-
-                {o.note ? (
-                  <div className="noteBox">
-                    <b>Note:</b> {o.note}
                   </div>
-                ) : null}
-              </div>
+
+                  {o.note ? (
+                    <div className="noteBox">
+                      <b>Note:</b> {o.note}
+                    </div>
+                  ) : null}
+                </div>
+              </details>
             );
           })}
 

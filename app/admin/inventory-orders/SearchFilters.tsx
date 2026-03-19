@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties, FormEvent } from "react";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import ItemPicker from "./ItemPicker";
@@ -51,10 +51,6 @@ type Props = {
   };
 };
 
-type FilterValues = Props["values"];
-
-const LIVE_FILTER_DELAY_MS = 350;
-
 function phaseLabel(phase: string): string {
   if (phase === "ORDERED") return "ORDERED";
   if (phase === "ARRIVED") return "ARRIVED";
@@ -74,26 +70,7 @@ function hasActiveFilters(values: Props["values"]): boolean {
       values.perPage !== 25
   );
 }
-
-function sameValues(a: FilterValues, b: FilterValues): boolean {
-  return (
-    a.q === b.q &&
-    a.phase === b.phase &&
-    a.itemId === b.itemId &&
-    a.supplier === b.supplier &&
-    a.forUserId === b.forUserId &&
-    a.forStoreId === b.forStoreId &&
-    a.from === b.from &&
-    a.to === b.to &&
-    a.perPage === b.perPage
-  );
-}
-
-function valuesKey(values: FilterValues): string {
-  return [values.q, values.phase, values.itemId, values.supplier, values.forUserId, values.forStoreId, values.from, values.to, String(values.perPage)].join("\u0001");
-}
-
-function buildSearchParams(values: FilterValues): URLSearchParams {
+function buildSearchParams(values: Props["values"]): URLSearchParams {
   const nextSearch = new URLSearchParams();
 
   for (const [key, rawValue] of Object.entries(values)) {
@@ -112,17 +89,15 @@ export default function SearchFilters({ items, users, locations, phases, values,
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
   const [isOpen, setIsOpen] = useState(() => hasActiveFilters(values));
-  const [filters, setFilters] = useState<FilterValues>(values);
-  const lastNavigatedKeyRef = useRef<string>(valuesKey(values));
+  const [qInput, setQInput] = useState(values.q);
 
   useEffect(() => {
     if (hasActiveFilters(values)) setIsOpen(true);
   }, [values]);
 
   useEffect(() => {
-    setFilters(values);
-    lastNavigatedKeyRef.current = valuesKey(values);
-  }, [values]);
+    setQInput(values.q);
+  }, [values.q]);
 
   const border = "1px solid rgba(128,128,128,0.25)";
   const surface = "var(--background)";
@@ -165,60 +140,40 @@ export default function SearchFilters({ items, users, locations, phases, values,
     minWidth: 0,
   });
 
-  function navigate(nextSearch: URLSearchParams, nextKey: string) {
+  function navigate(nextSearch: URLSearchParams) {
     const qs = nextSearch.toString();
     const nextUrl = qs ? `${pathname}?${qs}` : pathname;
-    lastNavigatedKeyRef.current = nextKey;
     startTransition(() => {
       router.replace(nextUrl, { scroll: false });
     });
   }
 
-  function submitFilters(nextValues: FilterValues) {
-    setIsOpen(true);
-    navigate(buildSearchParams(nextValues), valuesKey(nextValues));
-  }
-
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    submitFilters(filters);
+
+    const formData = new FormData(event.currentTarget);
+    const submitValues: Props["values"] = {
+      q: qInput,
+      phase: String(formData.get("phase") ?? "").trim(),
+      itemId: String(formData.get("itemId") ?? "").trim(),
+      supplier: String(formData.get("supplier") ?? "").trim(),
+      forUserId: String(formData.get("forUserId") ?? "").trim(),
+      forStoreId: String(formData.get("forStoreId") ?? "").trim(),
+      from: String(formData.get("from") ?? "").trim(),
+      to: String(formData.get("to") ?? "").trim(),
+      perPage: Number(formData.get("perPage") ?? values.perPage) || 25,
+    };
+
+    setIsOpen(true);
+    navigate(buildSearchParams(submitValues));
   }
 
   function handleClear() {
     setIsOpen(false);
-    const clearedValues: FilterValues = {
-      q: "",
-      phase: "",
-      itemId: "",
-      supplier: "",
-      forUserId: "",
-      forStoreId: "",
-      from: "",
-      to: "",
-      perPage: 25,
-    };
-    setFilters(clearedValues);
-    lastNavigatedKeyRef.current = valuesKey(clearedValues);
+    setQInput("");
     startTransition(() => {
       router.replace(pathname, { scroll: false });
     });
-  }
-
-  useEffect(() => {
-    if (sameValues(filters, values)) return;
-
-    const nextKey = valuesKey(filters);
-    if (nextKey === lastNavigatedKeyRef.current) return;
-
-    const timeoutId = window.setTimeout(() => {
-      submitFilters(filters);
-    }, LIVE_FILTER_DELAY_MS);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [filters, pathname, router, values]);
-
-  function updateFilter<K extends keyof FilterValues>(key: K, value: FilterValues[K]) {
-    setFilters((current) => ({ ...current, [key]: value }));
   }
 
   return (
@@ -251,8 +206,8 @@ export default function SearchFilters({ items, users, locations, phases, values,
               Search
               <input
                 name="q"
-                value={filters.q}
-                onChange={(event) => updateFilter("q", event.target.value)}
+                value={qInput}
+                onChange={(event) => setQInput(event.target.value)}
                 placeholder="Search ID, SKU, part #, name, category, supplier, mfg, order from..."
                 style={controlBase}
               />
@@ -260,7 +215,7 @@ export default function SearchFilters({ items, users, locations, phases, values,
 
             <label style={{ ...controlLabel, ...flexItem(170, 0) }}>
               Phase
-              <select name="phase" value={filters.phase} onChange={(event) => updateFilter("phase", event.target.value)} style={controlBase}>
+              <select name="phase" defaultValue={values.phase} style={controlBase}>
                 <option value="">All</option>
                 {phases.map((phase) => (
                   <option key={phase} value={phase}>
@@ -276,9 +231,8 @@ export default function SearchFilters({ items, users, locations, phases, values,
                 <ItemPicker
                   name="itemId"
                   items={items}
-                  defaultId={filters.itemId}
+                  defaultId={values.itemId}
                   placeholder="Search item (sku, part #, name...)"
-                  onSelectedIdChange={(id) => updateFilter("itemId", id)}
                 />
               </div>
             </label>
@@ -287,8 +241,7 @@ export default function SearchFilters({ items, users, locations, phases, values,
               Supplier
               <input
                 name="supplier"
-                value={filters.supplier}
-                onChange={(event) => updateFilter("supplier", event.target.value)}
+                defaultValue={values.supplier}
                 placeholder="Supplier..."
                 style={controlBase}
               />
@@ -296,12 +249,7 @@ export default function SearchFilters({ items, users, locations, phases, values,
 
             <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
               For Tech
-              <select
-                name="forUserId"
-                value={filters.forUserId}
-                onChange={(event) => updateFilter("forUserId", event.target.value)}
-                style={controlBase}
-              >
+              <select name="forUserId" defaultValue={values.forUserId} style={controlBase}>
                 <option value="">All</option>
                 {users.map((user) => (
                   <option key={user.id} value={user.id}>
@@ -313,12 +261,7 @@ export default function SearchFilters({ items, users, locations, phases, values,
 
             <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
               For Store
-              <select
-                name="forStoreId"
-                value={filters.forStoreId}
-                onChange={(event) => updateFilter("forStoreId", event.target.value)}
-                style={controlBase}
-              >
+              <select name="forStoreId" defaultValue={values.forStoreId} style={controlBase}>
                 <option value="">All</option>
                 {locations.map((location) => (
                   <option key={location.id} value={location.id}>
@@ -332,22 +275,17 @@ export default function SearchFilters({ items, users, locations, phases, values,
           <div style={wrapRow}>
             <label style={{ ...controlLabel, ...flexItem(150, 0) }}>
               From
-              <input type="date" name="from" value={filters.from} onChange={(event) => updateFilter("from", event.target.value)} style={controlBase} />
+              <input type="date" name="from" defaultValue={values.from} style={controlBase} />
             </label>
 
             <label style={{ ...controlLabel, ...flexItem(150, 0) }}>
               To
-              <input type="date" name="to" value={filters.to} onChange={(event) => updateFilter("to", event.target.value)} style={controlBase} />
+              <input type="date" name="to" defaultValue={values.to} style={controlBase} />
             </label>
 
             <label style={{ ...controlLabel, ...flexItem(130, 0) }}>
               Per page
-              <select
-                name="perPage"
-                value={String(filters.perPage)}
-                onChange={(event) => updateFilter("perPage", Number(event.target.value))}
-                style={controlBase}
-              >
+              <select name="perPage" defaultValue={String(values.perPage)} style={controlBase}>
                 {[10, 25, 50, 100].map((n) => (
                   <option key={n} value={String(n)}>
                     {n}
