@@ -1544,9 +1544,10 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                   <div className="orderSummaryRow">
                     <div style={{ fontSize: 12, fontWeight: 900, opacity: 0.88 }}>Ordered: {fmtDateOnly(o.orderedAt)}</div>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 900, lineHeight: 1.2, overflowWrap: "anywhere" }}>{itemSummaryName}</div>
-                      <div style={{ marginTop: 2, fontSize: 12, opacity: 0.8, overflowWrap: "anywhere" }}>Supplier: {itemSummarySupplier}</div>
-                      <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72, overflowWrap: "anywhere" }}>id: {o.id}</div>
+                      <div style={{ fontSize: 17, fontWeight: 900, lineHeight: 1.2, overflowWrap: "anywhere" }}>{itemSummaryName}</div>
+                      <div style={{ marginTop: 3, fontSize: 12, opacity: 0.78, overflowWrap: "anywhere" }}>
+                        Supplier: {itemSummarySupplier} • id: {o.id}
+                      </div>
                     </div>
                     <div style={{ fontSize: 14, fontWeight: 950, textAlign: "left" }}>Qty: {o.quantity ?? "—"}</div>
                     <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
