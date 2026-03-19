@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
-import { Permission, Role } from "@prisma/client";
+import { Permission, Role, WorkOrderPingEvent } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
@@ -517,6 +517,16 @@ export default async function MaintenanceWorkOrdersPage() {
           data: areas.map((area) => ({ workOrderId: wo.id, area })),
         });
       }
+
+      await tx.workOrderPing.create({
+        data: {
+          workOrderId: wo.id,
+          locationId,
+          actorUserId: me.id,
+          event: WorkOrderPingEvent.STARTED,
+          note: "Work order started.",
+        },
+      });
     });
 
     revalidatePath("/work-orders");
@@ -546,7 +556,7 @@ export default async function MaintenanceWorkOrdersPage() {
     await prisma.$transaction(async (tx) => {
       const wo = await tx.workOrder.findUnique({
         where: { id },
-        select: { id: true, createdByUserId: true, status: true, endTime: true },
+        select: { id: true, locationId: true, createdByUserId: true, status: true, endTime: true },
       });
       if (!wo || wo.createdByUserId !== me.id) throw new Error("Work order not found.");
       if (wo.status !== "DRAFT" || wo.endTime !== null) throw new Error("Work order is already ended.");
@@ -567,6 +577,16 @@ export default async function MaintenanceWorkOrdersPage() {
           data: areas.map((area) => ({ workOrderId: id, area })),
         });
       }
+
+      await tx.workOrderPing.create({
+        data: {
+          workOrderId: id,
+          locationId: wo.locationId,
+          actorUserId: me.id,
+          event: WorkOrderPingEvent.STOPPED,
+          note: "Work order stopped.",
+        },
+      });
     });
 
     revalidatePath("/work-orders");
@@ -639,6 +659,16 @@ export default async function MaintenanceWorkOrdersPage() {
           data: areas.map((area) => ({ workOrderId: id, area })),
         });
       }
+
+      await tx.workOrderPing.create({
+        data: {
+          workOrderId: id,
+          locationId,
+          actorUserId: me.id,
+          event: WorkOrderPingEvent.EDITED,
+          note: "Work order details edited.",
+        },
+      });
     });
 
     revalidatePath("/work-orders");
