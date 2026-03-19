@@ -33,6 +33,7 @@ type EquipmentArea =
   | "LIGHTING"
   | "PARKING_LOT"
   | "OFFICE"
+  | "PLUMBING"
   | "HVAC_GAME_ROOM"
   | "HVAC_KITCHEN"
   | "HVAC_DINING_ROOM"
@@ -50,6 +51,7 @@ const EQUIPMENT_AREAS: EquipmentArea[] = [
   "LIGHTING",
   "PARKING_LOT",
   "OFFICE",
+  "PLUMBING",
   "HVAC_GAME_ROOM",
   "HVAC_KITCHEN",
   "HVAC_DINING_ROOM",
@@ -192,8 +194,8 @@ export default async function WorkOrderOfficeEntryPage() {
     if (!startTime) throw new Error("Start time is required.");
 
     if (status === "SUBMITTED") {
-      if (!endTime) throw new Error("End time is required for submitted work orders.");
-      if (endingMileage === null) throw new Error("Ending mileage is required for submitted work orders.");
+      if (!endTime) throw new Error("End time is required for pending work orders.");
+      if (endingMileage === null) throw new Error("Ending mileage is required for pending work orders.");
       if (endTime.getTime() < startTime.getTime()) throw new Error("End time cannot be before start time.");
     }
 
@@ -341,7 +343,7 @@ export default async function WorkOrderOfficeEntryPage() {
             <label style={label}>
               Status
               <select name="status" defaultValue="SUBMITTED" style={input}>
-                <option value="SUBMITTED">SUBMITTED</option>
+                <option value="SUBMITTED">PENDING</option>
                 <option value="DRAFT">DRAFT</option>
               </select>
             </label>
@@ -365,13 +367,13 @@ export default async function WorkOrderOfficeEntryPage() {
             </label>
 
             <label style={label}>
-              End Time (required for SUBMITTED)
+              End Time (required for PENDING)
               <input name="endTime" type="datetime-local" defaultValue={fmtForDatetimeLocal(new Date())} style={input} />
             </label>
           </div>
 
           <label style={label}>
-            Ending Mileage (required for SUBMITTED)
+            Ending Mileage (required for PENDING)
             <input name="endingMileage" type="number" style={input} placeholder="e.g. 17530" />
           </label>
 

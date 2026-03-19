@@ -175,7 +175,7 @@ export default async function AdminTravelLogPage({
   const [locations, users] = await Promise.all([
     prisma.location.findMany({ where: { active: true, receiptEnabled: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.user.findMany({
-      where: { active: true, workOrdersCreated: { some: { status: WorkOrderStatus.SUBMITTED } } },
+      where: { active: true, workOrdersCreated: { some: { status: { in: [WorkOrderStatus.SUBMITTED, WorkOrderStatus.FINALIZED] } } } },
       orderBy: { name: "asc" },
       select: { id: true, name: true, email: true },
     }),
@@ -188,7 +188,7 @@ export default async function AdminTravelLogPage({
   const userId = userIdRaw === "ALL" || userIds.has(userIdRaw) ? userIdRaw : "ALL";
 
   const where: Prisma.WorkOrderWhereInput = {
-    status: WorkOrderStatus.SUBMITTED,
+    status: { in: [WorkOrderStatus.SUBMITTED, WorkOrderStatus.FINALIZED] },
     startTime: { gte: fromUtc, lt: toExclusiveUtc },
     ...(locationId !== "ALL" ? { locationId } : {}),
     ...(userId !== "ALL" ? { createdByUserId: userId } : {}),

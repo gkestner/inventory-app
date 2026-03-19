@@ -1,0 +1,1 @@
+ALTER TYPE "EquipmentArea" ADD VALUE 'PLUMBING';

@@ -111,6 +111,13 @@ function fmtFixed2(n: number | null): string {
   return (Math.round(n * 100) / 100).toFixed(2);
 }
 
+function statusLabel(status: WorkOrderStatus): string {
+  if (status === "DRAFT") return "IN PROGRESS";
+  if (status === "SUBMITTED") return "PENDING";
+  if (status === "FINALIZED") return "GENERATED";
+  return status;
+}
+
 function decodeOnce(v: string): string {
   try {
     return decodeURIComponent(v);
@@ -170,6 +177,7 @@ function buildWhere(url: URL): Prisma.WorkOrderWhereInput {
       ? {
           OR: [
             { id: { contains: q, mode: "insensitive" } },
+            { workOrderNumber: { contains: q, mode: "insensitive" } },
             { notes: { contains: q, mode: "insensitive" } },
             { location: { name: { contains: q, mode: "insensitive" } } },
             { createdByUser: { name: { contains: q, mode: "insensitive" } } },
@@ -198,11 +206,12 @@ export async function GET(req: Request) {
 
   const rows = await prisma.workOrder.findMany({
     where,
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ createdByUserId: "asc" }, { createdAt: "asc" }, { id: "asc" }],
     take: 3000,
     select: {
       id: true,
       status: true,
+      workOrderNumber: true,
       notes: true,
       startTime: true,
       endTime: true,
@@ -211,7 +220,7 @@ export async function GET(req: Request) {
       createdAt: true,
       updatedAt: true,
       location: { select: { name: true } },
-      createdByUser: { select: { name: true, email: true } },
+      createdByUser: { select: { id: true, name: true, email: true } },
       equipmentAreas: { select: { area: true }, orderBy: { area: "asc" } },
     },
   });
@@ -222,8 +231,15 @@ export async function GET(req: Request) {
       ? ids
           .map((id) => byId.get(id))
           .filter((r): r is (typeof rows)[number] => Boolean(r))
+          .sort((left, right) => {
+            const leftUser = `${left.createdByUser?.name ?? ""}|${left.createdByUser?.email ?? ""}`.toLowerCase();
+            const rightUser = `${right.createdByUser?.name ?? ""}|${right.createdByUser?.email ?? ""}`.toLowerCase();
+            if (leftUser !== rightUser) return leftUser.localeCompare(rightUser);
+            return left.createdAt.getTime() - right.createdAt.getTime();
+          })
       : rows;
 
+  let lastUserKey = "";
   const rowHtml = orderedRows
     .map((r) => {
       const miles =
@@ -231,13 +247,21 @@ export async function GET(req: Request) {
           ? Math.max(0, r.endingMileage - r.startingMileage)
           : null;
       const hours = hoursBetweenNumber(r.startTime, r.endTime);
+      const userLabel = r.createdByUser ? `${r.createdByUser.name} (${r.createdByUser.email})` : "-";
+      const userKey = `${r.createdByUser?.id ?? "none"}:${r.createdByUser?.email ?? ""}`;
+      const groupHeader =
+        userKey !== lastUserKey
+          ? `<div class="group-title">User: ${escapeHtml(userLabel)}</div>`
+          : "";
+      lastUserKey = userKey;
 
-      return `<section class="card keep">
+      return `${groupHeader}<section class="card keep">
   <div class="head">
     <div>
-      <div class="title">Work Order ${escapeHtml(r.id)}</div>
-      <div class="meta">Status: <b>${escapeHtml(String(r.status))}</b> | Location: <b>${escapeHtml(r.location?.name ?? "-")}</b></div>
-      <div class="meta">User: <b>${escapeHtml(r.createdByUser ? `${r.createdByUser.name} (${r.createdByUser.email})` : "-")}</b></div>
+      <div class="title">Work Order ${escapeHtml(r.workOrderNumber ?? r.id)}</div>
+      <div class="meta">Status: <b>${escapeHtml(statusLabel(r.status))}</b> | Location: <b>${escapeHtml(r.location?.name ?? "-")}</b></div>
+      <div class="meta">User: <b>${escapeHtml(userLabel)}</b></div>
+      <div class="meta">Internal ID: <b>${escapeHtml(r.id)}</b></div>
     </div>
     <div class="meta right">Created: ${escapeHtml(fmtLocal(r.createdAt))}<br/>Updated: ${escapeHtml(fmtLocal(r.updatedAt))}</div>
   </div>
@@ -299,8 +323,11 @@ export async function GET(req: Request) {
     .top-title { font-size: 22px; font-weight: 900; margin-bottom: 6px; }
     .meta { font-size: 12px; color: #222; }
     .right { text-align: right; }
+    .group-title { font-size: 14px; font-weight: 900; margin: 18px 0 8px; }
+    .group-title:first-of-type { margin-top: 0; }
     .card { border: 1px solid #999; padding: 10px; margin-bottom: 10px; }
-    .keep { break-inside: avoid-page; page-break-inside: avoid; }
+    .keep { break-inside: avoid-page; page-break-inside: avoid; break-after: page; page-break-after: always; min-height: calc(100vh - 30mm); }
+    .keep:last-of-type { break-after: auto; page-break-after: auto; }
     .head { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
     .title { font-size: 16px; font-weight: 900; margin-bottom: 4px; }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; }

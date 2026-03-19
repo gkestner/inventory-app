@@ -227,12 +227,12 @@ export async function GET(req: Request) {
 
   const where: {
     createdByUserId: string;
-    status: "SUBMITTED";
+    status: { in: ["SUBMITTED", "FINALIZED"] };
     startTime: { gte: Date; lt: Date };
     locationId?: string;
   } = {
     createdByUserId: me.id,
-    status: "SUBMITTED",
+    status: { in: ["SUBMITTED", "FINALIZED"] },
     // Travel Log semantics are Departure/Arrival (Start/End) -> range should follow startTime
     startTime: { gte: fromUtc, lt: toExclusiveUtc },
   };
@@ -383,7 +383,7 @@ export async function GET(req: Request) {
       </table>
 
       <div class="foot">
-        Derived from <b>SUBMITTED</b> Work Orders only. Departure = <b>Start</b>, Arrival = <b>End</b>. Totals count miles only when both mileages exist and the delta is &ge; 0.
+        Derived from <b>PENDING</b> and <b>GENERATED</b> work orders. Departure = <b>Start</b>, Arrival = <b>End</b>. Totals count miles only when both mileages exist and the delta is &ge; 0.
       </div>
     </div>
   </div>

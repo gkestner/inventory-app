@@ -300,6 +300,7 @@ enum EquipmentArea {
   LIGHTING
   PARKING_LOT
   OFFICE
+  PLUMBING
   HVAC_GAME_ROOM
   HVAC_KITCHEN
   HVAC_DINING_ROOM
@@ -478,6 +479,9 @@ model WorkOrder {
   id     String          @id @default(cuid())
   status WorkOrderStatus @default(DRAFT)
 
+  workOrderNumber String?   @unique
+  generatedAt     DateTime?
+
   locationId String
   location   Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
 
@@ -506,6 +510,7 @@ model WorkOrder {
   @@index([status, createdAt])
   @@index([locationId, createdAt])
   @@index([createdByUserId, createdAt])
+  @@index([generatedAt])
 }
 
 model PmSchedule {

@@ -106,7 +106,7 @@ export async function resolveVehicleCurrentMileageMap(vehicles: CompanyVehicleLi
   if (userIds.length > 0) {
     const rows = await db.workOrder.findMany({
       where: {
-        status: "SUBMITTED",
+        status: { in: ["SUBMITTED", "FINALIZED"] },
         createdByUserId: { in: userIds },
         OR: [{ endingMileage: { not: null } }, { startingMileage: { not: null } }],
       },

@@ -9,6 +9,7 @@ import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { canAccessAdmin } from "@/app/lib/admin-access";
 import { createAuditLog, getCompatDb } from "@/app/lib/workflow-foundations";
+import { finalizePendingWorkOrders } from "@/app/lib/work-order-number";
 import PingAutoRefresh from "./PingAutoRefresh";
 import WorkOrderSelectionWiring from "./WorkOrderSelectionWiring";
 
@@ -127,6 +128,54 @@ function asSavedFilterQuery(v: unknown): Record<string, string | undefined> {
     out[k] = t;
   }
   return out;
+}
+
+async function getActorUserId(session: AdminSession): Promise<string | null> {
+  const email = session?.user?.email?.trim().toLowerCase();
+  if (!email) return null;
+  const actor = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+  return actor?.id ?? null;
+}
+
+function statusLabel(status: WorkOrderStatus): string {
+  if (status === "DRAFT") return "IN PROGRESS";
+  if (status === "SUBMITTED") return "PENDING";
+  if (status === "FINALIZED") return "GENERATED";
+  return status;
+}
+
+function buildPendingWhere(params: {
+  q: string;
+  userId: string;
+  from: { y: number; m: number; d: number; raw: string } | null;
+  to: { y: number; m: number; d: number; raw: string } | null;
+}): Prisma.WorkOrderWhereInput {
+  const fromUtc = params.from ? nyMidnightUtc(params.from) : null;
+  const toExclusiveUtc = params.to ? addDaysUtc(nyMidnightUtc(params.to), 1) : null;
+
+  return {
+    ...(fromUtc || toExclusiveUtc
+      ? {
+          createdAt: {
+            ...(fromUtc ? { gte: fromUtc } : {}),
+            ...(toExclusiveUtc ? { lt: toExclusiveUtc } : {}),
+          },
+        }
+      : {}),
+    ...(params.userId !== "ALL" ? { createdByUserId: params.userId } : {}),
+    ...(params.q
+      ? {
+          OR: [
+            { id: { contains: params.q, mode: "insensitive" } },
+            { workOrderNumber: { contains: params.q, mode: "insensitive" } },
+            { notes: { contains: params.q, mode: "insensitive" } },
+            { location: { name: { contains: params.q, mode: "insensitive" } } },
+            { createdByUser: { name: { contains: params.q, mode: "insensitive" } } },
+            { createdByUser: { email: { contains: params.q, mode: "insensitive" } } },
+          ],
+        }
+      : {}),
+  };
 }
 
 export default async function AdminWorkOrdersPage({
@@ -280,6 +329,87 @@ export default async function AdminWorkOrdersPage({
     redirect(`/admin/work-orders/print?ids=${encodeURIComponent(ids.join(","))}`);
   }
 
+  async function generatePendingAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as AdminSession;
+    await requireAdmin(session);
+
+    const actorUserId = await getActorUserId(session);
+    const q = String(formData.get("q") ?? "").trim();
+    const userId = String(formData.get("userId") ?? "ALL").trim() || "ALL";
+    const from = parseYMD(String(formData.get("from") ?? "") || null);
+    const to = parseYMD(String(formData.get("to") ?? "") || null);
+
+    const generated = await prisma.$transaction((tx) =>
+      finalizePendingWorkOrders(tx, {
+        actorUserId,
+        where: buildPendingWhere({ q, userId, from, to }),
+      })
+    );
+
+    if (generated.length === 0) {
+      redirect(`/admin/work-orders${buildQS({ q: q || undefined, from: from?.raw, to: to?.raw, userId: userId !== "ALL" ? userId : undefined })}`);
+    }
+
+    await createAuditLog({
+      actorUserId,
+      module: "work-orders",
+      action: "generate-pending",
+      entityType: "WorkOrder",
+      message: `Generated ${generated.length} pending work order(s).`,
+      metadata: { count: generated.length, ids: generated.map((row) => row.id) },
+    });
+
+    revalidatePath("/admin/work-orders");
+    revalidatePath("/maintenance/work-orders");
+
+    redirect(`/admin/work-orders/print?ids=${encodeURIComponent(generated.map((row) => row.id).join(","))}`);
+  }
+
+  async function generateSelectedAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as AdminSession;
+    await requireAdmin(session);
+
+    const actorUserId = await getActorUserId(session);
+    const ids = formData
+      .getAll("ids")
+      .map((value) => String(value).trim())
+      .filter(Boolean)
+      .slice(0, 500);
+
+    if (ids.length === 0) {
+      redirect("/admin/work-orders");
+    }
+
+    const generated = await prisma.$transaction((tx) =>
+      finalizePendingWorkOrders(tx, {
+        actorUserId,
+        ids,
+      })
+    );
+
+    if (generated.length === 0) {
+      redirect("/admin/work-orders");
+    }
+
+    await createAuditLog({
+      actorUserId,
+      module: "work-orders",
+      action: "generate-selected",
+      entityType: "WorkOrder",
+      message: `Generated ${generated.length} selected work order(s).`,
+      metadata: { count: generated.length, ids: generated.map((row) => row.id) },
+    });
+
+    revalidatePath("/admin/work-orders");
+    revalidatePath("/maintenance/work-orders");
+
+    redirect(`/admin/work-orders/print?ids=${encodeURIComponent(generated.map((row) => row.id).join(","))}`);
+  }
+
   async function exportSelectedAction(formData: FormData) {
     "use server";
 
@@ -345,6 +475,7 @@ export default async function AdminWorkOrdersPage({
       ? {
           OR: [
             { id: { contains: q, mode: "insensitive" } },
+            { workOrderNumber: { contains: q, mode: "insensitive" } },
             { notes: { contains: q, mode: "insensitive" } },
             { location: { name: { contains: q, mode: "insensitive" } } },
             { createdByUser: { name: { contains: q, mode: "insensitive" } } },
@@ -362,6 +493,7 @@ export default async function AdminWorkOrdersPage({
       select: {
         id: true,
         status: true,
+        workOrderNumber: true,
         locationId: true,
         location: { select: { name: true } },
         startTime: true,
@@ -560,9 +692,9 @@ export default async function AdminWorkOrdersPage({
               <span style={{ fontWeight: 900, fontSize: 12 }}>Status</span>
               <select name="status" defaultValue={statusFilter} style={filterInput}>
                 <option value="ALL">All statuses</option>
-                <option value="DRAFT">DRAFT</option>
-                <option value="SUBMITTED">SUBMITTED</option>
-                <option value="FINALIZED">FINALIZED</option>
+                <option value="DRAFT">IN PROGRESS</option>
+                <option value="SUBMITTED">PENDING</option>
+                <option value="FINALIZED">GENERATED</option>
               </select>
             </label>
 
@@ -593,6 +725,17 @@ export default async function AdminWorkOrdersPage({
               <button type="submit" style={btn}>Save View</button>
             </form>
 
+            <form action={generatePendingAction} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <input type="hidden" name="q" value={q} />
+              <input type="hidden" name="from" value={fromParam?.raw ?? ""} />
+              <input type="hidden" name="to" value={toParam?.raw ?? ""} />
+              <input type="hidden" name="userId" value={userId} />
+              <button type="submit" style={btn}>Generate Pending</button>
+              <span style={{ fontSize: 12, opacity: 0.75 }}>
+                Assign numbers to pending work orders and open the grouped batch print.
+              </span>
+            </form>
+
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <span style={{ fontSize: 12, opacity: 0.85, fontWeight: 900 }}>Saved Views:</span>
               {savedViews.map((v) => {
@@ -616,7 +759,7 @@ export default async function AdminWorkOrdersPage({
           </div>
 
           <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
-            Batch print/export uses the exact filters above. Use row-level Print for a single work order.
+            Pending work orders stay in queue until generated. Generated work orders are finalized and carry a work order number.
           </div>
         </div>
 
@@ -702,6 +845,9 @@ export default async function AdminWorkOrdersPage({
                 <span id="selected-work-order-count" style={{ fontSize: 12, opacity: 0.8 }}>
                   0 selected
                 </span>
+                <button formAction={generateSelectedAction} style={btn}>
+                  Generate Selected
+                </button>
                 <button formAction={printSelectedAction} style={btn}>
                   Print Selected
                 </button>
@@ -751,7 +897,7 @@ export default async function AdminWorkOrdersPage({
                           </td>
 
                           <td style={{ ...td, fontWeight: 900 }}>
-                            <div style={ellipsis}>{wo.id.slice(0, 10)}...</div>
+                            <div style={ellipsis}>{wo.workOrderNumber ?? `${wo.id.slice(0, 10)}...`}</div>
                             <div style={{ fontSize: 12, opacity: 0.75, ...ellipsis }}>id: {wo.id}</div>
                           </td>
 
@@ -760,7 +906,7 @@ export default async function AdminWorkOrdersPage({
                           </td>
 
                           <td style={{ ...td, fontWeight: 900 }}>
-                            <div style={ellipsis}>{String(wo.status ?? "-")}</div>
+                            <div style={ellipsis}>{statusLabel(wo.status)}</div>
                           </td>
 
                           <td style={td}>

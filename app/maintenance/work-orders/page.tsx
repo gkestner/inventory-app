@@ -93,6 +93,7 @@ type EquipmentArea =
   | "LIGHTING"
   | "PARKING_LOT"
   | "OFFICE"
+  | "PLUMBING"
   | "HVAC_GAME_ROOM"
   | "HVAC_KITCHEN"
   | "HVAC_DINING_ROOM"
@@ -113,6 +114,7 @@ const EQUIPMENT_AREAS: EquipmentArea[] = [
   "LIGHTING",
   "PARKING_LOT",
   "OFFICE",
+  "PLUMBING",
   "HVAC_GAME_ROOM",
   "HVAC_KITCHEN",
   "HVAC_DINING_ROOM",
@@ -229,6 +231,8 @@ function formatAreaLabelWithLegacy(area: EquipmentAreaDb): string {
 
 function statusLabel(s: WorkOrderStatus): string {
   if (s === "DRAFT") return "IN PROGRESS";
+  if (s === "SUBMITTED") return "PENDING";
+  if (s === "FINALIZED") return "GENERATED";
   return s;
 }
 
@@ -294,6 +298,7 @@ export default async function MaintenanceWorkOrdersPage() {
     select: {
       id: true,
       status: true,
+      workOrderNumber: true,
       createdAt: true,
       locationId: true,
       location: { select: { name: true } },
@@ -312,6 +317,7 @@ export default async function MaintenanceWorkOrdersPage() {
     select: {
       id: true,
       status: true,
+      workOrderNumber: true,
       createdAt: true,
       locationId: true,
       location: { select: { name: true } },
@@ -606,13 +612,13 @@ export default async function MaintenanceWorkOrdersPage() {
 
       if (!wo || wo.createdByUserId !== me.id) throw new Error("Work order not found.");
       if (wo.status !== "DRAFT" && wo.status !== "SUBMITTED") {
-        throw new Error("Only IN PROGRESS or SUBMITTED work orders can be edited here.");
+        throw new Error("Only IN PROGRESS or PENDING work orders can be edited here.");
       }
 
-      // Keep submitted work orders complete.
+      // Keep pending work orders complete.
       if (wo.status === "SUBMITTED") {
-        if (!endTime) throw new Error("Submitted work orders require End Time.");
-        if (endingMileage === null) throw new Error("Submitted work orders require Ending Mileage.");
+        if (!endTime) throw new Error("Pending work orders require End Time.");
+        if (endingMileage === null) throw new Error("Pending work orders require Ending Mileage.");
       }
 
       await tx.workOrder.update({
@@ -803,7 +809,7 @@ export default async function MaintenanceWorkOrdersPage() {
                   </button>
 
                   <div style={{ fontSize: 14, opacity: 0.85 }}>
-                    This will set <b>end time</b>, save mileage/notes/areas, mark the work order <b>SUBMITTED</b>, and return you to the Start screen.
+                    This will set <b>end time</b>, save mileage/notes/areas, mark the work order <b>PENDING</b>, and return you to the Start screen.
                   </div>
                 </form>
               )}
@@ -857,6 +863,7 @@ export default async function MaintenanceWorkOrdersPage() {
                       <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)" }}>
                         <div style={{ fontWeight: 900 }}>{fmtLocal(wo.createdAt)}</div>
                         <div style={{ fontSize: 13, opacity: 0.85 }}>id: {wo.id}</div>
+                        {wo.workOrderNumber ? <div style={{ fontSize: 13, opacity: 0.85 }}>WO#: {wo.workOrderNumber}</div> : null}
                       </td>
 
                       <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)" }}>
@@ -987,15 +994,15 @@ export default async function MaintenanceWorkOrdersPage() {
                                 </button>
 
                                 <div style={{ fontSize: 12, opacity: 0.75 }}>
-                                  You can edit all fields for <b>IN PROGRESS</b> and <b>SUBMITTED</b> work orders.
-                                  FINALIZED work orders stay locked.
+                                  You can edit all fields for <b>IN PROGRESS</b> and <b>PENDING</b> work orders.
+                                  GENERATED work orders stay locked.
                                 </div>
                               </form>
                             </div>
                           </details>
                         ) : null}
 
-                        {isFinalized ? <div style={{ fontSize: 12, opacity: 0.7, textAlign: "right" }}>Finalized</div> : null}
+                        {isFinalized ? <div style={{ fontSize: 12, opacity: 0.7, textAlign: "right" }}>Generated</div> : null}
 
                         {!isOpenDraft && !isSubmitted && !isFinalized ? (
                           <div style={{ fontSize: 12, opacity: 0.7, textAlign: "right" }}>—</div>
@@ -1017,8 +1024,8 @@ export default async function MaintenanceWorkOrdersPage() {
           </div>
 
           <div style={{ marginTop: 12, fontSize: 14, opacity: 0.85 }}>
-            You can edit your own IN PROGRESS and SUBMITTED work orders from this list, including location, times,
-            mileage, notes, and equipment areas. FINALIZED work orders are locked.
+            You can edit your own IN PROGRESS and PENDING work orders from this list, including location, times,
+            mileage, notes, and equipment areas. GENERATED work orders are locked.
           </div>
         </div>
       </div>

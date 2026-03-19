@@ -10,6 +10,7 @@ import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { canAccessAdmin } from "@/app/lib/admin-access";
 import { createAuditLog, getCompatDb, getGcsConfig } from "@/app/lib/workflow-foundations";
+import { ensureFinalizedWorkOrderNumber, finalizePendingWorkOrders } from "@/app/lib/work-order-number";
 import AttachmentUploader from "./AttachmentUploader";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +48,7 @@ type EquipmentArea =
   | "LIGHTING"
   | "PARKING_LOT"
   | "OFFICE"
+  | "PLUMBING"
   | "HVAC_GAME_ROOM"
   | "HVAC_KITCHEN"
   | "HVAC_DINING_ROOM"
@@ -67,6 +69,7 @@ const EQUIPMENT_AREAS: EquipmentArea[] = [
   "LIGHTING",
   "PARKING_LOT",
   "OFFICE",
+  "PLUMBING",
   "HVAC_GAME_ROOM",
   "HVAC_KITCHEN",
   "HVAC_DINING_ROOM",
@@ -82,6 +85,7 @@ type WorkOrderEquipmentAreaRow = { area: EquipmentAreaDb };
 type WorkOrderRow = {
   id: string;
   status: WorkOrderStatus;
+  workOrderNumber?: string | null;
   notes: string | null;
   startTime: Date | null;
   endTime: Date | null;
@@ -118,6 +122,7 @@ type WorkOrderAttachmentRow = {
  */
 type PrismaWorkOrderDelegate = {
   findUnique: (args: unknown) => Promise<WorkOrderRow | null>;
+  findMany: (args: unknown) => Promise<WorkOrderRow[]>;
   update: (args: unknown) => Promise<unknown>;
   delete: (args: unknown) => Promise<unknown>;
 };
@@ -297,8 +302,8 @@ function formatAreaLabel(area: string): string {
 
 function statusLabel(s: WorkOrderStatus): string {
   if (s === "DRAFT") return "IN PROGRESS";
-  if (s === "SUBMITTED") return "SUBMITTED";
-  if (s === "FINALIZED") return "FINALIZED";
+  if (s === "SUBMITTED") return "PENDING";
+  if (s === "FINALIZED") return "GENERATED";
   return s;
 }
 
@@ -501,6 +506,11 @@ export default async function AdminWorkOrderDetailPage({
     const endingMileage = parseOptionalInt(formData.get("endingMileage"));
     const areas = parseAreas(formData);
 
+    if (status === "FINALIZED") {
+      if (!endTime) throw new Error("Generated work orders require End Time.");
+      if (endingMileage === null) throw new Error("Generated work orders require Ending Mileage.");
+    }
+
     await db.$transaction(async (tx) => {
       await tx.workOrder.update({
         where: { id },
@@ -522,6 +532,10 @@ export default async function AdminWorkOrderDetailPage({
           data: areas.map((area) => ({ workOrderId: id, area })),
         });
       }
+
+      if (status === "FINALIZED") {
+        await ensureFinalizedWorkOrderNumber(tx, id, actorUserId);
+      }
     });
 
     await createAuditLog({
@@ -540,6 +554,40 @@ export default async function AdminWorkOrderDetailPage({
 
     const h = await headers();
     redirect(safeReturnToPathFromReferer(h.get("referer"), `/admin/work-orders/${id}`));
+  }
+
+  async function generateAction() {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as AdminSession;
+    await requireAdmin(session);
+    const actorUserId = await getActorUserId(session);
+
+    const generated = await db.$transaction((tx) =>
+      finalizePendingWorkOrders(tx, {
+        actorUserId,
+        ids: [id],
+      })
+    );
+
+    if (generated.length === 0) {
+      redirect(`/admin/work-orders/${id}`);
+    }
+
+    await createAuditLog({
+      actorUserId,
+      module: "work-orders",
+      action: "generate-single",
+      entityType: "WorkOrder",
+      entityId: id,
+      workOrderId: id,
+      message: `Generated work order ${generated[0].workOrderNumber}.`,
+    });
+
+    revalidatePath(`/admin/work-orders/${id}`);
+    revalidatePath(`/admin/work-orders`);
+    revalidatePath(`/maintenance/work-orders`);
+    redirect(`/admin/work-orders/print?ids=${encodeURIComponent(id)}`);
   }
 
   async function deleteAction(formData: FormData) {
@@ -634,8 +682,14 @@ export default async function AdminWorkOrderDetailPage({
           >
             Print
           </a>
+          <form action={generateAction}>
+            <button type="submit" style={btn} disabled={workOrder.status !== "SUBMITTED"}>
+              Generate
+            </button>
+          </form>
           <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>Work Order</h1>
           <div style={{ opacity: 0.8, fontSize: 12 }}>id: {workOrder.id}</div>
+          {workOrder.workOrderNumber ? <div style={{ opacity: 0.8, fontSize: 12 }}>WO#: {workOrder.workOrderNumber}</div> : null}
         </div>
 
         <div style={{ ...card, marginTop: 12 }}>

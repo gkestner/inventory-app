@@ -41,6 +41,7 @@ type RequiredEquipmentArea =
   | "LIGHTING"
   | "PARKING_LOT"
   | "OFFICE"
+  | "PLUMBING"
   | "HVAC_GAME_ROOM"
   | "HVAC_KITCHEN"
   | "HVAC_DINING_ROOM"
@@ -71,6 +72,7 @@ const EQUIPMENT_AREAS: RequiredEquipmentArea[] = [
   "LIGHTING",
   "PARKING_LOT",
   "OFFICE",
+  "PLUMBING",
   "HVAC_GAME_ROOM",
   "HVAC_KITCHEN",
   "HVAC_DINING_ROOM",
@@ -244,6 +246,8 @@ function formatAreaLabelWithLegacy(area: EquipmentArea): string {
 
 function statusLabel(s: WorkOrderStatus): string {
   if (s === "DRAFT") return "IN PROGRESS";
+  if (s === "SUBMITTED") return "PENDING";
+  if (s === "FINALIZED") return "GENERATED";
   return s;
 }
 
@@ -315,6 +319,7 @@ export default async function MaintenanceWorkOrderDetailPage({
     select: {
       id: true,
       status: true,
+      workOrderNumber: true,
       createdAt: true,
       updatedAt: true,
       locationId: true,
@@ -658,6 +663,7 @@ export default async function MaintenanceWorkOrderDetailPage({
           </Link>
           <h1 style={{ fontSize: 26, fontWeight: 900, margin: 0 }}>Work Order</h1>
           <div style={{ fontSize: 14, opacity: 0.8 }}>id: {workOrder.id}</div>
+          {workOrder.workOrderNumber ? <div style={{ fontSize: 14, opacity: 0.8 }}>WO#: {workOrder.workOrderNumber}</div> : null}
         </div>
 
         <div style={{ ...card, marginTop: 14 }}>
@@ -891,7 +897,7 @@ export default async function MaintenanceWorkOrderDetailPage({
 
           <form action={submitAction} style={{ display: "grid", gap: 12, maxWidth: 720 }}>
             <div style={{ fontSize: 15, opacity: 0.85 }}>
-              Submitting requires <b>End Time</b> and <b>Ending Mileage</b>. This marks status = <b>SUBMITTED</b>.
+              Submitting requires <b>End Time</b> and <b>Ending Mileage</b>. This marks status = <b>PENDING</b>.
             </div>
 
             <label style={label}>

@@ -148,6 +148,7 @@ function buildWhere(url: URL): Prisma.WorkOrderWhereInput {
       ? {
           OR: [
             { id: { contains: q, mode: "insensitive" } },
+            { workOrderNumber: { contains: q, mode: "insensitive" } },
             { notes: { contains: q, mode: "insensitive" } },
             { location: { name: { contains: q, mode: "insensitive" } } },
             { createdByUser: { name: { contains: q, mode: "insensitive" } } },
@@ -181,6 +182,7 @@ export async function GET(req: Request) {
     select: {
       id: true,
       status: true,
+      workOrderNumber: true,
       notes: true,
       startTime: true,
       endTime: true,
@@ -204,6 +206,7 @@ export async function GET(req: Request) {
 
   const header = [
     "workOrderId",
+    "workOrderNumber",
     "quickbooksDate",
     "quickbooksRefNumber",
     "quickbooksMemo",
@@ -241,8 +244,9 @@ export async function GET(req: Request) {
     lines.push(
       [
         csvEscape(r.id),
+        csvEscape(r.workOrderNumber ?? ""),
         csvEscape(fmtDate(r.startTime ?? r.createdAt)),
-        csvEscape(r.id),
+        csvEscape(r.workOrderNumber ?? r.id),
         csvEscape(quickbooksMemo),
         csvEscape(r.createdByUser?.name ?? ""),
         csvEscape(r.location?.name ?? ""),

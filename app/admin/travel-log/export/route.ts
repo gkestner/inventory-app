@@ -143,7 +143,7 @@ export async function GET(req: Request) {
   const q = (url.searchParams.get("q") || "").trim();
 
   const where: Prisma.WorkOrderWhereInput = {
-    status: WorkOrderStatus.SUBMITTED,
+    status: { in: [WorkOrderStatus.SUBMITTED, WorkOrderStatus.FINALIZED] },
     startTime: { gte: fromUtc, lt: toExclusiveUtc },
     ...(locationId && locationId !== "ALL" ? { locationId } : {}),
     ...(userId && userId !== "ALL" ? { createdByUserId: userId } : {}),

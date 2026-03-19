@@ -213,12 +213,12 @@ export default async function MaintenanceTravelLogPage({
 
   const where: {
     createdByUserId: string;
-    status: "SUBMITTED";
+    status: { in: ["SUBMITTED", "FINALIZED"] };
     startTime: { gte: Date; lt: Date };
     locationId?: string;
   } = {
     createdByUserId: me.id,
-    status: "SUBMITTED",
+    status: { in: ["SUBMITTED", "FINALIZED"] },
     startTime: { gte: fromUtc, lt: toExclusiveUtc },
   };
 
@@ -402,7 +402,7 @@ export default async function MaintenanceTravelLogPage({
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={9} style={{ ...thtd, opacity: 0.8 }}>
-                  No submitted work orders found for this range/location.
+                  No pending or generated work orders found for this range/location.
                 </td>
               </tr>
             ) : null}
