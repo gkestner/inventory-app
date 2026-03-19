@@ -148,6 +148,15 @@ function parseAmountToCents(raw: FormDataEntryValue | null): number {
   return Math.round(n * 100);
 }
 
+function splitAmountAcrossLocations(totalCents: number, count: number): number[] {
+  if (!Number.isInteger(count) || count <= 0) throw new Error("At least one location is required.");
+
+  const base = Math.floor(totalCents / count);
+  const remainder = totalCents % count;
+
+  return Array.from({ length: count }, (_, index) => base + (index < remainder ? 1 : 0));
+}
+
 function parseAreas(formData: FormData): RequiredEquipmentArea[] {
   const raw = formData.getAll("areas");
   const allowed = new Set<string>(EQUIPMENT_AREAS);
@@ -486,17 +495,6 @@ export default async function MaintenanceReceiptPage({
     });
     if (!selectedUser || !selectedUser.active) throw new Error("Selected user is not active.");
 
-    if (!perms.allowAll) {
-      const userAllowed = new Set<string>();
-      if (selectedUser.locationId) userAllowed.add(selectedUser.locationId);
-      for (const a of selectedUser.allowedLocations) userAllowed.add(a.locationId);
-      for (const locId of selectedLocationIds) {
-        if (!userAllowed.has(locId)) {
-          throw new Error("Selected user is not assigned to all selected locations.");
-        }
-      }
-    }
-
     const billedBackVendorRaw = String(formData.get("billedBackVendor") ?? "").trim();
     const billedBackVendor = billedBackVendorRaw as BilledBackVendor;
     const anyBilledBack = selectedLocations.some((loc) => locationNeedsBilledBackVendor(loc.locationNumber, loc.name));
@@ -526,15 +524,17 @@ export default async function MaintenanceReceiptPage({
       throw new Error("Receipt tables are not available. Run latest migrations.");
     }
 
+    const splitAmounts = splitAmountAcrossLocations(amountCents, selectedLocations.length);
+
     const createdEntries = await db.$transaction(async (tx: any) => {
       const entries: { id: string }[] = [];
-      for (const loc of selectedLocations) {
+      for (const [index, loc] of selectedLocations.entries()) {
         const needsBilledBackVendor = locationNeedsBilledBackVendor(loc.locationNumber, loc.name);
         const entry = await tx.receiptEntry.create({
           data: {
             receiptDate,
             locationId: loc.id,
-            amountCents,
+            amountCents: splitAmounts[index] ?? 0,
             billedBackVendor: needsBilledBackVendor ? billedBackVendor : null,
             notes: notes || null,
             createdByUserId,
@@ -728,30 +728,6 @@ export default async function MaintenanceReceiptPage({
             </label>
 
             <label style={{ display: "grid", gap: 6, fontWeight: 800, minWidth: 0 }}>
-              Location <span style={{ fontWeight: 400, fontSize: 12 }}>(hold Ctrl / Cmd to select multiple)</span>
-              <select
-                id="receipt-location-select"
-                name="locationIds"
-                multiple
-                size={Math.min(allowedLocations.length, 6)}
-                required
-                style={{ ...input, height: "auto", padding: "4px" }}
-                disabled={!canCreateOnAnyLocation}
-              >
-                {allowedLocations.map((l) => (
-                  <option
-                    key={l.id}
-                    value={l.id}
-                    data-location-number={l.locationNumber ?? ""}
-                    data-location-name={l.name}
-                  >
-                    {l.name}{l.source === "PRIMARY" ? " (Primary)" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label style={{ display: "grid", gap: 6, fontWeight: 800, minWidth: 0 }}>
               User
               <select name="createdByUserId" defaultValue={me.id} required style={input} disabled={!canCreateOnAnyLocation}>
                 <option value="">Select user</option>
@@ -767,6 +743,51 @@ export default async function MaintenanceReceiptPage({
               Amount
               <input type="number" name="amount" min="0.01" step="0.01" placeholder="0.00" required style={input} disabled={!canCreateOnAnyLocation} />
             </label>
+          </div>
+
+          <div style={{ display: "grid", gap: 6 }}>
+            <div style={{ fontWeight: 800 }}>
+              Location <span style={{ fontWeight: 400, fontSize: 12 }}>(select all that apply)</span>
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: 8,
+              }}
+            >
+              {allowedLocations.map((l) => (
+                <label
+                  key={l.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    border,
+                    borderRadius: 10,
+                    padding: "10px 12px",
+                    background: "var(--background)",
+                    fontWeight: 700,
+                    minWidth: 0,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    name="locationIds"
+                    value={l.id}
+                    data-location-number={l.locationNumber ?? ""}
+                    data-location-name={l.name}
+                    className="receipt-location-cb"
+                    style={checkboxStyle}
+                    disabled={!canCreateOnAnyLocation}
+                  />
+                  <span style={{ overflowWrap: "anywhere" }}>
+                    {l.name}
+                    {l.source === "PRIMARY" ? " (Primary)" : ""}
+                  </span>
+                </label>
+              ))}
+            </div>
           </div>
 
           <div style={{ fontSize: 12, color: "var(--muted)", marginTop: -4 }}>
@@ -797,16 +818,17 @@ export default async function MaintenanceReceiptPage({
           <script
             dangerouslySetInnerHTML={{
               __html: `(() => {
-  const locationSelect = document.getElementById("receipt-location-select");
   const vendorWrap = document.getElementById("receipt-billed-back-vendor-wrap");
   const vendorSelect = document.getElementById("receipt-billed-back-vendor");
-  if (!locationSelect || !vendorWrap || !vendorSelect) return;
+  const checkboxes = document.querySelectorAll('input.receipt-location-cb');
+  if (!vendorWrap || !vendorSelect || !checkboxes.length) return;
 
   const syncVendorVisibility = () => {
     let show = false;
-    Array.from(locationSelect.selectedOptions).forEach(function(opt) {
-      const locationNumber = (opt.dataset.locationNumber || "").trim();
-      const locationName = (opt.dataset.locationName || "").toLowerCase();
+    checkboxes.forEach(function(cb) {
+      if (!cb.checked) return;
+      const locationNumber = (cb.dataset.locationNumber || "").trim();
+      const locationName = (cb.dataset.locationName || "").toLowerCase();
       if (locationNumber === "100" || locationName.includes("billed back")) show = true;
     });
     vendorWrap.style.display = show ? "grid" : "none";
@@ -815,7 +837,7 @@ export default async function MaintenanceReceiptPage({
   };
 
   syncVendorVisibility();
-  locationSelect.addEventListener("change", syncVendorVisibility);
+  checkboxes.forEach(function(cb) { cb.addEventListener("change", syncVendorVisibility); });
 })();`,
             }}
           />
