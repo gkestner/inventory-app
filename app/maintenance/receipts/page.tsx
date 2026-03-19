@@ -439,8 +439,12 @@ export default async function MaintenanceReceiptPage({
     const receiptDate = parseYmdDateAsUtcNoon(formData.get("receiptDate"));
     const amountCents = parseAmountToCents(formData.get("amount"));
 
-    const locationIdRaw = formData.get("locationId");
-    const locationId = typeof locationIdRaw === "string" ? locationIdRaw.trim() : "";
+    const locationIdsRaw = formData.getAll("locationIds");
+    const selectedLocationIds = locationIdsRaw
+      .filter((v): v is string => typeof v === "string")
+      .map((v) => v.trim())
+      .filter(Boolean);
+    if (selectedLocationIds.length === 0) throw new Error("Please select at least one location.");
 
     const createdByUserIdRaw = formData.get("createdByUserId");
     const createdByUserId = typeof createdByUserIdRaw === "string" ? createdByUserIdRaw.trim() : "";
@@ -459,14 +463,16 @@ export default async function MaintenanceReceiptPage({
         if (a.location?.active) allowed.add(a.locationId);
       }
     }
-    if (!allowed.has(locationId)) throw new Error("Invalid location selection.");
+    for (const locId of selectedLocationIds) {
+      if (!allowed.has(locId)) throw new Error("Invalid location selection.");
+    }
 
-    const selectedLocation = await prisma.location.findUnique({
-      where: { id: locationId },
-      select: { id: true, name: true, active: true, receiptEnabled: true, locationNumber: true },
+    const selectedLocations = await prisma.location.findMany({
+      where: { id: { in: selectedLocationIds }, active: true },
+      select: { id: true, name: true, locationNumber: true },
     });
-    if (!selectedLocation || !selectedLocation.active) {
-      throw new Error("Selected location is not active.");
+    if (selectedLocations.length !== selectedLocationIds.length) {
+      throw new Error("One or more selected locations are inactive or not found.");
     }
 
     const selectedUser = await prisma.user.findUnique({
@@ -483,15 +489,17 @@ export default async function MaintenanceReceiptPage({
     const userAllowed = new Set<string>();
     if (selectedUser.locationId) userAllowed.add(selectedUser.locationId);
     for (const a of selectedUser.allowedLocations) userAllowed.add(a.locationId);
-    if (!userAllowed.has(locationId)) {
-      throw new Error("Selected user is not assigned to the selected location.");
+    for (const locId of selectedLocationIds) {
+      if (!userAllowed.has(locId)) {
+        throw new Error("Selected user is not assigned to all selected locations.");
+      }
     }
 
     const billedBackVendorRaw = String(formData.get("billedBackVendor") ?? "").trim();
-    const needsBilledBackVendor = locationNeedsBilledBackVendor(selectedLocation.locationNumber, selectedLocation.name);
     const billedBackVendor = billedBackVendorRaw as BilledBackVendor;
-    if (needsBilledBackVendor && !BILLED_BACK_VENDORS.includes(billedBackVendor)) {
-      throw new Error("Please select a billed-back vendor for location 100 - Billed Back.");
+    const anyBilledBack = selectedLocations.some((loc) => locationNeedsBilledBackVendor(loc.locationNumber, loc.name));
+    if (anyBilledBack && !BILLED_BACK_VENDORS.includes(billedBackVendor)) {
+      throw new Error("Please select a billed-back vendor for the billed-back location.");
     }
 
     const areas = parseAreas(formData);
@@ -516,24 +524,27 @@ export default async function MaintenanceReceiptPage({
       throw new Error("Receipt tables are not available. Run latest migrations.");
     }
 
-    const created = await db.$transaction(async (tx: any) => {
-      const created = await tx.receiptEntry.create({
-        data: {
-          receiptDate,
-          locationId,
-          amountCents,
-          billedBackVendor: needsBilledBackVendor ? billedBackVendor : null,
-          notes: notes || null,
-          createdByUserId,
-        },
-        select: { id: true },
-      });
-
-      await tx.receiptEntryArea.createMany({
-        data: areas.map((area) => ({ receiptEntryId: created.id, area })),
-      });
-
-      return created;
+    const createdEntries = await db.$transaction(async (tx: any) => {
+      const entries: { id: string }[] = [];
+      for (const loc of selectedLocations) {
+        const needsBilledBackVendor = locationNeedsBilledBackVendor(loc.locationNumber, loc.name);
+        const entry = await tx.receiptEntry.create({
+          data: {
+            receiptDate,
+            locationId: loc.id,
+            amountCents,
+            billedBackVendor: needsBilledBackVendor ? billedBackVendor : null,
+            notes: notes || null,
+            createdByUserId,
+          },
+          select: { id: true },
+        });
+        await tx.receiptEntryArea.createMany({
+          data: areas.map((area) => ({ receiptEntryId: entry.id, area })),
+        });
+        entries.push(entry);
+      }
+      return entries;
     });
 
     if (fileCandidates.length > 0) {
@@ -548,30 +559,30 @@ export default async function MaintenanceReceiptPage({
         .replace(/\/+$/, "");
 
       for (const file of fileCandidates) {
-        const safeName = cleanSegment(file.name || "receipt-file");
-        const requestedPath = `${basePath}/${created.id}/${Date.now()}-${randomUUID()}-${safeName}`;
         const bytes = Buffer.from(await file.arrayBuffer());
-
-        const blob = await put(requestedPath, bytes, {
-          access: "public",
-          contentType: file.type || "application/octet-stream",
-          addRandomSuffix: false,
-          token: blobToken,
-        });
-        const storageKey = blob.pathname || requestedPath;
-        const url = blob.url;
-
-        await db.receiptFile.create({
-          data: {
-            receiptEntryId: created.id,
-            uploadedByUserId: me.id,
-            fileName: file.name || "receipt-file",
-            contentType: file.type || null,
-            byteSize: file.size,
-            storageKey,
-            url,
-          },
-        });
+        for (const entry of createdEntries) {
+          const safeName = cleanSegment(file.name || "receipt-file");
+          const requestedPath = `${basePath}/${entry.id}/${Date.now()}-${randomUUID()}-${safeName}`;
+          const blob = await put(requestedPath, bytes, {
+            access: "public",
+            contentType: file.type || "application/octet-stream",
+            addRandomSuffix: false,
+            token: blobToken,
+          });
+          const storageKey = blob.pathname || requestedPath;
+          const url = blob.url;
+          await db.receiptFile.create({
+            data: {
+              receiptEntryId: entry.id,
+              uploadedByUserId: me.id,
+              fileName: file.name || "receipt-file",
+              contentType: file.type || null,
+              byteSize: file.size,
+              storageKey,
+              url,
+            },
+          });
+        }
       }
     }
 
@@ -695,11 +706,6 @@ export default async function MaintenanceReceiptPage({
     accentColor: "var(--brand)",
   };
 
-  const defaultLocation = allowedLocations[0] ?? null;
-  const showBilledBackVendorByDefault = defaultLocation
-    ? locationNeedsBilledBackVendor(defaultLocation.locationNumber, defaultLocation.name)
-    : false;
-
   return (
     <main style={{ padding: 24, maxWidth: 1200, margin: "0 auto", display: "grid", gap: 14 }}>
       <section style={card}>
@@ -719,30 +725,39 @@ export default async function MaintenanceReceiptPage({
               <input type="date" name="receiptDate" defaultValue={todayNy} required style={input} disabled={!canCreateOnAnyLocation} />
             </label>
 
-            <label style={{ display: "grid", gap: 6, fontWeight: 800, minWidth: 0 }}>
-              Location
-              <select
-                id="receipt-location-select"
-                name="locationId"
-                defaultValue={allowedLocations[0]?.id ?? ""}
-                required
-                style={input}
-                disabled={!canCreateOnAnyLocation}
-              >
-                <option value="">Select location</option>
+            <div style={{ display: "grid", gap: 6, fontWeight: 800, minWidth: 0 }}>
+              Location <span style={{ fontWeight: 400, fontSize: 12 }}>(select all that apply)</span>
+              <div style={{ display: "grid", gap: 6 }}>
                 {allowedLocations.map((l) => (
-                  <option
+                  <label
                     key={l.id}
-                    value={l.id}
-                    data-location-number={l.locationNumber ?? ""}
-                    data-location-name={l.name}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      border,
+                      borderRadius: 10,
+                      padding: "8px 10px",
+                      background: "var(--background)",
+                      fontWeight: 700,
+                      cursor: canCreateOnAnyLocation ? "pointer" : "default",
+                    }}
                   >
-                    {l.name}
-                    {l.source === "PRIMARY" ? " (Primary)" : ""}
-                  </option>
+                    <input
+                      type="checkbox"
+                      name="locationIds"
+                      value={l.id}
+                      data-location-number={l.locationNumber ?? ""}
+                      data-location-name={l.name}
+                      className="receipt-location-cb"
+                      style={checkboxStyle}
+                      disabled={!canCreateOnAnyLocation}
+                    />
+                    {l.name}{l.source === "PRIMARY" ? " (Primary)" : ""}
+                  </label>
                 ))}
-              </select>
-            </label>
+              </div>
+            </div>
 
             <label style={{ display: "grid", gap: 6, fontWeight: 800, minWidth: 0 }}>
               User
@@ -769,7 +784,7 @@ export default async function MaintenanceReceiptPage({
           <div
             id="receipt-billed-back-vendor-wrap"
             style={{
-              display: showBilledBackVendorByDefault ? "grid" : "none",
+              display: "none",
               gap: 6,
               fontWeight: 800,
             }}
@@ -790,23 +805,27 @@ export default async function MaintenanceReceiptPage({
           <script
             dangerouslySetInnerHTML={{
               __html: `(() => {
-  const locationSelect = document.getElementById("receipt-location-select");
   const vendorWrap = document.getElementById("receipt-billed-back-vendor-wrap");
   const vendorSelect = document.getElementById("receipt-billed-back-vendor");
-  if (!locationSelect || !vendorWrap || !vendorSelect) return;
+  const checkboxes = document.querySelectorAll('input.receipt-location-cb');
+  if (!vendorWrap || !vendorSelect || !checkboxes.length) return;
 
   const syncVendorVisibility = () => {
-    const selected = locationSelect.options[locationSelect.selectedIndex];
-    const locationNumber = (selected?.dataset?.locationNumber || "").trim();
-    const locationName = (selected?.dataset?.locationName || "").toLowerCase();
-    const show = locationNumber === "100" || locationName.includes("billed back");
+    let show = false;
+    checkboxes.forEach(function(cb) {
+      if (cb.checked) {
+        const locationNumber = (cb.dataset.locationNumber || "").trim();
+        const locationName = (cb.dataset.locationName || "").toLowerCase();
+        if (locationNumber === "100" || locationName.includes("billed back")) show = true;
+      }
+    });
     vendorWrap.style.display = show ? "grid" : "none";
     vendorSelect.required = show;
     if (!show) vendorSelect.value = "";
   };
 
   syncVendorVisibility();
-  locationSelect.addEventListener("change", syncVendorVisibility);
+  checkboxes.forEach(function(cb) { cb.addEventListener("change", syncVendorVisibility); });
 })();`,
             }}
           />
