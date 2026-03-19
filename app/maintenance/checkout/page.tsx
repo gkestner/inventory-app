@@ -73,6 +73,20 @@ function toSafeActionErrorMessage(err: unknown, fallback: string): string {
   return raw.replace(/\s+/g, " ").trim().slice(0, 220) || fallback;
 }
 
+function sanitizeForQuery(value: string): string {
+  return String(value ?? "")
+    .replace(/[\uD800-\uDFFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function redirectWithErr(path: string, message: string, fallback = "Action failed") {
+  const safe = sanitizeForQuery(message || fallback) || fallback;
+  const sp = new URLSearchParams();
+  sp.set("err", safe);
+  redirect(`${path}?${sp.toString()}`);
+}
+
 async function loadCheckoutUsers(): Promise<UserOption[]> {
   try {
     const rows = await prisma.user.findMany({
@@ -223,49 +237,78 @@ export default async function MaintenanceCheckoutPage({
     orderedAllowedLocations = [...primary, ...optional];
   }
 
-  const [items, locationsAllActive, users, recentTickets] = await Promise.all([
-    prisma.item.findMany({
-      where: { active: true },
-      orderBy: { sku: "asc" },
-      select: {
-        id: true,
-        sku: true,
-        partNumber: true,
-        name: true,
-        onHandQty: true,
-        orderedQty: true,
-        minQty: true,
+  let loadErr: string | null = null;
+  let items: Array<{
+    id: string;
+    sku: string;
+    partNumber: string | null;
+    name: string;
+    onHandQty: number;
+    orderedQty: number;
+    minQty: number;
+    category: string | null;
+    manufacturer: string | null;
+    orderFrom: string | null;
+  }> = [];
+  let locationsAllActive: Array<{ id: string; name: string }> = [];
+  let users: UserOption[] = [];
+  let recentTickets: Array<{
+    id: string;
+    status: string;
+    itemId: string;
+    storeId: string;
+    storeName: string;
+    quantity: number;
+    createdAt: Date;
+    skuSnapshot: string;
+    nameSnapshot: string;
+  }> = [];
 
-        // ✅ helps the same search behavior as the inventory-orders picker
-        category: true,
-        manufacturer: true,
-        orderFrom: true,
-      },
-    }),
-    prisma.location.findMany({
-      where: { active: true, receiptEnabled: true },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true },
-    }),
-    loadCheckoutUsers(),
-    prisma.partsCheckoutTicket.findMany({
-      where: { status: { in: ["OPEN", "INVOICED"] } },
-      orderBy: { createdAt: "desc" },
-      take: 120,
-      select: {
-        id: true,
-        status: true,
-        itemId: true,
-        storeId: true,
-        storeName: true,
-        quantity: true,
-        createdAt: true,
-        skuSnapshot: true,
-        nameSnapshot: true,
-      },
-    }),
-
-  ]);
+  try {
+    [items, locationsAllActive, users, recentTickets] = await Promise.all([
+      prisma.item.findMany({
+        where: { active: true },
+        orderBy: { sku: "asc" },
+        select: {
+          id: true,
+          sku: true,
+          partNumber: true,
+          name: true,
+          onHandQty: true,
+          orderedQty: true,
+          minQty: true,
+          category: true,
+          manufacturer: true,
+          orderFrom: true,
+        },
+      }),
+      prisma.location.findMany({
+        where: { active: true, receiptEnabled: true },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+      }),
+      loadCheckoutUsers(),
+      prisma.partsCheckoutTicket.findMany({
+        where: { status: { in: ["OPEN", "INVOICED"] } },
+        orderBy: { createdAt: "desc" },
+        take: 120,
+        select: {
+          id: true,
+          status: true,
+          itemId: true,
+          storeId: true,
+          storeName: true,
+          quantity: true,
+          createdAt: true,
+          skuSnapshot: true,
+          nameSnapshot: true,
+        },
+      }),
+    ]);
+  } catch (e: unknown) {
+    loadErr = toSafeActionErrorMessage(e, "Checkout data failed to load");
+    console.error("[maintenance/checkout] data load failed", e);
+  }
 
   const locations = orderedAllowedLocations ?? locationsAllActive;
   const allowedStoreIds = new Set(locations.map((l) => l.id));
@@ -531,8 +574,7 @@ export default async function MaintenanceCheckoutPage({
       }
 
       const msg = toSafeActionErrorMessage(e, "Checkout failed");
-
-      redirect(`/maintenance/checkout?err=${encodeURIComponent(msg)}`);
+      redirectWithErr("/maintenance/checkout", msg, "Checkout failed");
     }
   }
 
@@ -715,8 +757,7 @@ export default async function MaintenanceCheckoutPage({
       }
 
       const msg = toSafeActionErrorMessage(e, "Return failed");
-
-      redirect(`/maintenance/checkout?err=${encodeURIComponent(msg)}`);
+      redirectWithErr("/maintenance/checkout", msg, "Return failed");
     }
   }
 
@@ -791,6 +832,21 @@ export default async function MaintenanceCheckoutPage({
           }}
         >
           Checkout failed: {err}
+        </div>
+      ) : null}
+
+      {loadErr ? (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: 10,
+            borderRadius: 10,
+            border: "1px solid rgba(220,53,69,0.45)",
+            background: "rgba(220,53,69,0.08)",
+            color: "var(--foreground)",
+          }}
+        >
+          Checkout page warning: {loadErr}
         </div>
       ) : null}
 

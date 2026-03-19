@@ -36,6 +36,14 @@ function normStatus(v: string | undefined) {
   return "OPEN" as PartsCheckoutStatus;
 }
 
+function userAssignedToStore(
+  user: { locationId: string | null; allowedLocations: Array<{ locationId: string }> },
+  storeId: string
+): boolean {
+  if (user.locationId === storeId) return true;
+  return user.allowedLocations.some((x) => x.locationId === storeId);
+}
+
 export default async function MaintenanceTicketsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
   const sp = await searchParams;
@@ -61,6 +69,271 @@ export default async function MaintenanceTicketsPage({ searchParams }: { searchP
 
     revalidatePath("/admin/maintenance-tickets");
     revalidatePath(`/admin/maintenance-tickets/${id}/invoice`);
+  }
+
+  async function editTicketAction(formData: FormData) {
+    "use server";
+    const session = await getServerSession(authOptions);
+    if (!(await canAccessAdmin(session))) throw new Error("Forbidden");
+
+    const id = String(formData.get("id") || "").trim();
+    const itemId = String(formData.get("itemId") || "").trim();
+    const storeId = String(formData.get("storeId") || "").trim();
+    const createdByUserId = String(formData.get("createdByUserId") || "").trim();
+    const quantity = Number(String(formData.get("quantity") || "").trim());
+    if (!id) throw new Error("Missing ticket id");
+    if (!itemId) throw new Error("Missing item");
+    if (!storeId) throw new Error("Missing store");
+    if (!createdByUserId) throw new Error("Missing tech");
+    if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("Invalid quantity");
+
+    const noteRaw = String(formData.get("note") ?? "").trim();
+    const note = noteRaw ? noteRaw : null;
+    const needToOrderMore = String(formData.get("needToOrderMore") || "") === "1";
+
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.partsCheckoutTicket.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          status: true,
+          itemId: true,
+          storeId: true,
+          quantity: true,
+        },
+      });
+      if (!existing) throw new Error("Ticket not found");
+      if (existing.status !== "OPEN") {
+        throw new Error("Only OPEN tickets can edit item, store, quantity, and tech.");
+      }
+
+      const store = await tx.location.findUnique({
+        where: { id: storeId },
+        select: { id: true, name: true, active: true, receiptEnabled: true },
+      });
+      if (!store || !store.active || !store.receiptEnabled) throw new Error("Store not found");
+
+      const createdBy = await tx.user.findUnique({
+        where: { id: createdByUserId },
+        select: {
+          id: true,
+          name: true,
+          active: true,
+          locationId: true,
+          allowedLocations: { select: { locationId: true } },
+        },
+      });
+      if (!createdBy || !createdBy.active) throw new Error("Created-by user not found");
+      if (!userAssignedToStore(createdBy, storeId)) {
+        throw new Error("Selected user is not assigned to the selected store.");
+      }
+
+      const itemIds = Array.from(new Set([existing.itemId, itemId]));
+      const itemsForAdjust = await tx.item.findMany({
+        where: { id: { in: itemIds } },
+        select: {
+          id: true,
+          sku: true,
+          partNumber: true,
+          vendor: true,
+          name: true,
+          description: true,
+          category: true,
+          cost: true,
+          price: true,
+          taxable: true,
+          active: true,
+          onHandQty: true,
+          orderedQty: true,
+          usedQty: true,
+          minQty: true,
+        },
+      });
+
+      const itemMap = new Map(itemsForAdjust.map((i) => [i.id, i]));
+      const originalItem = itemMap.get(existing.itemId);
+      const nextItem = itemMap.get(itemId);
+      if (!originalItem) throw new Error("Original ticket item not found");
+      if (!nextItem) throw new Error("Selected item not found");
+
+      // Snapshot all touched items before applying rebalance.
+      for (const item of itemsForAdjust) {
+        const latest = await tx.itemVersion.findFirst({
+          where: { itemId: item.id },
+          orderBy: { version: "desc" },
+          select: { version: true },
+        });
+        const nextVersion = (latest?.version ?? 0) + 1;
+
+        await tx.itemVersion.create({
+          data: {
+            itemId: item.id,
+            version: nextVersion,
+            sku: item.sku,
+            partNumber: item.partNumber,
+            vendor: item.vendor,
+            name: item.name,
+            description: item.description,
+            category: item.category,
+            cost: item.cost,
+            price: item.price,
+            taxable: item.taxable,
+            active: item.active,
+            onHandQty: item.onHandQty,
+            orderedQty: item.orderedQty,
+            usedQty: item.usedQty,
+            minQty: item.minQty,
+          },
+        });
+      }
+
+      let onHandAfter = 0;
+      let orderedAfter = 0;
+      let minQtyAtTime = 0;
+
+      if (existing.itemId === itemId) {
+        const usedAfter = originalItem.usedQty - existing.quantity + quantity;
+        if (usedAfter < 0) {
+          throw new Error("Cannot apply edit: ticket appears partially returned. Void and recreate instead.");
+        }
+
+        const updated = await tx.item.update({
+          where: { id: itemId },
+          data: {
+            onHandQty: originalItem.onHandQty + existing.quantity - quantity,
+            usedQty: usedAfter,
+          },
+          select: { onHandQty: true, orderedQty: true, minQty: true },
+        });
+
+        onHandAfter = updated.onHandQty;
+        orderedAfter = updated.orderedQty;
+        minQtyAtTime = updated.minQty;
+      } else {
+        if (originalItem.usedQty < existing.quantity) {
+          throw new Error("Cannot move ticket: original item usage is lower than this ticket quantity.");
+        }
+
+        await tx.item.update({
+          where: { id: existing.itemId },
+          data: {
+            onHandQty: { increment: existing.quantity },
+            usedQty: { decrement: existing.quantity },
+          },
+          select: { id: true },
+        });
+
+        const updatedNext = await tx.item.update({
+          where: { id: itemId },
+          data: {
+            onHandQty: { decrement: quantity },
+            usedQty: { increment: quantity },
+          },
+          select: { onHandQty: true, orderedQty: true, minQty: true },
+        });
+
+        onHandAfter = updatedNext.onHandQty;
+        orderedAfter = updatedNext.orderedQty;
+        minQtyAtTime = updatedNext.minQty;
+      }
+
+      const availableAfter = onHandAfter + orderedAfter;
+
+      await tx.partsCheckoutTicket.update({
+        where: { id },
+        data: {
+          itemId,
+          storeId,
+          storeName: store.name,
+          quantity,
+          needToOrderMore,
+          createdByUserId,
+          createdByName: createdBy.name,
+          note,
+          skuSnapshot: nextItem.sku,
+          partNumberSnapshot: nextItem.partNumber,
+          nameSnapshot: nextItem.name,
+          vendorSnapshot: nextItem.vendor,
+          costSnapshot: nextItem.cost,
+          priceSnapshot: nextItem.price,
+          taxableSnapshot: nextItem.taxable,
+        },
+      });
+
+      await tx.inventoryAlert.deleteMany({
+        where: {
+          checkoutId: id,
+          resolvedAt: null,
+        },
+      });
+
+      if (onHandAfter < 0) {
+        await tx.inventoryAlert.create({
+          data: {
+            type: "NEGATIVE_ON_HAND",
+            itemId,
+            storeId,
+            storeName: store.name,
+            checkoutId: id,
+            createdByUserId,
+            createdByName: createdBy.name,
+            qtyDelta: -quantity,
+            onHandAfter,
+            orderedAfter,
+            availableAfter,
+            minQtyAtTime,
+            note: "Checkout edited: on-hand is negative after recalculation.",
+          },
+        });
+      }
+
+      if (availableAfter < minQtyAtTime) {
+        await tx.inventoryAlert.create({
+          data: {
+            type: "BELOW_MIN",
+            itemId,
+            storeId,
+            storeName: store.name,
+            checkoutId: id,
+            createdByUserId,
+            createdByName: createdBy.name,
+            qtyDelta: -quantity,
+            onHandAfter,
+            orderedAfter,
+            availableAfter,
+            minQtyAtTime,
+            note: "Checkout edited: available quantity is below min after recalculation.",
+          },
+        });
+      }
+
+      if (needToOrderMore) {
+        await tx.inventoryAlert.create({
+          data: {
+            type: InventoryAlertType.TECH_REQUEST_ORDER,
+            itemId,
+            storeId,
+            storeName: store.name,
+            checkoutId: id,
+            createdByUserId,
+            createdByName: createdBy.name,
+            qtyDelta: -quantity,
+            onHandAfter,
+            orderedAfter,
+            availableAfter,
+            minQtyAtTime,
+            note: note ? `Checkout edited: ${note}` : "Checkout edited: technician requested ordering more.",
+          },
+        });
+      }
+    });
+
+    revalidatePath("/admin/maintenance-tickets");
+    revalidatePath(`/admin/maintenance-tickets/${id}/invoice`);
+    revalidatePath("/maintenance/checkout");
+    revalidatePath("/admin/inventory-alerts");
+    revalidatePath("/admin/reports/checkout-orders");
+    revalidatePath("/admin/reports/needs-ordering");
   }
 
   async function voidRestoreAction(formData: FormData) {
@@ -219,11 +492,42 @@ export default async function MaintenanceTicketsPage({ searchParams }: { searchP
       nameSnapshot: true,
       quantity: true,
       needToOrderMore: true,
+      note: true,
       taxableSnapshot: true,
       createdAt: true,
       itemId: true,
+      storeId: true,
+      createdByUserId: true,
     },
   });
+
+  const [stores, users, itemsForEdit] = await Promise.all([
+    prisma.location.findMany({
+      where: { active: true, receiptEnabled: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+    prisma.user.findMany({
+      where: { active: true },
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        role: true,
+      },
+    }),
+    prisma.item.findMany({
+      where: { active: true },
+      orderBy: [{ sku: "asc" }, { partNumber: "asc" }, { name: "asc" }],
+      take: 2000,
+      select: {
+        id: true,
+        sku: true,
+        partNumber: true,
+        name: true,
+      },
+    }),
+  ]);
 
   const controlStyle: React.CSSProperties = {
     padding: "8px 10px",
@@ -404,6 +708,88 @@ export default async function MaintenanceTicketsPage({ searchParams }: { searchP
                     Void + Restore Inventory
                   </button>
                 </form>
+              ) : null}
+
+              {t.status === "OPEN" ? (
+                <details style={{ border: "1px solid currentColor", borderRadius: 10, padding: 8 }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 900 }}>Edit Ticket</summary>
+                  <form action={editTicketAction} style={{ marginTop: 10, display: "grid", gap: 8, minWidth: 360 }}>
+                    <input type="hidden" name="id" value={t.id} />
+
+                    <label style={{ display: "grid", gap: 4 }}>
+                      <span style={{ fontSize: 12, opacity: 0.8 }}>Item</span>
+                      <select name="itemId" defaultValue={t.itemId} style={inputStyle}>
+                        {itemsForEdit.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.sku}
+                            {item.partNumber ? ` - ${item.partNumber}` : ""} - {item.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label style={{ display: "grid", gap: 4 }}>
+                      <span style={{ fontSize: 12, opacity: 0.8 }}>Store</span>
+                      <select name="storeId" defaultValue={t.storeId} style={inputStyle}>
+                        {stores.map((store) => (
+                          <option key={store.id} value={store.id}>
+                            {store.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label style={{ display: "grid", gap: 4 }}>
+                      <span style={{ fontSize: 12, opacity: 0.8 }}>Technician</span>
+                      <select name="createdByUserId" defaultValue={t.createdByUserId} style={inputStyle}>
+                        {users.map((user) => (
+                          <option key={user.id} value={user.id}>
+                            {user.name} ({user.role})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label style={{ display: "grid", gap: 4 }}>
+                      <span style={{ fontSize: 12, opacity: 0.8 }}>Quantity</span>
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        name="quantity"
+                        defaultValue={t.quantity}
+                        style={{ ...inputStyle, width: 120, minWidth: 120 }}
+                        required
+                      />
+                    </label>
+
+                    <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <input type="hidden" name="needToOrderMore" value="0" />
+                      <input type="checkbox" name="needToOrderMore" value="1" defaultChecked={t.needToOrderMore} />
+                      Need to order more
+                    </label>
+
+                    <textarea
+                      name="note"
+                      defaultValue={t.note ?? ""}
+                      placeholder="Internal note (optional)…"
+                      rows={3}
+                      style={{
+                        ...inputStyle,
+                        width: "100%",
+                        minWidth: 320,
+                        resize: "vertical",
+                        fontFamily: "inherit",
+                      }}
+                    />
+
+                    <div>
+                      <button type="submit" style={controlStyle}>
+                        Save Edit
+                      </button>
+                    </div>
+                  </form>
+                </details>
               ) : null}
             </div>
           </div>
