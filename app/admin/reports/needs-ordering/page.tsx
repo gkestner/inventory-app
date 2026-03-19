@@ -503,6 +503,12 @@ export default async function NeedsOrderingReportPage({
       }),
     }));
 
+  const groupedEstimatedSubtotal = supplierGroups.reduce((sum, group) => sum + group.subtotal, 0);
+  const groupedEstimatedUnits = supplierGroups.reduce(
+    (sum, group) => sum + group.items.reduce((groupSum, row) => groupSum + row.shortBy, 0),
+    0
+  );
+
   return (
     <main style={{ padding: 16 }}>
       <div style={{ padding: 16, maxWidth: 1300, margin: "0 auto", color: "var(--foreground)" }}>
@@ -786,68 +792,69 @@ export default async function NeedsOrderingReportPage({
                 No items currently need ordering for your filters.
               </div>
             ) : (
-              supplierGroups.map((group) => (
-                <details key={`supplier-${group.supplier}`} style={{ border: "1px solid rgba(128,128,128,0.25)", borderRadius: 10, overflow: "hidden" }}>
-                  <summary
-                    style={{
-                      cursor: "pointer",
-                      padding: "12px 14px",
-                      fontWeight: 900,
-                      background: "rgba(128,128,128,0.08)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 10,
-                    }}
-                  >
-                    <span>{group.supplier} ({group.items.length})</span>
-                    <span style={{ whiteSpace: "nowrap" }}>Subtotal: {money(group.subtotal)}</span>
-                  </summary>
-                  <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
-                      <thead>
-                        <tr>
-                          {["SKU", "Item", "Web", "On Hand", "Ordered", "Available", "Min", "Short By", "Status", "Ignore"].map((h) => (
-                            <th
-                              key={h}
-                              style={{
-                                textAlign: "left",
-                                padding: "10px",
-                                borderBottom: "1px solid rgba(128,128,128,0.25)",
-                                fontSize: 12,
-                                opacity: 0.85,
-                              }}
-                            >
-                              {h}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {group.items.map((row) => {
-                          const itemUrl = normalizeExternalUrl(row.webUrl);
-                          const highlight =
-                            row.priority === "blue"
-                              ? "rgba(219,39,119,0.16)"
-                              : row.priority === "red"
-                                ? "rgba(220,38,38,0.12)"
-                                : "rgba(245,158,11,0.12)";
-                          const borderTint =
-                            row.priority === "blue"
-                              ? "rgba(219,39,119,0.38)"
-                              : row.priority === "red"
-                                ? "rgba(220,38,38,0.22)"
-                                : "rgba(245,158,11,0.24)";
+              <>
+                {supplierGroups.map((group) => (
+                  <details key={`supplier-${group.supplier}`} style={{ border: "1px solid rgba(128,128,128,0.25)", borderRadius: 10, overflow: "hidden" }}>
+                    <summary
+                      style={{
+                        cursor: "pointer",
+                        padding: "12px 14px",
+                        fontWeight: 900,
+                        background: "rgba(128,128,128,0.08)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 10,
+                      }}
+                    >
+                      <span>{group.supplier} ({group.items.length})</span>
+                      <span style={{ whiteSpace: "nowrap" }}>Subtotal: {money(group.subtotal)}</span>
+                    </summary>
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+                        <thead>
+                          <tr>
+                            {["SKU", "Item", "Web", "On Hand", "Ordered", "Available", "Min", "Short By", "Status", "Ignore"].map((h) => (
+                              <th
+                                key={h}
+                                style={{
+                                  textAlign: "left",
+                                  padding: "10px",
+                                  borderBottom: "1px solid rgba(128,128,128,0.25)",
+                                  fontSize: 12,
+                                  opacity: 0.85,
+                                }}
+                              >
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {group.items.map((row) => {
+                            const itemUrl = normalizeExternalUrl(row.webUrl);
+                            const highlight =
+                              row.priority === "blue"
+                                ? "rgba(219,39,119,0.16)"
+                                : row.priority === "red"
+                                  ? "rgba(220,38,38,0.12)"
+                                  : "rgba(245,158,11,0.12)";
+                            const borderTint =
+                              row.priority === "blue"
+                                ? "rgba(219,39,119,0.38)"
+                                : row.priority === "red"
+                                  ? "rgba(220,38,38,0.22)"
+                                  : "rgba(245,158,11,0.24)";
 
-                          return (
-                            <tr
-                              key={row.id}
-                              style={{
-                                borderBottom: `1px solid ${borderTint}`,
-                                background: highlight,
-                                opacity: row.reorderIgnored ? 0.62 : 1,
-                              }}
-                            >
+                            return (
+                              <tr
+                                key={row.id}
+                                style={{
+                                  borderBottom: `1px solid ${borderTint}`,
+                                  background: highlight,
+                                  opacity: row.reorderIgnored ? 0.62 : 1,
+                                }}
+                              >
                               <td style={{ padding: 10, fontWeight: 800, wordBreak: "break-word" }}>{row.sku}</td>
                               <td style={{ padding: 10 }}>
                                 <div style={{ fontWeight: 700 }}>{row.name}</div>
@@ -953,14 +960,43 @@ export default async function NeedsOrderingReportPage({
                                   <span style={{ opacity: 0.65 }}>View only</span>
                                 )}
                               </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
+                ))}
+
+                <div
+                  style={{
+                    position: "sticky",
+                    bottom: 12,
+                    zIndex: 5,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    padding: "14px 16px",
+                    borderRadius: 12,
+                    border: "1px solid rgba(16,185,129,0.4)",
+                    background: "rgba(16,185,129,0.12)",
+                    backdropFilter: "blur(8px)",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 12, opacity: 0.8, fontWeight: 900 }}>GROUPED VIEW TOTAL</div>
+                    <div style={{ fontSize: 13, opacity: 0.88 }}>
+                      Estimated reorder for <b>{groupedEstimatedUnits}</b> units across <b>{supplierGroups.length}</b> suppliers
+                    </div>
                   </div>
-                </details>
-              ))
+                  <div style={{ fontSize: 22, fontWeight: 900, whiteSpace: "nowrap" }}>
+                    Estimated Subtotal: {money(groupedEstimatedSubtotal)}
+                  </div>
+                </div>
+              </>
             )}
           </section>
         ) : (
