@@ -77,6 +77,8 @@ type SearchParams = {
   vendor?: string;
 };
 
+type SearchParamsProp = Promise<SearchParams> | SearchParams;
+
 type PreviewLine = {
   id: string;
   submittedAt: Date;
@@ -104,11 +106,11 @@ type VendorGroup = {
 export default async function InvoicePreviewPage({
   searchParams,
 }: {
-  searchParams?: SearchParams;
+  searchParams?: SearchParamsProp;
 }) {
   await requireView();
 
-  const sp = searchParams ?? {};
+  const sp: SearchParams = (searchParams instanceof Promise ? await searchParams : searchParams) ?? {};
   const storeId = String(sp.storeId ?? "").trim();
   const fromStr = String(sp.from ?? "").trim();
   const toStr = String(sp.to ?? "").trim();
