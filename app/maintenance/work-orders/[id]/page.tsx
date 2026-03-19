@@ -247,7 +247,7 @@ function formatAreaLabelWithLegacy(area: EquipmentArea): string {
 function statusLabel(s: WorkOrderStatus): string {
   if (s === "DRAFT") return "IN PROGRESS";
   if (s === "SUBMITTED") return "PENDING";
-  if (s === "FINALIZED") return "GENERATED";
+  if (s === "FINALIZED") return "ARCHIVED";
   return s;
 }
 

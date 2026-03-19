@@ -114,7 +114,7 @@ function fmtFixed2(n: number | null): string {
 function statusLabel(status: WorkOrderStatus): string {
   if (status === "DRAFT") return "IN PROGRESS";
   if (status === "SUBMITTED") return "PENDING";
-  if (status === "FINALIZED") return "GENERATED";
+  if (status === "FINALIZED") return "ARCHIVED";
   return status;
 }
 

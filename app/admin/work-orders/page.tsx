@@ -140,42 +140,8 @@ async function getActorUserId(session: AdminSession): Promise<string | null> {
 function statusLabel(status: WorkOrderStatus): string {
   if (status === "DRAFT") return "IN PROGRESS";
   if (status === "SUBMITTED") return "PENDING";
-  if (status === "FINALIZED") return "GENERATED";
+  if (status === "FINALIZED") return "ARCHIVED";
   return status;
-}
-
-function buildPendingWhere(params: {
-  q: string;
-  userId: string;
-  from: { y: number; m: number; d: number; raw: string } | null;
-  to: { y: number; m: number; d: number; raw: string } | null;
-}): Prisma.WorkOrderWhereInput {
-  const fromUtc = params.from ? nyMidnightUtc(params.from) : null;
-  const toExclusiveUtc = params.to ? addDaysUtc(nyMidnightUtc(params.to), 1) : null;
-
-  return {
-    ...(fromUtc || toExclusiveUtc
-      ? {
-          createdAt: {
-            ...(fromUtc ? { gte: fromUtc } : {}),
-            ...(toExclusiveUtc ? { lt: toExclusiveUtc } : {}),
-          },
-        }
-      : {}),
-    ...(params.userId !== "ALL" ? { createdByUserId: params.userId } : {}),
-    ...(params.q
-      ? {
-          OR: [
-            { id: { contains: params.q, mode: "insensitive" } },
-            { workOrderNumber: { contains: params.q, mode: "insensitive" } },
-            { notes: { contains: params.q, mode: "insensitive" } },
-            { location: { name: { contains: params.q, mode: "insensitive" } } },
-            { createdByUser: { name: { contains: params.q, mode: "insensitive" } } },
-            { createdByUser: { email: { contains: params.q, mode: "insensitive" } } },
-          ],
-        }
-      : {}),
-  };
 }
 
 export default async function AdminWorkOrdersPage({
@@ -329,27 +295,22 @@ export default async function AdminWorkOrdersPage({
     redirect(`/admin/work-orders/print?ids=${encodeURIComponent(ids.join(","))}`);
   }
 
-  async function generatePendingAction(formData: FormData) {
+  async function generatePendingAction() {
     "use server";
 
     const session = (await getServerSession(authOptions)) as AdminSession;
     await requireAdmin(session);
 
     const actorUserId = await getActorUserId(session);
-    const q = String(formData.get("q") ?? "").trim();
-    const userId = String(formData.get("userId") ?? "ALL").trim() || "ALL";
-    const from = parseYMD(String(formData.get("from") ?? "") || null);
-    const to = parseYMD(String(formData.get("to") ?? "") || null);
 
     const generated = await prisma.$transaction((tx) =>
       finalizePendingWorkOrders(tx, {
         actorUserId,
-        where: buildPendingWhere({ q, userId, from, to }),
       })
     );
 
     if (generated.length === 0) {
-      redirect(`/admin/work-orders${buildQS({ q: q || undefined, from: from?.raw, to: to?.raw, userId: userId !== "ALL" ? userId : undefined })}`);
+      redirect("/admin/work-orders");
     }
 
     await createAuditLog({
@@ -408,6 +369,97 @@ export default async function AdminWorkOrdersPage({
     revalidatePath("/maintenance/work-orders");
 
     redirect(`/admin/work-orders/print?ids=${encodeURIComponent(generated.map((row) => row.id).join(","))}`);
+  }
+
+  async function unarchiveSelectedAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as AdminSession;
+    await requireAdmin(session);
+
+    const actorUserId = await getActorUserId(session);
+    const ids = formData
+      .getAll("ids")
+      .map((value) => String(value).trim())
+      .filter(Boolean)
+      .slice(0, 500);
+
+    if (ids.length === 0) {
+      redirect("/admin/work-orders");
+    }
+
+    const rows = await prisma.workOrder.findMany({
+      where: { id: { in: ids }, status: "FINALIZED" },
+      select: { id: true },
+    });
+    const archivedIds = rows.map((row) => row.id);
+
+    if (archivedIds.length === 0) {
+      redirect("/admin/work-orders");
+    }
+
+    await prisma.workOrder.updateMany({
+      where: { id: { in: archivedIds } },
+      data: {
+        status: "SUBMITTED",
+        workOrderNumber: null,
+        generatedAt: null,
+        updatedByUserId: actorUserId ?? undefined,
+      },
+    });
+
+    await createAuditLog({
+      actorUserId,
+      module: "work-orders",
+      action: "unarchive-selected",
+      entityType: "WorkOrder",
+      message: `Moved ${archivedIds.length} archived work order(s) back to pending.`,
+      metadata: { count: archivedIds.length, ids: archivedIds },
+    });
+
+    revalidatePath("/admin/work-orders");
+    revalidatePath("/maintenance/work-orders");
+    redirect("/admin/work-orders");
+  }
+
+  async function unarchiveOneAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as AdminSession;
+    await requireAdmin(session);
+
+    const actorUserId = await getActorUserId(session);
+    const id = String(formData.get("id") ?? "").trim();
+    if (!id) throw new Error("Missing work order id.");
+
+    const row = await prisma.workOrder.findUnique({ where: { id }, select: { id: true, status: true } });
+    if (!row || row.status !== "FINALIZED") {
+      redirect("/admin/work-orders");
+    }
+
+    await prisma.workOrder.update({
+      where: { id },
+      data: {
+        status: "SUBMITTED",
+        workOrderNumber: null,
+        generatedAt: null,
+        updatedByUserId: actorUserId ?? undefined,
+      },
+    });
+
+    await createAuditLog({
+      actorUserId,
+      module: "work-orders",
+      action: "unarchive-one",
+      entityType: "WorkOrder",
+      entityId: id,
+      workOrderId: id,
+      message: "Moved archived work order back to pending.",
+    });
+
+    revalidatePath("/admin/work-orders");
+    revalidatePath("/maintenance/work-orders");
+    redirect("/admin/work-orders");
   }
 
   async function exportSelectedAction(formData: FormData) {
@@ -694,7 +746,7 @@ export default async function AdminWorkOrdersPage({
                 <option value="ALL">All statuses</option>
                 <option value="DRAFT">IN PROGRESS</option>
                 <option value="SUBMITTED">PENDING</option>
-                <option value="FINALIZED">GENERATED</option>
+                <option value="FINALIZED">ARCHIVED</option>
               </select>
             </label>
 
@@ -726,13 +778,9 @@ export default async function AdminWorkOrdersPage({
             </form>
 
             <form action={generatePendingAction} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <input type="hidden" name="q" value={q} />
-              <input type="hidden" name="from" value={fromParam?.raw ?? ""} />
-              <input type="hidden" name="to" value={toParam?.raw ?? ""} />
-              <input type="hidden" name="userId" value={userId} />
-              <button type="submit" style={btn}>Generate Pending</button>
+              <button type="submit" style={btn}>Generate All Pending</button>
               <span style={{ fontSize: 12, opacity: 0.75 }}>
-                Assign numbers to pending work orders and open the grouped batch print.
+                Invoice-style generation: processes all pending work orders, grouped by user in batch print.
               </span>
             </form>
 
@@ -759,7 +807,7 @@ export default async function AdminWorkOrdersPage({
           </div>
 
           <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
-            Pending work orders stay in queue until generated. Generated work orders are finalized and carry a work order number.
+            Pending work orders stay in queue until generated. Archived work orders are finalized and carry a work order number.
           </div>
         </div>
 
@@ -847,6 +895,9 @@ export default async function AdminWorkOrdersPage({
                 </span>
                 <button formAction={generateSelectedAction} style={btn}>
                   Generate Selected
+                </button>
+                <button formAction={unarchiveSelectedAction} style={btn}>
+                  Undo Generate (Selected)
                 </button>
                 <button formAction={printSelectedAction} style={btn}>
                   Print Selected
@@ -942,6 +993,12 @@ export default async function AdminWorkOrdersPage({
                               <a href={`/admin/work-orders/print?ids=${encodeURIComponent(wo.id)}`} target="_blank" rel="noreferrer" style={btn}>
                                 Print
                               </a>
+
+                              {wo.status === "FINALIZED" ? (
+                                <button type="submit" name="id" value={wo.id} formAction={unarchiveOneAction} style={btn}>
+                                  Undo Generate
+                                </button>
+                              ) : null}
 
                               <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                                 <input name={`confirm_${wo.id}`} placeholder="DELETE" style={input} />

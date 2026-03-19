@@ -232,7 +232,7 @@ function formatAreaLabelWithLegacy(area: EquipmentAreaDb): string {
 function statusLabel(s: WorkOrderStatus): string {
   if (s === "DRAFT") return "IN PROGRESS";
   if (s === "SUBMITTED") return "PENDING";
-  if (s === "FINALIZED") return "GENERATED";
+  if (s === "FINALIZED") return "ARCHIVED";
   return s;
 }
 
@@ -995,14 +995,14 @@ export default async function MaintenanceWorkOrdersPage() {
 
                                 <div style={{ fontSize: 12, opacity: 0.75 }}>
                                   You can edit all fields for <b>IN PROGRESS</b> and <b>PENDING</b> work orders.
-                                  GENERATED work orders stay locked.
+                                  ARCHIVED work orders stay locked.
                                 </div>
                               </form>
                             </div>
                           </details>
                         ) : null}
 
-                        {isFinalized ? <div style={{ fontSize: 12, opacity: 0.7, textAlign: "right" }}>Generated</div> : null}
+                        {isFinalized ? <div style={{ fontSize: 12, opacity: 0.7, textAlign: "right" }}>Archived</div> : null}
 
                         {!isOpenDraft && !isSubmitted && !isFinalized ? (
                           <div style={{ fontSize: 12, opacity: 0.7, textAlign: "right" }}>—</div>
@@ -1025,7 +1025,7 @@ export default async function MaintenanceWorkOrdersPage() {
 
           <div style={{ marginTop: 12, fontSize: 14, opacity: 0.85 }}>
             You can edit your own IN PROGRESS and PENDING work orders from this list, including location, times,
-            mileage, notes, and equipment areas. GENERATED work orders are locked.
+            mileage, notes, and equipment areas. ARCHIVED work orders are locked.
           </div>
         </div>
       </div>

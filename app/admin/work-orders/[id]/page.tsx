@@ -303,7 +303,7 @@ function formatAreaLabel(area: string): string {
 function statusLabel(s: WorkOrderStatus): string {
   if (s === "DRAFT") return "IN PROGRESS";
   if (s === "SUBMITTED") return "PENDING";
-  if (s === "FINALIZED") return "GENERATED";
+  if (s === "FINALIZED") return "ARCHIVED";
   return s;
 }
 
@@ -507,8 +507,8 @@ export default async function AdminWorkOrderDetailPage({
     const areas = parseAreas(formData);
 
     if (status === "FINALIZED") {
-      if (!endTime) throw new Error("Generated work orders require End Time.");
-      if (endingMileage === null) throw new Error("Generated work orders require Ending Mileage.");
+      if (!endTime) throw new Error("Archived work orders require End Time.");
+      if (endingMileage === null) throw new Error("Archived work orders require Ending Mileage.");
     }
 
     await db.$transaction(async (tx) => {
@@ -588,6 +588,44 @@ export default async function AdminWorkOrderDetailPage({
     revalidatePath(`/admin/work-orders`);
     revalidatePath(`/maintenance/work-orders`);
     redirect(`/admin/work-orders/print?ids=${encodeURIComponent(id)}`);
+  }
+
+  async function unarchiveAction() {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as AdminSession;
+    await requireAdmin(session);
+    const actorUserId = await getActorUserId(session);
+
+    const current = await db.workOrder.findUnique({ where: { id }, select: { id: true, status: true } });
+    if (!current || current.status !== "FINALIZED") {
+      redirect(`/admin/work-orders/${id}`);
+    }
+
+    await db.workOrder.update({
+      where: { id },
+      data: {
+        status: "SUBMITTED",
+        workOrderNumber: null,
+        generatedAt: null,
+        updatedByUserId: actorUserId,
+      },
+    });
+
+    await createAuditLog({
+      actorUserId,
+      module: "work-orders",
+      action: "unarchive-single",
+      entityType: "WorkOrder",
+      entityId: id,
+      workOrderId: id,
+      message: "Moved archived work order back to pending.",
+    });
+
+    revalidatePath(`/admin/work-orders/${id}`);
+    revalidatePath(`/admin/work-orders`);
+    revalidatePath(`/maintenance/work-orders`);
+    redirect(`/admin/work-orders/${id}`);
   }
 
   async function deleteAction(formData: FormData) {
@@ -685,6 +723,11 @@ export default async function AdminWorkOrderDetailPage({
           <form action={generateAction}>
             <button type="submit" style={btn} disabled={workOrder.status !== "SUBMITTED"}>
               Generate
+            </button>
+          </form>
+          <form action={unarchiveAction}>
+            <button type="submit" style={btn} disabled={workOrder.status !== "FINALIZED"}>
+              Undo Generate
             </button>
           </form>
           <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>Work Order</h1>
