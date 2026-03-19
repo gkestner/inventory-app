@@ -253,7 +253,7 @@ export default function SearchFilters({ items, users, locations, phases, values,
                 name="q"
                 value={filters.q}
                 onChange={(event) => updateFilter("q", event.target.value)}
-                placeholder="id, sku, name, supplier, note..."
+                placeholder="Search ID, SKU, part #, name, category, supplier, mfg, order from..."
                 style={controlBase}
               />
             </label>

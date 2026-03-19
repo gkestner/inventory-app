@@ -182,6 +182,71 @@ function withQuery(basePath: string, next: Record<string, string | undefined>) {
   return qs ? `${u.pathname}?${qs}` : u.pathname;
 }
 
+function normalizeQuery(q: string): string {
+  return (q ?? "")
+    .normalize("NFKC")
+    .replace(/[\u2010\u2011\u2012\u2013\u2014\u2212]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenizeQuery(q: string): string[] {
+  const normalized = normalizeQuery(q);
+  if (!normalized) return [];
+  return normalized
+    .split(/[ \-]+/g)
+    .map((x) => x.trim())
+    .filter((x) => x.length >= 2);
+}
+
+function variants(token: string): string[] {
+  const cleaned = token
+    .toLowerCase()
+    .replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "");
+
+  const out = new Set<string>();
+  if (cleaned) out.add(cleaned);
+
+  if (cleaned.endsWith("s") && cleaned.length > 3) {
+    out.add(cleaned.slice(0, -1));
+  } else if (cleaned.length > 2) {
+    out.add(`${cleaned}s`);
+  }
+
+  return Array.from(out);
+}
+
+function buildOrderSearchWhere(qRaw: string): Prisma.InventoryOrderWhereInput {
+  const tokens = tokenizeQuery(qRaw);
+  if (tokens.length === 0) return {};
+
+  const tokenClauses: Prisma.InventoryOrderWhereInput[] = tokens.map((tok) => {
+    const vs = variants(tok);
+
+    const ors: Prisma.InventoryOrderWhereInput[] = vs.flatMap((v) => [
+      { id: { contains: v, mode: "insensitive" } },
+      { note: { contains: v, mode: "insensitive" } },
+      { supplierName: { contains: v, mode: "insensitive" } },
+      { supplierPartNumber: { contains: v, mode: "insensitive" } },
+      { item: { id: { contains: v, mode: "insensitive" } } },
+      { item: { sku: { contains: v, mode: "insensitive" } } },
+      { item: { partNumber: { contains: v, mode: "insensitive" } } },
+      { item: { name: { contains: v, mode: "insensitive" } } },
+      { item: { category: { contains: v, mode: "insensitive" } } },
+      { item: { manufacturer: { contains: v, mode: "insensitive" } } },
+      { item: { orderFrom: { contains: v, mode: "insensitive" } } },
+      { forStore: { name: { contains: v, mode: "insensitive" } } },
+      { forUser: { name: { contains: v, mode: "insensitive" } } },
+      { createdByUser: { name: { contains: v, mode: "insensitive" } } },
+      { createdByUser: { email: { contains: v, mode: "insensitive" } } },
+    ]);
+
+    return { OR: ors };
+  });
+
+  return { AND: tokenClauses };
+}
+
 function phaseLabel(s: InventoryOrderPhase): string {
   if (s === "ORDERED") return "ORDERED";
   if (s === "ARRIVED") return "ARRIVED";
@@ -437,21 +502,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     };
   }
 
-  if (q) {
-    where.OR = [
-      { id: { contains: q, mode: "insensitive" } },
-      { note: { contains: q, mode: "insensitive" } },
-      { supplierName: { contains: q, mode: "insensitive" } },
-      { supplierPartNumber: { contains: q, mode: "insensitive" } },
-      { item: { id: { contains: q, mode: "insensitive" } } },
-      { item: { sku: { contains: q, mode: "insensitive" } } },
-      { item: { name: { contains: q, mode: "insensitive" } } },
-      { forStore: { name: { contains: q, mode: "insensitive" } } },
-      { forUser: { name: { contains: q, mode: "insensitive" } } },
-      { createdByUser: { name: { contains: q, mode: "insensitive" } } },
-      { createdByUser: { email: { contains: q, mode: "insensitive" } } },
-    ];
-  }
+  Object.assign(where, buildOrderSearchWhere(q));
 
   const [itemsRaw, locations, users, total, orders] = await Promise.all([
     prisma.item.findMany({
