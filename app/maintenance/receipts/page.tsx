@@ -486,12 +486,14 @@ export default async function MaintenanceReceiptPage({
     });
     if (!selectedUser || !selectedUser.active) throw new Error("Selected user is not active.");
 
-    const userAllowed = new Set<string>();
-    if (selectedUser.locationId) userAllowed.add(selectedUser.locationId);
-    for (const a of selectedUser.allowedLocations) userAllowed.add(a.locationId);
-    for (const locId of selectedLocationIds) {
-      if (!userAllowed.has(locId)) {
-        throw new Error("Selected user is not assigned to all selected locations.");
+    if (!perms.allowAll) {
+      const userAllowed = new Set<string>();
+      if (selectedUser.locationId) userAllowed.add(selectedUser.locationId);
+      for (const a of selectedUser.allowedLocations) userAllowed.add(a.locationId);
+      for (const locId of selectedLocationIds) {
+        if (!userAllowed.has(locId)) {
+          throw new Error("Selected user is not assigned to all selected locations.");
+        }
       }
     }
 
