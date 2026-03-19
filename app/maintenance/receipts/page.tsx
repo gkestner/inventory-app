@@ -727,39 +727,29 @@ export default async function MaintenanceReceiptPage({
               <input type="date" name="receiptDate" defaultValue={todayNy} required style={input} disabled={!canCreateOnAnyLocation} />
             </label>
 
-            <div style={{ display: "grid", gap: 6, fontWeight: 800, minWidth: 0 }}>
-              Location <span style={{ fontWeight: 400, fontSize: 12 }}>(select all that apply)</span>
-              <div style={{ display: "grid", gap: 6 }}>
+            <label style={{ display: "grid", gap: 6, fontWeight: 800, minWidth: 0 }}>
+              Location <span style={{ fontWeight: 400, fontSize: 12 }}>(hold Ctrl / Cmd to select multiple)</span>
+              <select
+                id="receipt-location-select"
+                name="locationIds"
+                multiple
+                size={Math.min(allowedLocations.length, 6)}
+                required
+                style={{ ...input, height: "auto", padding: "4px" }}
+                disabled={!canCreateOnAnyLocation}
+              >
                 {allowedLocations.map((l) => (
-                  <label
+                  <option
                     key={l.id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      border,
-                      borderRadius: 10,
-                      padding: "8px 10px",
-                      background: "var(--background)",
-                      fontWeight: 700,
-                      cursor: canCreateOnAnyLocation ? "pointer" : "default",
-                    }}
+                    value={l.id}
+                    data-location-number={l.locationNumber ?? ""}
+                    data-location-name={l.name}
                   >
-                    <input
-                      type="checkbox"
-                      name="locationIds"
-                      value={l.id}
-                      data-location-number={l.locationNumber ?? ""}
-                      data-location-name={l.name}
-                      className="receipt-location-cb"
-                      style={checkboxStyle}
-                      disabled={!canCreateOnAnyLocation}
-                    />
                     {l.name}{l.source === "PRIMARY" ? " (Primary)" : ""}
-                  </label>
+                  </option>
                 ))}
-              </div>
-            </div>
+              </select>
+            </label>
 
             <label style={{ display: "grid", gap: 6, fontWeight: 800, minWidth: 0 }}>
               User
@@ -807,19 +797,17 @@ export default async function MaintenanceReceiptPage({
           <script
             dangerouslySetInnerHTML={{
               __html: `(() => {
+  const locationSelect = document.getElementById("receipt-location-select");
   const vendorWrap = document.getElementById("receipt-billed-back-vendor-wrap");
   const vendorSelect = document.getElementById("receipt-billed-back-vendor");
-  const checkboxes = document.querySelectorAll('input.receipt-location-cb');
-  if (!vendorWrap || !vendorSelect || !checkboxes.length) return;
+  if (!locationSelect || !vendorWrap || !vendorSelect) return;
 
   const syncVendorVisibility = () => {
     let show = false;
-    checkboxes.forEach(function(cb) {
-      if (cb.checked) {
-        const locationNumber = (cb.dataset.locationNumber || "").trim();
-        const locationName = (cb.dataset.locationName || "").toLowerCase();
-        if (locationNumber === "100" || locationName.includes("billed back")) show = true;
-      }
+    Array.from(locationSelect.selectedOptions).forEach(function(opt) {
+      const locationNumber = (opt.dataset.locationNumber || "").trim();
+      const locationName = (opt.dataset.locationName || "").toLowerCase();
+      if (locationNumber === "100" || locationName.includes("billed back")) show = true;
     });
     vendorWrap.style.display = show ? "grid" : "none";
     vendorSelect.required = show;
@@ -827,7 +815,7 @@ export default async function MaintenanceReceiptPage({
   };
 
   syncVendorVisibility();
-  checkboxes.forEach(function(cb) { cb.addEventListener("change", syncVendorVisibility); });
+  locationSelect.addEventListener("change", syncVendorVisibility);
 })();`,
             }}
           />
