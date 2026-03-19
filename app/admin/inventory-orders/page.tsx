@@ -1531,6 +1531,8 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
             const itemLabel = o.item
               ? `${o.item.sku}${o.item.partNumber ? ` • ${o.item.partNumber}` : ""} • ${o.item.name}`
               : o.itemId;
+            const itemSummaryName = o.item?.name?.trim() || itemLabel;
+            const itemSummarySupplier = o.supplierName?.trim() || "—";
 
             const canArrive = o.status === "ORDERED";
             const canAdd = o.status === "ARRIVED";
@@ -1542,7 +1544,8 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                   <div className="orderSummaryRow">
                     <div style={{ fontSize: 12, fontWeight: 900, opacity: 0.88 }}>Ordered: {fmtDateOnly(o.orderedAt)}</div>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 900, lineHeight: 1.2, overflowWrap: "anywhere" }}>{itemLabel}</div>
+                      <div style={{ fontSize: 14, fontWeight: 900, lineHeight: 1.2, overflowWrap: "anywhere" }}>{itemSummaryName}</div>
+                      <div style={{ marginTop: 2, fontSize: 12, opacity: 0.8, overflowWrap: "anywhere" }}>Supplier: {itemSummarySupplier}</div>
                       <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72, overflowWrap: "anywhere" }}>id: {o.id}</div>
                     </div>
                     <div style={{ fontSize: 14, fontWeight: 950, textAlign: "left" }}>Qty: {o.quantity ?? "—"}</div>
