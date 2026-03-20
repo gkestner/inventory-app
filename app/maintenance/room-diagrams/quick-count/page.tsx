@@ -7,6 +7,7 @@ import { Permission } from "@prisma/client";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import PrintLabelButton from "@/app/maintenance/room-diagrams/quick-count/PrintLabelButton";
 
 type SessionShape = {
   user?: {
@@ -118,6 +119,112 @@ export default async function QuickCountEditorPage({
   if (!canEditCounts) redirect("/maintenance/room-diagrams");
 
   const actorEmail = String(session.user?.email ?? "").trim().toLowerCase();
+
+  function parseStructuredSkuParts(sku: string): { location: string; shelf: string; bin: string; itemKey: string } {
+    const raw = String(sku ?? "").trim();
+    const defaults = { location: "00", shelf: "00", bin: "00", itemKey: "" };
+    if (!raw) return defaults;
+
+    const segments = raw.split("-");
+    
+    // New format: LLSSBB - KEY
+    const firstSegmentDigits = String(segments[0] ?? "").replace(/\D/g, "");
+    if (firstSegmentDigits.length >= 6) {
+      const itemKey = segments.length > 1 ? String(segments[1] ?? "").trim() : "";
+      return {
+        location: firstSegmentDigits.slice(0, 2),
+        shelf: firstSegmentDigits.slice(2, 4),
+        bin: firstSegmentDigits.slice(4, 6),
+        itemKey,
+      };
+    }
+
+    // Fallback for legacy format
+    if (segments.length >= 2) {
+      const middleDigits = String(segments[1] ?? "").replace(/\D/g, "");
+      if (middleDigits.length >= 6) {
+        const itemKey = segments.length > 2 ? String(segments[2] ?? "").trim() : "";
+        return {
+          location: middleDigits.slice(0, 2),
+          shelf: middleDigits.slice(2, 4),
+          bin: middleDigits.slice(4, 6),
+          itemKey,
+        };
+      }
+    }
+
+    return defaults;
+  }
+
+  function buildStructuredSku(location: string, shelf: string, bin: string, itemKey: string): string {
+    const loc = String(location ?? "").padStart(2, "0").slice(0, 2);
+    const shf = String(shelf ?? "").padStart(2, "0").slice(0, 2);
+    const bn = String(bin ?? "").padStart(2, "0").slice(0, 2);
+    const key = String(itemKey ?? "").trim();
+    return key ? `${loc}${shf}${bn} - ${key}` : `${loc}${shf}${bn}`;
+  }
+
+  async function updateLocationAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as SessionShape;
+    if (!session) redirect("/login");
+
+    const perms = await loadUserPermissions(session);
+    const canEdit =
+      perms.allowAll || hasAnyPermission(perms, [Permission.EDIT_QUICK_COUNT, Permission.ADMIN_EDIT_ITEMS]);
+    if (!canEdit) redirect("/");
+
+    const actorEmail = String(session.user?.email ?? "").trim().toLowerCase();
+    const actor = actorEmail
+      ? await prisma.user.findUnique({ where: { email: actorEmail }, select: { id: true, active: true } })
+      : null;
+    if (!actor?.id || !actor.active) redirect("/login");
+
+    const itemId = String(formData.get("itemId") ?? "").trim();
+    const newLocation = String(formData.get("location") ?? "").padStart(2, "0").slice(0, 2);
+    const newShelf = String(formData.get("shelf") ?? "").padStart(2, "0").slice(0, 2);
+    const newBin = String(formData.get("bin") ?? "").padStart(2, "0").slice(0, 2);
+    const returnTo = String(formData.get("returnTo") ?? "").trim() || "/maintenance/room-diagrams/quick-count";
+
+    if (!itemId) redirect(returnTo);
+
+    const existing = await prisma.item.findUnique({
+      where: { id: itemId },
+      select: { id: true, sku: true, name: true },
+    });
+    if (!existing) redirect(returnTo);
+
+    const parts = parseStructuredSkuParts(existing.sku);
+    const newSku = buildStructuredSku(newLocation, newShelf, newBin, parts.itemKey);
+
+    await prisma.item.update({
+      where: { id: existing.id },
+      data: { sku: newSku },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        actorUserId: actor.id,
+        module: "INVENTORY_COUNT",
+        action: "LOCATION_UPDATE",
+        entityType: "Item",
+        entityId: existing.id,
+        message: `Quick count location update for ${existing.name}: ${existing.sku} -> ${newSku}`,
+        metadata: {
+          oldSku: existing.sku,
+          newSku,
+          newLocation,
+          newShelf,
+          newBin,
+        },
+      },
+    });
+
+    revalidatePath("/maintenance/room-diagrams");
+    revalidatePath("/maintenance/room-diagrams/quick-count");
+    redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}updated=1`);
+  }
 
   async function quickCountUpdateAction(formData: FormData) {
     "use server";
@@ -399,7 +506,7 @@ export default async function QuickCountEditorPage({
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    {["SKU", "Item", "On Hand", "Min", "Set Qty", "Quick +/-", "Print"].map((h) => (
+                    {["SKU", "Item", "Loc", "Shelf", "Bin", "On Hand", "Min", "Set Qty", "Quick +/-", "Print"].map((h) => (
                       <th
                         key={h}
                         style={{
@@ -414,114 +521,221 @@ export default async function QuickCountEditorPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {selectedRows.map((row) => (
-                    <tr key={row.id}>
-                      <td
-                        style={{
-                          padding: 8,
-                          borderBottom: "1px solid var(--border)",
-                          fontFamily: "monospace",
-                          fontSize: 12,
-                        }}
-                      >
-                        {row.sku}
-                      </td>
-                      <td style={{ padding: 8, borderBottom: "1px solid var(--border)", fontWeight: 700 }}>
-                        {row.name}
-                      </td>
-                      <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>{row.onHandQty}</td>
-                      <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>{row.minQty}</td>
-                      <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
-                        {canEditCounts ? (
-                          <form
-                            action={quickCountUpdateAction}
-                            style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}
-                          >
-                            <input type="hidden" name="itemId" value={row.id} />
-                            <input type="hidden" name="mode" value="set" />
-                            <input type="hidden" name="returnTo" value={selectedPath} />
-                            <input
-                              name="setQty"
-                              type="number"
-                              defaultValue={row.onHandQty}
-                              style={{
-                                width: 84,
-                                padding: "6px 8px",
-                                borderRadius: 8,
-                                border: "1px solid var(--border)",
-                              }}
-                            />
-                            <button
-                              type="submit"
-                              style={{
-                                padding: "6px 10px",
-                                borderRadius: 8,
-                                border: "1px solid var(--border)",
-                                background: "var(--surface-2)",
-                                fontWeight: 800,
-                                cursor: "pointer",
-                              }}
-                            >
-                              Set
-                            </button>
-                          </form>
-                        ) : (
-                          <span style={{ opacity: 0.7 }}>Read only</span>
-                        )}
-                      </td>
-                      <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
-                        {canEditCounts ? (
-                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                            {[-5, -1, 1, 5].map((delta) => (
-                              <form key={delta} action={quickCountUpdateAction}>
-                                <input type="hidden" name="itemId" value={row.id} />
-                                <input type="hidden" name="mode" value="delta" />
-                                <input type="hidden" name="delta" value={String(delta)} />
-                                <input type="hidden" name="returnTo" value={selectedPath} />
-                                <button
-                                  type="submit"
-                                  style={{
-                                    padding: "6px 8px",
-                                    borderRadius: 8,
-                                    border: "1px solid var(--border)",
-                                    background:
-                                      delta < 0
-                                        ? "rgba(239,68,68,0.12)"
-                                        : "rgba(34,197,94,0.12)",
-                                    fontWeight: 800,
-                                    cursor: "pointer",
-                                  }}
-                                >
-                                  {delta > 0 ? `+${delta}` : String(delta)}
-                                </button>
-                              </form>
-                            ))}
-                          </div>
-                        ) : (
-                          <span style={{ opacity: 0.7 }}>Read only</span>
-                        )}
-                      </td>
-                      <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
-                        <Link
-                          href={`/admin/items/labels?ids=${row.id}&autoprint=1`}
+                  {selectedRows.map((row) => {
+                    const parts = parseStructuredSkuParts(row.sku);
+                    return (
+                      <tr key={row.id}>
+                        <td
                           style={{
-                            display: "inline-block",
-                            textDecoration: "none",
-                            padding: "6px 10px",
-                            borderRadius: 8,
-                            border: "1px solid var(--border)",
-                            background: "var(--surface-2)",
-                            color: "var(--foreground)",
-                            fontWeight: 800,
-                            cursor: "pointer",
-                            fontSize: 13,
+                            padding: 8,
+                            borderBottom: "1px solid var(--border)",
+                            fontFamily: "monospace",
+                            fontSize: 12,
                           }}
                         >
-                          Print
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
+                          {row.sku}
+                        </td>
+                        <td style={{ padding: 8, borderBottom: "1px solid var(--border)", fontWeight: 700 }}>
+                          {row.name}
+                        </td>
+                        <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
+                          {canEditCounts ? (
+                            <form action={updateLocationAction} style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                              <input type="hidden" name="itemId" value={row.id} />
+                              <input type="hidden" name="returnTo" value={selectedPath} />
+                              <input
+                                name="location"
+                                type="number"
+                                min="0"
+                                max="99"
+                                defaultValue={String(parts.location).padStart(2, "0")}
+                                style={{
+                                  width: 40,
+                                  padding: "4px 6px",
+                                  borderRadius: 6,
+                                  border: "1px solid var(--border)",
+                                  fontSize: 12,
+                                  textAlign: "center",
+                                }}
+                              />
+                              <button
+                                type="submit"
+                                style={{
+                                  padding: "4px 8px",
+                                  borderRadius: 6,
+                                  border: "1px solid var(--border)",
+                                  background: "var(--surface-2)",
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                  fontSize: 11,
+                                }}
+                              >
+                                Save
+                              </button>
+                            </form>
+                          ) : (
+                            parts.location
+                          )}
+                        </td>
+                        <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
+                          {canEditCounts ? (
+                            <form action={updateLocationAction} style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                              <input type="hidden" name="itemId" value={row.id} />
+                              <input type="hidden" name="location" value={parts.location} />
+                              <input type="hidden" name="returnTo" value={selectedPath} />
+                              <input
+                                name="shelf"
+                                type="number"
+                                min="0"
+                                max="99"
+                                defaultValue={String(parts.shelf).padStart(2, "0")}
+                                style={{
+                                  width: 40,
+                                  padding: "4px 6px",
+                                  borderRadius: 6,
+                                  border: "1px solid var(--border)",
+                                  fontSize: 12,
+                                  textAlign: "center",
+                                }}
+                              />
+                              <button
+                                type="submit"
+                                style={{
+                                  padding: "4px 8px",
+                                  borderRadius: 6,
+                                  border: "1px solid var(--border)",
+                                  background: "var(--surface-2)",
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                  fontSize: 11,
+                                }}
+                              >
+                                Save
+                              </button>
+                            </form>
+                          ) : (
+                            parts.shelf
+                          )}
+                        </td>
+                        <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
+                          {canEditCounts ? (
+                            <form action={updateLocationAction} style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                              <input type="hidden" name="itemId" value={row.id} />
+                              <input type="hidden" name="location" value={parts.location} />
+                              <input type="hidden" name="shelf" value={parts.shelf} />
+                              <input type="hidden" name="returnTo" value={selectedPath} />
+                              <input
+                                name="bin"
+                                type="number"
+                                min="0"
+                                max="99"
+                                defaultValue={String(parts.bin).padStart(2, "0")}
+                                style={{
+                                  width: 40,
+                                  padding: "4px 6px",
+                                  borderRadius: 6,
+                                  border: "1px solid var(--border)",
+                                  fontSize: 12,
+                                  textAlign: "center",
+                                }}
+                              />
+                              <button
+                                type="submit"
+                                style={{
+                                  padding: "4px 8px",
+                                  borderRadius: 6,
+                                  border: "1px solid var(--border)",
+                                  background: "var(--surface-2)",
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                  fontSize: 11,
+                                }}
+                              >
+                                Save
+                              </button>
+                            </form>
+                          ) : (
+                            parts.bin
+                          )}
+                        </td>
+                        <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>{row.onHandQty}</td>
+                        <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>{row.minQty}</td>
+                        <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
+                          {canEditCounts ? (
+                            <form
+                              action={quickCountUpdateAction}
+                              style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}
+                            >
+                              <input type="hidden" name="itemId" value={row.id} />
+                              <input type="hidden" name="mode" value="set" />
+                              <input type="hidden" name="returnTo" value={selectedPath} />
+                              <input
+                                name="setQty"
+                                type="number"
+                                defaultValue={row.onHandQty}
+                                style={{
+                                  width: 84,
+                                  padding: "6px 8px",
+                                  borderRadius: 8,
+                                  border: "1px solid var(--border)",
+                                }}
+                              />
+                              <button
+                                type="submit"
+                                style={{
+                                  padding: "6px 10px",
+                                  borderRadius: 8,
+                                  border: "1px solid var(--border)",
+                                  background: "var(--surface-2)",
+                                  fontWeight: 800,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Set
+                              </button>
+                            </form>
+                          ) : (
+                            <span style={{ opacity: 0.7 }}>Read only</span>
+                          )}
+                        </td>
+                        <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
+                          {canEditCounts ? (
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                              {[-5, -1, 1, 5].map((delta) => (
+                                <form key={delta} action={quickCountUpdateAction}>
+                                  <input type="hidden" name="itemId" value={row.id} />
+                                  <input type="hidden" name="mode" value="delta" />
+                                  <input type="hidden" name="delta" value={String(delta)} />
+                                  <input type="hidden" name="returnTo" value={selectedPath} />
+                                  <button
+                                    type="submit"
+                                    style={{
+                                      padding: "6px 8px",
+                                      borderRadius: 8,
+                                      border: "1px solid var(--border)",
+                                      background:
+                                        delta < 0
+                                          ? "rgba(239,68,68,0.12)"
+                                          : "rgba(34,197,94,0.12)",
+                                      fontWeight: 800,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    {delta > 0 ? `+${delta}` : String(delta)}
+                                  </button>
+                                </form>
+                              ))}
+                            </div>
+                          ) : (
+                            <span style={{ opacity: 0.7 }}>Read only</span>
+                          )}
+                        </td>
+                        <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
+                          <PrintLabelButton itemId={row.id} />
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
