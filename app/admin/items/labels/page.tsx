@@ -38,13 +38,11 @@ function parseIds(raw: string): string[] {
   );
 }
 
-function deriveLabelIdFromSku(sku: string): string {
-  if (!sku) return "0";
-  const tail = sku.split("-").pop() ?? "";
-  const digits = tail.replace(/\D+/g, "");
-  if (!digits) return tail || sku;
-  const trimmed = digits.replace(/^0+/, "");
-  return trimmed || "0";
+function deriveShortItemCode(labelNumber: number | null | undefined, itemId: string): string {
+  if (typeof labelNumber === "number" && Number.isFinite(labelNumber) && labelNumber >= 0) {
+    return `I${Math.trunc(labelNumber).toString(36).toUpperCase()}`;
+  }
+  return itemId;
 }
 
 function qrImageUrl(data: string, size = 160): string {
@@ -152,10 +150,7 @@ export default async function ItemLabelsPage({
           <div style={{ padding: 14, fontSize: 14 }}>No items selected.</div>
         ) : (
           printable.map((item) => {
-            const labelId =
-              typeof item.labelNumber === "number" && Number.isFinite(item.labelNumber)
-                ? String(item.labelNumber)
-                : deriveLabelIdFromSku(item.sku);
+            const labelId = deriveShortItemCode(item.labelNumber, item.id);
             const nameText = String(item.name ?? "")
               .toUpperCase()
               .replace(/\s+/g, " ")
@@ -183,7 +178,7 @@ export default async function ItemLabelsPage({
                 </div>
 
                 <div className="bottom">
-                  <span className="idbox">ID# {labelId}</span>
+                  <span className="idbox">ITEM# {labelId}</span>
                   <span className="part">PART# {partText}</span>
                 </div>
               </div>
