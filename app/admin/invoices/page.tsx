@@ -540,20 +540,15 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     border: "1px solid rgba(244,67,54,0.55)",
   };
 
-  const today = new Date();
-  const defaultTo = fmtForDateInput(today);
-  const defaultFromDate = new Date(today);
-  defaultFromDate.setDate(defaultFromDate.getDate() - 6);
-  const defaultFrom = fmtForDateInput(defaultFromDate);
-
   const vendorRaw = String(sp.vendor ?? "SUCCESS_PLUS").trim().toUpperCase();
   const vendor: InvoiceVendor = vendorRaw === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS";
 
-  const fromStr = String(sp.from ?? defaultFrom).trim();
-  const toStr = String(sp.to ?? defaultTo).trim();
+  const fromStr = String(sp.from ?? "").trim();
+  const toStr = String(sp.to ?? "").trim();
 
-  const from = parseDateOnlyToDate(fromStr, false) ?? parseDateOnlyToDate(defaultFrom, false)!;
-  const to = parseDateOnlyToDate(toStr, true) ?? parseDateOnlyToDate(defaultTo, true)!;
+  const from = parseDateOnlyToDate(fromStr, false);
+  const to = parseDateOnlyToDate(toStr, true);
+  const hasDateFilter = !!from || !!to;
 
   const invoiceDateRaw = String(sp.invoiceDate ?? "").trim();
   const invoiceDate = invoiceDateRaw ? new Date(invoiceDateRaw) : new Date();
@@ -578,20 +573,48 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
   let readyByStore: Array<{ storeId: string; storeName: string; _count: { _all: number } }> = [];
   let readyTotal = 0;
+  let openTicketsBeforeWindowCount = 0;
+  let oldestOpenTicketDate: Date | null = null;
 
   if (ticketModelReady && d.partsCheckoutTicket) {
     try {
-      const rows = await d.partsCheckoutTicket.groupBy({
-        by: ["storeId", "storeName"],
-        where: {
-          status: PartsCheckoutStatus.OPEN,
-          invoicedAt: null,
-          voidedAt: null,
-          createdAt: { gte: from, lte: to },
-        },
-        _count: { _all: true },
-        orderBy: [{ storeName: "asc" }],
-      });
+      const [rows, olderOpenCount, olderOpenTicket] = await Promise.all([
+        d.partsCheckoutTicket.groupBy({
+          by: ["storeId", "storeName"],
+          where: {
+            status: PartsCheckoutStatus.OPEN,
+            invoicedAt: null,
+            voidedAt: null,
+            ...(from || to
+              ? {
+                  createdAt: {
+                    ...(from ? { gte: from } : {}),
+                    ...(to ? { lte: to } : {}),
+                  },
+                }
+              : {}),
+          },
+          _count: { _all: true },
+          orderBy: [{ storeName: "asc" }],
+        }),
+        prisma.partsCheckoutTicket.count({
+          where: {
+            status: PartsCheckoutStatus.OPEN,
+            invoicedAt: null,
+            voidedAt: null,
+            ...(from ? { createdAt: { lt: from } } : { id: { equals: "__none__" } }),
+          },
+        }),
+        prisma.partsCheckoutTicket.findFirst({
+          where: {
+            status: PartsCheckoutStatus.OPEN,
+            invoicedAt: null,
+            voidedAt: null,
+          },
+          orderBy: { createdAt: "asc" },
+          select: { createdAt: true },
+        }),
+      ]);
 
       readyByStore = (rows as Array<Record<string, unknown>>).map((r) => ({
         storeId: String(r.storeId ?? ""),
@@ -600,10 +623,14 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
       }));
 
       readyTotal = readyByStore.reduce((acc, r) => acc + r._count._all, 0);
+      openTicketsBeforeWindowCount = from ? olderOpenCount : 0;
+      oldestOpenTicketDate = olderOpenTicket?.createdAt ?? null;
     } catch (e) {
       if (!isSchemaOrDbNotReadyError(e)) throw e;
       readyByStore = [];
       readyTotal = 0;
+      openTicketsBeforeWindowCount = 0;
+      oldestOpenTicketDate = null;
     }
   }
 
@@ -708,7 +735,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     const merged: SearchParams = { ...sp, ...patch };
 
     const qp = new URLSearchParams();
-    const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err", "cfg", "refreshed"];
+    const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err", "cfg", "refreshed", "undo"];
 
     for (const k of keys) {
       const v = merged[k];
@@ -761,7 +788,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
     const from = parseDateOnlyToDate(fromStr, false);
     const to = parseDateOnlyToDate(toStr, true);
-    if (!from || !to) throw new Error("Missing from/to dates");
+    if (from && to && from > to) throw new Error("From date must be on or before To date");
 
     const invoiceDate = invoiceDateStr ? new Date(invoiceDateStr) : new Date();
     if (Number.isNaN(invoiceDate.getTime())) throw new Error("Invalid invoice date");
@@ -1199,6 +1226,36 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
             Ready tickets in window: <b>{readyTotal}</b> • Vendor format: <b>{vendorLabel(vendor)}</b>
           </div>
 
+          {openTicketsBeforeWindowCount > 0 ? (
+            <div
+              style={{
+                marginTop: 10,
+                padding: 12,
+                borderRadius: 14,
+                border: "1px solid rgba(255,193,7,0.45)",
+                background: "rgba(255,193,7,0.08)",
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 10,
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+                <b>{openTicketsBeforeWindowCount}</b> pending checkout ticket{openTicketsBeforeWindowCount === 1 ? " is" : "s are"} older than the current invoice window.
+                {oldestOpenTicketDate ? ` Oldest pending checkout: ${fmtLocalDate(oldestOpenTicketDate)}.` : ""}
+              </div>
+              {oldestOpenTicketDate ? (
+                <Link
+                  href={buildHref({ from: fmtForDateInput(oldestOpenTicketDate), err: "" })}
+                  style={{ ...btn, textDecoration: "none", display: "inline-block" }}
+                >
+                  Include older pending tickets
+                </Link>
+              ) : null}
+            </div>
+          ) : null}
+
           {lastGeneratedInvoices.length > 0 ? (
             <div
               style={{
@@ -1254,7 +1311,9 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
           <div style={{ marginTop: 10, border, borderRadius: 14, padding: 12, background: surface }}>
             <div style={{ fontWeight: 900, marginBottom: 6 }}>Pending invoice generation (by store)</div>
             <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 8 }}>
-              Stores with OPEN tickets not yet invoiced in this window ({fromStr} → {toStr}).
+              {hasDateFilter
+                ? `Stores with OPEN tickets not yet invoiced in this window (${fromStr || "start"} → ${toStr || "now"}).`
+                : "Stores with all OPEN tickets not yet invoiced."}
             </div>
 
             {!ticketModelReady ? (
@@ -1318,12 +1377,12 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                 </label>
 
                 <label style={{ ...controlLabel, flex: "0 1 180px", minWidth: 0 }}>
-                  From (submitted)
+                  From (optional)
                   <input type="date" name="from" defaultValue={fromStr} style={controlBase} />
                 </label>
 
                 <label style={{ ...controlLabel, flex: "0 1 180px", minWidth: 0 }}>
-                  To (submitted)
+                  To (optional)
                   <input type="date" name="to" defaultValue={toStr} style={controlBase} />
                 </label>
 
@@ -1345,8 +1404,8 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
               </div>
 
               <div style={{ fontSize: 12, opacity: 0.8 }}>
-                Manual trigger. Submitted checkouts are immediately “ready” (OPEN, not invoiced). Generating creates <b>one invoice per store</b>{" "}
-                in the window for the selected vendor, then marks those tickets <b>INVOICED</b>.
+                Manual trigger. Submitted checkouts are immediately “ready” (OPEN, not invoiced). Leave dates blank to generate from <b>all pending checkout tickets</b>, or set dates to filter the window. Generating creates <b>one invoice per store</b>{" "}
+                for the selected vendor, then marks those tickets <b>INVOICED</b>.
               </div>
             </form>
           </div>

@@ -544,8 +544,8 @@ function effectiveTicketVendor(ticket: { vendorSnapshot?: unknown; item?: { vend
 
 export async function createInvoicesForWindow(args: {
   vendor: InvoiceVendor;
-  periodStart: Date;
-  periodEnd: Date;
+  periodStart?: Date | null;
+  periodEnd?: Date | null;
   invoiceDate: Date;
   createdByUserId?: string | null;
 }): Promise<{ results: Array<{ storeId: string; invoiceId?: string; created?: boolean; reason?: string }> }> {
@@ -555,15 +555,22 @@ export async function createInvoicesForWindow(args: {
   //   (this is what allows "american plus" labeled items to generate American Plus invoices automatically)
   const requestedVendor = normalizeVendor(args.vendor);
 
-  const periodStart = new Date(args.periodStart);
-  const periodEnd = new Date(args.periodEnd);
+  const periodStart = args.periodStart ? new Date(args.periodStart) : null;
+  const periodEnd = args.periodEnd ? new Date(args.periodEnd) : null;
   const invoiceDate = new Date(args.invoiceDate);
 
-  if (Number.isNaN(periodStart.getTime()) || Number.isNaN(periodEnd.getTime())) {
-    throw new Error("Invalid periodStart/periodEnd");
+  if (periodStart && Number.isNaN(periodStart.getTime())) {
+    throw new Error("Invalid periodStart");
+  }
+  if (periodEnd && Number.isNaN(periodEnd.getTime())) {
+    throw new Error("Invalid periodEnd");
   }
   if (Number.isNaN(invoiceDate.getTime())) {
     throw new Error("Invalid invoiceDate");
+  }
+
+  if (periodStart && periodEnd && periodStart > periodEnd) {
+    throw new Error("periodStart must be on or before periodEnd");
   }
 
   // Pull OPEN tickets in window, not already invoiced/voided.
@@ -573,7 +580,14 @@ export async function createInvoicesForWindow(args: {
       status: PartsCheckoutStatus.OPEN,
       invoicedAt: null,
       voidedAt: null,
-      createdAt: { gte: periodStart, lte: periodEnd },
+      ...(periodStart || periodEnd
+        ? {
+            createdAt: {
+              ...(periodStart ? { gte: periodStart } : {}),
+              ...(periodEnd ? { lte: periodEnd } : {}),
+            },
+          }
+        : {}),
     },
     select: {
       id: true,
@@ -745,6 +759,12 @@ export async function createInvoicesForWindow(args: {
         const taxTotal = fromCents(taxCents);
         const total = fromCents(totalCents);
 
+        const submittedTimes = fresh.map((ticket) => ticket.createdAt.getTime()).filter(Number.isFinite);
+        const derivedPeriodStart =
+          periodStart ?? (submittedTimes.length > 0 ? new Date(Math.min(...submittedTimes)) : invoiceDate);
+        const derivedPeriodEnd =
+          periodEnd ?? (submittedTimes.length > 0 ? new Date(Math.max(...submittedTimes)) : invoiceDate);
+
         const invoice = await tx.invoice.create({
           data: {
             vendor,
@@ -753,8 +773,8 @@ export async function createInvoicesForWindow(args: {
             storeId,
             storeName: loc.name,
             storeNumber,
-            periodStart,
-            periodEnd,
+            periodStart: derivedPeriodStart,
+            periodEnd: derivedPeriodEnd,
             invoiceDate,
             subtotal,
             taxTotal,

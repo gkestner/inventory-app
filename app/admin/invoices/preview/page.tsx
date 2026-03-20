@@ -116,11 +116,11 @@ export default async function InvoicePreviewPage({
   const toStr = String(sp.to ?? "").trim();
   const vendorFilter = String(sp.vendor ?? "").trim().toUpperCase();
 
-  if (!storeId || !fromStr || !toStr) return notFound();
+  if (!storeId) return notFound();
 
   const from = parseDateOnly(fromStr, false);
   const to = parseDateOnly(toStr, true);
-  if (!from || !to) return notFound();
+  if (from && to && from > to) return notFound();
 
   // Load tickets + store info
   const [tickets, location] = await Promise.all([
@@ -130,7 +130,14 @@ export default async function InvoicePreviewPage({
         status: PartsCheckoutStatus.OPEN,
         invoicedAt: null,
         voidedAt: null,
-        createdAt: { gte: from, lte: to },
+        ...(from || to
+          ? {
+              createdAt: {
+                ...(from ? { gte: from } : {}),
+                ...(to ? { lte: to } : {}),
+              },
+            }
+          : {}),
       },
       select: {
         id: true,
@@ -262,7 +269,11 @@ export default async function InvoicePreviewPage({
     display: "inline-block",
   } as const;
 
-  const backHref = `/admin/invoices?from=${encodeURIComponent(fromStr)}&to=${encodeURIComponent(toStr)}${vendorFilter ? `&vendor=${vendorFilter}` : ""}`;
+  const backHref = `/admin/invoices?${new URLSearchParams({
+    ...(fromStr ? { from: fromStr } : {}),
+    ...(toStr ? { to: toStr } : {}),
+    ...(vendorFilter ? { vendor: vendorFilter } : {}),
+  }).toString()}`.replace(/\?$/, "");
 
   return (
     <main style={{ padding: 16 }}>
@@ -276,7 +287,7 @@ export default async function InvoicePreviewPage({
         </div>
 
         <div style={{ fontSize: 13, opacity: 0.75, marginBottom: 16 }}>
-          Store: <b>{storeNumber} {storeName}</b> &nbsp;|&nbsp; Window: <b>{fromStr}</b> → <b>{toStr}</b>
+          Store: <b>{storeNumber} {storeName}</b> &nbsp;|&nbsp; Window: <b>{fromStr || "All pending"}</b>{fromStr || toStr ? <> → <b>{toStr || "Now"}</b></> : null}
           &nbsp;|&nbsp; This is an <b>estimate</b> based on current vendor pricing settings. Final amounts are set when invoices are generated.
         </div>
 
@@ -319,7 +330,7 @@ export default async function InvoicePreviewPage({
                     <b>Store:</b> {group.storeNumber} {group.storeName}
                   </div>
                   <div>
-                    <b>Period:</b> {fromStr} – {toStr}
+                    <b>Period:</b> {fromStr || "All pending"}{fromStr || toStr ? ` – ${toStr || "Now"}` : ""}
                   </div>
                   <div>
                     <b>Tickets:</b> {group.lines.length}

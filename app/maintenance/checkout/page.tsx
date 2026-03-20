@@ -2,6 +2,7 @@
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { getServerSession } from "next-auth";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import type { CSSProperties } from "react";
@@ -779,7 +780,24 @@ export default async function MaintenanceCheckoutPage({
 
     return (
     <div style={{ padding: 24, maxWidth: 980, margin: "0 auto" }}>
-      <h1 style={{ fontSize: 20, fontWeight: 800, marginBottom: 6 }}>Maintenance Checkout</h1>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
+        <Link
+          href="/maintenance/checkout/history"
+          style={{
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: "1px solid rgba(128,128,128,0.25)",
+            background: "var(--background)",
+            color: "var(--foreground)",
+            textDecoration: "none",
+            fontWeight: 800,
+            lineHeight: 1,
+          }}
+        >
+          Checkout History
+        </Link>
+        <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Maintenance Checkout</h1>
+      </div>
       <div style={{ opacity: 0.8, marginBottom: 12 }}>
         Creates a ticket and inventory alerts (never blocks; on-hand may go negative).
       </div>
