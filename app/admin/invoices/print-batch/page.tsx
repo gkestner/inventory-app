@@ -262,6 +262,7 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
 
           .admin-layout-sidebar,
           .admin-layout-topbar,
+          .app-preview-controls,
           .no-print {
             display: none !important;
           }

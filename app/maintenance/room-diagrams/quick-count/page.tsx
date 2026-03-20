@@ -87,8 +87,8 @@ export default async function QuickCountEditorPage({
   const canViewRoomDiagrams =
     perms.allowAll ||
     hasAnyPermission(perms, [
-      Permission.VIEW_CHECKOUT,
-      Permission.CREATE_CHECKOUT,
+      Permission.VIEW_ROOM_DIAGRAMS,
+      Permission.EDIT_QUICK_COUNT,
       Permission.VIEW_PREVENTATIVE_MAINTENANCE,
       Permission.ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
       Permission.ADMIN_VIEW_ITEMS,
@@ -98,8 +98,7 @@ export default async function QuickCountEditorPage({
   if (!canViewRoomDiagrams) redirect("/");
 
   const canEditCounts =
-    perms.allowAll ||
-    hasAnyPermission(perms, [Permission.CREATE_CHECKOUT, Permission.ADMIN_EDIT_ITEMS]);
+    perms.allowAll || hasAnyPermission(perms, [Permission.EDIT_QUICK_COUNT, Permission.ADMIN_EDIT_ITEMS]);
 
   if (!canEditCounts) redirect("/maintenance/room-diagrams");
 
@@ -113,7 +112,7 @@ export default async function QuickCountEditorPage({
 
     const perms = await loadUserPermissions(session);
     const canEdit =
-      perms.allowAll || hasAnyPermission(perms, [Permission.CREATE_CHECKOUT, Permission.ADMIN_EDIT_ITEMS]);
+      perms.allowAll || hasAnyPermission(perms, [Permission.EDIT_QUICK_COUNT, Permission.ADMIN_EDIT_ITEMS]);
     if (!canEdit) redirect("/");
 
     const actorEmail = String(session.user?.email ?? "").trim().toLowerCase();

@@ -58,15 +58,15 @@ export default async function MaintenanceHomePage() {
   const canRoomDiagrams =
     perms.allowAll ||
     hasAnyPermission(perms, [
-      Permission.VIEW_CHECKOUT,
-      Permission.CREATE_CHECKOUT,
+      Permission.VIEW_ROOM_DIAGRAMS,
+      Permission.EDIT_QUICK_COUNT,
       VIEW_PREVENTATIVE_MAINTENANCE,
       ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
       Permission.ADMIN_VIEW_ITEMS,
       Permission.ADMIN_EDIT_ITEMS,
     ]);
   const canQuickCountEditor =
-    perms.allowAll || hasAnyPermission(perms, [Permission.CREATE_CHECKOUT, Permission.ADMIN_EDIT_ITEMS]);
+    perms.allowAll || hasAnyPermission(perms, [Permission.EDIT_QUICK_COUNT, Permission.ADMIN_EDIT_ITEMS]);
 
   const border = "1px solid var(--border)";
 

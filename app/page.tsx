@@ -65,6 +65,8 @@ export default async function HomePage() {
       Permission.SUBMIT_OWN_WORK_ORDERS,
       Permission.VIEW_CHECKOUT,
       Permission.CREATE_CHECKOUT,
+      Permission.VIEW_ROOM_DIAGRAMS,
+      Permission.EDIT_QUICK_COUNT,
       Permission.VIEW_LIVE_ORDERS,
       VIEW_PREVENTATIVE_MAINTENANCE,
       VIEW_EQUIPMENT_TRACKING,
@@ -89,6 +91,7 @@ export default async function HomePage() {
   const canOfficeEntry = perms.allowAll || hasAnyPermission(perms, [CREATE_WORK_ORDERS_FOR_OTHERS]);
 
   const canCheckout = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
+  const canRoomDiagrams = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_ROOM_DIAGRAMS, Permission.EDIT_QUICK_COUNT]);
 
   const canLiveOrders = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_LIVE_ORDERS]);
 
@@ -101,6 +104,7 @@ export default async function HomePage() {
     if (canWorkOrders) redirect("/maintenance/work-orders");
     if (canOfficeEntry) redirect("/maintenance/work-orders/office-entry");
     if (canCheckout) redirect("/maintenance/checkout");
+    if (canRoomDiagrams) redirect("/maintenance/room-diagrams");
     if (canLiveOrders) redirect("/employee/live-orders");
     redirect("/maintenance");
   }

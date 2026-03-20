@@ -35,7 +35,13 @@ export default async function EmployeeHomePage() {
 
   const canSeeEmployeeDashboard =
     perms.allowAll ||
-    hasAnyPermission(perms, [Permission.VIEW_HOME, Permission.VIEW_CHECKOUT, Permission.VIEW_LIVE_ORDERS]) ||
+    hasAnyPermission(perms, [
+      Permission.VIEW_HOME,
+      Permission.VIEW_CHECKOUT,
+      Permission.VIEW_ROOM_DIAGRAMS,
+      Permission.EDIT_QUICK_COUNT,
+      Permission.VIEW_LIVE_ORDERS,
+    ]) ||
     canWorkOrders;
 
   if (!canSeeEmployeeDashboard) redirect("/");

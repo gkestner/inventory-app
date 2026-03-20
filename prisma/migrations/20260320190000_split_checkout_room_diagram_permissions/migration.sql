@@ -1,0 +1,5 @@
+-- AlterEnum
+ALTER TYPE "Permission" ADD VALUE 'VIEW_ROOM_DIAGRAMS';
+
+-- AlterEnum
+ALTER TYPE "Permission" ADD VALUE 'EDIT_QUICK_COUNT';

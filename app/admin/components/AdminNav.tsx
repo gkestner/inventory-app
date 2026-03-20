@@ -191,14 +191,14 @@ export default async function AdminNav() {
   const canRoomDiagrams =
     isAdmin ||
     hasAnyPermission(perms, [
-      Permission.VIEW_CHECKOUT,
-      Permission.CREATE_CHECKOUT,
+      Permission.VIEW_ROOM_DIAGRAMS,
+      Permission.EDIT_QUICK_COUNT,
       ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
       Permission.ADMIN_VIEW_ITEMS,
       Permission.ADMIN_EDIT_ITEMS,
     ]);
   const canQuickCountEditor =
-    isAdmin || hasAnyPermission(perms, [Permission.CREATE_CHECKOUT, Permission.ADMIN_EDIT_ITEMS]);
+    isAdmin || hasAnyPermission(perms, [Permission.EDIT_QUICK_COUNT, Permission.ADMIN_EDIT_ITEMS]);
   const canAdminTravelLogs = canAdminWorkOrders || canUserWorkOrders;
 
   // For now: gate invoices + order history under items perms (no enum changes)

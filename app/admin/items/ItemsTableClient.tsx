@@ -256,6 +256,9 @@ type ItemRow = {
 
 type Draft = {
   sku: string;
+  maintLoc: string;
+  maintShelf: string;
+  maintBin: string;
   partNumber: string;
   vendor: Vendor;
   name: string;
@@ -315,8 +318,13 @@ function safeUrl(raw: string | null | undefined): string | null {
 }
 
 function normalizeDraftFromRow(row: ItemRow): Draft {
+  const skuParts = parseStructuredSkuParts(row.sku);
+
   return {
     sku: row.sku,
+    maintLoc: skuParts?.location ?? "",
+    maintShelf: skuParts?.shelf ?? "",
+    maintBin: skuParts?.bin ?? "",
     partNumber: row.partNumber ?? "",
     vendor: (row.vendor ?? "SUCCESS_PLUS") as Vendor,
     name: row.name ?? "",
@@ -472,21 +480,51 @@ type SkuRoomParts = {
   bin: string;
 };
 
-function parseSkuRoomParts(sku: string): SkuRoomParts | null {
+type StructuredSkuParts = SkuRoomParts & {
+  zone: string;
+  itemKey: string;
+};
+
+function normalizeSkuPartInput(value: string): string {
+  return String(value ?? "").replace(/\D/g, "").slice(0, 2);
+}
+
+function isValidTwoDigitSkuPart(value: string): boolean {
+  return /^\d{1,2}$/.test(String(value ?? "").trim());
+}
+
+function parseStructuredSkuParts(sku: string): StructuredSkuParts | null {
   const raw = String(sku ?? "").trim();
   if (!raw) return null;
 
   const segments = raw.split("-");
-  if (segments.length < 2) return null;
+  if (segments.length < 3) return null;
 
-  // Expected format: ZONE-MIDDLE-ITEM where MIDDLE contains Location+Shelf+Bin.
+  const zone = String(segments[0] ?? "").trim();
   const middleDigits = String(segments[1] ?? "").replace(/\D/g, "");
-  if (middleDigits.length < 6) return null;
+  const itemKey = segments.slice(2).join("-").trim();
+  if (!zone || middleDigits.length < 6 || !itemKey) return null;
 
   return {
+    zone,
     location: middleDigits.slice(0, 2),
     shelf: middleDigits.slice(2, 4),
     bin: middleDigits.slice(4, 6),
+    itemKey,
+  };
+}
+
+function buildStructuredSku(zone: string, location: string, shelf: string, bin: string, itemKey: string): string {
+  return `${zone}-${location}${shelf}${bin}-${itemKey}`;
+}
+
+function parseSkuRoomParts(sku: string): SkuRoomParts | null {
+  const parsed = parseStructuredSkuParts(sku);
+  if (!parsed) return null;
+  return {
+    location: parsed.location,
+    shelf: parsed.shelf,
+    bin: parsed.bin,
   };
 }
 
@@ -949,6 +987,9 @@ export default function ItemsTableClient({
     const e: FieldErrors = {};
     if (!d.sku.trim()) e.sku = "SKU is required.";
     if (!d.name.trim()) e.name = "Name is required.";
+    if (!isValidTwoDigitSkuPart(d.maintLoc)) e.maintLoc = "Loc must be 1-2 digits.";
+    if (!isValidTwoDigitSkuPart(d.maintShelf)) e.maintShelf = "Shelf must be 1-2 digits.";
+    if (!isValidTwoDigitSkuPart(d.maintBin)) e.maintBin = "Bin must be 1-2 digits.";
     if (d.cost.trim() && !isValidMoney(d.cost)) e.cost = "Invalid money (max 2 decimals).";
 
     const vendorKey = (d.vendor ?? "SUCCESS_PLUS") as Vendor;
@@ -1010,6 +1051,20 @@ export default function ItemsTableClient({
 
     setSaving(true);
     try {
+      const currentRow = rows.find((row) => row.id === id) ?? null;
+      const currentSkuParts = parseStructuredSkuParts(currentRow?.sku ?? draft.sku);
+      if (!currentSkuParts) {
+        throw new Error("This item's SKU format does not support room location editing.");
+      }
+
+      const nextSku = buildStructuredSku(
+        currentSkuParts.zone,
+        draft.maintLoc.trim().padStart(2, "0"),
+        draft.maintShelf.trim().padStart(2, "0"),
+        draft.maintBin.trim().padStart(2, "0"),
+        currentSkuParts.itemKey,
+      );
+
       const vendorKey = (draft.vendor ?? "SUCCESS_PLUS") as Vendor;
       const vendorFormula = (vendorFormulas?.[vendorKey] ?? "").trim();
       const usingCostPlus = isCostPlusVendor(vendorKey) && vendorFormula.length > 0;
@@ -1018,7 +1073,7 @@ export default function ItemsTableClient({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sku: draft.sku.trim(),
+          sku: nextSku,
           partNumber: draft.partNumber.trim() || null,
           vendor: draft.vendor,
           name: draft.name.trim(),
@@ -2083,6 +2138,75 @@ export default function ItemsTableClient({
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-start" }}>
                             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                               <span style={{ fontSize: 12, opacity: 0.85 }}>
+                                <strong>Maint. Loc</strong>
+                              </span>
+                              <input
+                                value={draft?.maintLoc ?? ""}
+                                onChange={(e) =>
+                                  setDraft((d) => (d ? { ...d, maintLoc: normalizeSkuPartInput(e.target.value) } : d))
+                                }
+                                inputMode="numeric"
+                                maxLength={2}
+                                style={{
+                                  width: 90,
+                                  padding: "6px 8px",
+                                  border: "1px solid var(--border)",
+                                  borderRadius: 8,
+                                  background: surface,
+                                  color: "var(--text)",
+                                }}
+                              />
+                              {errors.maintLoc ? <span style={{ fontSize: 12, color: danger }}>{errors.maintLoc}</span> : null}
+                            </div>
+
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                              <span style={{ fontSize: 12, opacity: 0.85 }}>
+                                <strong>Shelf</strong>
+                              </span>
+                              <input
+                                value={draft?.maintShelf ?? ""}
+                                onChange={(e) =>
+                                  setDraft((d) => (d ? { ...d, maintShelf: normalizeSkuPartInput(e.target.value) } : d))
+                                }
+                                inputMode="numeric"
+                                maxLength={2}
+                                style={{
+                                  width: 90,
+                                  padding: "6px 8px",
+                                  border: "1px solid var(--border)",
+                                  borderRadius: 8,
+                                  background: surface,
+                                  color: "var(--text)",
+                                }}
+                              />
+                              {errors.maintShelf ? <span style={{ fontSize: 12, color: danger }}>{errors.maintShelf}</span> : null}
+                            </div>
+
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                              <span style={{ fontSize: 12, opacity: 0.85 }}>
+                                <strong>Bin</strong>
+                              </span>
+                              <input
+                                value={draft?.maintBin ?? ""}
+                                onChange={(e) =>
+                                  setDraft((d) => (d ? { ...d, maintBin: normalizeSkuPartInput(e.target.value) } : d))
+                                }
+                                inputMode="numeric"
+                                maxLength={2}
+                                style={{
+                                  width: 90,
+                                  padding: "6px 8px",
+                                  border: "1px solid var(--border)",
+                                  borderRadius: 8,
+                                  background: surface,
+                                  color: "var(--text)",
+                                }}
+                              />
+                              {errors.maintBin ? <span style={{ fontSize: 12, color: danger }}>{errors.maintBin}</span> : null}
+                            </div>
+
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                              <span style={{ fontSize: 12, opacity: 0.85 }}>
                                 <strong>Manufacturer</strong>
                               </span>
                               <input
@@ -2167,13 +2291,27 @@ export default function ItemsTableClient({
 
                           <div style={{ fontSize: 12, opacity: 0.85, display: "flex", flexWrap: "wrap", gap: 12 }}>
                             <span>
-                              <strong>Maint. Loc:</strong> {detailText.roomLocation}
+                              <strong>SKU Preview:</strong>{" "}
+                              {(() => {
+                                const skuParts = parseStructuredSkuParts(row.sku);
+                                if (!skuParts || !draft) return row.sku;
+                                return buildStructuredSku(
+                                  skuParts.zone,
+                                  draft.maintLoc.trim().padStart(2, "0"),
+                                  draft.maintShelf.trim().padStart(2, "0"),
+                                  draft.maintBin.trim().padStart(2, "0"),
+                                  skuParts.itemKey,
+                                );
+                              })()}
                             </span>
                             <span>
-                              <strong>Shelf:</strong> {detailText.roomShelf}
+                              <strong>Maint. Loc:</strong> {draft?.maintLoc ? draft.maintLoc.trim().padStart(2, "0") : detailText.roomLocation}
                             </span>
                             <span>
-                              <strong>Bin:</strong> {detailText.roomBin}
+                              <strong>Shelf:</strong> {draft?.maintShelf ? draft.maintShelf.trim().padStart(2, "0") : detailText.roomShelf}
+                            </span>
+                            <span>
+                              <strong>Bin:</strong> {draft?.maintBin ? draft.maintBin.trim().padStart(2, "0") : detailText.roomBin}
                             </span>
                             <span>
                               <strong>On Hand:</strong> {detailText.onHand}

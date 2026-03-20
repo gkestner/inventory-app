@@ -243,6 +243,8 @@ export default async function RootLayout({
     hasAnyPermission(perms, [
       Permission.VIEW_HOME,
       Permission.VIEW_CHECKOUT,
+      Permission.VIEW_ROOM_DIAGRAMS,
+      Permission.EDIT_QUICK_COUNT,
       Permission.VIEW_WORK_ORDERS,
       Permission.VIEW_LIVE_ORDERS,
       VIEW_PREVENTATIVE_MAINTENANCE,
@@ -307,6 +309,7 @@ export default async function RootLayout({
         {/* Admin-only preview controls (single source of truth; do NOT duplicate in AdminNav/UserNav) */}
         {canUsePreview ? (
           <div
+            className="app-preview-controls"
             style={{
               position: "sticky",
               top: 0,

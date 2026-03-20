@@ -120,6 +120,9 @@ export default async function UserNav() {
   const canPreventativeMaintenance = perms.allowAll || hasAnyPermission(perms, [VIEW_PREVENTATIVE_MAINTENANCE]);
   const canEquipmentTracking = perms.allowAll || hasAnyPermission(perms, [VIEW_EQUIPMENT_TRACKING]);
   const canVehicleLog = perms.allowAll || hasAnyPermission(perms, [VIEW_COMPANY_VEHICLE_LOG]);
+  const canRoomDiagrams =
+    perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_ROOM_DIAGRAMS, Permission.EDIT_QUICK_COUNT]);
+  const canQuickCountEditor = perms.allowAll || hasAnyPermission(perms, [Permission.EDIT_QUICK_COUNT]);
   const canLiveOrders = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_LIVE_ORDERS]);
 
   const homeHref =
@@ -132,6 +135,8 @@ export default async function UserNav() {
     canPreventativeMaintenance ||
     canEquipmentTracking ||
     canVehicleLog ||
+    canRoomDiagrams ||
+    canQuickCountEditor ||
     canLiveOrders
       ? "/maintenance"
       : "/";
@@ -265,10 +270,20 @@ export default async function UserNav() {
             </details>
           )}
 
-          {(canPreventativeMaintenance || canEquipmentTracking || canVehicleLog) && (
+          {(canPreventativeMaintenance || canEquipmentTracking || canVehicleLog || canRoomDiagrams || canQuickCountEditor) && (
             <details data-user-dropdown style={detailsStyle}>
               <summary style={summaryStyle}>PM List</summary>
               <div style={menuStyle}>
+                {canRoomDiagrams ? (
+                  <Link href="/maintenance/room-diagrams" style={menuItemStyle}>
+                    Room Diagrams
+                  </Link>
+                ) : null}
+                {canQuickCountEditor ? (
+                  <Link href="/maintenance/room-diagrams/quick-count" style={menuItemStyle}>
+                    Quick Count Editor
+                  </Link>
+                ) : null}
                 {canPreventativeMaintenance ? (
                   <Link href="/maintenance/preventative-maintenance" style={menuItemStyle}>
                     Preventative Maintenance

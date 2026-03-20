@@ -198,8 +198,8 @@ export default async function MaintenanceRoomDiagramsPage({
   const canViewRoomDiagrams =
     perms.allowAll ||
     hasAnyPermission(perms, [
-      Permission.VIEW_CHECKOUT,
-      Permission.CREATE_CHECKOUT,
+      Permission.VIEW_ROOM_DIAGRAMS,
+      Permission.EDIT_QUICK_COUNT,
       Permission.VIEW_PREVENTATIVE_MAINTENANCE,
       Permission.ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
       Permission.ADMIN_VIEW_ITEMS,
@@ -209,8 +209,7 @@ export default async function MaintenanceRoomDiagramsPage({
   if (!canViewRoomDiagrams) redirect("/");
 
   const canEditCounts =
-    perms.allowAll ||
-    hasAnyPermission(perms, [Permission.CREATE_CHECKOUT, Permission.ADMIN_EDIT_ITEMS]);
+    perms.allowAll || hasAnyPermission(perms, [Permission.EDIT_QUICK_COUNT, Permission.ADMIN_EDIT_ITEMS]);
 
   const items = await prisma.item.findMany({
     where: { active: true },

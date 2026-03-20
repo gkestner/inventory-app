@@ -45,6 +45,8 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
     hasAnyPermission(perms, [
       Permission.VIEW_CHECKOUT,
       Permission.CREATE_CHECKOUT,
+      Permission.VIEW_ROOM_DIAGRAMS,
+      Permission.EDIT_QUICK_COUNT,
       Permission.VIEW_WORK_ORDERS,
       Permission.CREATE_WORK_ORDERS,
       CREATE_WORK_ORDERS_FOR_OTHERS,
@@ -94,15 +96,15 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
   const canRoomDiagrams =
     perms.allowAll ||
     hasAnyPermission(perms, [
-      Permission.VIEW_CHECKOUT,
-      Permission.CREATE_CHECKOUT,
+      Permission.VIEW_ROOM_DIAGRAMS,
+      Permission.EDIT_QUICK_COUNT,
       VIEW_PREVENTATIVE_MAINTENANCE,
       ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
       Permission.ADMIN_VIEW_ITEMS,
       Permission.ADMIN_EDIT_ITEMS,
     ]);
   const canQuickCountEditor =
-    perms.allowAll || hasAnyPermission(perms, [Permission.CREATE_CHECKOUT, Permission.ADMIN_EDIT_ITEMS]);
+    perms.allowAll || hasAnyPermission(perms, [Permission.EDIT_QUICK_COUNT, Permission.ADMIN_EDIT_ITEMS]);
 
   const shell: CSSProperties = {
     color: "var(--foreground)",

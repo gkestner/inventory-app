@@ -46,14 +46,26 @@ export const PERMISSION_CATALOG: PermissionCatalogEntry[] = [
   {
     permission: Permission.VIEW_CHECKOUT,
     module: "Inventory",
-    path: ["Checkout + Room Diagrams"],
-    label: "View Checkout + Room Diagrams",
+    path: ["Checkout"],
+    label: "View Checkout",
   },
   {
     permission: Permission.CREATE_CHECKOUT,
     module: "Inventory",
-    path: ["Checkout + Room Diagrams"],
-    label: "Create Checkout + Quick Count Editor",
+    path: ["Checkout"],
+    label: "Create Checkout",
+  },
+  {
+    permission: Permission.VIEW_ROOM_DIAGRAMS,
+    module: "Inventory",
+    path: ["Room Diagrams"],
+    label: "View Room Diagrams",
+  },
+  {
+    permission: Permission.EDIT_QUICK_COUNT,
+    module: "Inventory",
+    path: ["Quick Count"],
+    label: "Edit Quick Count Editor",
   },
 
   // ===== Maintenance / Work Orders (non-admin) =====

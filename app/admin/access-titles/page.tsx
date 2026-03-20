@@ -154,14 +154,26 @@ const PERMS: PermMeta[] = [
   {
     perm: Permission.VIEW_CHECKOUT,
     module: "Inventory",
-    group: "Checkout + Room Diagrams",
-    label: "View Checkout + Room Diagrams",
+    group: "Checkout",
+    label: "View Checkout",
   },
   {
     perm: Permission.CREATE_CHECKOUT,
     module: "Inventory",
-    group: "Checkout + Room Diagrams",
-    label: "Create Checkout + Quick Count Editor",
+    group: "Checkout",
+    label: "Create Checkout",
+  },
+  {
+    perm: Permission.VIEW_ROOM_DIAGRAMS,
+    module: "Inventory",
+    group: "Room Diagrams",
+    label: "View Room Diagrams",
+  },
+  {
+    perm: Permission.EDIT_QUICK_COUNT,
+    module: "Inventory",
+    group: "Quick Count",
+    label: "Edit Quick Count Editor",
   },
 
   // ✅ NEW: Live Orders board permission (general users)

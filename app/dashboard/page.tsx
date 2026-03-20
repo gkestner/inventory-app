@@ -46,6 +46,8 @@ export default async function DashboardPage() {
       Permission.SUBMIT_OWN_WORK_ORDERS,
       Permission.VIEW_CHECKOUT,
       Permission.CREATE_CHECKOUT,
+      Permission.VIEW_ROOM_DIAGRAMS,
+      Permission.EDIT_QUICK_COUNT,
       Permission.VIEW_LIVE_ORDERS,
       VIEW_PREVENTATIVE_MAINTENANCE,
       VIEW_EQUIPMENT_TRACKING,
