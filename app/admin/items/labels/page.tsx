@@ -38,11 +38,15 @@ function parseIds(raw: string): string[] {
   );
 }
 
-function deriveShortItemCode(labelNumber: number | null | undefined, itemId: string): string {
-  if (typeof labelNumber === "number" && Number.isFinite(labelNumber) && labelNumber >= 0) {
-    return `I${Math.trunc(labelNumber).toString(36).toUpperCase()}`;
-  }
-  return itemId;
+function deriveSkuKeyIdentifier(sku: string, fallbackId: string): string {
+  const raw = String(sku ?? "").trim();
+  if (!raw) return fallbackId;
+
+  const keyCandidate = raw.split("-").pop() ?? "";
+  const normalized = keyCandidate.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  if (normalized) return normalized;
+
+  return fallbackId;
 }
 
 function qrImageUrl(data: string, size = 160): string {
@@ -150,7 +154,7 @@ export default async function ItemLabelsPage({
           <div style={{ padding: 14, fontSize: 14 }}>No items selected.</div>
         ) : (
           printable.map((item) => {
-            const labelId = deriveShortItemCode(item.labelNumber, item.id);
+            const labelId = deriveSkuKeyIdentifier(item.sku, item.id);
             const nameText = String(item.name ?? "")
               .toUpperCase()
               .replace(/\s+/g, " ")

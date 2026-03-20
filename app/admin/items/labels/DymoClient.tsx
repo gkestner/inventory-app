@@ -90,11 +90,15 @@ function buildLabelXml(): string {
 </DieCutLabel>`;
 }
 
-function deriveShortItemCode(labelNumber: number | null | undefined, itemId: string): string {
-  if (typeof labelNumber === "number" && Number.isFinite(labelNumber) && labelNumber >= 0) {
-    return `I${Math.trunc(labelNumber).toString(36).toUpperCase()}`;
-  }
-  return itemId;
+function deriveSkuKeyIdentifier(sku: string, fallbackId: string): string {
+  const raw = String(sku ?? "").trim();
+  if (!raw) return fallbackId;
+
+  const keyCandidate = raw.split("-").pop() ?? "";
+  const normalized = keyCandidate.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  if (normalized) return normalized;
+
+  return fallbackId;
 }
 
 export default function DymoClient({ items }: { items: LabelItem[] }) {
@@ -204,7 +208,7 @@ export default function DymoClient({ items }: { items: LabelItem[] }) {
     const name = (item.name || "").toUpperCase().slice(0, 22);
     label.setObjectText("NAME", name);
 
-    const id = deriveShortItemCode(item.labelNumber, item.id);
+    const id = deriveSkuKeyIdentifier(item.sku, item.id);
     const part = item.partNumber ? item.partNumber.slice(0, 16) : "—";
     label.setObjectText("BOTTOM", `ITEM# ${id}     PART# ${part}`);
 

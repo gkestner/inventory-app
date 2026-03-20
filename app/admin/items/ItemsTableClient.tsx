@@ -549,7 +549,8 @@ function parseStructuredSkuParts(sku: string): StructuredSkuParts | null {
 }
 
 function buildStructuredSku(zone: string, location: string, shelf: string, bin: string, itemKey: string): string {
-  return `${zone}-${location}${shelf}${bin}-${itemKey}`;
+  void zone;
+  return `${location}${shelf}${bin} - ${itemKey}`;
 }
 
 function parseSkuRoomParts(sku: string): SkuRoomParts | null {
