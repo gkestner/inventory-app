@@ -167,25 +167,49 @@ function intOrDefault(v: FormDataEntryValue | null, fallback: number): number {
 
 function parseTwoDigitSkuPart(raw: FormDataEntryValue | null, label: string): string {
   const s = String(raw ?? "").trim();
-  if (!s) return "";
+  if (!s) throw new Error(`${label} is required.`);
   if (!/^\d{1,2}$/.test(s)) throw new Error(`${label} must be 1-2 digits.`);
   return s.padStart(2, "0");
 }
 
-function applySkuMiddleFromParts(skuRaw: string, loc: string, shelf: string, bin: string): string {
-  if (!loc && !shelf && !bin) return skuRaw;
+function buildSkuPrefix(loc: string, shelf: string, bin: string): string {
+  return `${loc}${shelf}${bin}`;
+}
 
-  if (!loc || !shelf || !bin) {
-    throw new Error("Loc, Shelf, and Bin are all required when setting SKU location fields.");
+function buildSkuKeyCandidates(itemId: string): string[] {
+  const compact = itemId.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  const lengths = [6, 8, 10, 12, compact.length];
+  const out: string[] = [];
+  for (const len of lengths) {
+    const key = compact.slice(-Math.max(1, len));
+    if (key && !out.includes(key)) out.push(key);
+  }
+  return out;
+}
+
+async function buildUniqueGeneratedSku(
+  tx: Prisma.TransactionClient,
+  itemId: string,
+  loc: string,
+  shelf: string,
+  bin: string,
+): Promise<string> {
+  const prefix = buildSkuPrefix(loc, shelf, bin);
+  const candidates = buildSkuKeyCandidates(itemId);
+
+  for (const key of candidates) {
+    const sku = `${prefix} - ${key}`;
+    const existing = await tx.item.findFirst({
+      where: {
+        sku,
+        NOT: { id: itemId },
+      },
+      select: { id: true },
+    });
+    if (!existing) return sku;
   }
 
-  const parts = String(skuRaw).trim().split("-");
-  if (parts.length < 3) {
-    throw new Error("SKU must be in format ZONE-MIDDLE-ITEM (example: 01-031802-0001).");
-  }
-
-  parts[1] = `${loc}${shelf}${bin}`;
-  return parts.join("-");
+  return `${prefix} - ${itemId.replace(/[^a-zA-Z0-9]/g, "").toUpperCase()}`;
 }
 
 export default async function AdminItemsPage({
@@ -221,13 +245,11 @@ export default async function AdminItemsPage({
     const canEditItems = perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_EDIT_ITEMS]);
     if (!session || !canEditItems) throw new Error("Forbidden");
 
-    let sku = requiredText(formData.get("sku"), "SKU");
     const name = requiredText(formData.get("name"), "Name");
 
     const maintLoc = parseTwoDigitSkuPart(formData.get("maintLoc"), "Loc");
     const maintShelf = parseTwoDigitSkuPart(formData.get("maintShelf"), "Shelf");
     const maintBin = parseTwoDigitSkuPart(formData.get("maintBin"), "Bin");
-    sku = applySkuMiddleFromParts(sku, maintLoc, maintShelf, maintBin);
 
     const vendorRaw = String(formData.get("vendor") ?? "").trim();
     const vendor: Vendor = vendorRaw === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS";
@@ -248,10 +270,11 @@ export default async function AdminItemsPage({
     const minQty = Math.max(0, intOrDefault(formData.get("minQty"), 0));
 
     try {
+      let createdSku = "";
       await prisma.$transaction(async (tx) => {
         const created = await tx.item.create({
           data: {
-            sku,
+            sku: `PENDING-${Date.now()}-${Math.random().toString(36).slice(2, 10).toUpperCase()}`,
             name,
             vendor,
             partNumber,
@@ -289,36 +312,64 @@ export default async function AdminItemsPage({
           },
         });
 
+        const generatedSku = await buildUniqueGeneratedSku(tx, created.id, maintLoc, maintShelf, maintBin);
+
+        const finalized = await tx.item.update({
+          where: { id: created.id },
+          data: { sku: generatedSku },
+          select: {
+            id: true,
+            sku: true,
+            partNumber: true,
+            vendor: true,
+            name: true,
+            description: true,
+            category: true,
+            cost: true,
+            price: true,
+            taxable: true,
+            active: true,
+            manufacturer: true,
+            orderFrom: true,
+            webUrl: true,
+            onHandQty: true,
+            orderedQty: true,
+            usedQty: true,
+            minQty: true,
+          },
+        });
+        createdSku = finalized.sku;
+
         // Version snapshot (version 1) for audit trail consistency
         await tx.itemVersion.create({
           data: {
-            itemId: created.id,
+            itemId: finalized.id,
             version: 1,
-            sku: created.sku,
-            partNumber: created.partNumber,
-            vendor: created.vendor,
-            name: created.name,
-            description: created.description,
-            category: created.category,
-            cost: created.cost,
-            price: created.price,
-            taxable: created.taxable,
-            active: created.active,
+            sku: finalized.sku,
+            partNumber: finalized.partNumber,
+            vendor: finalized.vendor,
+            name: finalized.name,
+            description: finalized.description,
+            category: finalized.category,
+            cost: finalized.cost,
+            price: finalized.price,
+            taxable: finalized.taxable,
+            active: finalized.active,
 
-            manufacturer: created.manufacturer,
-            orderFrom: created.orderFrom,
-            webUrl: created.webUrl,
+            manufacturer: finalized.manufacturer,
+            orderFrom: finalized.orderFrom,
+            webUrl: finalized.webUrl,
 
-            onHandQty: created.onHandQty,
-            orderedQty: created.orderedQty,
-            usedQty: created.usedQty,
-            minQty: created.minQty,
+            onHandQty: finalized.onHandQty,
+            orderedQty: finalized.orderedQty,
+            usedQty: finalized.usedQty,
+            minQty: finalized.minQty,
           },
         });
       });
 
       revalidatePath("/admin/items");
-      redirect(`/admin/items?createdSku=${encodeURIComponent(sku)}`);
+      redirect(`/admin/items?createdSku=${encodeURIComponent(createdSku)}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to create item.";
       redirect(`/admin/items?error=${encodeURIComponent(msg)}`);
@@ -462,14 +513,16 @@ export default async function AdminItemsPage({
           <form action={createItemAction} style={{ display: "grid", gap: 12 }}>
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 12 }}>
               <label style={label}>
-                SKU (required)
-                <input name="sku" placeholder="01-020801-0383" required style={field} />
-              </label>
-
-              <label style={label}>
                 Name (required)
                 <input name="name" placeholder="COOL CURTAIN 60ft Roll" required style={field} />
               </label>
+
+              <div style={{ ...label, justifyContent: "end" }}>
+                <div style={{ fontWeight: 900 }}>SKU</div>
+                <div style={{ ...field, opacity: 0.72, display: "flex", alignItems: "center" }}>
+                  Auto-generated from Loc + Shelf + Bin + item key
+                </div>
+              </div>
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)", gap: 12 }}>
@@ -490,7 +543,7 @@ export default async function AdminItemsPage({
             </div>
 
             <div style={{ fontSize: 12, opacity: 0.75, marginTop: -2 }}>
-              If Loc/Shelf/Bin are provided, they overwrite the SKU middle segment as <code>LLSSBB</code>.
+              SKU is generated automatically as <code>LLSSBB - KEY</code>. Example: <code>010705 - ABC123</code>.
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 12 }}>
