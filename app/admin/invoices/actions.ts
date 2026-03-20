@@ -625,6 +625,7 @@ export async function createInvoicesForWindow(args: {
   const locById = new Map(locations.map((l) => [l.id, l]));
 
   const results: Array<{ storeId: string; invoiceId?: string; created?: boolean; reason?: string }> = [];
+  const successfulInvoiceIds: string[] = [];
 
   // Process each (store, vendor) group in its own transaction
   for (const [key, storeVendorTickets] of byStoreVendor.entries()) {
@@ -792,6 +793,10 @@ export async function createInvoicesForWindow(args: {
         return { invoiceId: invoice.id, created: true, reason: undefined as string | undefined };
       });
 
+      if (created.created && created.invoiceId) {
+        successfulInvoiceIds.push(created.invoiceId);
+      }
+
       results.push({ storeId, invoiceId: created.invoiceId, created: created.created, reason: created.reason });
     } catch (e: unknown) {
       const msg =
@@ -811,6 +816,45 @@ export async function createInvoicesForWindow(args: {
         reason: msg,
       });
     }
+  }
+
+  const failures = results.filter((result) => result.created === false);
+  if (failures.length > 0) {
+    if (successfulInvoiceIds.length > 0) {
+      await prisma.$transaction(async (tx) => {
+        await tx.partsCheckoutTicket.updateMany({
+          where: { invoiceId: { in: successfulInvoiceIds } },
+          data: {
+            status: PartsCheckoutStatus.OPEN,
+            invoiceId: null,
+            invoicedAt: null,
+          },
+        });
+
+        await tx.invoiceLine.deleteMany({
+          where: { invoiceId: { in: successfulInvoiceIds } },
+        });
+
+        await tx.invoice.deleteMany({
+          where: { id: { in: successfulInvoiceIds } },
+        });
+      });
+    }
+
+    const details = failures
+      .slice(0, 5)
+      .map((result) => {
+        const loc = locById.get(result.storeId);
+        const label = loc ? `${loc.locationNumber ?? "?"} ${loc.name}` : result.storeId;
+        return `${label}: ${result.reason ?? "Unknown error"}`;
+      })
+      .join(" | ");
+
+    throw new Error(
+      failures.length === 1
+        ? `Invoice generation was rolled back. ${details}`
+        : `Invoice generation was rolled back because ${failures.length} store groups failed. ${details}`
+    );
   }
 
   return { results };

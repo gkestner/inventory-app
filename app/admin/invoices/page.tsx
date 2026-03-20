@@ -4,7 +4,7 @@ import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
@@ -85,7 +85,32 @@ type SearchParams = {
   err?: string;
   cfg?: string;
   refreshed?: string;
+  undo?: string;
 };
+
+const LAST_INVOICE_BATCH_COOKIE = "last_generated_invoice_batch";
+
+type LastInvoiceBatch = {
+  ids: string[];
+  createdAt: string;
+};
+
+function parseLastInvoiceBatchCookie(raw: string | undefined): LastInvoiceBatch | null {
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as { ids?: unknown; createdAt?: unknown };
+    const ids = Array.isArray(parsed.ids)
+      ? parsed.ids.map((value) => String(value).trim()).filter((value) => value.length > 0).slice(0, 200)
+      : [];
+    const createdAt = typeof parsed.createdAt === "string" ? parsed.createdAt : "";
+
+    if (ids.length === 0 || !createdAt) return null;
+    return { ids, createdAt };
+  } catch {
+    return null;
+  }
+}
 
 function safeReturnToPathFromReferer(referer: string | null): string {
   if (!referer) return "/admin/invoices";
@@ -503,6 +528,9 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   const err = String(sp.err ?? "").trim();
   const cfg = String(sp.cfg ?? "").trim();
   const refreshed = String(sp.refreshed ?? "").trim();
+  const undo = String(sp.undo ?? "").trim();
+  const cookieStore = await cookies();
+  const lastGeneratedBatch = parseLastInvoiceBatchCookie(cookieStore.get(LAST_INVOICE_BATCH_COOKIE)?.value);
 
   let readyByStore: Array<{ storeId: string; storeName: string; _count: { _all: number } }> = [];
   let readyTotal = 0;
@@ -565,6 +593,15 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
   let invoiceTotal = 0;
   let invoices: InvoiceRow[] = [];
+  let lastGeneratedInvoices: Array<{
+    id: string;
+    vendor: InvoiceVendor;
+    storeName: string;
+    storeNumber: string;
+    createdAt: Date;
+    status: string;
+    total: Prisma.Decimal | null;
+  }> = [];
 
   try {
     const [count, rows] = await Promise.all([
@@ -593,6 +630,26 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
     invoiceTotal = count;
     invoices = rows as unknown as InvoiceRow[];
+
+    if (lastGeneratedBatch) {
+      const batchRows = await prisma.invoice.findMany({
+        where: { id: { in: lastGeneratedBatch.ids } },
+        select: {
+          id: true,
+          vendor: true,
+          storeName: true,
+          storeNumber: true,
+          createdAt: true,
+          status: true,
+          total: true,
+        },
+      });
+
+      const batchById = new Map(batchRows.map((row) => [row.id, row]));
+      lastGeneratedInvoices = lastGeneratedBatch.ids
+        .map((id) => batchById.get(id))
+        .filter(Boolean) as typeof batchRows;
+    }
   } catch (e) {
     if (isSchemaOrDbNotReadyError(e)) {
       return (
@@ -641,6 +698,22 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     "use server";
     await requireInvoicesView();
 
+    const cookieStore = await cookies();
+
+    const buildReturnTo = (message: string) => {
+      const vendorParam = String(formData.get("vendor") ?? "SUCCESS_PLUS").trim().toUpperCase() === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS";
+      const fromParam = String(formData.get("from") ?? "").trim();
+      const toParam = String(formData.get("to") ?? "").trim();
+      const invoiceDateParam = String(formData.get("invoiceDate") ?? "").trim();
+      const qp = new URLSearchParams();
+      qp.set("vendor", vendorParam);
+      if (fromParam) qp.set("from", fromParam);
+      if (toParam) qp.set("to", toParam);
+      if (invoiceDateParam) qp.set("invoiceDate", invoiceDateParam);
+      if (message) qp.set("err", message);
+      return `/admin/invoices?${qp.toString()}`;
+    };
+
     const vendor =
       String(formData.get("vendor") ?? "SUCCESS_PLUS").trim().toUpperCase() === "AMERICAN_PLUS"
         ? ("AMERICAN_PLUS" as const)
@@ -657,29 +730,86 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     const invoiceDate = invoiceDateStr ? new Date(invoiceDateStr) : new Date();
     if (Number.isNaN(invoiceDate.getTime())) throw new Error("Invalid invoice date");
 
-    const res: CreateInvoicesResult = await createInvoicesForWindow({
-      vendor: vendor === "AMERICAN_PLUS" ? InvoiceVendor.AMERICAN_PLUS : InvoiceVendor.SUCCESS_PLUS,
-      periodStart: from,
-      periodEnd: to,
-      invoiceDate,
-    });
+    try {
+      const res: CreateInvoicesResult = await createInvoicesForWindow({
+        vendor: vendor === "AMERICAN_PLUS" ? InvoiceVendor.AMERICAN_PLUS : InvoiceVendor.SUCCESS_PLUS,
+        periodStart: from,
+        periodEnd: to,
+        invoiceDate,
+      });
 
-    revalidatePath("/admin/invoices");
+      revalidatePath("/admin/invoices");
 
-    const ids =
-      (res as unknown as { results?: unknown[] } | null)?.results
-        ?.map((r) => {
-          const rr = r as Record<string, unknown>;
-          return typeof rr.invoiceId === "string" ? rr.invoiceId : "";
-        })
-        .filter((x) => x.length > 0) ?? [];
+      const ids =
+        (res as unknown as { results?: unknown[] } | null)?.results
+          ?.map((r) => {
+            const rr = r as Record<string, unknown>;
+            return typeof rr.invoiceId === "string" ? rr.invoiceId : "";
+          })
+          .filter((x) => x.length > 0) ?? [];
 
-    if (ids.length > 0) {
-      redirect(`/admin/invoices/print-batch?ids=${encodeURIComponent(ids.join(","))}&autoExport=1`);
+      if (ids.length > 0) {
+        cookieStore.set(LAST_INVOICE_BATCH_COOKIE, JSON.stringify({ ids, createdAt: new Date().toISOString() }), {
+          httpOnly: true,
+          sameSite: "lax",
+          path: "/",
+        });
+        redirect(`/admin/invoices/print-batch?ids=${encodeURIComponent(ids.join(","))}&autoExport=1`);
+      }
+
+      cookieStore.delete(LAST_INVOICE_BATCH_COOKIE);
+      const h = await headers();
+      redirect(safeReturnToPathFromReferer(h.get("referer")));
+    } catch (error) {
+      cookieStore.delete(LAST_INVOICE_BATCH_COOKIE);
+      redirect(buildReturnTo(getErrorMessage(error)));
+    }
+  }
+
+  async function undoLastGeneratedAction() {
+    "use server";
+    await requireInvoicesView();
+
+    const cookieStore = await cookies();
+    const batch = parseLastInvoiceBatchCookie(cookieStore.get(LAST_INVOICE_BATCH_COOKIE)?.value);
+
+    if (!batch || batch.ids.length === 0) {
+      redirect("/admin/invoices?err=No recent generated invoice batch is available to undo.");
     }
 
-    const h = await headers();
-    redirect(safeReturnToPathFromReferer(h.get("referer")));
+    const ids = batch.ids;
+    const existingInvoices = await prisma.invoice.findMany({
+      where: { id: { in: ids } },
+      select: { id: true },
+    });
+
+    if (existingInvoices.length === 0) {
+      cookieStore.delete(LAST_INVOICE_BATCH_COOKIE);
+      redirect("/admin/invoices?err=The last generated invoice batch no longer exists.");
+    }
+
+    await prisma.$transaction(async (tx: TxClient) => {
+      await tx.partsCheckoutTicket.updateMany({
+        where: { invoiceId: { in: ids } },
+        data: {
+          status: PartsCheckoutStatus.OPEN,
+          invoiceId: null,
+          invoicedAt: null,
+        },
+      });
+
+      await tx.invoiceLine.deleteMany({
+        where: { invoiceId: { in: ids } },
+      });
+
+      await tx.invoice.deleteMany({
+        where: { id: { in: ids } },
+      });
+    });
+
+    cookieStore.delete(LAST_INVOICE_BATCH_COOKIE);
+    revalidatePath("/admin/invoices");
+    redirect(`/admin/invoices?undo=${existingInvoices.length}`);
   }
 
   async function updateVendorPricingAndTaxAction(formData: FormData) {
@@ -811,7 +941,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
       : err === "none_selected"
         ? "Select at least one invoice to hard delete."
         : err
-          ? "Action could not be completed."
+          ? err
           : null;
 
   const cfgBanner =
@@ -826,6 +956,14 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
             : cfg === "config_not_ready"
               ? "Vendor settings are not available yet on this deployment (missing invoiceVendorConfig)."
               : null;
+
+  const undoBanner = undo
+    ? `Undid the last generated batch and reopened ${undo} invoice${undo === "1" ? "" : "s"}.`
+    : null;
+
+  const lastGeneratedAt = lastGeneratedBatch ? new Date(lastGeneratedBatch.createdAt) : null;
+  const lastGeneratedIds = lastGeneratedBatch?.ids ?? [];
+  const lastGeneratedIdsParam = lastGeneratedIds.length > 0 ? encodeURIComponent(lastGeneratedIds.join(",")) : "";
 
   const detailsSummaryStyle: CSSProperties = {
     cursor: "pointer",
@@ -904,6 +1042,21 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
             }}
           >
             {cfgBanner}
+          </div>
+        ) : null}
+
+        {undoBanner ? (
+          <div
+            style={{
+              marginTop: 12,
+              padding: 12,
+              borderRadius: 14,
+              border: "1px solid rgba(76,175,80,0.55)",
+              background: "rgba(76,175,80,0.12)",
+              fontWeight: 900,
+            }}
+          >
+            {undoBanner}
           </div>
         ) : null}
 
@@ -999,6 +1152,57 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
           <div style={{ fontSize: 12, opacity: 0.8 }}>
             Ready tickets in window: <b>{readyTotal}</b> • Vendor format: <b>{vendorLabel(vendor)}</b>
           </div>
+
+          {lastGeneratedInvoices.length > 0 ? (
+            <div
+              style={{
+                marginTop: 10,
+                padding: 12,
+                borderRadius: 14,
+                border: "1px solid rgba(255,193,7,0.45)",
+                background: "rgba(255,193,7,0.08)",
+                display: "grid",
+                gap: 10,
+              }}
+            >
+              <div style={{ fontWeight: 900 }}>
+                Last generated batch: <b>{lastGeneratedInvoices.length}</b> invoice{lastGeneratedInvoices.length === 1 ? "" : "s"}
+                {lastGeneratedAt && Number.isFinite(lastGeneratedAt.getTime())
+                  ? ` • ${lastGeneratedAt.toLocaleString()}`
+                  : ""}
+              </div>
+
+              <div style={{ fontSize: 12, opacity: 0.85 }}>
+                {lastGeneratedInvoices
+                  .slice(0, 4)
+                  .map((invoice) => `${invoice.storeNumber} ${invoice.storeName}`)
+                  .join(" • ")}
+                {lastGeneratedInvoices.length > 4 ? ` • +${lastGeneratedInvoices.length - 4} more` : ""}
+              </div>
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <Link
+                  href={`/admin/invoices/print-batch?ids=${lastGeneratedIdsParam}&autoExport=1`}
+                  style={{ ...btn, ...btnPrimary, textDecoration: "none", display: "inline-block" }}
+                >
+                  Reprint last batch
+                </Link>
+
+                <a
+                  href={`/admin/invoices/passport-export?ids=${lastGeneratedIdsParam}`}
+                  style={{ ...btn, textDecoration: "none", display: "inline-block" }}
+                >
+                  Export last batch
+                </a>
+
+                <form action={undoLastGeneratedAction}>
+                  <button type="submit" style={btnDanger}>
+                    Undo last generated
+                  </button>
+                </form>
+              </div>
+            </div>
+          ) : null}
 
           <div style={{ marginTop: 10, border, borderRadius: 14, padding: 12, background: surface }}>
             <div style={{ fontWeight: 900, marginBottom: 6 }}>Pending invoice generation (by store)</div>
