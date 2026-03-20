@@ -250,40 +250,40 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
         @page { size: letter landscape; margin: 0; }
 
         @media print {
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+
           body * { visibility: hidden !important; }
           #print-root, #print-root * { visibility: visible !important; }
 
           #print-root {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
+            position: static !important;
+            width: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
           }
 
           .no-print { display: none !important; }
 
-          /*
-            ✅ IMPORTANT CHANGE:
-            Instead of break-after (often causes a trailing blank page in Chrome),
-            we break BEFORE each invoice after the first.
-            This yields exactly 1 invoice per page without creating an extra page.
-          */
           .sheet {
-            height: 8.5in !important;
-            max-height: 8.5in !important;
             width: 11in !important;
             max-width: 11in !important;
+            min-height: 8.5in !important;
 
             box-sizing: border-box !important;
             padding: 0.25in !important; /* narrow margins we control */
             overflow: hidden !important; /* prevents any spill creating extra pages */
             page-break-inside: avoid !important;
             break-inside: avoid !important;
+            break-after: page;
+            page-break-after: always;
           }
 
-          .sheet + .sheet {
-            break-before: page;
-            page-break-before: always;
+          .sheet:last-child {
+            break-after: auto;
+            page-break-after: auto;
           }
 
           /* Chrome paginates with zoom, not transform */
