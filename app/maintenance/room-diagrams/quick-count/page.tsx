@@ -10,6 +10,7 @@ import { prisma } from "@/app/lib/prisma";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import PrintLabelButton from "@/app/maintenance/room-diagrams/quick-count/PrintLabelButton";
 import LocationSelector from "@/app/maintenance/room-diagrams/quick-count/LocationSelector";
+import RowSaveButton from "@/app/maintenance/room-diagrams/quick-count/RowSaveButton";
 
 type SessionShape = {
   user?: {
@@ -29,6 +30,7 @@ type ItemRow = {
   id: string;
   sku: string;
   name: string;
+  category: string | null;
   onHandQty: number;
   minQty: number;
   active: boolean;
@@ -260,6 +262,7 @@ export default async function QuickCountEditorPage({
       id: true,
       sku: true,
       name: true,
+      category: true,
       onHandQty: true,
       minQty: true,
       active: true,
@@ -480,11 +483,20 @@ export default async function QuickCountEditorPage({
                           style={{
                             padding: 8,
                             borderBottom: "1px solid var(--border)",
-                            fontFamily: "monospace",
                             fontSize: 12,
                           }}
                         >
-                          {row.sku}
+                          <div style={{ fontFamily: "monospace" }}>{row.sku}</div>
+                          <div
+                            style={{
+                              marginTop: 4,
+                              fontSize: 11,
+                              color: "var(--muted)",
+                              fontWeight: 700,
+                            }}
+                          >
+                            {row.category?.trim() || "Uncategorized"}
+                          </div>
                         </td>
                         <td style={{ padding: 8, borderBottom: "1px solid var(--border)", fontWeight: 700 }}>
                           {row.name}
@@ -502,11 +514,11 @@ export default async function QuickCountEditorPage({
                               name="location"
                               defaultValue={parts.location}
                               style={{
-                                width: 84,
-                                padding: "2px 4px",
+                                width: 108,
+                                padding: "6px 8px",
                                 borderRadius: 6,
                                 border: "1px solid var(--border)",
-                                fontSize: 12,
+                                fontSize: 13,
                                 textAlign: "center",
                               }}
                             >
@@ -531,11 +543,11 @@ export default async function QuickCountEditorPage({
                               max="99"
                               defaultValue={parts.shelf}
                               style={{
-                                width: 34,
-                                padding: "2px 4px",
+                                width: 52,
+                                padding: "6px 8px",
                                 borderRadius: 6,
                                 border: "1px solid var(--border)",
-                                fontSize: 12,
+                                fontSize: 13,
                                 textAlign: "center",
                               }}
                             />
@@ -553,11 +565,11 @@ export default async function QuickCountEditorPage({
                               max="99"
                               defaultValue={parts.bin}
                               style={{
-                                width: 34,
-                                padding: "2px 4px",
+                                width: 52,
+                                padding: "6px 8px",
                                 borderRadius: 6,
                                 border: "1px solid var(--border)",
-                                fontSize: 12,
+                                fontSize: 13,
                                 textAlign: "center",
                               }}
                             />
@@ -567,21 +579,7 @@ export default async function QuickCountEditorPage({
                         </td>
                         <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
                           {canEditCounts ? (
-                            <button
-                              form={rowFormId}
-                              type="submit"
-                              style={{
-                                padding: "6px 10px",
-                                borderRadius: 8,
-                                border: "1px solid var(--border)",
-                                background: "var(--surface-2)",
-                                fontWeight: 800,
-                                cursor: "pointer",
-                                fontSize: 12,
-                              }}
-                            >
-                              Save
-                            </button>
+                            <RowSaveButton formId={rowFormId} />
                           ) : (
                             <span style={{ opacity: 0.7 }}>Read only</span>
                           )}
