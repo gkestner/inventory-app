@@ -102,6 +102,8 @@ type ReceiptRow = {
 
 type ReceiptSearchParams = Record<string, string | string[] | undefined>;
 
+type ReceiptSortBy = "entryDate" | "receiptDate" | "user" | "location" | "amount" | "vendor";
+
 function getBlobReadWriteToken(): string {
   const token = process.env.BLOB_READ_WRITE_TOKEN?.trim() || process.env.Inventory_READ_WRITE_TOKEN?.trim() || "";
   if (!token) throw new Error("Blob is not configured. Set BLOB_READ_WRITE_TOKEN or Inventory_READ_WRITE_TOKEN.");
@@ -245,6 +247,16 @@ export default async function MaintenanceReceiptPage({
   const toDate = String(sp.to ?? "").trim();
   const selectedLocationFilter = String(sp.locationId ?? "").trim();
   const selectedUserFilter = String(sp.userId ?? "").trim();
+  const requestedSortBy = String(sp.sortBy ?? "entryDate").trim();
+  const selectedSortBy: ReceiptSortBy =
+    requestedSortBy === "receiptDate" ||
+    requestedSortBy === "user" ||
+    requestedSortBy === "location" ||
+    requestedSortBy === "amount" ||
+    requestedSortBy === "vendor"
+      ? requestedSortBy
+      : "entryDate";
+  const selectedSortDir: "asc" | "desc" = String(sp.sortDir ?? "desc").trim().toLowerCase() === "asc" ? "asc" : "desc";
 
   const perms = await loadUserPermissions(session);
   const canViewReceipts = perms.allowAll || hasAnyPermission(perms, [VIEW_RECEIPTS, CREATE_RECEIPTS]);
@@ -275,7 +287,7 @@ export default async function MaintenanceReceiptPage({
     }),
     perms.allowAll
       ? prisma.location.findMany({
-          where: { active: true },
+          where: { active: true, receiptEnabled: true },
           orderBy: { name: "asc" },
           select: { id: true, name: true, locationNumber: true },
         })
@@ -299,7 +311,7 @@ export default async function MaintenanceReceiptPage({
       });
     }
   } else {
-    if (me.location && me.location.active) {
+    if (me.location && me.location.active && me.location.receiptEnabled) {
       seen.add(me.location.id);
       allowedLocations.push({
         id: me.location.id,
@@ -310,7 +322,7 @@ export default async function MaintenanceReceiptPage({
     }
     for (const ul of me.allowedLocations) {
       if (!ul.location) continue;
-      if (!ul.location.active) continue;
+      if (!ul.location.active || !ul.location.receiptEnabled) continue;
       if (seen.has(ul.location.id)) continue;
       seen.add(ul.location.id);
       allowedLocations.push({
@@ -390,10 +402,28 @@ export default async function MaintenanceReceiptPage({
     ];
   }
 
+  const rowsOrderBy: any[] = (() => {
+    switch (selectedSortBy) {
+      case "receiptDate":
+        return [{ receiptDate: selectedSortDir }, { createdAt: "desc" }];
+      case "user":
+        return [{ createdByUser: { name: selectedSortDir } }, { createdByUser: { email: selectedSortDir } }, { createdAt: "desc" }];
+      case "location":
+        return [{ location: { name: selectedSortDir } }, { createdAt: "desc" }];
+      case "amount":
+        return [{ amountCents: selectedSortDir }, { createdAt: "desc" }];
+      case "vendor":
+        return [{ billedBackVendor: selectedSortDir }, { createdAt: "desc" }];
+      case "entryDate":
+      default:
+        return [{ createdAt: selectedSortDir }, { receiptDate: "desc" }];
+    }
+  })();
+
   const rows: ReceiptRow[] = db.receiptEntry?.findMany
     ? await db.receiptEntry.findMany({
         where: rowsWhere,
-        orderBy: [{ receiptDate: "desc" }, { createdAt: "desc" }],
+        orderBy: rowsOrderBy,
         take: 300,
         select: {
           id: true,
@@ -417,6 +447,8 @@ export default async function MaintenanceReceiptPage({
   if (toDate) currentFilterParams.set("to", toDate);
   if (selectedLocationFilter) currentFilterParams.set("locationId", selectedLocationFilter);
   if (selectedUserFilter) currentFilterParams.set("userId", selectedUserFilter);
+  if (selectedSortBy !== "entryDate") currentFilterParams.set("sortBy", selectedSortBy);
+  if (selectedSortDir !== "desc") currentFilterParams.set("sortDir", selectedSortDir);
   const currentFilterQuery = currentFilterParams.toString();
 
   async function createReceiptAction(formData: FormData) {
@@ -465,14 +497,14 @@ export default async function MaintenanceReceiptPage({
     const allowed = new Set<string>();
     if (perms.allowAll) {
       const activeLocations = await prisma.location.findMany({
-        where: { active: true },
+        where: { active: true, receiptEnabled: true },
         select: { id: true },
       });
       for (const location of activeLocations) allowed.add(location.id);
     } else {
-      if (me.locationId && me.location?.active) allowed.add(me.locationId);
+      if (me.locationId && me.location?.active && me.location?.receiptEnabled) allowed.add(me.locationId);
       for (const a of me.allowedLocations) {
-        if (a.location?.active) allowed.add(a.locationId);
+        if (a.location?.active && a.location?.receiptEnabled) allowed.add(a.locationId);
       }
     }
     for (const locId of selectedLocationIds) {
@@ -480,11 +512,11 @@ export default async function MaintenanceReceiptPage({
     }
 
     const selectedLocations = await prisma.location.findMany({
-      where: { id: { in: selectedLocationIds }, active: true },
+      where: { id: { in: selectedLocationIds }, active: true, receiptEnabled: true },
       select: { id: true, name: true, locationNumber: true },
     });
     if (selectedLocations.length !== selectedLocationIds.length) {
-      throw new Error("One or more selected locations are inactive or not found.");
+      throw new Error("One or more selected locations are not receipt-enabled.");
     }
 
     const selectedUser = await prisma.user.findUnique({
@@ -499,11 +531,9 @@ export default async function MaintenanceReceiptPage({
     if (!selectedUser || !selectedUser.active) throw new Error("Selected user is not active.");
 
     const billedBackVendorRaw = String(formData.get("billedBackVendor") ?? "").trim();
-    const billedBackVendor = billedBackVendorRaw as BilledBackVendor;
-    const anyBilledBack = selectedLocations.some((loc) => locationNeedsBilledBackVendor(loc.locationNumber, loc.name));
-    if (anyBilledBack && !BILLED_BACK_VENDORS.includes(billedBackVendor)) {
-      throw new Error("Please select a billed-back vendor for the billed-back location.");
-    }
+    const billedBackVendor = BILLED_BACK_VENDORS.includes(billedBackVendorRaw as BilledBackVendor)
+      ? (billedBackVendorRaw as BilledBackVendor)
+      : null;
 
     const areas = parseAreas(formData);
     if (areas.length === 0) throw new Error("Please select at least one user area.");
@@ -928,7 +958,7 @@ export default async function MaintenanceReceiptPage({
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "2fr 1fr 1fr 1.2fr 1.2fr auto",
+              gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
               gap: 8,
               alignItems: "end",
             }}
@@ -970,6 +1000,24 @@ export default async function MaintenanceReceiptPage({
                     {(user.name?.trim() || "(No Name)") + " (" + user.email + ")"}
                   </option>
                 ))}
+              </select>
+            </label>
+            <label style={{ display: "grid", gap: 6, fontWeight: 700 }}>
+              Sort By
+              <select name="sortBy" defaultValue={selectedSortBy} style={input}>
+                <option value="entryDate">Entry Date</option>
+                <option value="receiptDate">Receipt Date</option>
+                <option value="user">User</option>
+                <option value="location">Location</option>
+                <option value="amount">Amount</option>
+                <option value="vendor">Billed-Back Vendor</option>
+              </select>
+            </label>
+            <label style={{ display: "grid", gap: 6, fontWeight: 700 }}>
+              Direction
+              <select name="sortDir" defaultValue={selectedSortDir} style={input}>
+                <option value="desc">Descending</option>
+                <option value="asc">Ascending</option>
               </select>
             </label>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
