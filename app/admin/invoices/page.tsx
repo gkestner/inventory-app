@@ -122,6 +122,12 @@ function parseLastInvoiceBatchCookie(raw: string | undefined): LastInvoiceBatch 
   }
 }
 
+function isNextRedirectError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const digest = (error as { digest?: unknown }).digest;
+  return typeof digest === "string" && digest.startsWith("NEXT_REDIRECT");
+}
+
 async function inferLastGeneratedBatch(args: { userId?: string | null }): Promise<{ ids: string[]; createdAt: string } | null> {
   const latest = await prisma.invoice.findFirst({
     where: args.userId ? { createdByUserId: args.userId } : undefined,
@@ -131,13 +137,13 @@ async function inferLastGeneratedBatch(args: { userId?: string | null }): Promis
 
   if (!latest) return null;
 
-  const end = latest.createdAt;
-  const start = new Date(end.getTime() - 60_000);
+  const end = new Date(latest.createdAt.getTime() + 1_000);
+  const start = new Date(latest.createdAt.getTime() - 10_000);
 
   const rows = await prisma.invoice.findMany({
     where: {
       createdAt: { gte: start, lte: end },
-      ...(latest.createdByUserId ? { createdByUserId: latest.createdByUserId } : {}),
+      createdByUserId: latest.createdByUserId ?? null,
     },
     orderBy: [{ createdAt: "asc" }, { storeNumber: "asc" }],
     select: { id: true, createdAt: true },
@@ -825,6 +831,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
       const h = await headers();
       redirect(safeReturnToPathFromReferer(h.get("referer")));
     } catch (error) {
+      if (isNextRedirectError(error)) throw error;
       cookieStore.delete(LAST_INVOICE_BATCH_COOKIE);
       redirect(buildReturnTo(getErrorMessage(error)));
     }
