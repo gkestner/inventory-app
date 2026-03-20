@@ -547,6 +547,7 @@ export async function createInvoicesForWindow(args: {
   periodStart: Date;
   periodEnd: Date;
   invoiceDate: Date;
+  createdByUserId?: string | null;
 }): Promise<{ results: Array<{ storeId: string; invoiceId?: string; created?: boolean; reason?: string }> }> {
   // IMPORTANT behavior:
   // - If admin selects AMERICAN_PLUS: only invoice AMERICAN_PLUS tickets
@@ -758,6 +759,7 @@ export async function createInvoicesForWindow(args: {
             subtotal,
             taxTotal,
             total,
+            createdByUserId: args.createdByUserId ?? null,
           },
           select: { id: true },
         });
