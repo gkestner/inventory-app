@@ -95,6 +95,16 @@ type LastInvoiceBatch = {
   createdAt: string;
 };
 
+type LastGeneratedInvoiceSummary = {
+  id: string;
+  vendor: InvoiceVendor;
+  storeName: string;
+  storeNumber: string;
+  createdAt: Date;
+  status: string;
+  total: Prisma.Decimal | null;
+};
+
 function parseLastInvoiceBatchCookie(raw: string | undefined): LastInvoiceBatch | null {
   if (!raw) return null;
 
@@ -110,6 +120,35 @@ function parseLastInvoiceBatchCookie(raw: string | undefined): LastInvoiceBatch 
   } catch {
     return null;
   }
+}
+
+async function inferLastGeneratedBatch(args: { userId?: string | null }): Promise<{ ids: string[]; createdAt: string } | null> {
+  const latest = await prisma.invoice.findFirst({
+    where: args.userId ? { createdByUserId: args.userId } : undefined,
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true, createdByUserId: true },
+  });
+
+  if (!latest) return null;
+
+  const end = latest.createdAt;
+  const start = new Date(end.getTime() - 60_000);
+
+  const rows = await prisma.invoice.findMany({
+    where: {
+      createdAt: { gte: start, lte: end },
+      ...(latest.createdByUserId ? { createdByUserId: latest.createdByUserId } : {}),
+    },
+    orderBy: [{ createdAt: "asc" }, { storeNumber: "asc" }],
+    select: { id: true, createdAt: true },
+  });
+
+  if (rows.length === 0) return null;
+
+  return {
+    ids: rows.map((row) => row.id),
+    createdAt: rows[rows.length - 1].createdAt.toISOString(),
+  };
 }
 
 function safeReturnToPathFromReferer(referer: string | null): string {
@@ -439,7 +478,7 @@ type InvoiceRow = {
 };
 
 export default async function AdminInvoicesPage({ searchParams }: { searchParams?: SearchParams }) {
-  await requireInvoicesView();
+  const { session } = await requireInvoicesView();
 
   const sp: SearchParams = searchParams ?? {};
 
@@ -530,7 +569,12 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   const refreshed = String(sp.refreshed ?? "").trim();
   const undo = String(sp.undo ?? "").trim();
   const cookieStore = await cookies();
-  const lastGeneratedBatch = parseLastInvoiceBatchCookie(cookieStore.get(LAST_INVOICE_BATCH_COOKIE)?.value);
+  const cookieBatch = parseLastInvoiceBatchCookie(cookieStore.get(LAST_INVOICE_BATCH_COOKIE)?.value);
+  let lastGeneratedBatch = cookieBatch;
+
+  if (!lastGeneratedBatch) {
+    lastGeneratedBatch = await inferLastGeneratedBatch({ userId: session?.user?.id ?? null });
+  }
 
   let readyByStore: Array<{ storeId: string; storeName: string; _count: { _all: number } }> = [];
   let readyTotal = 0;
@@ -593,15 +637,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
 
   let invoiceTotal = 0;
   let invoices: InvoiceRow[] = [];
-  let lastGeneratedInvoices: Array<{
-    id: string;
-    vendor: InvoiceVendor;
-    storeName: string;
-    storeNumber: string;
-    createdAt: Date;
-    status: string;
-    total: Prisma.Decimal | null;
-  }> = [];
+  let lastGeneratedInvoices: LastGeneratedInvoiceSummary[] = [];
 
   try {
     const [count, rows] = await Promise.all([
@@ -648,7 +684,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
       const batchById = new Map(batchRows.map((row) => [row.id, row]));
       lastGeneratedInvoices = lastGeneratedBatch.ids
         .map((id) => batchById.get(id))
-        .filter(Boolean) as typeof batchRows;
+        .filter(Boolean) as LastGeneratedInvoiceSummary[];
     }
   } catch (e) {
     if (isSchemaOrDbNotReadyError(e)) {
@@ -736,6 +772,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
         periodStart: from,
         periodEnd: to,
         invoiceDate,
+        createdByUserId: session?.user?.id ?? null,
       });
 
       revalidatePath("/admin/invoices");
@@ -766,12 +803,21 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     }
   }
 
-  async function undoLastGeneratedAction() {
+  async function undoLastGeneratedAction(formData: FormData) {
     "use server";
     await requireInvoicesView();
 
     const cookieStore = await cookies();
-    const batch = parseLastInvoiceBatchCookie(cookieStore.get(LAST_INVOICE_BATCH_COOKIE)?.value);
+    const idsFromForm = String(formData.get("batchIds") ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0)
+      .slice(0, 200);
+
+    const batch =
+      idsFromForm.length > 0
+        ? { ids: idsFromForm, createdAt: new Date().toISOString() }
+        : parseLastInvoiceBatchCookie(cookieStore.get(LAST_INVOICE_BATCH_COOKIE)?.value);
 
     if (!batch || batch.ids.length === 0) {
       redirect("/admin/invoices?err=No recent generated invoice batch is available to undo.");
@@ -1196,6 +1242,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                 </a>
 
                 <form action={undoLastGeneratedAction}>
+                  <input type="hidden" name="batchIds" value={lastGeneratedIds.join(",")} />
                   <button type="submit" style={btnDanger}>
                     Undo last generated
                   </button>
@@ -1409,7 +1456,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                         </td>
                         <td style={{ padding: 10, whiteSpace: "nowrap" }}>{inv.status}</td>
                         <td style={{ padding: 10, whiteSpace: "nowrap" }}>
-                          <Link href={`/admin/invoices/${inv.id}/print`} style={{ ...btn, textDecoration: "none", display: "inline-block" }}>
+                          <Link href={`/admin/invoices/${inv.id}/print?autoprint=1`} style={{ ...btn, textDecoration: "none", display: "inline-block" }}>
                             Print
                           </Link>
                         </td>
