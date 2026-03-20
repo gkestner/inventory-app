@@ -371,13 +371,6 @@ export default async function MaintenanceCheckoutPage({
     });
     if (!createdBy || !createdBy.active) throw new Error("Created-by user not found");
 
-    const createdByAllowedStores = new Set<string>();
-    if (createdBy.locationId) createdByAllowedStores.add(createdBy.locationId);
-    for (const ul of createdBy.allowedLocations) createdByAllowedStores.add(ul.locationId);
-    if (!createdByAllowedStores.has(storeId)) {
-      throw new Error("Selected user is not assigned to the selected store.");
-    }
-
     return { store, createdBy };
   }
 
