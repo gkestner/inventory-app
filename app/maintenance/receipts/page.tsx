@@ -144,17 +144,20 @@ function parseAmountToCents(raw: FormDataEntryValue | null): number {
   const s = typeof raw === "string" ? raw.trim() : "";
   if (!s) throw new Error("Amount is required.");
   const n = Number(s);
-  if (!Number.isFinite(n) || n <= 0) throw new Error("Amount must be greater than 0.");
+  if (!Number.isFinite(n)) throw new Error("Amount must be a valid number.");
+  if (n === 0) throw new Error("Amount cannot be zero.");
   return Math.round(n * 100);
 }
 
 function splitAmountAcrossLocations(totalCents: number, count: number): number[] {
   if (!Number.isInteger(count) || count <= 0) throw new Error("At least one location is required.");
 
-  const base = Math.floor(totalCents / count);
-  const remainder = totalCents % count;
+  const sign = totalCents < 0 ? -1 : 1;
+  const absTotal = Math.abs(totalCents);
+  const base = Math.floor(absTotal / count);
+  const remainder = absTotal % count;
 
-  return Array.from({ length: count }, (_, index) => base + (index < remainder ? 1 : 0));
+  return Array.from({ length: count }, (_, index) => (base + (index < remainder ? 1 : 0)) * sign);
 }
 
 function parseAreas(formData: FormData): RequiredEquipmentArea[] {
@@ -549,41 +552,47 @@ export default async function MaintenanceReceiptPage({
       return entries;
     });
 
-    if (fileCandidates.length > 0) {
-      if (!db.receiptFile?.create) {
-        throw new Error("Receipt files table is not available. Run latest migrations.");
-      }
+    if (fileCandidates.length > 0 && db.receiptFile?.create) {
+      const blobToken = process.env.BLOB_READ_WRITE_TOKEN?.trim() || process.env.Inventory_READ_WRITE_TOKEN?.trim() || "";
 
-      const blobToken = getBlobReadWriteToken();
+      if (blobToken) {
+        const basePath = (process.env.GCS_BASE_PATH?.trim() || "receipt-files/")
+          .replace(/^\/+/, "")
+          .replace(/\/+$/, "");
 
-      const basePath = (process.env.GCS_BASE_PATH?.trim() || "receipt-files/")
-        .replace(/^\/+/, "")
-        .replace(/\/+$/, "");
-
-      for (const file of fileCandidates) {
-        const bytes = Buffer.from(await file.arrayBuffer());
-        for (const entry of createdEntries) {
-          const safeName = cleanSegment(file.name || "receipt-file");
-          const requestedPath = `${basePath}/${entry.id}/${Date.now()}-${randomUUID()}-${safeName}`;
-          const blob = await put(requestedPath, bytes, {
-            access: "public",
-            contentType: file.type || "application/octet-stream",
-            addRandomSuffix: false,
-            token: blobToken,
-          });
-          const storageKey = blob.pathname || requestedPath;
-          const url = blob.url;
-          await db.receiptFile.create({
-            data: {
-              receiptEntryId: entry.id,
-              uploadedByUserId: me.id,
-              fileName: file.name || "receipt-file",
-              contentType: file.type || null,
-              byteSize: file.size,
-              storageKey,
-              url,
-            },
-          });
+        for (const file of fileCandidates) {
+          const bytes = Buffer.from(await file.arrayBuffer());
+          for (const entry of createdEntries) {
+            try {
+              const safeName = cleanSegment(file.name || "receipt-file");
+              const requestedPath = `${basePath}/${entry.id}/${Date.now()}-${randomUUID()}-${safeName}`;
+              const blob = await put(requestedPath, bytes, {
+                access: "public",
+                contentType: file.type || "application/octet-stream",
+                addRandomSuffix: false,
+                token: blobToken,
+              });
+              const storageKey = blob.pathname || requestedPath;
+              const url = blob.url;
+              await db.receiptFile.create({
+                data: {
+                  receiptEntryId: entry.id,
+                  uploadedByUserId: me.id,
+                  fileName: file.name || "receipt-file",
+                  contentType: file.type || null,
+                  byteSize: file.size,
+                  storageKey,
+                  url,
+                },
+              });
+            } catch (err) {
+              console.error("Receipt file upload failed", {
+                receiptEntryId: entry.id,
+                fileName: file.name,
+                error: err,
+              });
+            }
+          }
         }
       }
     }
@@ -741,7 +750,7 @@ export default async function MaintenanceReceiptPage({
 
             <label style={{ display: "grid", gap: 6, fontWeight: 800, minWidth: 0 }}>
               Amount
-              <input type="number" name="amount" min="0.01" step="0.01" placeholder="0.00" required style={input} disabled={!canCreateOnAnyLocation} />
+              <input type="number" name="amount" step="0.01" placeholder="0.00" required style={input} disabled={!canCreateOnAnyLocation} />
             </label>
           </div>
 
