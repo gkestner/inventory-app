@@ -275,13 +275,11 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
             padding: 0 !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
-            break-after: page;
-            page-break-after: always;
           }
 
-          .sheet:last-child {
-            break-after: auto;
-            page-break-after: auto;
+          .sheet + .sheet {
+            break-before: page;
+            page-break-before: always;
           }
 
           .sheetInner {
