@@ -32,9 +32,11 @@ function getScrollableTarget(): HTMLElement | null {
 export default function LiveOrdersBoardControls({
   defaultEnabled = true,
   defaultIntervalSec = 30,
+  defaultFullscreen = true,
 }: {
   defaultEnabled?: boolean;
   defaultIntervalSec?: number;
+  defaultFullscreen?: boolean;
 }) {
   const router = useRouter();
   const [enabled, setEnabled] = useState<boolean>(defaultEnabled);
@@ -64,8 +66,17 @@ export default function LiveOrdersBoardControls({
   }, [scrollSpeed]);
 
   useEffect(() => {
+    if (!defaultFullscreen) return;
+    document.documentElement.setAttribute("data-live-orders-fullscreen", "true");
+    setIsFullscreen(true);
+    setControlsCollapsed(true);
+  }, [defaultFullscreen]);
+
+  useEffect(() => {
     const syncFullscreen = () => {
-      const active = typeof document !== "undefined" && !!document.fullscreenElement;
+      const active =
+        typeof document !== "undefined" &&
+        (document.documentElement.getAttribute("data-live-orders-fullscreen") === "true" || !!document.fullscreenElement);
       setIsFullscreen(active);
       setControlsCollapsed(active);
       if (typeof document !== "undefined") {
@@ -158,10 +169,19 @@ export default function LiveOrdersBoardControls({
 
   async function toggleFullscreen() {
     try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
+      if (isFullscreen) {
+        document.documentElement.removeAttribute("data-live-orders-fullscreen");
+        setIsFullscreen(false);
+        setControlsCollapsed(false);
+        if (document.fullscreenElement) {
+          await document.exitFullscreen();
+        }
         return;
       }
+
+      document.documentElement.setAttribute("data-live-orders-fullscreen", "true");
+      setIsFullscreen(true);
+      setControlsCollapsed(true);
 
       const root = document.documentElement as typeof document.documentElement & {
         webkitRequestFullscreen?: () => Promise<void> | void;
