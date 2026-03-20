@@ -76,6 +76,42 @@ function parseSkuSlot(sku: string): ParsedSkuSlot | null {
   return null;
 }
 
+function parseStructuredSkuParts(sku: string): { location: string; shelf: string; bin: string; itemKey: string } {
+  const raw = String(sku ?? "").trim();
+  const defaults = { location: "00", shelf: "00", bin: "00", itemKey: "" };
+  if (!raw) return defaults;
+
+  const segments = raw.split("-");
+
+  // New format: LLSSBB - KEY (or LLSSBB-KEY), keep everything after last dash as key.
+  const firstSegmentDigits = String(segments[0] ?? "").replace(/\D/g, "");
+  if (firstSegmentDigits.length >= 6) {
+    const itemKey = segments.length > 1 ? String(segments[segments.length - 1] ?? "").trim() : "";
+    return {
+      location: firstSegmentDigits.slice(0, 2),
+      shelf: firstSegmentDigits.slice(2, 4),
+      bin: firstSegmentDigits.slice(4, 6),
+      itemKey,
+    };
+  }
+
+  // Legacy fallback: ZONE-MIDDLE-KEY style.
+  if (segments.length >= 2) {
+    const middleDigits = String(segments[1] ?? "").replace(/\D/g, "");
+    if (middleDigits.length >= 6) {
+      const itemKey = segments.length > 2 ? String(segments[segments.length - 1] ?? "").trim() : "";
+      return {
+        location: middleDigits.slice(0, 2),
+        shelf: middleDigits.slice(2, 4),
+        bin: middleDigits.slice(4, 6),
+        itemKey,
+      };
+    }
+  }
+
+  return defaults;
+}
+
 function normalize2(value: string | null | undefined): string {
   const n = Number(String(value ?? "").replace(/\D/g, ""));
   if (!Number.isFinite(n)) return "";
@@ -120,42 +156,6 @@ export default async function QuickCountEditorPage({
 
   const actorEmail = String(session.user?.email ?? "").trim().toLowerCase();
 
-  function parseStructuredSkuParts(sku: string): { location: string; shelf: string; bin: string; itemKey: string } {
-    const raw = String(sku ?? "").trim();
-    const defaults = { location: "00", shelf: "00", bin: "00", itemKey: "" };
-    if (!raw) return defaults;
-
-    const segments = raw.split("-");
-    
-    // New format: LLSSBB - KEY
-    const firstSegmentDigits = String(segments[0] ?? "").replace(/\D/g, "");
-    if (firstSegmentDigits.length >= 6) {
-      const itemKey = segments.length > 1 ? String(segments[1] ?? "").trim() : "";
-      return {
-        location: firstSegmentDigits.slice(0, 2),
-        shelf: firstSegmentDigits.slice(2, 4),
-        bin: firstSegmentDigits.slice(4, 6),
-        itemKey,
-      };
-    }
-
-    // Fallback for legacy format
-    if (segments.length >= 2) {
-      const middleDigits = String(segments[1] ?? "").replace(/\D/g, "");
-      if (middleDigits.length >= 6) {
-        const itemKey = segments.length > 2 ? String(segments[2] ?? "").trim() : "";
-        return {
-          location: middleDigits.slice(0, 2),
-          shelf: middleDigits.slice(2, 4),
-          bin: middleDigits.slice(4, 6),
-          itemKey,
-        };
-      }
-    }
-
-    return defaults;
-  }
-
   function buildStructuredSku(location: string, shelf: string, bin: string, itemKey: string): string {
     const loc = String(location ?? "").padStart(2, "0").slice(0, 2);
     const shf = String(shelf ?? "").padStart(2, "0").slice(0, 2);
@@ -182,9 +182,9 @@ export default async function QuickCountEditorPage({
     if (!actor?.id || !actor.active) redirect("/login");
 
     const itemId = String(formData.get("itemId") ?? "").trim();
-    const newLocation = String(formData.get("location") ?? "").padStart(2, "0").slice(0, 2);
-    const newShelf = String(formData.get("shelf") ?? "").padStart(2, "0").slice(0, 2);
-    const newBin = String(formData.get("bin") ?? "").padStart(2, "0").slice(0, 2);
+    const newLocation = normalize2(String(formData.get("location") ?? "")) || "00";
+    const newShelf = normalize2(String(formData.get("shelf") ?? "")) || "00";
+    const newBin = normalize2(String(formData.get("bin") ?? "")) || "00";
     const returnTo = String(formData.get("returnTo") ?? "").trim() || "/maintenance/room-diagrams/quick-count";
 
     if (!itemId) redirect(returnTo);
@@ -523,6 +523,7 @@ export default async function QuickCountEditorPage({
                 <tbody>
                   {selectedRows.map((row) => {
                     const parts = parseStructuredSkuParts(row.sku);
+                    const rowFormId = `slot-form-${row.id}`;
                     return (
                       <tr key={row.id}>
                         <td
@@ -537,102 +538,70 @@ export default async function QuickCountEditorPage({
                         </td>
                         <td style={{ padding: 8, borderBottom: "1px solid var(--border)", fontWeight: 700 }}>
                           {row.name}
+                          {canEditCounts ? (
+                            <form id={rowFormId} action={updateLocationAction}>
+                              <input type="hidden" name="itemId" value={row.id} />
+                              <input type="hidden" name="returnTo" value={selectedPath} />
+                            </form>
+                          ) : null}
                         </td>
                         <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
                           {canEditCounts ? (
-                            <form action={updateLocationAction} style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                              <input type="hidden" name="itemId" value={row.id} />
-                              <input type="hidden" name="returnTo" value={selectedPath} />
-                              <input
-                                name="location"
-                                type="number"
-                                min="0"
-                                max="99"
-                                defaultValue={String(parts.location).padStart(2, "0")}
-                                style={{
-                                  width: 40,
-                                  padding: "4px 6px",
-                                  borderRadius: 6,
-                                  border: "1px solid var(--border)",
-                                  fontSize: 12,
-                                  textAlign: "center",
-                                }}
-                              />
-                              <button
-                                type="submit"
-                                style={{
-                                  padding: "4px 8px",
-                                  borderRadius: 6,
-                                  border: "1px solid var(--border)",
-                                  background: "var(--surface-2)",
-                                  fontWeight: 700,
-                                  cursor: "pointer",
-                                  fontSize: 11,
-                                }}
-                              >
-                                Save
-                              </button>
-                            </form>
+                            <input
+                              form={rowFormId}
+                              name="location"
+                              type="number"
+                              min="0"
+                              max="99"
+                              defaultValue={parts.location}
+                              style={{
+                                width: 34,
+                                padding: "2px 4px",
+                                borderRadius: 6,
+                                border: "1px solid var(--border)",
+                                fontSize: 12,
+                                textAlign: "center",
+                              }}
+                            />
                           ) : (
                             parts.location
                           )}
                         </td>
                         <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
                           {canEditCounts ? (
-                            <form action={updateLocationAction} style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                              <input type="hidden" name="itemId" value={row.id} />
-                              <input type="hidden" name="location" value={parts.location} />
-                              <input type="hidden" name="returnTo" value={selectedPath} />
-                              <input
-                                name="shelf"
-                                type="number"
-                                min="0"
-                                max="99"
-                                defaultValue={String(parts.shelf).padStart(2, "0")}
-                                style={{
-                                  width: 40,
-                                  padding: "4px 6px",
-                                  borderRadius: 6,
-                                  border: "1px solid var(--border)",
-                                  fontSize: 12,
-                                  textAlign: "center",
-                                }}
-                              />
-                              <button
-                                type="submit"
-                                style={{
-                                  padding: "4px 8px",
-                                  borderRadius: 6,
-                                  border: "1px solid var(--border)",
-                                  background: "var(--surface-2)",
-                                  fontWeight: 700,
-                                  cursor: "pointer",
-                                  fontSize: 11,
-                                }}
-                              >
-                                Save
-                              </button>
-                            </form>
+                            <input
+                              form={rowFormId}
+                              name="shelf"
+                              type="number"
+                              min="0"
+                              max="99"
+                              defaultValue={parts.shelf}
+                              style={{
+                                width: 34,
+                                padding: "2px 4px",
+                                borderRadius: 6,
+                                border: "1px solid var(--border)",
+                                fontSize: 12,
+                                textAlign: "center",
+                              }}
+                            />
                           ) : (
                             parts.shelf
                           )}
                         </td>
                         <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
                           {canEditCounts ? (
-                            <form action={updateLocationAction} style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                              <input type="hidden" name="itemId" value={row.id} />
-                              <input type="hidden" name="location" value={parts.location} />
-                              <input type="hidden" name="shelf" value={parts.shelf} />
-                              <input type="hidden" name="returnTo" value={selectedPath} />
+                            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                               <input
+                                form={rowFormId}
                                 name="bin"
                                 type="number"
                                 min="0"
                                 max="99"
-                                defaultValue={String(parts.bin).padStart(2, "0")}
+                                defaultValue={parts.bin}
                                 style={{
-                                  width: 40,
-                                  padding: "4px 6px",
+                                  width: 34,
+                                  padding: "2px 4px",
                                   borderRadius: 6,
                                   border: "1px solid var(--border)",
                                   fontSize: 12,
@@ -640,9 +609,10 @@ export default async function QuickCountEditorPage({
                                 }}
                               />
                               <button
+                                form={rowFormId}
                                 type="submit"
                                 style={{
-                                  padding: "4px 8px",
+                                  padding: "2px 6px",
                                   borderRadius: 6,
                                   border: "1px solid var(--border)",
                                   background: "var(--surface-2)",
@@ -653,7 +623,7 @@ export default async function QuickCountEditorPage({
                               >
                                 Save
                               </button>
-                            </form>
+                            </div>
                           ) : (
                             parts.bin
                           )}
