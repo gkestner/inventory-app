@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { Permission } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
+import { buildStructuredSku, parseSkuRoomParts, parseStructuredSkuParts } from "@/app/lib/item-sku";
 import { prisma } from "@/app/lib/prisma";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import PrintLabelButton from "@/app/maintenance/room-diagrams/quick-count/PrintLabelButton";
@@ -45,71 +46,13 @@ function firstParam(params: SearchParams, key: string): string | null {
 }
 
 function parseSkuSlot(sku: string): ParsedSkuSlot | null {
-  const raw = String(sku ?? "").trim();
-  if (!raw) return null;
-
-  const segments = raw.split("-");
-  if (segments.length < 1) return null;
-
-  // New format: LLSSBB - KEY, so digits are in segments[0]
-  const firstSegmentDigits = String(segments[0] ?? "").replace(/\D/g, "");
-  if (firstSegmentDigits.length >= 6) {
-    return {
-      location: firstSegmentDigits.slice(0, 2),
-      shelf: firstSegmentDigits.slice(2, 4),
-      bin: firstSegmentDigits.slice(4, 6),
-    };
-  }
-
-  // Fallback for legacy format: check middle segment for digits
-  if (segments.length >= 2) {
-    const middleDigits = String(segments[1] ?? "").replace(/\D/g, "");
-    if (middleDigits.length >= 6) {
-      return {
-        location: middleDigits.slice(0, 2),
-        shelf: middleDigits.slice(2, 4),
-        bin: middleDigits.slice(4, 6),
-      };
-    }
-  }
-
-  return null;
-}
-
-function parseStructuredSkuParts(sku: string): { location: string; shelf: string; bin: string; itemKey: string } {
-  const raw = String(sku ?? "").trim();
-  const defaults = { location: "00", shelf: "00", bin: "00", itemKey: "" };
-  if (!raw) return defaults;
-
-  const segments = raw.split("-");
-
-  // New format: LLSSBB - KEY (or LLSSBB-KEY), keep everything after last dash as key.
-  const firstSegmentDigits = String(segments[0] ?? "").replace(/\D/g, "");
-  if (firstSegmentDigits.length >= 6) {
-    const itemKey = segments.length > 1 ? String(segments[segments.length - 1] ?? "").trim() : "";
-    return {
-      location: firstSegmentDigits.slice(0, 2),
-      shelf: firstSegmentDigits.slice(2, 4),
-      bin: firstSegmentDigits.slice(4, 6),
-      itemKey,
-    };
-  }
-
-  // Legacy fallback: ZONE-MIDDLE-KEY style.
-  if (segments.length >= 2) {
-    const middleDigits = String(segments[1] ?? "").replace(/\D/g, "");
-    if (middleDigits.length >= 6) {
-      const itemKey = segments.length > 2 ? String(segments[segments.length - 1] ?? "").trim() : "";
-      return {
-        location: middleDigits.slice(0, 2),
-        shelf: middleDigits.slice(2, 4),
-        bin: middleDigits.slice(4, 6),
-        itemKey,
-      };
-    }
-  }
-
-  return defaults;
+  const parsed = parseSkuRoomParts(sku);
+  if (!parsed) return null;
+  return {
+    location: parsed.location,
+    shelf: parsed.shelf,
+    bin: parsed.bin,
+  };
 }
 
 function normalize2(value: string | null | undefined): string {
@@ -156,14 +99,6 @@ export default async function QuickCountEditorPage({
 
   const actorEmail = String(session.user?.email ?? "").trim().toLowerCase();
 
-  function buildStructuredSku(location: string, shelf: string, bin: string, itemKey: string): string {
-    const loc = String(location ?? "").padStart(2, "0").slice(0, 2);
-    const shf = String(shelf ?? "").padStart(2, "0").slice(0, 2);
-    const bn = String(bin ?? "").padStart(2, "0").slice(0, 2);
-    const key = String(itemKey ?? "").trim();
-    return key ? `${loc}${shf}${bn} - ${key}` : `${loc}${shf}${bn}`;
-  }
-
   async function updateLocationAction(formData: FormData) {
     "use server";
 
@@ -195,8 +130,14 @@ export default async function QuickCountEditorPage({
     });
     if (!existing) redirect(returnTo);
 
-    const parts = parseStructuredSkuParts(existing.sku);
-    const newSku = buildStructuredSku(newLocation, newShelf, newBin, parts.itemKey);
+    const parts = parseStructuredSkuParts(existing.sku) ?? {
+      zone: newLocation,
+      location: newLocation,
+      shelf: newShelf,
+      bin: newBin,
+      itemKey: existing.sku,
+    };
+    const newSku = buildStructuredSku(parts.zone, newLocation, newShelf, newBin, parts.itemKey);
 
     await prisma.item.update({
       where: { id: existing.id },
@@ -522,7 +463,13 @@ export default async function QuickCountEditorPage({
                 </thead>
                 <tbody>
                   {selectedRows.map((row) => {
-                    const parts = parseStructuredSkuParts(row.sku);
+                    const parts = parseStructuredSkuParts(row.sku) ?? {
+                      zone: row.slot.location,
+                      location: row.slot.location,
+                      shelf: row.slot.shelf,
+                      bin: row.slot.bin,
+                      itemKey: row.sku,
+                    };
                     const rowFormId = `slot-form-${row.id}`;
                     return (
                       <tr key={row.id}>

@@ -2,6 +2,15 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  buildStructuredSku,
+  isValidTwoDigitSkuPart,
+  normalizeSkuPartInput,
+  parseSkuRoomParts,
+  parseStructuredSkuParts,
+  type StructuredSkuParts,
+  type SkuRoomParts,
+} from "@/app/lib/item-sku";
 
 type Vendor = "SUCCESS_PLUS" | "AMERICAN_PLUS";
 function isCostPlusVendor(v: unknown): v is Vendor {
@@ -472,95 +481,6 @@ function tokenizeQuery(q: string): string[] {
     .split(/[ \-]+/g)
     .map((t) => t.trim())
     .filter((t) => t.length >= 2);
-}
-
-type SkuRoomParts = {
-  location: string;
-  shelf: string;
-  bin: string;
-};
-
-type StructuredSkuParts = SkuRoomParts & {
-  zone: string;
-  itemKey: string;
-};
-
-function normalizeSkuPartInput(value: string): string {
-  return String(value ?? "").replace(/\D/g, "").slice(0, 2);
-}
-
-function isValidTwoDigitSkuPart(value: string): boolean {
-  return /^\d{1,2}$/.test(String(value ?? "").trim());
-}
-
-function inferSkuZone(raw: string): string {
-  const digits = String(raw ?? "").replace(/\D/g, "");
-  const inferred = digits.slice(0, 2);
-  return inferred.length === 2 ? inferred : "01";
-}
-
-function parseStructuredSkuParts(sku: string): StructuredSkuParts | null {
-  const raw = String(sku ?? "").trim();
-  if (!raw) return null;
-
-  const compactRoomMatch = raw.match(/^(\d{6})\s*-\s*(.+)$/);
-  if (compactRoomMatch) {
-    const middleDigits = compactRoomMatch[1];
-    const itemKey = String(compactRoomMatch[2] ?? "").trim();
-    if (itemKey) {
-      return {
-        zone: middleDigits.slice(0, 2),
-        location: middleDigits.slice(0, 2),
-        shelf: middleDigits.slice(2, 4),
-        bin: middleDigits.slice(4, 6),
-        itemKey,
-      };
-    }
-  }
-
-  const segments = raw.split("-");
-  if (segments.length >= 2) {
-    const firstHyphen = raw.indexOf("-");
-    const lastHyphen = raw.lastIndexOf("-");
-    const zone = inferSkuZone(String(segments[0] ?? ""));
-    const middleRaw = lastHyphen > firstHyphen ? raw.slice(firstHyphen + 1, lastHyphen) : "";
-    const middleDigits = middleRaw.replace(/\D/g, "");
-    const reversed = [...segments].reverse().map((segment) => String(segment ?? "").trim());
-    const itemKey = reversed.find((segment) => segment.length > 0) ?? "";
-
-    if (itemKey) {
-      return {
-        zone,
-        location: middleDigits.slice(0, 2),
-        shelf: middleDigits.slice(2, 4),
-        bin: middleDigits.slice(4, 6),
-        itemKey,
-      };
-    }
-  }
-
-  return {
-    zone: inferSkuZone(raw),
-    location: "",
-    shelf: "",
-    bin: "",
-    itemKey: raw,
-  };
-}
-
-function buildStructuredSku(zone: string, location: string, shelf: string, bin: string, itemKey: string): string {
-  void zone;
-  return `${location}${shelf}${bin} - ${itemKey}`;
-}
-
-function parseSkuRoomParts(sku: string): SkuRoomParts | null {
-  const parsed = parseStructuredSkuParts(sku);
-  if (!parsed) return null;
-  return {
-    location: parsed.location,
-    shelf: parsed.shelf,
-    bin: parsed.bin,
-  };
 }
 
 function rowSearchText(row: ItemRow): string {
