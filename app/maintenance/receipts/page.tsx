@@ -287,7 +287,7 @@ export default async function MaintenanceReceiptPage({
     }),
     perms.allowAll
       ? prisma.location.findMany({
-          where: { active: true, receiptEnabled: true },
+          where: { active: true },
           orderBy: { name: "asc" },
           select: { id: true, name: true, locationNumber: true },
         })
@@ -311,7 +311,7 @@ export default async function MaintenanceReceiptPage({
       });
     }
   } else {
-    if (me.location && me.location.active && me.location.receiptEnabled) {
+    if (me.location && me.location.active) {
       seen.add(me.location.id);
       allowedLocations.push({
         id: me.location.id,
@@ -322,7 +322,7 @@ export default async function MaintenanceReceiptPage({
     }
     for (const ul of me.allowedLocations) {
       if (!ul.location) continue;
-      if (!ul.location.active || !ul.location.receiptEnabled) continue;
+      if (!ul.location.active) continue;
       if (seen.has(ul.location.id)) continue;
       seen.add(ul.location.id);
       allowedLocations.push({
@@ -497,14 +497,14 @@ export default async function MaintenanceReceiptPage({
     const allowed = new Set<string>();
     if (perms.allowAll) {
       const activeLocations = await prisma.location.findMany({
-        where: { active: true, receiptEnabled: true },
+        where: { active: true },
         select: { id: true },
       });
       for (const location of activeLocations) allowed.add(location.id);
     } else {
-      if (me.locationId && me.location?.active && me.location?.receiptEnabled) allowed.add(me.locationId);
+      if (me.locationId && me.location?.active) allowed.add(me.locationId);
       for (const a of me.allowedLocations) {
-        if (a.location?.active && a.location?.receiptEnabled) allowed.add(a.locationId);
+        if (a.location?.active) allowed.add(a.locationId);
       }
     }
     for (const locId of selectedLocationIds) {
@@ -512,11 +512,11 @@ export default async function MaintenanceReceiptPage({
     }
 
     const selectedLocations = await prisma.location.findMany({
-      where: { id: { in: selectedLocationIds }, active: true, receiptEnabled: true },
+      where: { id: { in: selectedLocationIds }, active: true },
       select: { id: true, name: true, locationNumber: true },
     });
     if (selectedLocations.length !== selectedLocationIds.length) {
-      throw new Error("One or more selected locations are not receipt-enabled.");
+      throw new Error("One or more selected locations are inactive or not found.");
     }
 
     const selectedUser = await prisma.user.findUnique({
@@ -830,7 +830,7 @@ export default async function MaintenanceReceiptPage({
           </div>
 
           <div style={{ fontSize: 12, color: "var(--muted)", marginTop: -4 }}>
-            Only locations marked as receipt-enabled in Admin Locations appear here.
+            Active assigned locations appear here, including receipt-only locations.
           </div>
 
           <div
@@ -928,7 +928,7 @@ export default async function MaintenanceReceiptPage({
               </div>
             ) : !canCreateOnAnyLocation ? (
               <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
-                No receipt-enabled locations are currently assigned to you. Ask admin to enable locations for receipts.
+                No active locations are currently assigned to you. Ask admin to assign or reactivate locations.
               </div>
             ) : null}
           </div>
