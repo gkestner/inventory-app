@@ -9,6 +9,7 @@ import { buildStructuredSku, parseSkuRoomParts, parseStructuredSkuParts } from "
 import { prisma } from "@/app/lib/prisma";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import PrintLabelButton from "@/app/maintenance/room-diagrams/quick-count/PrintLabelButton";
+import LocationSelector from "@/app/maintenance/room-diagrams/quick-count/LocationSelector";
 
 type SessionShape = {
   user?: {
@@ -375,31 +376,11 @@ export default async function QuickCountEditorPage({
             {/* Location filter - Now a dropdown */}
             <div>
               <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 5, color: "var(--muted)" }}>LOCATION</div>
-              <select
-                value={selectedLocation}
-                onChange={(e) => {
-                  const newLoc = e.currentTarget.value;
-                  const newUrl = `/maintenance/room-diagrams/quick-count?loc=${encodeURIComponent(newLoc)}&shelf=01&bin=01`;
-                  window.location.href = newUrl;
-                }}
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 8,
-                  border: "1px solid var(--border)",
-                  background: "var(--surface)",
-                  color: "var(--foreground)",
-                  fontSize: 13,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  minWidth: 140,
-                }}
-              >
-                {availableLocations.map((locCode) => (
-                  <option key={locCode} value={locCode}>
-                    {locCode === "vault" ? "Vault" : `Location #${prettyCode(locCode)}`}
-                  </option>
-                ))}
-              </select>
+              <LocationSelector 
+                selectedLocation={selectedLocation}
+                availableLocations={availableLocations}
+                prettyCode={prettyCode}
+              />
             </div>
 
             {/* Shelf filter */}
