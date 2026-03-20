@@ -249,18 +249,13 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
       <style>{`
         @page { size: letter landscape; margin: 0.25in; }
 
+        html, body {
+          margin: 0;
+          padding: 0;
+        }
+
         @media print {
           html, body {
-            margin: 0 !important;
-            padding: 0 !important;
-          }
-
-          body * { visibility: hidden !important; }
-          #print-root, #print-root * { visibility: visible !important; }
-
-          #print-root {
-            position: static !important;
-            width: auto !important;
             margin: 0 !important;
             padding: 0 !important;
           }
