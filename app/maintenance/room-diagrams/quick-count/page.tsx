@@ -450,7 +450,7 @@ export default async function QuickCountEditorPage({
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    {["SKU", "Item", "Loc", "Shelf", "Bin", "On Hand", "Min", "Set Qty", "Quick +/-", "Print"].map((h) => (
+                    {["SKU", "Item", "Loc", "Shelf", "Bin", "Save", "On Hand", "Min", "Set Qty", "Quick +/-", "Print"].map((h) => (
                       <th
                         key={h}
                         style={{
@@ -545,41 +545,45 @@ export default async function QuickCountEditorPage({
                         </td>
                         <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
                           {canEditCounts ? (
-                            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                              <input
-                                form={rowFormId}
-                                name="bin"
-                                type="number"
-                                min="0"
-                                max="99"
-                                defaultValue={parts.bin}
-                                style={{
-                                  width: 34,
-                                  padding: "2px 4px",
-                                  borderRadius: 6,
-                                  border: "1px solid var(--border)",
-                                  fontSize: 12,
-                                  textAlign: "center",
-                                }}
-                              />
-                              <button
-                                form={rowFormId}
-                                type="submit"
-                                style={{
-                                  padding: "2px 6px",
-                                  borderRadius: 6,
-                                  border: "1px solid var(--border)",
-                                  background: "var(--surface-2)",
-                                  fontWeight: 700,
-                                  cursor: "pointer",
-                                  fontSize: 11,
-                                }}
-                              >
-                                Save
-                              </button>
-                            </div>
+                            <input
+                              form={rowFormId}
+                              name="bin"
+                              type="number"
+                              min="0"
+                              max="99"
+                              defaultValue={parts.bin}
+                              style={{
+                                width: 34,
+                                padding: "2px 4px",
+                                borderRadius: 6,
+                                border: "1px solid var(--border)",
+                                fontSize: 12,
+                                textAlign: "center",
+                              }}
+                            />
                           ) : (
                             parts.bin
+                          )}
+                        </td>
+                        <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
+                          {canEditCounts ? (
+                            <button
+                              form={rowFormId}
+                              type="submit"
+                              style={{
+                                padding: "6px 10px",
+                                borderRadius: 8,
+                                border: "1px solid var(--border)",
+                                background: "var(--surface-2)",
+                                fontWeight: 800,
+                                cursor: "pointer",
+                                fontSize: 12,
+                              }}
+                            >
+                              Save
+                            </button>
+                          ) : (
+                            <span style={{ opacity: 0.7 }}>Read only</span>
                           )}
                         </td>
                         <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>{row.onHandQty}</td>
