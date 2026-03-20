@@ -188,12 +188,22 @@ export default async function AdminHomePage() {
         </section>
 
         <div style={grid}>
-        {canLiveOrders ? (
+        {canCompanyVehicles ? (
           <div style={card}>
-            <h2 style={title}>Live Orders Board</h2>
-            <p style={desc}>Day-to-day operational board with 3 columns (ORDERED / ARRIVED / COMPLETED) and quick actions.</p>
-            <Link href="/admin/live-orders" style={linkStyle}>
-              Open Live Orders →
+            <h2 style={title}>Company Vehicles</h2>
+            <p style={desc}>Manage fleet reminders by mileage or time, and track service work with maintenance-user log entries.</p>
+            <Link href="/admin/company-vehicles" style={linkStyle}>
+              Open Fleet Log →
+            </Link>
+          </div>
+        ) : null}
+
+        {canEquipmentTracking ? (
+          <div style={card}>
+            <h2 style={title}>Equipment Tracking</h2>
+            <p style={desc}>Master equipment inventory log for each store, sectioned by hot bar, HVAC, freezers, signs, and more.</p>
+            <Link href="/admin/equipment-tracking" style={linkStyle}>
+              Open Equipment Log →
             </Link>
           </div>
         ) : null}
@@ -223,12 +233,12 @@ export default async function AdminHomePage() {
           </div>
         ) : null}
 
-        {canUsers ? (
+        {canLiveOrders ? (
           <div style={card}>
-            <h2 style={title}>Users</h2>
-            <p style={desc}>Create and manage users (admin-only).</p>
-            <Link href="/admin/users" style={linkStyle}>
-              Open Users →
+            <h2 style={title}>Live Orders Board</h2>
+            <p style={desc}>Day-to-day operational board with 3 columns (ORDERED / ARRIVED / COMPLETED) and quick actions.</p>
+            <Link href="/admin/live-orders" style={linkStyle}>
+              Open Live Orders →
             </Link>
           </div>
         ) : null}
@@ -243,12 +253,22 @@ export default async function AdminHomePage() {
           </div>
         ) : null}
 
-        {canWorkOrders ? (
+        {canMaintenanceRequests ? (
           <div style={card}>
-            <h2 style={title}>Work Orders</h2>
-            <p style={desc}>Admin view/edit of work orders.</p>
-            <Link href="/admin/work-orders" style={linkStyle}>
-              Open Work Orders →
+            <h2 style={title}>Maintenance Requests (Issue Queue)</h2>
+            <p style={desc}>Store issue queue with assigned maintenance tech routing, resolution, and archive workflow. Separate from parts checkout tickets.</p>
+            <Link href="/admin/maintenance-requests" style={linkStyle}>
+              Open Request Queue →
+            </Link>
+          </div>
+        ) : null}
+
+        {canTickets ? (
+          <div style={card}>
+            <h2 style={title}>Maintenance Tickets (Parts Checkout)</h2>
+            <p style={desc}>Parts checkout ticket invoice/export workflow. Separate from maintenance issue requests.</p>
+            <Link href="/admin/maintenance-tickets" style={linkStyle}>
+              Open Tickets →
             </Link>
           </div>
         ) : null}
@@ -263,36 +283,6 @@ export default async function AdminHomePage() {
           </div>
         ) : null}
 
-        {canEquipmentTracking ? (
-          <div style={card}>
-            <h2 style={title}>Equipment Tracking</h2>
-            <p style={desc}>Master equipment inventory log for each store, sectioned by hot bar, HVAC, freezers, signs, and more.</p>
-            <Link href="/admin/equipment-tracking" style={linkStyle}>
-              Open Equipment Log →
-            </Link>
-          </div>
-        ) : null}
-
-        {canCompanyVehicles ? (
-          <div style={card}>
-            <h2 style={title}>Company Vehicles</h2>
-            <p style={desc}>Manage fleet reminders by mileage or time, and track service work with maintenance-user log entries.</p>
-            <Link href="/admin/company-vehicles" style={linkStyle}>
-              Open Fleet Log →
-            </Link>
-          </div>
-        ) : null}
-
-        {canMaintenanceRequests ? (
-          <div style={card}>
-            <h2 style={title}>Maintenance Requests (Issue Queue)</h2>
-            <p style={desc}>Store issue queue with assigned maintenance tech routing, resolution, and archive workflow. Separate from parts checkout tickets.</p>
-            <Link href="/admin/maintenance-requests" style={linkStyle}>
-              Open Request Queue →
-            </Link>
-          </div>
-        ) : null}
-
         {canTemperatureDashboard ? (
           <div style={card}>
             <h2 style={title}>Temperature Dashboard</h2>
@@ -303,12 +293,22 @@ export default async function AdminHomePage() {
           </div>
         ) : null}
 
-        {canTickets ? (
+        {canUsers ? (
           <div style={card}>
-            <h2 style={title}>Maintenance Tickets (Parts Checkout)</h2>
-            <p style={desc}>Parts checkout ticket invoice/export workflow. Separate from maintenance issue requests.</p>
-            <Link href="/admin/maintenance-tickets" style={linkStyle}>
-              Open Tickets →
+            <h2 style={title}>Users</h2>
+            <p style={desc}>Create and manage users (admin-only).</p>
+            <Link href="/admin/users" style={linkStyle}>
+              Open Users →
+            </Link>
+          </div>
+        ) : null}
+
+        {canWorkOrders ? (
+          <div style={card}>
+            <h2 style={title}>Work Orders</h2>
+            <p style={desc}>Admin view/edit of work orders.</p>
+            <Link href="/admin/work-orders" style={linkStyle}>
+              Open Work Orders →
             </Link>
           </div>
         ) : null}

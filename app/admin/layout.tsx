@@ -272,17 +272,10 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
         <div style={sectionTitle}>Operations</div>
         <nav style={nav}>
-          {canLiveOrders ? (
-            <Link href="/admin/live-orders" style={linkStyle}>
-              <span>Live Orders Board</span>
-              <span style={pill}>Live</span>
-            </Link>
-          ) : null}
-
-          {canOrders ? (
-            <Link href="/admin/inventory-orders" style={linkStyle}>
-              <span>Inventory Orders</span>
-              <span style={pill}>History</span>
+          {canItems ? (
+            <Link href="/admin/price-lookup" style={linkStyle}>
+              <span>AI Price Lookup</span>
+              <span style={pill}>GPT</span>
             </Link>
           ) : null}
 
@@ -293,10 +286,10 @@ export default async function AdminLayout({ children }: { children: ReactNode })
             </Link>
           ) : null}
 
-          {canReports ? (
-            <Link href="/admin/reports" style={linkStyle}>
-              <span>Reports Hub</span>
-              <span style={pill}>Reports</span>
+          {canOrders ? (
+            <Link href="/admin/inventory-orders" style={linkStyle}>
+              <span>Inventory Orders</span>
+              <span style={pill}>History</span>
             </Link>
           ) : null}
 
@@ -307,48 +300,27 @@ export default async function AdminLayout({ children }: { children: ReactNode })
             </Link>
           ) : null}
 
-          {canItems ? (
-            <Link href="/admin/price-lookup" style={linkStyle}>
-              <span>AI Price Lookup</span>
-              <span style={pill}>GPT</span>
+          {canLiveOrders ? (
+            <Link href="/admin/live-orders" style={linkStyle}>
+              <span>Live Orders Board</span>
+              <span style={pill}>Live</span>
+            </Link>
+          ) : null}
+
+          {canReports ? (
+            <Link href="/admin/reports" style={linkStyle}>
+              <span>Reports Hub</span>
+              <span style={pill}>Reports</span>
             </Link>
           ) : null}
         </nav>
 
         <div style={sectionTitle}>Admin</div>
         <nav style={nav}>
-          {canUsers ? (
-            <Link href="/admin/users" style={linkStyle}>
-              <span>Users</span>
-              <span style={pill}>Security</span>
-            </Link>
-          ) : null}
-
-          {canRoles ? (
-            <Link href="/admin/access-titles" style={linkStyle}>
-              <span>Permission Titles</span>
-              <span style={pill}>RBAC</span>
-            </Link>
-          ) : null}
-
-          {canLocations ? (
-            <Link href="/admin/locations" style={linkStyle}>
-              <span>Locations</span>
-              <span style={pill}>Setup</span>
-            </Link>
-          ) : null}
-
-          {canWorkOrders ? (
-            <Link href="/admin/work-orders" style={linkStyle}>
-              <span>Work Orders</span>
-              <span style={pill}>Ops</span>
-            </Link>
-          ) : null}
-
-          {canPreventativeMaintenance ? (
-            <Link href="/admin/preventative-maintenance" style={linkStyle}>
-              <span>Preventative Maintenance</span>
-              <span style={pill}>PM</span>
+          {canCompanyVehicles ? (
+            <Link href="/admin/company-vehicles" style={linkStyle}>
+              <span>Company Vehicles</span>
+              <span style={pill}>Fleet</span>
             </Link>
           ) : null}
 
@@ -359,10 +331,10 @@ export default async function AdminLayout({ children }: { children: ReactNode })
             </Link>
           ) : null}
 
-          {canCompanyVehicles ? (
-            <Link href="/admin/company-vehicles" style={linkStyle}>
-              <span>Company Vehicles</span>
-              <span style={pill}>Fleet</span>
+          {canLocations ? (
+            <Link href="/admin/locations" style={linkStyle}>
+              <span>Locations</span>
+              <span style={pill}>Setup</span>
             </Link>
           ) : null}
 
@@ -373,6 +345,27 @@ export default async function AdminLayout({ children }: { children: ReactNode })
             </Link>
           ) : null}
 
+          {canTickets ? (
+            <Link href="/admin/maintenance-tickets" style={linkStyle}>
+              <span>Maintenance Tickets (Parts)</span>
+              <span style={pill}>Invoicing</span>
+            </Link>
+          ) : null}
+
+          {canRoles ? (
+            <Link href="/admin/access-titles" style={linkStyle}>
+              <span>Permission Titles</span>
+              <span style={pill}>RBAC</span>
+            </Link>
+          ) : null}
+
+          {canPreventativeMaintenance ? (
+            <Link href="/admin/preventative-maintenance" style={linkStyle}>
+              <span>Preventative Maintenance</span>
+              <span style={pill}>PM</span>
+            </Link>
+          ) : null}
+
           {canTemperatureDashboard ? (
             <Link href="/maintenance/temperature-dashboard" style={linkStyle}>
               <span>Temperature Dashboard</span>
@@ -380,10 +373,17 @@ export default async function AdminLayout({ children }: { children: ReactNode })
             </Link>
           ) : null}
 
-          {canTickets ? (
-            <Link href="/admin/maintenance-tickets" style={linkStyle}>
-              <span>Maintenance Tickets (Parts)</span>
-              <span style={pill}>Invoicing</span>
+          {canUsers ? (
+            <Link href="/admin/users" style={linkStyle}>
+              <span>Users</span>
+              <span style={pill}>Security</span>
+            </Link>
+          ) : null}
+
+          {canWorkOrders ? (
+            <Link href="/admin/work-orders" style={linkStyle}>
+              <span>Work Orders</span>
+              <span style={pill}>Ops</span>
             </Link>
           ) : null}
         </nav>
