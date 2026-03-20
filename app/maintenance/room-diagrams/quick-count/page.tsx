@@ -384,7 +384,7 @@ export default async function QuickCountEditorPage({
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    {["SKU", "Item", "On Hand", "Min", "Set Qty", "Quick +/-"].map((h) => (
+                    {["SKU", "Item", "On Hand", "Min", "Set Qty", "Quick +/-", "Print"].map((h) => (
                       <th
                         key={h}
                         style={{
@@ -485,6 +485,25 @@ export default async function QuickCountEditorPage({
                         ) : (
                           <span style={{ opacity: 0.7 }}>Read only</span>
                         )}
+                      </td>
+                      <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
+                        <Link
+                          href={`/admin/items/labels?ids=${row.id}&autoprint=1`}
+                          style={{
+                            display: "inline-block",
+                            textDecoration: "none",
+                            padding: "6px 10px",
+                            borderRadius: 8,
+                            border: "1px solid var(--border)",
+                            background: "var(--surface-2)",
+                            color: "var(--foreground)",
+                            fontWeight: 800,
+                            cursor: "pointer",
+                            fontSize: 13,
+                          }}
+                        >
+                          Print
+                        </Link>
                       </td>
                     </tr>
                   ))}
