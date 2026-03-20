@@ -62,6 +62,12 @@ function normalize2(value: string | null | undefined): string {
   return String(Math.max(0, Math.trunc(n))).padStart(2, "0");
 }
 
+function normalizeLocationParam(value: string | null | undefined): string {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (raw === "vault") return "vault";
+  return normalize2(raw) || "01";
+}
+
 function prettyCode(value: string): string {
   const n = Number(value);
   return Number.isFinite(n) ? String(n) : value;
@@ -269,7 +275,7 @@ export default async function QuickCountEditorPage({
     .filter((x): x is SlotRow => x !== null);
 
   const paramsRaw = (await searchParams) ?? {};
-  const selectedLocation = normalize2(firstParam(paramsRaw, "loc") ?? "01") || "01";
+  const selectedLocation = normalizeLocationParam(firstParam(paramsRaw, "loc") ?? "01");
   const selectedShelf = normalize2(firstParam(paramsRaw, "shelf") ?? "01") || "01";
   const selectedBin = normalize2(firstParam(paramsRaw, "bin") ?? "01") || "01";
 
@@ -286,7 +292,7 @@ export default async function QuickCountEditorPage({
   const updatedOk = firstParam(paramsRaw, "updated") === "1";
 
   const availableLocations = Array.from(
-    new Set(slotRows.map((row) => row.slot.location))
+    new Set(["vault", ...slotRows.map((row) => row.slot.location)])
   ).sort((a, b) => {
     // Handle vault location - always put it at the end
     if (a === "vault" && b !== "vault") return 1;
@@ -379,7 +385,6 @@ export default async function QuickCountEditorPage({
               <LocationSelector 
                 selectedLocation={selectedLocation}
                 availableLocations={availableLocations}
-                prettyCode={prettyCode}
               />
             </div>
 

@@ -1,15 +1,22 @@
 "use client";
 
+import { useRouter } from "next/navigation";
+
 interface LocationSelectorProps {
   selectedLocation: string;
   availableLocations: string[];
-  prettyCode: (code: string) => string;
 }
 
-export default function LocationSelector({ selectedLocation, availableLocations, prettyCode }: LocationSelectorProps) {
+function prettyCode(value: string): string {
+  const n = Number(value);
+  return Number.isFinite(n) ? String(n) : value;
+}
+
+export default function LocationSelector({ selectedLocation, availableLocations }: LocationSelectorProps) {
+  const router = useRouter();
+
   const handleLocationChange = (value: string) => {
-    const newUrl = `/maintenance/room-diagrams/quick-count?loc=${encodeURIComponent(value)}&shelf=01&bin=01`;
-    window.location.href = newUrl;
+    router.push(`/maintenance/room-diagrams/quick-count?loc=${encodeURIComponent(value)}&shelf=01&bin=01`);
   };
 
   return (
