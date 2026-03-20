@@ -35,6 +35,12 @@ function toInt(v: string | undefined, fallback: number): number {
   return x > 0 ? x : fallback;
 }
 
+function isNextRedirectError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const digest = (error as { digest?: unknown }).digest;
+  return typeof digest === "string" && digest.startsWith("NEXT_REDIRECT");
+}
+
 async function requireItemsAccess() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
@@ -371,6 +377,7 @@ export default async function AdminItemsPage({
       revalidatePath("/admin/items");
       redirect(`/admin/items?createdSku=${encodeURIComponent(createdSku)}`);
     } catch (e) {
+      if (isNextRedirectError(e)) throw e;
       const msg = e instanceof Error ? e.message : "Failed to create item.";
       redirect(`/admin/items?error=${encodeURIComponent(msg)}`);
     }
