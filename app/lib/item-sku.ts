@@ -27,6 +27,22 @@ export function parseStructuredSkuParts(sku: string): StructuredSkuParts | null 
   const raw = String(sku ?? "").trim();
   if (!raw) return null;
 
+  // Check for vault format: VT<shelf><bin> - <key>
+  const vaultRoomMatch = raw.match(/^VT(\d{4})\s*-\s*(.+)$/);
+  if (vaultRoomMatch) {
+    const shelfBin = vaultRoomMatch[1];
+    const itemKey = String(vaultRoomMatch[2] ?? "").trim();
+    if (itemKey) {
+      return {
+        zone: "VT",
+        location: "vault",
+        shelf: shelfBin.slice(0, 2),
+        bin: shelfBin.slice(2, 4),
+        itemKey,
+      };
+    }
+  }
+
   const compactRoomMatch = raw.match(/^(\d{6})\s*-\s*(.+)$/);
   if (compactRoomMatch) {
     const middleDigits = compactRoomMatch[1];
@@ -74,7 +90,19 @@ export function parseStructuredSkuParts(sku: string): StructuredSkuParts | null 
 
 export function buildStructuredSku(zone: string, location: string, shelf: string, bin: string, itemKey: string): string {
   void zone;
-  return `${location}${shelf}${bin} - ${itemKey}`;
+  
+  // Handle vault location specially
+  if (location.toLowerCase() === "vault") {
+    const shelfCode = String(shelf ?? "").padStart(2, "0");
+    const binCode = String(bin ?? "").padStart(2, "0");
+    return `VT${shelfCode}${binCode} - ${itemKey}`;
+  }
+  
+  // Handle normal numeric locations
+  const locCode = String(location ?? "").padStart(2, "0");
+  const shelfCode = String(shelf ?? "").padStart(2, "0");
+  const binCode = String(bin ?? "").padStart(2, "0");
+  return `${locCode}${shelfCode}${binCode} - ${itemKey}`;
 }
 
 export function parseSkuRoomParts(sku: string): SkuRoomParts | null {

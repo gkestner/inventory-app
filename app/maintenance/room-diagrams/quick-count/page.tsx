@@ -117,7 +117,9 @@ export default async function QuickCountEditorPage({
     if (!actor?.id || !actor.active) redirect("/login");
 
     const itemId = String(formData.get("itemId") ?? "").trim();
-    const newLocation = normalize2(String(formData.get("location") ?? "")) || "00";
+    const locationRaw = String(formData.get("location") ?? "").trim();
+    // Handle vault location specially; for numeric locations, normalize to 2 digits
+    const newLocation = locationRaw.toLowerCase() === "vault" ? "vault" : normalize2(locationRaw) || "00";
     const newShelf = normalize2(String(formData.get("shelf") ?? "")) || "00";
     const newBin = normalize2(String(formData.get("bin") ?? "")) || "00";
     const returnTo = String(formData.get("returnTo") ?? "").trim() || "/maintenance/room-diagrams/quick-count";
@@ -131,7 +133,7 @@ export default async function QuickCountEditorPage({
     if (!existing) redirect(returnTo);
 
     const parts = parseStructuredSkuParts(existing.sku) ?? {
-      zone: newLocation,
+      zone: newLocation === "vault" ? "VT" : newLocation,
       location: newLocation,
       shelf: newShelf,
       bin: newBin,
@@ -284,7 +286,14 @@ export default async function QuickCountEditorPage({
 
   const availableLocations = Array.from(
     new Set(slotRows.map((row) => row.slot.location))
-  ).sort((a, b) => Number(a) - Number(b));
+  ).sort((a, b) => {
+    // Handle vault location - always put it at the end
+    if (a === "vault" && b !== "vault") return 1;
+    if (a !== "vault" && b === "vault") return -1;
+    if (a === "vault" && b === "vault") return 0;
+    // Sort numeric locations numerically
+    return Number(a) - Number(b);
+  });
 
   const availableShelves = Array.from(
     new Set(slotRows.filter((row) => row.slot.location === selectedLocation).map((row) => row.slot.shelf))
@@ -356,33 +365,41 @@ export default async function QuickCountEditorPage({
           }}
         >
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>
-            {locationLabel(selectedLocation)} / Shelf {prettyCode(selectedShelf)} / Bin {prettyCode(selectedBin)}
+            {selectedLocation === "vault" 
+              ? `Vault / Shelf ${prettyCode(selectedShelf)} / Bin ${prettyCode(selectedBin)}`
+              : `${locationLabel(selectedLocation)} / Shelf ${prettyCode(selectedShelf)} / Bin ${prettyCode(selectedBin)}`
+            }
           </h2>
 
           <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-            {/* Location filter */}
+            {/* Location filter - Now a dropdown */}
             <div>
               <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 5, color: "var(--muted)" }}>LOCATION</div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <select
+                value={selectedLocation}
+                onChange={(e) => {
+                  const newLoc = e.currentTarget.value;
+                  const newUrl = `/maintenance/room-diagrams/quick-count?loc=${encodeURIComponent(newLoc)}&shelf=01&bin=01`;
+                  window.location.href = newUrl;
+                }}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 8,
+                  border: "1px solid var(--border)",
+                  background: "var(--surface)",
+                  color: "var(--foreground)",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  minWidth: 140,
+                }}
+              >
                 {availableLocations.map((locCode) => (
-                  <Link
-                    key={locCode}
-                    href={`/maintenance/room-diagrams/quick-count?loc=${locCode}&shelf=01&bin=01`}
-                    style={{
-                      textDecoration: "none",
-                      padding: "6px 10px",
-                      borderRadius: 8,
-                      border: locCode === selectedLocation ? "2px solid #1d4ed8" : "1px solid var(--border)",
-                      background: locCode === selectedLocation ? "#2563eb" : "var(--surface-2)",
-                      color: locCode === selectedLocation ? "#fff" : "var(--foreground)",
-                      fontSize: 13,
-                      fontWeight: 700,
-                    }}
-                  >
-                    Loc {prettyCode(locCode)}
-                  </Link>
+                  <option key={locCode} value={locCode}>
+                    {locCode === "vault" ? "Vault" : `Location #${prettyCode(locCode)}`}
+                  </option>
                 ))}
-              </div>
+              </select>
             </div>
 
             {/* Shelf filter */}
@@ -494,24 +511,28 @@ export default async function QuickCountEditorPage({
                         </td>
                         <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
                           {canEditCounts ? (
-                            <input
+                            <select
                               form={rowFormId}
                               name="location"
-                              type="number"
-                              min="0"
-                              max="99"
                               defaultValue={parts.location}
                               style={{
-                                width: 34,
+                                width: 84,
                                 padding: "2px 4px",
                                 borderRadius: 6,
                                 border: "1px solid var(--border)",
                                 fontSize: 12,
                                 textAlign: "center",
                               }}
-                            />
+                            >
+                              <option value="vault">Vault</option>
+                              {availableLocations.filter((loc) => loc !== "vault").map((locCode) => (
+                                <option key={locCode} value={locCode}>
+                                  Loc {prettyCode(locCode)}
+                                </option>
+                              ))}
+                            </select>
                           ) : (
-                            parts.location
+                            parts.location === "vault" ? "vault" : parts.location
                           )}
                         </td>
                         <td style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
