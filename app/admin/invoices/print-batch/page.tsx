@@ -247,7 +247,7 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
       />
 
       <style>{`
-        @page { size: letter landscape; margin: 0; }
+        @page { size: letter landscape; margin: 0.25in; }
 
         @media print {
           html, body {
@@ -268,13 +268,11 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
           .no-print { display: none !important; }
 
           .sheet {
-            width: 11in !important;
-            max-width: 11in !important;
-            min-height: 8.5in !important;
-
-            box-sizing: border-box !important;
-            padding: 0.25in !important; /* narrow margins we control */
-            overflow: hidden !important; /* prevents any spill creating extra pages */
+            width: auto !important;
+            max-width: none !important;
+            min-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
             break-after: page;
@@ -286,9 +284,8 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
             page-break-after: auto;
           }
 
-          /* Chrome paginates with zoom, not transform */
           .sheetInner {
-            zoom: 0.66;
+            zoom: 1;
           }
 
           table, tr, td, th { page-break-inside: avoid !important; break-inside: avoid !important; }
