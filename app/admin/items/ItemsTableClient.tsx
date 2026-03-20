@@ -774,8 +774,10 @@ export default function ItemsTableClient({
     });
   }
 
-  function printLabelsFor(ids: string[]) {
+  function printLabelsFor(ids: string[], options?: { forceAutoPrint?: boolean }) {
     if (ids.length === 0) return;
+
+    const forceAutoPrint = options?.forceAutoPrint === true;
 
     const qs = new URLSearchParams();
     qs.set("ids", ids.join(","));
@@ -785,15 +787,18 @@ export default function ItemsTableClient({
       const copies = Number.isFinite(copiesRaw) ? Math.max(1, Math.min(20, Math.floor(copiesRaw))) : 1;
       if (copies > 1) qs.set("copies", String(copies));
 
-      if (window.localStorage.getItem("labels_autoprint") === "1") {
+      if (forceAutoPrint || window.localStorage.getItem("labels_autoprint") === "1") {
         qs.set("autoprint", "1");
       }
 
-      if (window.localStorage.getItem("labels_autoclose") === "1") {
+      if (forceAutoPrint || window.localStorage.getItem("labels_autoclose") === "1") {
         qs.set("autoclose", "1");
       }
     } catch {
-      // Ignore localStorage errors and fall back to defaults.
+      if (forceAutoPrint) {
+        qs.set("autoprint", "1");
+        qs.set("autoclose", "1");
+      }
     }
 
     const url = `/labels?${qs.toString()}`;
@@ -1948,7 +1953,7 @@ export default function ItemsTableClient({
                                 onClick={() => {
                                   setOpenActionsForId(null);
                                   setActionsMenuPos(null);
-                                  printLabelsFor([row.id]);
+                                  printLabelsFor([row.id], { forceAutoPrint: true });
                                 }}
                                 disabled={bulkBusy}
                                 style={{
