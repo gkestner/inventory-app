@@ -796,7 +796,7 @@ export default function ItemsTableClient({
       // Ignore localStorage errors and fall back to defaults.
     }
 
-    const url = `/admin/items/labels?${qs.toString()}`;
+    const url = `/labels?${qs.toString()}`;
     console.debug("printLabelsFor", url);
     const existing = (window as any).__labelsPopupRef as Window | undefined;
     if (existing && !existing.closed) {
