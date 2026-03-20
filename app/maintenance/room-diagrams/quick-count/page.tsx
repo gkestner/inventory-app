@@ -48,16 +48,31 @@ function parseSkuSlot(sku: string): ParsedSkuSlot | null {
   if (!raw) return null;
 
   const segments = raw.split("-");
-  if (segments.length < 2) return null;
+  if (segments.length < 1) return null;
 
-  const middleDigits = String(segments[1] ?? "").replace(/\D/g, "");
-  if (middleDigits.length < 6) return null;
+  // New format: LLSSBB - KEY, so digits are in segments[0]
+  const firstSegmentDigits = String(segments[0] ?? "").replace(/\D/g, "");
+  if (firstSegmentDigits.length >= 6) {
+    return {
+      location: firstSegmentDigits.slice(0, 2),
+      shelf: firstSegmentDigits.slice(2, 4),
+      bin: firstSegmentDigits.slice(4, 6),
+    };
+  }
 
-  return {
-    location: middleDigits.slice(0, 2),
-    shelf: middleDigits.slice(2, 4),
-    bin: middleDigits.slice(4, 6),
-  };
+  // Fallback for legacy format: check middle segment for digits
+  if (segments.length >= 2) {
+    const middleDigits = String(segments[1] ?? "").replace(/\D/g, "");
+    if (middleDigits.length >= 6) {
+      return {
+        location: middleDigits.slice(0, 2),
+        shelf: middleDigits.slice(2, 4),
+        bin: middleDigits.slice(4, 6),
+      };
+    }
+  }
+
+  return null;
 }
 
 function normalize2(value: string | null | undefined): string {
