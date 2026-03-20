@@ -493,24 +493,58 @@ function isValidTwoDigitSkuPart(value: string): boolean {
   return /^\d{1,2}$/.test(String(value ?? "").trim());
 }
 
+function inferSkuZone(raw: string): string {
+  const digits = String(raw ?? "").replace(/\D/g, "");
+  const inferred = digits.slice(0, 2);
+  return inferred.length === 2 ? inferred : "01";
+}
+
 function parseStructuredSkuParts(sku: string): StructuredSkuParts | null {
   const raw = String(sku ?? "").trim();
   if (!raw) return null;
 
-  const segments = raw.split("-");
-  if (segments.length < 3) return null;
+  const compactRoomMatch = raw.match(/^(\d{6})\s*-\s*(.+)$/);
+  if (compactRoomMatch) {
+    const middleDigits = compactRoomMatch[1];
+    const itemKey = String(compactRoomMatch[2] ?? "").trim();
+    if (itemKey) {
+      return {
+        zone: middleDigits.slice(0, 2),
+        location: middleDigits.slice(0, 2),
+        shelf: middleDigits.slice(2, 4),
+        bin: middleDigits.slice(4, 6),
+        itemKey,
+      };
+    }
+  }
 
-  const zone = String(segments[0] ?? "").trim();
-  const middleDigits = String(segments[1] ?? "").replace(/\D/g, "");
-  const itemKey = segments.slice(2).join("-").trim();
-  if (!zone || middleDigits.length < 6 || !itemKey) return null;
+  const segments = raw.split("-");
+  if (segments.length >= 2) {
+    const firstHyphen = raw.indexOf("-");
+    const lastHyphen = raw.lastIndexOf("-");
+    const zone = inferSkuZone(String(segments[0] ?? ""));
+    const middleRaw = lastHyphen > firstHyphen ? raw.slice(firstHyphen + 1, lastHyphen) : "";
+    const middleDigits = middleRaw.replace(/\D/g, "");
+    const reversed = [...segments].reverse().map((segment) => String(segment ?? "").trim());
+    const itemKey = reversed.find((segment) => segment.length > 0) ?? "";
+
+    if (itemKey) {
+      return {
+        zone,
+        location: middleDigits.slice(0, 2),
+        shelf: middleDigits.slice(2, 4),
+        bin: middleDigits.slice(4, 6),
+        itemKey,
+      };
+    }
+  }
 
   return {
-    zone,
-    location: middleDigits.slice(0, 2),
-    shelf: middleDigits.slice(2, 4),
-    bin: middleDigits.slice(4, 6),
-    itemKey,
+    zone: inferSkuZone(raw),
+    location: "",
+    shelf: "",
+    bin: "",
+    itemKey: raw,
   };
 }
 
