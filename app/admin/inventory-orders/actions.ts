@@ -12,6 +12,13 @@ import { Permission, Role } from "@prisma/client";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { createNotificationForUsers } from "@/app/lib/workflow-foundations";
+import {
+  getLiveOrderNotificationStageLabel,
+  getLiveOrderWaitersForOrder,
+  setLiveOrderNotificationPreference,
+  type LiveOrderNotificationStage,
+} from "@/app/lib/live-order-notifications";
 
 type AdminSession = {
   user?: {
@@ -236,6 +243,27 @@ function computeLandedUnitCost(args: {
 
   // Item.cost stores landed per-unit cost.
   return new Decimal(unit.add(shipping.add(tax).div(qty)).toFixed(2));
+}
+
+function buildLiveOrderNotificationPayload(args: {
+  stage: LiveOrderNotificationStage;
+  orderId: string;
+  itemName: string | null | undefined;
+  itemSku: string | null | undefined;
+}): { title: string; body: string; href: string } {
+  const itemName = String(args.itemName ?? "").trim() || "Your order";
+  const itemSku = String(args.itemSku ?? "").trim();
+  const stageLabel = getLiveOrderNotificationStageLabel(args.stage);
+  const title = `${itemName} ${stageLabel}`;
+  const body = itemSku
+    ? `${itemName} (${itemSku}) has ${stageLabel}.`
+    : `${itemName} has ${stageLabel}.`;
+
+  return {
+    title,
+    body,
+    href: "/employee/live-orders",
+  };
 }
 
 async function syncItemCostAndOrderFromFromLatestOrder(tx: Prisma.TransactionClient, itemId: string) {
@@ -628,12 +656,19 @@ export async function markArrivedAction(formData: FormData) {
     const id = String(formData.get("id") ?? "").trim();
     if (!id) throw new Error("Missing order id");
 
-    await prisma.$transaction(async (tx) => {
+    const notification = await prisma.$transaction(async (tx) => {
       const existing = await tx.inventoryOrder.findUnique({
         where: { id },
-        select: { id: true, status: true, itemId: true, note: true, item: { select: { sku: true } } },
+        select: { id: true, status: true, itemId: true, note: true, item: { select: { sku: true, name: true } } },
       });
       if (!existing) throw new Error("Order not found");
+      if (existing.status === "ARRIVED" || existing.status === "ADDED_TO_INVENTORY") return null;
+
+      const waitlistUsers = await tx.user.findMany({
+        where: { active: true },
+        select: { id: true, name: true, uiPreferences: true },
+      });
+      const waiters = getLiveOrderWaitersForOrder(waitlistUsers, existing.id);
 
       const auditLine = buildSystemAuditLine({
         action: "MARK_ARRIVED",
@@ -649,9 +684,33 @@ export async function markArrivedAction(formData: FormData) {
           note: existing.note ? `${existing.note}\n${auditLine}` : auditLine,
         },
       });
+
+      if (waiters.length === 0) return null;
+
+      return {
+        userIds: waiters.map((waiter) => waiter.id),
+        ...buildLiveOrderNotificationPayload({
+          stage: "ARRIVED",
+          orderId: existing.id,
+          itemName: existing.item?.name,
+          itemSku: existing.item?.sku,
+        }),
+      };
     });
 
+    if (notification) {
+      await createNotificationForUsers({
+        userIds: notification.userIds,
+        title: notification.title,
+        body: notification.body,
+        href: notification.href,
+        type: "SYSTEM",
+      });
+    }
+
     revalidatePath("/admin/inventory-orders");
+    revalidatePath("/admin/live-orders");
+    revalidatePath("/employee/live-orders");
 
     const h = await headers();
     const back = safeReturnToPathFromReferer(h.get("referer"));
@@ -672,7 +731,7 @@ export async function addToInventoryAction(formData: FormData) {
     const id = String(formData.get("id") ?? "").trim();
     if (!id) throw new Error("Missing order id");
 
-    await prisma.$transaction(async (tx) => {
+    const notification = await prisma.$transaction(async (tx) => {
       const existing = await tx.inventoryOrder.findUnique({
         where: { id },
         select: {
@@ -682,14 +741,20 @@ export async function addToInventoryAction(formData: FormData) {
           quantity: true,
           addedToInventoryAt: true,
           note: true,
-          item: { select: { sku: true } },
+          item: { select: { sku: true, name: true } },
         },
       });
       if (!existing) throw new Error("Order not found");
-      if (existing.status === "ADDED_TO_INVENTORY") return;
+      if (existing.status === "ADDED_TO_INVENTORY") return null;
       if (existing.status !== "ARRIVED") {
         throw new Error("Order must be marked as arrived before adding to inventory.");
       }
+
+      const waitlistUsers = await tx.user.findMany({
+        where: { active: true },
+        select: { id: true, name: true, uiPreferences: true },
+      });
+      const waiters = getLiveOrderWaitersForOrder(waitlistUsers, existing.id);
 
       const item = await tx.item.findUnique({
         where: { id: existing.itemId },
@@ -733,10 +798,47 @@ export async function addToInventoryAction(formData: FormData) {
           note: existing.note ? `${existing.note}\n${auditLine}` : auditLine,
         },
       });
+
+      for (const waiter of waiters) {
+        await tx.user.update({
+          where: { id: waiter.id },
+          data: {
+            uiPreferences: setLiveOrderNotificationPreference(
+              waitlistUsers.find((user) => user.id === waiter.id)?.uiPreferences,
+              existing.id,
+              false,
+            ),
+          },
+        });
+      }
+
+      if (waiters.length === 0) return null;
+
+      return {
+        userIds: waiters.map((waiter) => waiter.id),
+        ...buildLiveOrderNotificationPayload({
+          stage: "ADDED_TO_INVENTORY",
+          orderId: existing.id,
+          itemName: existing.item?.name,
+          itemSku: existing.item?.sku,
+        }),
+      };
     });
+
+    if (notification) {
+      await createNotificationForUsers({
+        userIds: notification.userIds,
+        title: notification.title,
+        body: notification.body,
+        href: notification.href,
+        type: "SYSTEM",
+      });
+    }
 
     revalidatePath("/admin/inventory-orders");
     revalidatePath("/admin/items");
+    revalidatePath("/admin/live-orders");
+    revalidatePath("/employee/live-orders");
 
     const h = await headers();
     const back = safeReturnToPathFromReferer(h.get("referer"));

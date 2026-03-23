@@ -11,6 +11,7 @@ import { authOptions } from "@/app/lib/auth";
 import { loadUserPermissions, hasAnyPermission } from "@/app/lib/permissions";
 import LiveOrdersBoardControls from "@/app/components/LiveOrdersBoardControls";
 import { Permission, Role } from "@prisma/client";
+import { buildLiveOrderWaiterMap } from "@/app/lib/live-order-notifications";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -197,6 +198,15 @@ export default async function LiveOrdersPage() {
     },
   });
 
+  const waitlistUsers = await prisma.user.findMany({
+    where: { active: true },
+    select: { id: true, name: true, uiPreferences: true },
+  });
+  const waitersByOrderId = buildLiveOrderWaiterMap(
+    waitlistUsers,
+    orders.map((order) => order.id),
+  );
+
   // === Theme-safe tokens (match your admin dark look) ===
   const border = "1px solid rgba(128,128,128,0.25)";
   const fg = "var(--foreground)";
@@ -342,6 +352,7 @@ export default async function LiveOrdersPage() {
               <th style={th}>Unit</th>
               <th style={th}>Ship</th>
               <th style={th}>Tax</th>
+              <th style={th}>Waiting Users</th>
               <th style={th}>User Board</th>
               <th style={{ ...th, textAlign: "right" }}>Actions</th>
             </tr>
@@ -351,6 +362,7 @@ export default async function LiveOrdersPage() {
             {orders.map((o) => {
               const hidden = (o as any).hiddenFromUserLiveBoard === true;
               const removalDate = getLiveBoardRemovalDate(o);
+              const waiters = waitersByOrderId[o.id] ?? [];
 
               return (
                 <tr key={o.id} style={rowPhaseStyle(o.status)}>
@@ -382,6 +394,9 @@ export default async function LiveOrdersPage() {
                   <td style={{ ...td, ...right }}>{fmtMoney(o.unitPrice)}</td>
                   <td style={{ ...td, ...right }}>{fmtMoney(o.shippingCost)}</td>
                   <td style={{ ...td, ...right }}>{fmtMoney(o.taxCost)}</td>
+                  <td style={td}>
+                    {waiters.length > 0 ? waiters.map((waiter) => waiter.name).join(", ") : <span style={{ opacity: 0.65 }}>—</span>}
+                  </td>
 
                   <td style={td}>
                     <span style={badge(hidden)}>{hidden ? "HIDDEN" : "VISIBLE"}</span>
@@ -406,7 +421,7 @@ export default async function LiveOrdersPage() {
 
             {orders.length === 0 ? (
               <tr>
-                <td style={{ ...td, padding: 16 }} colSpan={12}>
+                <td style={{ ...td, padding: 16 }} colSpan={13}>
                   No orders found.
                 </td>
               </tr>

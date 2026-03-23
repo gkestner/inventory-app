@@ -3,12 +3,19 @@ import type { CSSProperties } from "react";
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import LiveOrdersBoardControls from "@/app/components/LiveOrdersBoardControls";
 import { Permission, Role } from "@prisma/client";
+import {
+  buildLiveOrderWaiterMap,
+  isUserWaitingForLiveOrder,
+  setLiveOrderNotificationPreference,
+} from "@/app/lib/live-order-notifications";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -34,6 +41,34 @@ async function requireLiveOrdersView() {
   if (!ok) redirect("/");
 
   return { session, perms };
+}
+
+async function resolveSessionUserId(session: AppSession): Promise<string> {
+  const id = session?.user?.id ?? null;
+  if (id) return id;
+
+  const email = session?.user?.email ?? null;
+  if (!email) return "";
+
+  const exact = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+  if (exact?.id) return exact.id;
+
+  const insensitive = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: "insensitive" } },
+    select: { id: true },
+  });
+  return insensitive?.id ?? "";
+}
+
+function safeReturnToPathFromReferer(referer: string | null): string {
+  if (!referer) return "/employee/live-orders";
+  try {
+    const url = new URL(referer);
+    const path = `${url.pathname}${url.search}`;
+    return path.startsWith("/") ? path : "/employee/live-orders";
+  } catch {
+    return "/employee/live-orders";
+  }
 }
 
 function fmtDate(d: Date | null | undefined) {
@@ -82,7 +117,40 @@ function getLiveBoardRemovalDate(order: { status: string; addedToInventoryAt: Da
 }
 
 export default async function EmployeeLiveOrdersPage() {
-  await requireLiveOrdersView();
+  const { session } = await requireLiveOrdersView();
+  const currentUserId = await resolveSessionUserId(session);
+  if (!currentUserId) redirect("/");
+
+  async function toggleLiveOrderNotificationAction(formData: FormData) {
+    "use server";
+
+    const { session: actionSession } = await requireLiveOrdersView();
+    const userId = await resolveSessionUserId(actionSession);
+    if (!userId) throw new Error("Could not resolve your user id.");
+
+    const orderId = String(formData.get("orderId") ?? "").trim();
+    const enabled = String(formData.get("enabled") ?? "").trim() === "1";
+    if (!orderId) throw new Error("Missing order id.");
+
+    const existingUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, uiPreferences: true },
+    });
+    if (!existingUser) throw new Error("User not found.");
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        uiPreferences: setLiveOrderNotificationPreference(existingUser.uiPreferences, orderId, enabled),
+      },
+    });
+
+    revalidatePath("/employee/live-orders");
+    revalidatePath("/admin/live-orders");
+
+    const h = await headers();
+    redirect(safeReturnToPathFromReferer(h.get("referer")));
+  }
 
   const now = new Date();
   const twoWeeksAgo = new Date(now.getTime() - LIVE_BOARD_RETENTION_DAYS * 24 * 60 * 60 * 1000);
@@ -115,6 +183,15 @@ export default async function EmployeeLiveOrdersPage() {
       item: { select: { sku: true, name: true } },
     },
   });
+
+  const waitlistUsers = await prisma.user.findMany({
+    where: { active: true },
+    select: { id: true, name: true, uiPreferences: true },
+  });
+  const waitersByOrderId = buildLiveOrderWaiterMap(
+    waitlistUsers,
+    orders.map((order) => order.id),
+  );
 
   const border = "1px solid rgba(128,128,128,0.25)";
   const fg = "var(--foreground)";
@@ -194,30 +271,68 @@ export default async function EmployeeLiveOrdersPage() {
               <th style={th}>Item</th>
               <th style={th}>Qty</th>
               <th style={th}>Status</th>
+              <th className="live-orders-interactive" style={th}>Notify Me</th>
             </tr>
           </thead>
           <tbody>
-            {orders.map((o) => (
-              <tr key={o.id} style={rowPhaseStyle(o.status)}>
-                <td style={td}>{fmtDate(o.orderedAt)}</td>
-                <td style={td}>
-                  <div style={{ display: "flex", flexDirection: "column", minHeight: 42 }}>
-                    <div style={{ fontWeight: 900 }}>{o.item?.name ?? "—"}</div>
-                    <div style={{ ...mono, opacity: 0.8 }}>{o.item?.sku ?? "—"}</div>
-                    {getLiveBoardRemovalDate(o) ? (
-                      <div style={{ marginTop: 4, alignSelf: "flex-end", fontSize: 11, opacity: 0.76, whiteSpace: "nowrap" }}>
-                        Will be removed on {fmtDate(getLiveBoardRemovalDate(o))}
+            {orders.map((o) => {
+              const canSubscribe = o.status !== "ADDED_TO_INVENTORY";
+              const currentUserWaiting = isUserWaitingForLiveOrder(
+                waitlistUsers.find((user) => user.id === currentUserId)?.uiPreferences,
+                o.id,
+              );
+              const waiters = waitersByOrderId[o.id] ?? [];
+
+              return (
+                <tr key={o.id} style={rowPhaseStyle(o.status)}>
+                  <td style={td}>{fmtDate(o.orderedAt)}</td>
+                  <td style={td}>
+                    <div style={{ display: "flex", flexDirection: "column", minHeight: 42, gap: 4 }}>
+                      <div style={{ fontWeight: 900 }}>{o.item?.name ?? "—"}</div>
+                      <div style={{ ...mono, opacity: 0.8 }}>{o.item?.sku ?? "—"}</div>
+                      <div className="live-orders-interactive" style={{ fontSize: 11, opacity: 0.78, lineHeight: 1.35 }}>
+                        {waiters.length > 0 ? `Waiting: ${waiters.map((waiter) => waiter.name).join(", ")}` : "No one is waiting for notifications yet."}
                       </div>
-                    ) : null}
-                  </div>
-                </td>
-                <td style={{ ...td, fontWeight: 900 }}>{o.quantity}</td>
-                <td style={{ ...td, ...phaseTextStyle(o.status), fontWeight: 900 }}>{phaseLabel(o.status)}</td>
-              </tr>
-            ))}
+                      {getLiveBoardRemovalDate(o) ? (
+                        <div style={{ marginTop: 4, alignSelf: "flex-end", fontSize: 11, opacity: 0.76, whiteSpace: "nowrap" }}>
+                          Will be removed on {fmtDate(getLiveBoardRemovalDate(o))}
+                        </div>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td style={{ ...td, fontWeight: 900 }}>{o.quantity}</td>
+                  <td style={{ ...td, ...phaseTextStyle(o.status), fontWeight: 900 }}>{phaseLabel(o.status)}</td>
+                  <td className="live-orders-interactive" style={{ ...td, whiteSpace: "nowrap" }}>
+                    {canSubscribe ? (
+                      <form action={toggleLiveOrderNotificationAction}>
+                        <input type="hidden" name="orderId" value={o.id} />
+                        <input type="hidden" name="enabled" value={currentUserWaiting ? "0" : "1"} />
+                        <button
+                          type="submit"
+                          style={{
+                            padding: "8px 10px",
+                            borderRadius: 10,
+                            border,
+                            background: currentUserWaiting ? "rgba(76,175,80,0.18)" : soft,
+                            color: fg,
+                            fontWeight: 900,
+                            cursor: "pointer",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {currentUserWaiting ? "Waiting for updates" : "Notify me"}
+                        </button>
+                      </form>
+                    ) : (
+                      <span style={{ opacity: 0.72, fontWeight: 900 }}>Already in stock</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
             {orders.length === 0 ? (
               <tr>
-                <td style={{ ...td, padding: 16 }} colSpan={4}>
+                <td style={{ ...td, padding: 16 }} colSpan={5}>
                   No visible orders.
                 </td>
               </tr>

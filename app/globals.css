@@ -581,6 +581,10 @@ html[data-live-orders-fullscreen="true"] .live-orders-controls {
   box-shadow: var(--shadow);
 }
 
+html[data-live-orders-fullscreen="true"] .live-orders-interactive {
+  display: none !important;
+}
+
 .labels-page .bottom {
   border-top: var(--b) solid #000;
   display: flex;
