@@ -539,7 +539,7 @@ function normalizeVendor(v: unknown): InvoiceVendor {
 }
 
 function effectiveTicketVendor(ticket: { vendorSnapshot?: unknown; item?: { vendor?: unknown } | null }): InvoiceVendor {
-  return normalizeVendor(ticket.item?.vendor ?? ticket.vendorSnapshot);
+  return normalizeVendor(ticket.vendorSnapshot ?? ticket.item?.vendor);
 }
 
 export async function createInvoicesForWindow(args: {
@@ -574,7 +574,7 @@ export async function createInvoicesForWindow(args: {
   }
 
   // Pull OPEN tickets in window, not already invoiced/voided.
-  // Vendor routing prefers item.vendor (current source of truth) and falls back to vendorSnapshot.
+  // Vendor routing prefers the ticket snapshot so invoicing stays stable even if the item vendor changes later.
   const ticketsAll = await prisma.partsCheckoutTicket.findMany({
     where: {
       status: PartsCheckoutStatus.OPEN,

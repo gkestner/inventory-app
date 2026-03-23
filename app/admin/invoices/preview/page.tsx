@@ -62,7 +62,7 @@ function effectiveTicketVendor(ticket: {
   vendorSnapshot?: unknown;
   item?: { vendor?: unknown } | null;
 }): InvoiceVendor {
-  return normalizeVendor(ticket.item?.vendor ?? ticket.vendorSnapshot);
+  return normalizeVendor(ticket.vendorSnapshot ?? ticket.item?.vendor);
 }
 
 function toNum(v: unknown): number {
@@ -171,7 +171,6 @@ export default async function InvoicePreviewPage({
     const v = effectiveTicketVendor(t);
     // Apply vendor filter if specified
     if (vendorFilter === "AMERICAN_PLUS" && v !== InvoiceVendor.AMERICAN_PLUS) continue;
-    if (vendorFilter === "SUCCESS_PLUS" && v !== InvoiceVendor.SUCCESS_PLUS) continue;
     const arr = byVendor.get(v) ?? [];
     arr.push(t);
     byVendor.set(v, arr);

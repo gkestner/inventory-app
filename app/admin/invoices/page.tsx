@@ -75,6 +75,17 @@ function vendorLabel(v: InvoiceVendor) {
   return v === "SUCCESS_PLUS" ? "Success Plus" : "American Plus";
 }
 
+function normalizeInvoicePartyLabel(value: string | null | undefined): string {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toUpperCase();
+}
+
+function pendingVendorWhere(vendor: InvoiceVendor) {
+  return vendor === InvoiceVendor.AMERICAN_PLUS ? { vendorSnapshot: InvoiceVendor.AMERICAN_PLUS } : {};
+}
+
 type SearchParams = {
   vendor?: string;
   from?: string;
@@ -591,6 +602,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
             status: PartsCheckoutStatus.OPEN,
             invoicedAt: null,
             voidedAt: null,
+            ...pendingVendorWhere(vendor),
             ...(from || to
               ? {
                   createdAt: {
@@ -608,6 +620,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
             status: PartsCheckoutStatus.OPEN,
             invoicedAt: null,
             voidedAt: null,
+            ...pendingVendorWhere(vendor),
             ...(from ? { createdAt: { lt: from } } : { id: { equals: "__none__" } }),
           },
         }),
@@ -616,6 +629,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
             status: PartsCheckoutStatus.OPEN,
             invoicedAt: null,
             voidedAt: null,
+            ...pendingVendorWhere(vendor),
           },
           orderBy: { createdAt: "asc" },
           select: { createdAt: true },
@@ -1500,6 +1514,10 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                 <tbody>
                   {invoices.map((inv) => {
                     const totalNum = inv.total ? Number(inv.total.toString()) : NaN;
+                    const storeLabel = `${inv.storeNumber} ${inv.storeName}`.trim();
+                    const showBilledTo =
+                      !!inv.billedTo &&
+                      normalizeInvoicePartyLabel(inv.billedTo) !== normalizeInvoicePartyLabel(storeLabel);
                     return (
                       <tr key={inv.id} style={{ borderBottom: border }}>
                         <td style={{ padding: 10, whiteSpace: "nowrap" }}>
@@ -1509,8 +1527,8 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                         <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{vendorLabel(inv.vendor)}</td>
                         <td style={{ padding: 10, whiteSpace: "nowrap" }}>{inv.vendorNumber ?? "—"}</td>
                         <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>
-                          {inv.storeNumber} {inv.storeName}
-                          {inv.billedTo ? ` - ${inv.billedTo}` : ""}
+                          {storeLabel}
+                          {showBilledTo ? ` - ${inv.billedTo}` : ""}
                         </td>
                         <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocalDate(inv.invoiceDate)}</td>
                         <td style={{ padding: 10, whiteSpace: "nowrap" }}>
