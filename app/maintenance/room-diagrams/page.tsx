@@ -4,6 +4,7 @@ import { InvoiceVendor, Permission, Prisma } from "@prisma/client";
 import { redirect } from "next/navigation";
 
 import { authOptions } from "@/app/lib/auth";
+import { parseSkuRoomParts } from "@/app/lib/item-sku";
 import { prisma } from "@/app/lib/prisma";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
@@ -56,19 +57,12 @@ function firstParam(params: SearchParams, key: string): string | null {
 }
 
 function parseSkuSlot(sku: string): ParsedSkuSlot | null {
-  const raw = String(sku ?? "").trim();
-  if (!raw) return null;
-
-  const segments = raw.split("-");
-  if (segments.length < 2) return null;
-
-  const middleDigits = String(segments[1] ?? "").replace(/\D/g, "");
-  if (middleDigits.length < 6) return null;
-
+  const parsed = parseSkuRoomParts(sku);
+  if (!parsed?.location || !parsed.shelf || !parsed.bin) return null;
   return {
-    location: middleDigits.slice(0, 2),
-    shelf: middleDigits.slice(2, 4),
-    bin: middleDigits.slice(4, 6),
+    location: parsed.location,
+    shelf: parsed.shelf,
+    bin: parsed.bin,
   };
 }
 
