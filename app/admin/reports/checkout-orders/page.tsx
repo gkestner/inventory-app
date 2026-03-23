@@ -47,6 +47,16 @@ function normalizeStatus(v: string | undefined): PartsCheckoutStatus | "all" {
   return "all";
 }
 
+function isReturnRecord(note: string | null, voidNote: string | null): boolean {
+  const combined = `${note ?? ""}\n${voidNote ?? ""}`.toUpperCase();
+  return combined.includes("[RETURN]") || combined.includes("LINKEDTOCHECKOUT=");
+}
+
+function getTicketStatusLabel(ticket: { status: PartsCheckoutStatus; note: string | null; voidNote: string | null }): string {
+  if (ticket.status === "VOIDED" && isReturnRecord(ticket.note, ticket.voidNote)) return "RETURN";
+  return ticket.status;
+}
+
 function normalizeNeedMore(v: string | undefined): "all" | "yes" | "no" {
   const s = String(v ?? "all").trim().toLowerCase();
   if (s === "yes" || s === "true" || s === "1") return "yes";
@@ -201,7 +211,7 @@ export default async function CheckoutOrdersReportPage({
               <option value="all">All Statuses</option>
               <option value="OPEN">OPEN</option>
               <option value="INVOICED">INVOICED</option>
-              <option value="VOIDED">VOIDED</option>
+              <option value="VOIDED">VOIDED / RETURN</option>
             </select>
 
             <select name="storeId" defaultValue={storeId} style={{ padding: "10px 12px", borderRadius: 10, border }}>
@@ -270,7 +280,7 @@ export default async function CheckoutOrdersReportPage({
               {tickets.map((t) => (
                 <tr key={t.id} style={{ borderBottom: border }}>
                   <td style={{ padding: 10, whiteSpace: "nowrap" }}>{new Date(t.createdAt).toLocaleString()}</td>
-                  <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 800 }}>{t.status}</td>
+                  <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 800 }}>{getTicketStatusLabel(t)}</td>
                   <td style={{ padding: 10, fontFamily: "monospace", fontSize: 12 }}>{t.id}</td>
                   <td style={{ padding: 10 }}>
                     <div style={{ fontWeight: 700 }}>{t.skuSnapshot}</div>
@@ -298,8 +308,8 @@ export default async function CheckoutOrdersReportPage({
                         <div><b>Price Snapshot:</b> {t.priceSnapshot?.toString() ?? "—"}</div>
                         <div><b>Taxable Snapshot:</b> {t.taxableSnapshot ? "Yes" : "No"}</div>
                         <div><b>Invoiced At:</b> {t.invoicedAt ? new Date(t.invoicedAt).toLocaleString() : "—"}</div>
-                        <div><b>Voided At:</b> {t.voidedAt ? new Date(t.voidedAt).toLocaleString() : "—"}</div>
-                        <div><b>Void Note:</b> {t.voidNote || "—"}</div>
+                        <div><b>{isReturnRecord(t.note, t.voidNote) ? "Returned At" : "Voided At"}:</b> {t.voidedAt ? new Date(t.voidedAt).toLocaleString() : "—"}</div>
+                        <div><b>{isReturnRecord(t.note, t.voidNote) ? "Return Note" : "Void Note"}:</b> {t.voidNote || "—"}</div>
                       </div>
                     </details>
                   </td>

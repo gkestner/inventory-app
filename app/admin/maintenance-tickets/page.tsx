@@ -61,6 +61,16 @@ function toSafeActionErrorMessage(err: unknown, fallback: string): string {
   return raw.replace(/\s+/g, " ").trim().slice(0, 220) || fallback;
 }
 
+function isReturnRecord(note: string | null, voidNote: string | null): boolean {
+  const combined = `${note ?? ""}\n${voidNote ?? ""}`.toUpperCase();
+  return combined.includes("[RETURN]") || combined.includes("LINKEDTOCHECKOUT=");
+}
+
+function getTicketStatusLabel(ticket: { status: PartsCheckoutStatus; note: string | null; voidNote: string | null }): string {
+  if (ticket.status === "VOIDED" && isReturnRecord(ticket.note, ticket.voidNote)) return "RETURN";
+  return ticket.status;
+}
+
 function redirectWithEditResult(ok: boolean, message?: string) {
   const sp = new URLSearchParams();
   if (ok) sp.set("okEdit", "1");
@@ -615,6 +625,8 @@ export default async function MaintenanceTicketsPage({ searchParams }: { searchP
       storeId: true,
       createdByUserId: true,
       invoiceId: true,
+      voidedAt: true,
+      voidNote: true,
     },
   });
 
@@ -761,7 +773,7 @@ export default async function MaintenanceTicketsPage({ searchParams }: { searchP
           <select name="status" defaultValue={status === "all" ? "all" : status} style={{ ...inputStyle, width: "100%" }}>
             <option value="OPEN">OPEN</option>
             <option value="INVOICED">INVOICED</option>
-            <option value="VOIDED">VOIDED</option>
+            <option value="VOIDED">VOIDED / RETURN</option>
             <option value="all">ALL</option>
           </select>
         </div>
@@ -801,7 +813,7 @@ export default async function MaintenanceTicketsPage({ searchParams }: { searchP
                   </a>
                 </div>
                 <div style={{ opacity: 0.85, marginTop: 2 }}>
-                  {new Date(t.createdAt).toLocaleString()} • <b>{t.status}</b>
+                  {new Date(t.createdAt).toLocaleString()} • <b>{getTicketStatusLabel(t)}</b>
                 </div>
               </div>
 
@@ -823,6 +835,11 @@ export default async function MaintenanceTicketsPage({ searchParams }: { searchP
               <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
                 Item ID: {t.itemId} • Taxable: {t.taxableSnapshot ? "Yes" : "No"}
               </div>
+              {t.voidedAt ? (
+                <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
+                  {isReturnRecord(t.note, t.voidNote) ? "Returned" : "Voided"}: {new Date(t.voidedAt).toLocaleString()}
+                </div>
+              ) : null}
             </div>
 
             <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>

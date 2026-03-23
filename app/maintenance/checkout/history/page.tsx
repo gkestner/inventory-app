@@ -32,6 +32,16 @@ function normalizeStatus(v: string | undefined): PartsCheckoutStatus | "all" {
   return "all";
 }
 
+function isReturnRecord(note: string | null, voidNote: string | null): boolean {
+  const combined = `${note ?? ""}\n${voidNote ?? ""}`.toUpperCase();
+  return combined.includes("[RETURN]") || combined.includes("LINKEDTOCHECKOUT=");
+}
+
+function getTicketStatusLabel(ticket: { status: PartsCheckoutStatus; note: string | null; voidNote: string | null }): string {
+  if (ticket.status === "VOIDED" && isReturnRecord(ticket.note, ticket.voidNote)) return "RETURN";
+  return ticket.status;
+}
+
 function parseDateStart(v: string | undefined): Date | null {
   const s = String(v ?? "").trim();
   if (!s) return null;
@@ -342,7 +352,7 @@ export default async function MaintenanceCheckoutHistoryPage({
                     <div>{fmtDateTime(ticket.createdAt)}</div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>{ticket.id}</div>
                   </td>
-                  <td style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top", fontWeight: 700 }}>{ticket.status}</td>
+                  <td style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top", fontWeight: 700 }}>{getTicketStatusLabel(ticket)}</td>
                   <td style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>{ticket.storeName}</td>
                   <td style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>{ticket.skuSnapshot}</td>
                   <td style={{ padding: 10, whiteSpace: "nowrap", verticalAlign: "top" }}>{ticket.partNumberSnapshot ?? "-"}</td>
@@ -363,7 +373,7 @@ export default async function MaintenanceCheckoutHistoryPage({
                     ) : ticket.invoicedAt ? (
                       <span>Invoiced</span>
                     ) : ticket.voidedAt ? (
-                      <span>Returned</span>
+                      <span>{isReturnRecord(ticket.note, ticket.voidNote) ? "Returned" : "Voided"}</span>
                     ) : (
                       <span>Pending</span>
                     )}

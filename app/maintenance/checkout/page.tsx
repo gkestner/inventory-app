@@ -6,7 +6,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import type { CSSProperties } from "react";
-import { InvoiceVendor, Permission } from "@prisma/client";
+import { InvoiceVendor, Permission, Prisma } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { parseHiddenFromDropdowns } from "@/app/lib/user-preferences";
 
@@ -64,6 +64,57 @@ function normalizeVendor(v: unknown): InvoiceVendor | null {
   if (s === "AMERICAN_PLUS") return InvoiceVendor.AMERICAN_PLUS;
   if (s === "SUCCESS_PLUS") return InvoiceVendor.SUCCESS_PLUS;
   return null;
+}
+
+function isReturnTicketRecord(note: string | null | undefined, voidNote: string | null | undefined): boolean {
+  const combined = `${note ?? ""}\n${voidNote ?? ""}`.toUpperCase();
+  return combined.includes("[RETURN]") || combined.includes("LINKEDTOCHECKOUT=");
+}
+
+function buildItemVersionSnapshot(
+  item: {
+    id: string;
+    sku: string;
+    partNumber: string | null;
+    vendor: unknown;
+    name: string;
+    description: string | null;
+    category: string | null;
+    manufacturer: string | null;
+    orderFrom: string | null;
+    webUrl: string | null;
+    cost: Prisma.Decimal | null;
+    price: Prisma.Decimal | null;
+    taxable: boolean;
+    active: boolean;
+    onHandQty: number;
+    orderedQty: number;
+    usedQty: number;
+    minQty: number;
+  },
+  version: number
+) {
+  return {
+    itemId: item.id,
+    version,
+    sku: item.sku,
+    partNumber: item.partNumber,
+    vendor: normalizeVendor(item.vendor) ?? InvoiceVendor.SUCCESS_PLUS,
+    name: item.name,
+    description: item.description,
+    category: item.category,
+    manufacturer: item.manufacturer,
+    orderFrom: item.orderFrom,
+    webUrl: item.webUrl,
+    cost: item.cost,
+    price: item.price,
+    taxable: item.taxable,
+    active: item.active,
+    onHandQty: item.onHandQty,
+    orderedQty: item.orderedQty,
+    usedQty: item.usedQty,
+    minQty: item.minQty,
+  };
 }
 
 function toSafeActionErrorMessage(err: unknown, fallback: string): string {
@@ -372,6 +423,13 @@ export default async function MaintenanceCheckoutPage({
     });
     if (!createdBy || !createdBy.active) throw new Error("Created-by user not found");
 
+    const createdByAllowedStores = new Set<string>();
+    if (createdBy.locationId) createdByAllowedStores.add(createdBy.locationId);
+    for (const ul of createdBy.allowedLocations) createdByAllowedStores.add(ul.locationId);
+    if (!createdByAllowedStores.has(storeId)) {
+      throw new Error("Selected user is not assigned to the selected store.");
+    }
+
     return { store, createdBy };
   }
 
@@ -410,6 +468,9 @@ export default async function MaintenanceCheckoutPage({
             name: true,
             description: true,
             category: true,
+            manufacturer: true,
+            orderFrom: true,
+            webUrl: true,
             cost: true,
             price: true,
             taxable: true,
@@ -432,25 +493,7 @@ export default async function MaintenanceCheckoutPage({
 
         // Snapshot before mutation (includes qty fields)
         await tx.itemVersion.create({
-          data: {
-            itemId,
-            version: nextVersion,
-            sku: item.sku,
-            partNumber: item.partNumber,
-            vendor: item.vendor,
-            name: item.name,
-            description: item.description,
-            category: item.category,
-            cost: item.cost,
-            price: item.price,
-            taxable: item.taxable,
-            active: item.active,
-
-            onHandQty: item.onHandQty,
-            orderedQty: item.orderedQty,
-            usedQty: item.usedQty,
-            minQty: item.minQty,
-          },
+          data: buildItemVersionSnapshot(item, nextVersion),
         });
 
         // Apply inventory updates (never block; can go negative)
@@ -610,6 +653,9 @@ export default async function MaintenanceCheckoutPage({
           itemId: string;
           storeId: string;
           quantity: number;
+          note: string | null;
+          voidNote: string | null;
+          voidedAt: Date | null;
         } | null = null;
 
         if (originalCheckoutId) {
@@ -621,12 +667,18 @@ export default async function MaintenanceCheckoutPage({
               itemId: true,
               storeId: true,
               quantity: true,
+              note: true,
+              voidNote: true,
+              voidedAt: true,
             },
           });
           if (!originalCheckout) {
             throw new Error("Original checkout ticket not found.");
           }
-          if (originalCheckout.status === "VOIDED") {
+          if (isReturnTicketRecord(originalCheckout.note, originalCheckout.voidNote)) {
+            throw new Error("Original checkout ticket is a return record and cannot be linked for return.");
+          }
+          if (originalCheckout.status === "VOIDED" || originalCheckout.voidedAt) {
             throw new Error("Original checkout ticket is already voided and cannot be linked for return.");
           }
           if (originalCheckout.itemId !== itemId) {
@@ -634,6 +686,24 @@ export default async function MaintenanceCheckoutPage({
           }
           if (originalCheckout.storeId !== storeId) {
             throw new Error("Original checkout ticket store does not match selected return store.");
+          }
+
+          const linkedReturns = await tx.partsCheckoutTicket.aggregate({
+            where: {
+              status: "VOIDED",
+              itemId,
+              storeId,
+              note: { contains: `linkedToCheckout=${originalCheckout.id}` },
+            },
+            _sum: { quantity: true },
+          });
+          const returnedQty = linkedReturns._sum.quantity ?? 0;
+          const remainingQty = Math.max(0, originalCheckout.quantity - returnedQty);
+          if (remainingQty <= 0) {
+            throw new Error("Original checkout ticket has already been fully returned.");
+          }
+          if (quantity > remainingQty) {
+            throw new Error(`Return quantity exceeds remaining linked checkout quantity (${remainingQty} remaining).`);
           }
         }
 
@@ -647,6 +717,9 @@ export default async function MaintenanceCheckoutPage({
             name: true,
             description: true,
             category: true,
+            manufacturer: true,
+            orderFrom: true,
+            webUrl: true,
             cost: true,
             price: true,
             taxable: true,
@@ -667,24 +740,7 @@ export default async function MaintenanceCheckoutPage({
         const nextVersion = (last?.version ?? 0) + 1;
 
         await tx.itemVersion.create({
-          data: {
-            itemId,
-            version: nextVersion,
-            sku: item.sku,
-            partNumber: item.partNumber,
-            vendor: item.vendor,
-            name: item.name,
-            description: item.description,
-            category: item.category,
-            cost: item.cost,
-            price: item.price,
-            taxable: item.taxable,
-            active: item.active,
-            onHandQty: item.onHandQty,
-            orderedQty: item.orderedQty,
-            usedQty: item.usedQty,
-            minQty: item.minQty,
-          },
+          data: buildItemVersionSnapshot(item, nextVersion),
         });
 
         const usedQtyDecrement = Math.min(quantity, Math.max(0, item.usedQty));
@@ -1009,6 +1065,25 @@ export default async function MaintenanceCheckoutPage({
           Submit Checkout
         </button>
 
+        <Link
+          href="/maintenance/checkout"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 160,
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: "1px solid rgba(128,128,128,0.35)",
+            background: "var(--background)",
+            color: "var(--foreground)",
+            textDecoration: "none",
+            fontWeight: 800,
+          }}
+        >
+          Clear Form
+        </Link>
+
         <div style={{ fontSize: 12, opacity: 0.75 }}>
           Alerts created when: onHand goes negative, available falls below min, or “Need to order more” is checked.
         </div>
@@ -1228,6 +1303,25 @@ export default async function MaintenanceCheckoutPage({
           >
             Submit Return (Reverse Checkout)
           </button>
+
+          <Link
+            href="/maintenance/checkout"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 160,
+              padding: "10px 12px",
+              borderRadius: 10,
+              border: "1px solid rgba(128,128,128,0.35)",
+              background: "var(--background)",
+              color: "var(--foreground)",
+              textDecoration: "none",
+              fontWeight: 800,
+            }}
+          >
+            Clear Form
+          </Link>
         </form>
       </details>
     </div>
