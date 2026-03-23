@@ -8,6 +8,7 @@ import ItemPicker from "./ItemPicker";
 
 type ItemLite = {
   id: string;
+  labelNumber?: number | null;
   sku: string;
   partNumber: string | null;
   name: string;
@@ -208,7 +209,7 @@ export default function SearchFilters({ items, users, locations, phases, values,
                 name="q"
                 value={qInput}
                 onChange={(event) => setQInput(event.target.value)}
-                placeholder="Search ID, SKU, part #, name, category, supplier, mfg, order from..."
+                placeholder="Search item #, ID, SKU, part #, name, category, supplier, mfg, order from..."
                 style={controlBase}
               />
             </label>
@@ -232,7 +233,7 @@ export default function SearchFilters({ items, users, locations, phases, values,
                   name="itemId"
                   items={items}
                   defaultId={values.itemId}
-                  placeholder="Search item (sku, part #, name...)"
+                  placeholder="Search item (#, sku, part #, name...)"
                 />
               </div>
             </label>

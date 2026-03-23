@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
+import { parseItemLabelNumberSearchTerm } from "@/app/lib/item-label-number";
 import ItemsTableClient from "./ItemsTableClient";
 import { Permission, Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
@@ -124,6 +125,7 @@ function buildWhere(qRaw: string): Prisma.ItemWhereInput {
 
   const tokenClauses: Prisma.ItemWhereInput[] = tokens.map((tok) => {
     const vs = variants(tok);
+    const labelNumber = parseItemLabelNumberSearchTerm(tok);
 
     const ors: Prisma.ItemWhereInput[] = vs.flatMap((v) => [
       { id: { contains: v, mode: "insensitive" } },
@@ -136,6 +138,10 @@ function buildWhere(qRaw: string): Prisma.ItemWhereInput {
       { orderFrom: { contains: v, mode: "insensitive" } },
       { webUrl: { contains: v, mode: "insensitive" } },
     ]);
+
+    if (labelNumber !== null) {
+      ors.push({ labelNumber });
+    }
 
     return { OR: ors };
   });

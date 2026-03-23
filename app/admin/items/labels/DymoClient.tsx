@@ -2,6 +2,7 @@
 
 import Script from "next/script";
 import { useEffect, useMemo, useState } from "react";
+import { getItemLabelNumberDisplay } from "@/app/lib/item-label-number";
 
 type LabelItem = {
   id: string;
@@ -88,17 +89,6 @@ function buildLabelXml(): string {
     <VerticalAlignment>Bottom</VerticalAlignment>
   </TextObject>
 </DieCutLabel>`;
-}
-
-function deriveSkuKeyIdentifier(sku: string, fallbackId: string): string {
-  const raw = String(sku ?? "").trim();
-  if (!raw) return fallbackId;
-
-  const keyCandidate = raw.split("-").pop() ?? "";
-  const normalized = keyCandidate.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-  if (normalized) return normalized;
-
-  return fallbackId;
 }
 
 export default function DymoClient({ items }: { items: LabelItem[] }) {
@@ -208,7 +198,7 @@ export default function DymoClient({ items }: { items: LabelItem[] }) {
     const name = (item.name || "").toUpperCase().slice(0, 22);
     label.setObjectText("NAME", name);
 
-    const id = deriveSkuKeyIdentifier(item.sku, item.id);
+    const id = getItemLabelNumberDisplay(item.labelNumber) ?? "UNASSIGNED";
     const part = item.partNumber ? item.partNumber.slice(0, 16) : "—";
     label.setObjectText("BOTTOM", `ITEM# ${id}     PART# ${part}`);
 

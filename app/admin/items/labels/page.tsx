@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import Script from "next/script";
 import { authOptions } from "@/app/lib/auth";
 import { canAccessAdmin } from "@/app/lib/admin-access";
+import { getItemLabelNumberDisplay } from "@/app/lib/item-label-number";
 
 export const dynamic = "force-dynamic";
 
@@ -36,17 +37,6 @@ function parseIds(raw: string): string[] {
         .filter(Boolean),
     ),
   );
-}
-
-function deriveSkuKeyIdentifier(sku: string, fallbackId: string): string {
-  const raw = String(sku ?? "").trim();
-  if (!raw) return fallbackId;
-
-  const keyCandidate = raw.split("-").pop() ?? "";
-  const normalized = keyCandidate.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-  if (normalized) return normalized;
-
-  return fallbackId;
 }
 
 function qrImageUrl(data: string, size = 160): string {
@@ -154,7 +144,7 @@ export default async function ItemLabelsPage({
           <div style={{ padding: 14, fontSize: 14 }}>No items selected.</div>
         ) : (
           printable.map((item) => {
-            const labelId = deriveSkuKeyIdentifier(item.sku, item.id);
+            const labelId = getItemLabelNumberDisplay(item.labelNumber) ?? "UNASSIGNED";
             const nameText = String(item.name ?? "")
               .toUpperCase()
               .replace(/\s+/g, " ")

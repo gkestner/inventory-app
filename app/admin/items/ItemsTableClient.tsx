@@ -1374,7 +1374,7 @@ export default function ItemsTableClient({
           <input
             value={qInput}
             onChange={(e) => setQInput(e.target.value)}
-            placeholder="Search ID, SKU, part #, name, category, vendor, mfg, order from…"
+            placeholder="Search item #, ID, SKU, part #, name, category, vendor, mfg, order from…"
             style={{
               width: "min(520px, 100%)",
               padding: "8px 10px",

@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 
 import { prisma } from "@/app/lib/prisma";
+import { parseItemLabelNumberSearchTerm } from "@/app/lib/item-label-number";
 import { authOptions } from "@/app/lib/auth";
 import { Permission, Role, InventoryOrderStatus, Prisma } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
@@ -227,6 +228,7 @@ function buildOrderSearchWhere(qRaw: string): Prisma.InventoryOrderWhereInput {
 
   const tokenClauses: Prisma.InventoryOrderWhereInput[] = tokens.map((tok) => {
     const vs = variants(tok);
+    const labelNumber = parseItemLabelNumberSearchTerm(tok);
 
     const ors: Prisma.InventoryOrderWhereInput[] = vs.flatMap((v) => [
       { id: { contains: v, mode: "insensitive" } },
@@ -245,6 +247,10 @@ function buildOrderSearchWhere(qRaw: string): Prisma.InventoryOrderWhereInput {
       { createdByUser: { name: { contains: v, mode: "insensitive" } } },
       { createdByUser: { email: { contains: v, mode: "insensitive" } } },
     ]);
+
+    if (labelNumber !== null) {
+      ors.push({ item: { labelNumber } });
+    }
 
     return { OR: ors };
   });
@@ -342,6 +348,7 @@ function nonEmptyString(v: FormDataEntryValue | null): string {
 // Client-safe item shape for ItemPicker (PLAIN JSON ONLY)
 type ItemLite = {
   id: string;
+  labelNumber?: number | null;
   sku: string;
   partNumber: string | null;
   name: string;
@@ -350,8 +357,14 @@ type ItemLite = {
   orderFrom?: string | null;
 };
 
-export default async function AdminInventoryOrdersPage({ searchParams }: { searchParams: SearchParams }) {
+export default async function AdminInventoryOrdersPage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
   await requireOrderHistoryView();
+
+  const sp = (await searchParams) ?? {};
 
   async function createOrderFormAction(formData: FormData) {
     "use server";
@@ -436,24 +449,24 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     );
   }
 
-  const q = (searchParams.q ?? "").trim();
+  const q = (sp.q ?? "").trim();
 
-  const phaseRaw = (searchParams.phase ?? "").trim().toUpperCase();
+  const phaseRaw = (sp.phase ?? "").trim().toUpperCase();
   const phase: InventoryOrderPhase | "" = (PHASES as readonly string[]).includes(phaseRaw) ? (phaseRaw as InventoryOrderPhase) : "";
 
-  const itemId = (searchParams.itemId ?? "").trim();
-  const supplier = (searchParams.supplier ?? "").trim();
-  const forStoreId = (searchParams.forStoreId ?? "").trim();
-  const forUserId = (searchParams.forUserId ?? "").trim();
+  const itemId = (sp.itemId ?? "").trim();
+  const supplier = (sp.supplier ?? "").trim();
+  const forStoreId = (sp.forStoreId ?? "").trim();
+  const forUserId = (sp.forUserId ?? "").trim();
 
-  const fromStr = (searchParams.from ?? "").trim();
-  const toStr = (searchParams.to ?? "").trim();
+  const fromStr = (sp.from ?? "").trim();
+  const toStr = (sp.to ?? "").trim();
   const from = fromStr ? parseOptionalDateOnlyToDate(fromStr, false) : null;
   const to = toStr ? parseOptionalDateOnlyToDate(toStr, true) : null;
 
-  const page = clamp(Number(searchParams.page ?? "1") || 1, 1, 9999);
+  const page = clamp(Number(sp.page ?? "1") || 1, 1, 9999);
   const perPageAllowed = new Set([10, 25, 50, 100]);
-  const perPage = perPageAllowed.has(Number(searchParams.perPage)) ? Number(searchParams.perPage) : 25;
+  const perPage = perPageAllowed.has(Number(sp.perPage)) ? Number(sp.perPage) : 25;
   const skip = (page - 1) * perPage;
 
   const border = "1px solid rgba(128,128,128,0.25)";
@@ -461,8 +474,8 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
   const fg = "var(--foreground)";
   const soft = "rgba(255,255,255,0.03)";
 
-  const okMsg = (searchParams.ok ?? "").trim() === "1";
-  const errMsg = (searchParams.error ?? "").trim();
+  const okMsg = (sp.ok ?? "").trim() === "1";
+  const errMsg = (sp.error ?? "").trim();
 
   const controlLabel: CSSProperties = { display: "grid", gap: 6, fontSize: 12, opacity: 0.9, fontWeight: 900 };
   const controlBase: CSSProperties = {
@@ -529,6 +542,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
       orderBy: { sku: "asc" },
       select: {
         id: true,
+        labelNumber: true,
         sku: true,
         partNumber: true,
         name: true,
@@ -562,6 +576,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
     JSON.stringify(
       itemsRaw.map((it) => ({
         id: it.id,
+        labelNumber: it.labelNumber ?? null,
         sku: it.sku,
         partNumber: it.partNumber ?? null,
         name: it.name,
@@ -1242,7 +1257,7 @@ export default async function AdminInventoryOrdersPage({ searchParams }: { searc
                 <label style={{ display: "grid", gap: 6, fontSize: 12, opacity: 0.9, fontWeight: 900, ...flexItem(420, 3) }}>
                   Item (select existing)
                   <div style={{ marginTop: 2 }}>
-                    <ItemPicker name="itemId" items={pickerItems} placeholder="Search ID, SKU, part #, name, category, manufacturer…" />
+                    <ItemPicker name="itemId" items={pickerItems} placeholder="Search item #, ID, SKU, part #, name, category, manufacturer…" />
                   </div>
                   <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>
                     If you’re creating a brand-new item, use the “New item” section below instead.

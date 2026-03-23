@@ -4,9 +4,11 @@
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { getItemLabelNumberDisplay } from "@/app/lib/item-label-number";
 
 type ItemLite = {
   id: string;
+  labelNumber?: number | null;
   sku: string;
   partNumber: string | null;
   name: string;
@@ -48,11 +50,14 @@ function tokenize(q: string): string[] {
 }
 
 function label(it: ItemLite): string {
-  return `${it.sku}${it.partNumber ? ` • ${it.partNumber}` : ""} • ${it.name}`;
+  const itemNumber = getItemLabelNumberDisplay(it.labelNumber);
+  const itemNumberText = itemNumber ? `ITEM# ${itemNumber} • ` : "";
+  return `${itemNumberText}${it.sku}${it.partNumber ? ` • ${it.partNumber}` : ""} • ${it.name}`;
 }
 
 function haystack(it: ItemLite): string {
-  return normalize([it.id, it.sku, it.partNumber ?? "", it.name, it.category ?? "", it.manufacturer ?? "", it.orderFrom ?? ""].join(" "));
+  const itemNumber = getItemLabelNumberDisplay(it.labelNumber) ?? "";
+  return normalize([it.id, it.labelNumber ?? "", itemNumber, `item#${itemNumber}`, it.sku, it.partNumber ?? "", it.name, it.category ?? "", it.manufacturer ?? "", it.orderFrom ?? ""].join(" "));
 }
 
 type MenuPos = {
@@ -67,7 +72,7 @@ export default function ItemPicker({
   items,
   defaultId,
   defaultItemId,
-  placeholder = "Search ID, SKU, part #, name, category, manufacturer…",
+  placeholder = "Search item #, ID, SKU, part #, name, category, manufacturer…",
   style,
   inputStyle,
   onSelectedIdChange,
