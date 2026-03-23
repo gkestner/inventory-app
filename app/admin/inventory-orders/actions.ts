@@ -81,6 +81,12 @@ function withQuery(basePath: string, next: Record<string, string | undefined>) {
   return qs ? `${u.pathname}?${qs}` : u.pathname;
 }
 
+function isRedirectLikeError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const digest = (error as { digest?: unknown }).digest;
+  return typeof digest === "string" && digest.startsWith("NEXT_REDIRECT");
+}
+
 function parseOptionalInt(v: FormDataEntryValue | null): number | null {
   if (v === null) return null;
   const s = String(v).trim();
@@ -498,6 +504,7 @@ export async function createOrderAction(formData: FormData) {
     const back = safeReturnToPathFromReferer(h.get("referer"));
     redirect(withQuery(back, { ok: "1" }));
   } catch (e) {
+    if (isRedirectLikeError(e)) throw e;
     const msg = e instanceof Error ? e.message : "Failed to create order.";
     const h = await headers();
     const back = safeReturnToPathFromReferer(h.get("referer"));
@@ -641,6 +648,7 @@ export async function saveOrderDetailsAction(formData: FormData) {
     const back = safeReturnToPathFromReferer(h.get("referer"));
     redirect(withQuery(back, { ok: "1" }));
   } catch (e) {
+    if (isRedirectLikeError(e)) throw e;
     const msg = e instanceof Error ? e.message : "Failed to save order.";
     const h = await headers();
     const back = safeReturnToPathFromReferer(h.get("referer"));
@@ -716,6 +724,7 @@ export async function markArrivedAction(formData: FormData) {
     const back = safeReturnToPathFromReferer(h.get("referer"));
     redirect(withQuery(back, { ok: "1" }));
   } catch (e) {
+    if (isRedirectLikeError(e)) throw e;
     const msg = e instanceof Error ? e.message : "Failed to mark arrived.";
     const h = await headers();
     const back = safeReturnToPathFromReferer(h.get("referer"));
@@ -844,6 +853,7 @@ export async function addToInventoryAction(formData: FormData) {
     const back = safeReturnToPathFromReferer(h.get("referer"));
     redirect(withQuery(back, { ok: "1" }));
   } catch (e) {
+    if (isRedirectLikeError(e)) throw e;
     const msg = e instanceof Error ? e.message : "Failed to add to inventory.";
     const h = await headers();
     const back = safeReturnToPathFromReferer(h.get("referer"));
@@ -908,6 +918,7 @@ export async function deleteOrderAction(formData: FormData) {
     const back = safeReturnToPathFromReferer(h.get("referer"));
     redirect(withQuery(back, { ok: "1" }));
   } catch (e) {
+    if (isRedirectLikeError(e)) throw e;
     const msg = e instanceof Error ? e.message : "Failed to delete order.";
     const h = await headers();
     const back = safeReturnToPathFromReferer(h.get("referer"));
