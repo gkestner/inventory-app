@@ -4,7 +4,6 @@ import { authOptions } from "@/app/lib/auth";
 import { getServerSession } from "next-auth";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
 import type { CSSProperties } from "react";
 import { InvoiceVendor, Permission, Prisma } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
@@ -599,13 +598,6 @@ export default async function MaintenanceCheckoutPage({
           });
         }
       });
-
-      revalidatePath("/admin/inventory-alerts");
-      revalidatePath("/admin/maintenance-tickets");
-      revalidatePath("/maintenance");
-      revalidatePath("/maintenance/checkout");
-
-      redirect(`/maintenance/checkout?ok=1`);
     } catch (e: unknown) {
       if (isRedirectLikeError(e)) {
         throw e;
@@ -614,6 +606,8 @@ export default async function MaintenanceCheckoutPage({
       const msg = toSafeActionErrorMessage(e, "Checkout failed");
       redirectWithErr("/maintenance/checkout", msg, "Checkout failed");
     }
+
+    redirect(`/maintenance/checkout?ok=1`);
   }
 
   async function reverseCheckoutAction(formData: FormData) {
@@ -795,13 +789,6 @@ export default async function MaintenanceCheckoutPage({
           select: { id: true },
         });
       });
-
-      revalidatePath("/admin/inventory-alerts");
-      revalidatePath("/admin/maintenance-tickets");
-      revalidatePath("/maintenance");
-      revalidatePath("/maintenance/checkout");
-
-      redirect(`/maintenance/checkout?okReturn=1`);
     } catch (e: unknown) {
       if (isRedirectLikeError(e)) {
         throw e;
@@ -810,6 +797,8 @@ export default async function MaintenanceCheckoutPage({
       const msg = toSafeActionErrorMessage(e, "Return failed");
       redirectWithErr("/maintenance/checkout", msg, "Return failed");
     }
+
+    redirect(`/maintenance/checkout?okReturn=1`);
   }
 
   const fieldStyle: CSSProperties = {
