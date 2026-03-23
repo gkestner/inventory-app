@@ -479,7 +479,7 @@ export default async function NeedsOrderingReportPage({
   const redCount = needsOrdering.filter((x) => x.priority === "red").length;
   const yellowCount = needsOrdering.filter((x) => x.priority === "yellow").length;
   const blueCount = needsOrdering.filter((x) => x.priority === "blue").length;
-  const orderMoreItems = needsOrdering.filter((x) => x.hasTechRequest);
+  const orderMoreItems = needsOrdering.filter((x) => x.hasTechRequest && x.shortBy === 0);
 
   const supplierGroups = Array.from(
     needsOrdering.reduce((map, row) => {
@@ -533,7 +533,8 @@ export default async function NeedsOrderingReportPage({
 
         <div style={{ marginTop: 8, opacity: 0.85, lineHeight: 1.5 }}>
           Items where <code>onHand + ordered &lt; min</code> are listed here. Items flagged from checkout as "Need to order
-          more" are also included and highlighted in magenta. Use Ignore to hide non-actionable rows.
+          more" are also included and highlighted in magenta when they are not already short. Use Ignore to hide
+          non-actionable rows.
         </div>
 
         {okMsg ? (
@@ -763,7 +764,7 @@ export default async function NeedsOrderingReportPage({
         >
           <div style={{ fontWeight: 900, marginBottom: 6 }}>Order More Flags</div>
           {orderMoreItems.length === 0 ? (
-            <div style={{ opacity: 0.8 }}>No active Order More flags.</div>
+            <div style={{ opacity: 0.8 }}>No active Order More flags outside the main report.</div>
           ) : (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {orderMoreItems.map((x) => (
