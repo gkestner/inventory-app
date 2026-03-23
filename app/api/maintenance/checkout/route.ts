@@ -1,5 +1,5 @@
 // app/api/maintenance/checkout/route.ts
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
@@ -14,6 +14,21 @@ type Body = {
   needToOrderMore?: boolean;
   note?: string | null;
 };
+
+function sanitizeForQuery(value: string): string {
+  return String(value ?? "")
+    .replace(/[\uD800-\uDFFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function checkoutRedirect(req: NextRequest, params: Record<string, string>) {
+  const url = new URL("/maintenance/checkout", req.url);
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, sanitizeForQuery(value));
+  }
+  return NextResponse.redirect(url, { status: 303 });
+}
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
@@ -129,19 +144,34 @@ export async function POST(req: NextRequest) {
   }
 
   let body: Body;
+  let isFormPost = false;
   try {
-    body = (await req.json()) as Body;
+    const contentType = req.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      body = (await req.json()) as Body;
+    } else {
+      isFormPost = true;
+      const formData = await req.formData();
+      body = {
+        itemId: String(formData.get("itemId") || "").trim(),
+        storeId: String(formData.get("storeId") || "").trim(),
+        createdByUserId: String(formData.get("createdByUserId") || "").trim() || undefined,
+        quantity: Number(String(formData.get("quantity") || "")),
+        needToOrderMore: formData.get("needToOrderMore") === "on",
+        note: String(formData.get("note") || "").trim() || null,
+      };
+    }
   } catch {
-    return new Response("Bad Request", { status: 400 });
+    return isFormPost ? checkoutRedirect(req, { err: "Bad Request" }) : new Response("Bad Request", { status: 400 });
   }
 
   const itemId = isNonEmptyString(body.itemId) ? body.itemId.trim() : "";
   const storeId = isNonEmptyString(body.storeId) ? body.storeId.trim() : "";
   const qty = toInt(body.quantity);
 
-  if (!itemId) return new Response("Missing itemId", { status: 400 });
-  if (!storeId) return new Response("Missing storeId", { status: 400 });
-  if (qty === null || qty <= 0) return new Response("Invalid quantity", { status: 400 });
+  if (!itemId) return isFormPost ? checkoutRedirect(req, { err: "Missing itemId" }) : new Response("Missing itemId", { status: 400 });
+  if (!storeId) return isFormPost ? checkoutRedirect(req, { err: "Missing storeId" }) : new Response("Missing storeId", { status: 400 });
+  if (qty === null || qty <= 0) return isFormPost ? checkoutRedirect(req, { err: "Invalid quantity" }) : new Response("Invalid quantity", { status: 400 });
 
   const needToOrderMore = Boolean(body.needToOrderMore);
   const note = typeof body.note === "string" ? body.note.trim() : null;
@@ -400,12 +430,16 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    return Response.json(result, { status: 201 });
+    return isFormPost ? checkoutRedirect(req, { ok: "1" }) : Response.json(result, { status: 201 });
   } catch (e: unknown) {
     const msg =
       typeof e === "object" && e !== null && "message" in e && typeof (e as { message: unknown }).message === "string"
         ? (e as { message: string }).message
         : "Checkout failed";
+
+    if (isFormPost) {
+      return checkoutRedirect(req, { err: msg || "Checkout failed" });
+    }
 
     if (msg === "Item not found" || msg === "Store not found") {
       return new Response(msg, { status: 404 });

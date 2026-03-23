@@ -5,7 +5,7 @@ import { getServerSession } from "next-auth";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { CSSProperties } from "react";
-import { InvoiceVendor, Permission, Prisma } from "@prisma/client";
+import { Permission } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { parseHiddenFromDropdowns } from "@/app/lib/user-preferences";
 
@@ -31,12 +31,6 @@ type UserOption = {
   uiPreferences: unknown;
 };
 
-function toInt(v: FormDataEntryValue | null): number {
-  if (v === null) return NaN;
-  const n = Number(String(v));
-  return Number.isFinite(n) ? Math.floor(n) : NaN;
-}
-
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
@@ -55,87 +49,12 @@ function isRedirectLikeError(err: unknown): boolean {
   return typeof digest === "string" && digest.startsWith("NEXT_REDIRECT");
 }
 
-function normalizeVendor(v: unknown): InvoiceVendor | null {
-  const s = String(v ?? "")
-    .trim()
-    .toUpperCase()
-    .replace(/[-\s]+/g, "_");
-  if (s === "AMERICAN_PLUS") return InvoiceVendor.AMERICAN_PLUS;
-  if (s === "SUCCESS_PLUS") return InvoiceVendor.SUCCESS_PLUS;
-  return null;
-}
-
-function isReturnTicketRecord(note: string | null | undefined, voidNote: string | null | undefined): boolean {
-  const combined = `${note ?? ""}\n${voidNote ?? ""}`.toUpperCase();
-  return combined.includes("[RETURN]") || combined.includes("LINKEDTOCHECKOUT=");
-}
-
-function buildItemVersionSnapshot(
-  item: {
-    id: string;
-    sku: string;
-    partNumber: string | null;
-    vendor: unknown;
-    name: string;
-    description: string | null;
-    category: string | null;
-    manufacturer: string | null;
-    orderFrom: string | null;
-    webUrl: string | null;
-    cost: Prisma.Decimal | null;
-    price: Prisma.Decimal | null;
-    taxable: boolean;
-    active: boolean;
-    onHandQty: number;
-    orderedQty: number;
-    usedQty: number;
-    minQty: number;
-  },
-  version: number
-) {
-  return {
-    itemId: item.id,
-    version,
-    sku: item.sku,
-    partNumber: item.partNumber,
-    vendor: normalizeVendor(item.vendor) ?? InvoiceVendor.SUCCESS_PLUS,
-    name: item.name,
-    description: item.description,
-    category: item.category,
-    manufacturer: item.manufacturer,
-    orderFrom: item.orderFrom,
-    webUrl: item.webUrl,
-    cost: item.cost,
-    price: item.price,
-    taxable: item.taxable,
-    active: item.active,
-    onHandQty: item.onHandQty,
-    orderedQty: item.orderedQty,
-    usedQty: item.usedQty,
-    minQty: item.minQty,
-  };
-}
-
 function toSafeActionErrorMessage(err: unknown, fallback: string): string {
   const raw =
     typeof err === "object" && err !== null && "message" in err && typeof (err as { message: unknown }).message === "string"
       ? (err as { message: string }).message
       : fallback;
   return raw.replace(/\s+/g, " ").trim().slice(0, 220) || fallback;
-}
-
-function sanitizeForQuery(value: string): string {
-  return String(value ?? "")
-    .replace(/[\uD800-\uDFFF]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function redirectWithErr(path: string, message: string, fallback = "Action failed") {
-  const safe = sanitizeForQuery(message || fallback) || fallback;
-  const sp = new URLSearchParams();
-  sp.set("err", safe);
-  redirect(`${path}?${sp.toString()}`);
 }
 
 async function loadCheckoutUsers(): Promise<UserOption[]> {
@@ -184,19 +103,6 @@ async function requireCheckoutView() {
 
   // ✅ IMPORTANT: do NOT redirect("/") here (can cause redirect loops)
   if (!ok) redirect("/maintenance");
-
-  return { session, perms };
-}
-
-async function requireCheckoutCreate() {
-  const session = await getServerSession(authOptions);
-  if (!session) throw new Error("Unauthorized");
-
-  const perms = await loadUserPermissions(session);
-  if (perms.allowAll) return { session, perms };
-
-  const ok = hasAnyPermission(perms, [Permission.CREATE_CHECKOUT]);
-  if (!ok) throw new Error("Forbidden");
 
   return { session, perms };
 }
@@ -368,439 +274,6 @@ export default async function MaintenanceCheckoutPage({
     ? recentTickets
     : recentTickets.filter((t: { storeId: string }) => allowedStoreIds.has(t.storeId));
 
-  async function resolveStoreAndCreatedByForCheckout(args: {
-    session: Awaited<ReturnType<typeof getServerSession>>;
-    perms: Awaited<ReturnType<typeof loadUserPermissions>>;
-    storeId: string;
-    createdByUserId: string;
-  }) {
-    const { session: s, perms: p, storeId, createdByUserId } = args;
-
-    // Enforce allowed store locations for non-admin.
-    if (!p.allowAll) {
-      const sUser = (s as { user?: { email?: string | null } } | null)?.user;
-      const email = typeof sUser?.email === "string" ? sUser.email.toLowerCase().trim() : "";
-
-      if (!email) throw new Error("Unauthorized");
-
-      const me = await prisma.user.findUnique({
-        where: { email },
-        select: {
-          id: true,
-          active: true,
-          locationId: true,
-          allowedLocations: { select: { locationId: true } },
-        },
-      });
-
-      if (!me || !me.active) throw new Error("Unauthorized");
-
-      const allowed = new Set<string>();
-      if (me.locationId) allowed.add(me.locationId);
-      for (const ul of me.allowedLocations) allowed.add(ul.locationId);
-
-      if (!allowed.has(storeId)) {
-        throw new Error("You are not allowed to create a checkout ticket for that store.");
-      }
-    }
-
-    const store = await prisma.location.findUnique({
-      where: { id: storeId },
-      select: { id: true, name: true, active: true, receiptEnabled: true },
-    });
-    if (!store || !store.active || !store.receiptEnabled) throw new Error("Store not found");
-
-    const createdBy = await prisma.user.findUnique({
-      where: { id: createdByUserId },
-      select: {
-        id: true,
-        name: true,
-        active: true,
-        locationId: true,
-        allowedLocations: { select: { locationId: true } },
-      },
-    });
-    if (!createdBy || !createdBy.active) throw new Error("Created-by user not found");
-
-    const createdByAllowedStores = new Set<string>();
-    if (createdBy.locationId) createdByAllowedStores.add(createdBy.locationId);
-    for (const ul of createdBy.allowedLocations) createdByAllowedStores.add(ul.locationId);
-    if (!createdByAllowedStores.has(storeId)) {
-      throw new Error("Selected user is not assigned to the selected store.");
-    }
-
-    return { store, createdBy };
-  }
-
-  async function checkoutAction(formData: FormData) {
-    "use server";
-    try {
-      const { session: s, perms: p } = await requireCheckoutCreate();
-
-      const itemId = String(formData.get("itemId") || "");
-      const storeId = String(formData.get("storeId") || "");
-      const createdByUserId = String(formData.get("createdByUserId") || "");
-      const quantity = toInt(formData.get("quantity"));
-      const needToOrderMore = formData.get("needToOrderMore") === "on";
-      const note = String(formData.get("note") || "").trim();
-
-      if (!itemId) throw new Error("Missing itemId");
-      if (!storeId) throw new Error("Missing storeId");
-      if (!createdByUserId) throw new Error("Missing createdByUserId");
-      if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("Invalid quantity");
-
-      const { store, createdBy } = await resolveStoreAndCreatedByForCheckout({
-        session: s,
-        perms: p,
-        storeId,
-        createdByUserId,
-      });
-
-      await prisma.$transaction(async (tx) => {
-        const item = await tx.item.findUnique({
-          where: { id: itemId },
-          select: {
-            id: true,
-            sku: true,
-            partNumber: true,
-            vendor: true,
-            name: true,
-            description: true,
-            category: true,
-            manufacturer: true,
-            orderFrom: true,
-            webUrl: true,
-            cost: true,
-            price: true,
-            taxable: true,
-            active: true,
-            onHandQty: true,
-            orderedQty: true,
-            usedQty: true,
-            minQty: true,
-          },
-        });
-        if (!item) throw new Error("Item not found");
-
-        // Determine next version number (simple + safe)
-        const last = await tx.itemVersion.findFirst({
-          where: { itemId },
-          orderBy: { version: "desc" },
-          select: { version: true },
-        });
-        const nextVersion = (last?.version ?? 0) + 1;
-
-        // Snapshot before mutation (includes qty fields)
-        await tx.itemVersion.create({
-          data: buildItemVersionSnapshot(item, nextVersion),
-        });
-
-        // Apply inventory updates (never block; can go negative)
-        const onHandAfter = item.onHandQty - quantity;
-        const orderedAfter = item.orderedQty;
-        const availableAfter = onHandAfter + orderedAfter;
-        const minQtyAtTime = item.minQty;
-        await tx.item.update({
-          where: { id: itemId },
-          data: {
-            onHandQty: { decrement: quantity },
-            usedQty: { increment: quantity },
-          },
-          select: { id: true },
-        });
-
-        // Create ticket (uses snapshots for invoicing stability)
-        const ticket = await tx.partsCheckoutTicket.create({
-          data: {
-            status: "OPEN",
-            itemId,
-            storeId,
-            storeName: store.name,
-
-            quantity,
-            needToOrderMore,
-
-            createdByUserId,
-            createdByName: createdBy.name,
-
-            note: note || null,
-
-            skuSnapshot: item.sku,
-            partNumberSnapshot: item.partNumber,
-            nameSnapshot: item.name,
-            costSnapshot: item.cost,
-            vendorSnapshot: normalizeVendor(item.vendor) ?? InvoiceVendor.SUCCESS_PLUS,
-            priceSnapshot: item.price,
-            taxableSnapshot: item.taxable,
-          },
-          select: { id: true },
-        });
-
-        // NEGATIVE_ON_HAND
-        if (onHandAfter < 0) {
-          await tx.inventoryAlert.create({
-            data: {
-              type: "NEGATIVE_ON_HAND",
-              itemId,
-              storeId,
-              storeName: store.name,
-              checkoutId: ticket.id,
-
-              createdByUserId,
-              createdByName: createdBy.name,
-
-              qtyDelta: -quantity,
-              onHandAfter,
-              orderedAfter,
-              availableAfter,
-              minQtyAtTime,
-            },
-          });
-        }
-
-        // BELOW_MIN
-        if (availableAfter < minQtyAtTime) {
-          await tx.inventoryAlert.create({
-            data: {
-              type: "BELOW_MIN",
-              itemId,
-              storeId,
-              storeName: store.name,
-              checkoutId: ticket.id,
-
-              createdByUserId,
-              createdByName: createdBy.name,
-
-              qtyDelta: -quantity,
-              onHandAfter,
-              orderedAfter,
-              availableAfter,
-              minQtyAtTime,
-            },
-          });
-        }
-
-        // TECH_REQUEST_ORDER
-        if (needToOrderMore) {
-          await tx.inventoryAlert.create({
-            data: {
-              type: "TECH_REQUEST_ORDER",
-              itemId,
-              storeId,
-              storeName: store.name,
-              checkoutId: ticket.id,
-
-              createdByUserId,
-              createdByName: createdBy.name,
-
-              note: note || "Technician requested ordering more.",
-            },
-          });
-        }
-      });
-    } catch (e: unknown) {
-      if (isRedirectLikeError(e)) {
-        throw e;
-      }
-
-      const msg = toSafeActionErrorMessage(e, "Checkout failed");
-      redirectWithErr("/maintenance/checkout", msg, "Checkout failed");
-    }
-
-    redirect(`/maintenance/checkout?ok=1`);
-  }
-
-  async function reverseCheckoutAction(formData: FormData) {
-    "use server";
-    try {
-      const { session: s, perms: p } = await requireCheckoutCreate();
-
-      const itemId = String(formData.get("returnItemId") || "");
-      const storeId = String(formData.get("returnStoreId") || "");
-      const createdByUserId = String(formData.get("returnCreatedByUserId") || "");
-      const quantity = toInt(formData.get("returnQuantity"));
-      const originalCheckoutIdSelect = String(formData.get("returnOriginalCheckoutIdSelect") || "").trim();
-      const originalCheckoutIdManual = String(formData.get("returnOriginalCheckoutId") || "").trim();
-      const note = String(formData.get("returnNote") || "").trim();
-
-      const originalCheckoutId = originalCheckoutIdManual || originalCheckoutIdSelect;
-      if (originalCheckoutIdManual && originalCheckoutIdSelect && originalCheckoutIdManual !== originalCheckoutIdSelect) {
-        throw new Error("Selected checkout ticket does not match the manually entered ticket ID.");
-      }
-
-      if (!itemId) throw new Error("Missing itemId");
-      if (!storeId) throw new Error("Missing storeId");
-      if (!createdByUserId) throw new Error("Missing createdByUserId");
-      if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("Invalid return quantity");
-
-      const { store, createdBy } = await resolveStoreAndCreatedByForCheckout({
-        session: s,
-        perms: p,
-        storeId,
-        createdByUserId,
-      });
-
-      await prisma.$transaction(async (tx) => {
-        let originalCheckout: {
-          id: string;
-          status: "OPEN" | "INVOICED" | "VOIDED";
-          itemId: string;
-          storeId: string;
-          quantity: number;
-          note: string | null;
-          voidNote: string | null;
-          voidedAt: Date | null;
-        } | null = null;
-
-        if (originalCheckoutId) {
-          originalCheckout = await tx.partsCheckoutTicket.findUnique({
-            where: { id: originalCheckoutId },
-            select: {
-              id: true,
-              status: true,
-              itemId: true,
-              storeId: true,
-              quantity: true,
-              note: true,
-              voidNote: true,
-              voidedAt: true,
-            },
-          });
-          if (!originalCheckout) {
-            throw new Error("Original checkout ticket not found.");
-          }
-          if (isReturnTicketRecord(originalCheckout.note, originalCheckout.voidNote)) {
-            throw new Error("Original checkout ticket is a return record and cannot be linked for return.");
-          }
-          if (originalCheckout.status === "VOIDED" || originalCheckout.voidedAt) {
-            throw new Error("Original checkout ticket is already voided and cannot be linked for return.");
-          }
-          if (originalCheckout.itemId !== itemId) {
-            throw new Error("Original checkout ticket item does not match selected return item.");
-          }
-          if (originalCheckout.storeId !== storeId) {
-            throw new Error("Original checkout ticket store does not match selected return store.");
-          }
-
-          const linkedReturns = await tx.partsCheckoutTicket.aggregate({
-            where: {
-              status: "VOIDED",
-              itemId,
-              storeId,
-              note: { contains: `linkedToCheckout=${originalCheckout.id}` },
-            },
-            _sum: { quantity: true },
-          });
-          const returnedQty = linkedReturns._sum.quantity ?? 0;
-          const remainingQty = Math.max(0, originalCheckout.quantity - returnedQty);
-          if (remainingQty <= 0) {
-            throw new Error("Original checkout ticket has already been fully returned.");
-          }
-          if (quantity > remainingQty) {
-            throw new Error(`Return quantity exceeds remaining linked checkout quantity (${remainingQty} remaining).`);
-          }
-        }
-
-        const item = await tx.item.findUnique({
-          where: { id: itemId },
-          select: {
-            id: true,
-            sku: true,
-            partNumber: true,
-            vendor: true,
-            name: true,
-            description: true,
-            category: true,
-            manufacturer: true,
-            orderFrom: true,
-            webUrl: true,
-            cost: true,
-            price: true,
-            taxable: true,
-            active: true,
-            onHandQty: true,
-            orderedQty: true,
-            usedQty: true,
-            minQty: true,
-          },
-        });
-        if (!item) throw new Error("Item not found");
-
-        const last = await tx.itemVersion.findFirst({
-          where: { itemId },
-          orderBy: { version: "desc" },
-          select: { version: true },
-        });
-        const nextVersion = (last?.version ?? 0) + 1;
-
-        await tx.itemVersion.create({
-          data: buildItemVersionSnapshot(item, nextVersion),
-        });
-
-        const usedQtyDecrement = Math.min(quantity, Math.max(0, item.usedQty));
-        await tx.item.update({
-          where: { id: itemId },
-          data: {
-            onHandQty: { increment: quantity },
-            usedQty: { decrement: usedQtyDecrement },
-          },
-          select: { id: true },
-        });
-
-        const returnTicketNoteParts: string[] = [];
-        returnTicketNoteParts.push("[RETURN]");
-        if (originalCheckout) {
-          returnTicketNoteParts.push(`linkedToCheckout=${originalCheckout.id}`);
-        }
-        if (note) {
-          returnTicketNoteParts.push(note);
-        }
-
-        await tx.partsCheckoutTicket.create({
-          data: {
-            status: "VOIDED",
-            itemId,
-            storeId,
-            storeName: store.name,
-            quantity,
-            needToOrderMore: false,
-            createdByUserId,
-            createdByName: createdBy.name,
-            note:
-              returnTicketNoteParts.length > 1
-                ? returnTicketNoteParts.join(" ")
-                : "[RETURN] Item returned to inventory from checkout page.",
-            voidedAt: new Date(),
-            voidNote: originalCheckout
-              ? note
-                ? `[RETURN] Linked original checkout ${originalCheckout.id}. ${note}`
-                : `[RETURN] Linked original checkout ${originalCheckout.id}.`
-              : note
-                ? `[RETURN] ${note}`
-                : "[RETURN] Return to inventory entry.",
-            skuSnapshot: item.sku,
-            partNumberSnapshot: item.partNumber,
-            nameSnapshot: item.name,
-            costSnapshot: item.cost,
-            vendorSnapshot: normalizeVendor(item.vendor) ?? InvoiceVendor.SUCCESS_PLUS,
-            priceSnapshot: item.price,
-            taxableSnapshot: item.taxable,
-          },
-          select: { id: true },
-        });
-      });
-    } catch (e: unknown) {
-      if (isRedirectLikeError(e)) {
-        throw e;
-      }
-
-      const msg = toSafeActionErrorMessage(e, "Return failed");
-      redirectWithErr("/maintenance/checkout", msg, "Return failed");
-    }
-
-    redirect(`/maintenance/checkout?okReturn=1`);
-  }
-
   const fieldStyle: CSSProperties = {
     width: "100%",
     minWidth: 0,
@@ -923,7 +396,8 @@ export default async function MaintenanceCheckoutPage({
       ) : null}
 
       <form
-        action={checkoutAction}
+        method="post"
+        action="/api/maintenance/checkout"
         style={{
           border: "1px solid rgba(128,128,128,0.25)",
           borderRadius: 10,
@@ -1096,7 +570,8 @@ export default async function MaintenanceCheckoutPage({
         </summary>
 
         <form
-          action={reverseCheckoutAction}
+          method="post"
+          action="/api/maintenance/checkout/return"
           style={{
             marginTop: 10,
             border: "1px solid rgba(128,128,128,0.25)",
