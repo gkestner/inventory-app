@@ -1,10 +1,11 @@
-import { Role } from "@prisma/client";
+import { Permission, Role } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import Script from "next/script";
 import { authOptions } from "@/app/lib/auth";
 import { canAccessAdmin } from "@/app/lib/admin-access";
 import { getItemLabelNumberDisplay } from "@/app/lib/item-label-number";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -77,7 +78,13 @@ export default async function ItemLabelsPage({
       redirect("/login");
     }
 
-    if (!(await canAccessAdmin(session))) {
+    const canUseAdminLabels = await canAccessAdmin(session);
+    const perms = await loadUserPermissions(session);
+    const canUseQuickCountLabels =
+      perms.allowAll ||
+      hasAnyPermission(perms, [Permission.EDIT_QUICK_COUNT, Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
+
+    if (!canUseAdminLabels && !canUseQuickCountLabels) {
       redirect("/");
     }
 
