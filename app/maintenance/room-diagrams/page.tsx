@@ -91,8 +91,9 @@ function buildItemHref(query: string, row: SlotRow): string {
   return `/maintenance/room-diagrams?${p.toString()}`;
 }
 
-function buildQuickCountHref(slot: ParsedSkuSlot): string {
+function buildQuickCountHref(slot: ParsedSkuSlot, query: string): string {
   const p = new URLSearchParams();
+  if (query) p.set("q", query);
   p.set("loc", slot.location);
   p.set("shelf", slot.shelf);
   p.set("bin", slot.bin);
@@ -324,7 +325,7 @@ export default async function MaintenanceRoomDiagramsPage({
             </Link>
             {canEditCounts ? (
               <Link
-                href={buildQuickCountHref({ location: focusLocation, shelf: focusShelf, bin: focusBin })}
+                href={buildQuickCountHref({ location: focusLocation, shelf: focusShelf, bin: focusBin }, q)}
                 style={{
                   textDecoration: "none",
                   padding: "8px 12px",

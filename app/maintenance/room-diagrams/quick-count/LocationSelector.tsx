@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 interface LocationSelectorProps {
   selectedLocation: string;
   availableLocations: string[];
+  query: string;
 }
 
 function prettyCode(value: string): string {
@@ -12,11 +13,16 @@ function prettyCode(value: string): string {
   return Number.isFinite(n) ? String(n) : value;
 }
 
-export default function LocationSelector({ selectedLocation, availableLocations }: LocationSelectorProps) {
+export default function LocationSelector({ selectedLocation, availableLocations, query }: LocationSelectorProps) {
   const router = useRouter();
 
   const handleLocationChange = (value: string) => {
-    router.push(`/maintenance/room-diagrams/quick-count?loc=${encodeURIComponent(value)}&shelf=01&bin=01`);
+    const p = new URLSearchParams();
+    if (query) p.set("q", query);
+    p.set("loc", value);
+    p.set("shelf", "01");
+    p.set("bin", "01");
+    router.push(`/maintenance/room-diagrams/quick-count?${p.toString()}`);
   };
 
   return (

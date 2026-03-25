@@ -79,6 +79,45 @@ function locationLabel(code: string): string {
   return `Location #${prettyCode(code)}`;
 }
 
+function normalizeSearchText(v: string): string {
+  return (v || "")
+    .normalize("NFKC")
+    .replace(/[‐‑‒–—−]/g, "-")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenizeQuery(q: string): string[] {
+  const normalized = normalizeSearchText(q);
+  if (!normalized) return [];
+  return normalized
+    .split(/[ \-]+/g)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2);
+}
+
+function rowSearchText(row: SlotRow): string {
+  return normalizeSearchText(
+    [
+      row.id,
+      row.sku,
+      row.name ?? "",
+      row.category ?? "",
+      String(row.onHandQty ?? ""),
+      String(row.minQty ?? ""),
+      `${row.slot.location} ${row.slot.shelf} ${row.slot.bin}`,
+    ].join(" "),
+  );
+}
+
+function rowMatchesQuery(row: SlotRow, q: string): boolean {
+  const tokens = tokenizeQuery(q);
+  if (tokens.length === 0) return true;
+  const hay = rowSearchText(row);
+  return tokens.every((tok) => hay.includes(tok));
+}
+
 export default async function QuickCountEditorPage({
   searchParams,
 }: {
@@ -278,6 +317,7 @@ export default async function QuickCountEditorPage({
     .filter((x): x is SlotRow => x !== null);
 
   const paramsRaw = (await searchParams) ?? {};
+  const q = String(firstParam(paramsRaw, "q") ?? "").trim();
   const selectedLocation = normalizeLocationParam(firstParam(paramsRaw, "loc") ?? "01");
   const selectedShelf = normalize2(firstParam(paramsRaw, "shelf") ?? "01") || "01";
   const selectedBin = normalize2(firstParam(paramsRaw, "bin") ?? "01") || "01";
@@ -289,9 +329,15 @@ export default async function QuickCountEditorPage({
         row.slot.shelf === selectedShelf &&
         row.slot.bin === selectedBin
     )
+    .filter((row) => rowMatchesQuery(row, q))
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  const selectedPath = `/maintenance/room-diagrams/quick-count?loc=${selectedLocation}&shelf=${selectedShelf}&bin=${selectedBin}`;
+  const selectedPath = `/maintenance/room-diagrams/quick-count?${new URLSearchParams({
+    ...(q ? { q } : {}),
+    loc: selectedLocation,
+    shelf: selectedShelf,
+    bin: selectedBin,
+  }).toString()}`;
   const updatedOk = firstParam(paramsRaw, "updated") === "1";
 
   const availableLocations = Array.from(
@@ -336,7 +382,12 @@ export default async function QuickCountEditorPage({
           </p>
           <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
             <Link
-              href={`/maintenance/room-diagrams?loc=${selectedLocation}&shelf=${selectedShelf}&bin=${selectedBin}`}
+              href={`/maintenance/room-diagrams?${new URLSearchParams({
+                ...(q ? { q } : {}),
+                loc: selectedLocation,
+                shelf: selectedShelf,
+                bin: selectedBin,
+              }).toString()}`}
               style={{
                 textDecoration: "none",
                 padding: "8px 12px",
@@ -388,6 +439,7 @@ export default async function QuickCountEditorPage({
               <LocationSelector 
                 selectedLocation={selectedLocation}
                 availableLocations={availableLocations}
+                query={q}
               />
             </div>
 
@@ -398,7 +450,12 @@ export default async function QuickCountEditorPage({
                 {availableShelves.map((shelfCode) => (
                   <Link
                     key={shelfCode}
-                    href={`/maintenance/room-diagrams/quick-count?loc=${selectedLocation}&shelf=${shelfCode}&bin=01`}
+                    href={`/maintenance/room-diagrams/quick-count?${new URLSearchParams({
+                      ...(q ? { q } : {}),
+                      loc: selectedLocation,
+                      shelf: shelfCode,
+                      bin: "01",
+                    }).toString()}`}
                     style={{
                       textDecoration: "none",
                       padding: "6px 10px",
@@ -426,7 +483,12 @@ export default async function QuickCountEditorPage({
                   availableBins.map((binCode) => (
                     <Link
                       key={binCode}
-                      href={`/maintenance/room-diagrams/quick-count?loc=${selectedLocation}&shelf=${selectedShelf}&bin=${binCode}`}
+                      href={`/maintenance/room-diagrams/quick-count?${new URLSearchParams({
+                        ...(q ? { q } : {}),
+                        loc: selectedLocation,
+                        shelf: selectedShelf,
+                        bin: binCode,
+                      }).toString()}`}
                       style={{
                         textDecoration: "none",
                         padding: "6px 10px",
@@ -447,7 +509,9 @@ export default async function QuickCountEditorPage({
           </div>
 
           {selectedRows.length === 0 ? (
-            <div style={{ marginTop: 10, opacity: 0.8 }}>No items assigned to this bin.</div>
+            <div style={{ marginTop: 10, opacity: 0.8 }}>
+              {q ? "No matching items in this bin for the current search." : "No items assigned to this bin."}
+            </div>
           ) : (
             <div style={{ marginTop: 10, overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
