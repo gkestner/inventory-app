@@ -432,6 +432,67 @@ export default async function QuickCountEditorPage({
             }
           </h2>
 
+          <form
+            method="get"
+            style={{
+              marginTop: 10,
+              display: "flex",
+              gap: 8,
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <input type="hidden" name="loc" value={selectedLocation} />
+            <input type="hidden" name="shelf" value={selectedShelf} />
+            <input type="hidden" name="bin" value={selectedBin} />
+            <input
+              name="q"
+              defaultValue={q}
+              placeholder="Search items in this location/shelf/bin"
+              style={{
+                flex: "1 1 320px",
+                minWidth: 240,
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid var(--border)",
+                background: "var(--surface)",
+                color: "var(--foreground)",
+              }}
+            />
+            <button
+              type="submit"
+              style={{
+                padding: "8px 12px",
+                borderRadius: 10,
+                border: "1px solid var(--border)",
+                background: "var(--surface-2)",
+                color: "var(--foreground)",
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              Search
+            </button>
+            <Link
+              href={`/maintenance/room-diagrams/quick-count?${new URLSearchParams({
+                loc: selectedLocation,
+                shelf: selectedShelf,
+                bin: selectedBin,
+              }).toString()}`}
+              style={{
+                textDecoration: "none",
+                padding: "8px 12px",
+                borderRadius: 10,
+                border: "1px solid var(--border)",
+                background: "var(--surface)",
+                color: "var(--foreground)",
+                fontWeight: 700,
+              }}
+            >
+              Clear
+            </Link>
+          </form>
+
           <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
             {/* Location filter - Now a dropdown */}
             <div>
