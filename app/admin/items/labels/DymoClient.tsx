@@ -186,6 +186,8 @@ export default function DymoClient({ items }: { items: LabelItem[] }) {
     return true;
   }
 
+  const printParamsXml = `<LabelWriterPrintParams><PrintQuality>BarcodeAndGraphics</PrintQuality></LabelWriterPrintParams>`;
+
   function openLabelAndFill(item: LabelItem) {
     const fw = window.dymo!.label.framework;
 
@@ -216,7 +218,7 @@ export default function DymoClient({ items }: { items: LabelItem[] }) {
       // Print copies by looping (most reliable across driver versions)
       const n = Math.max(1, Math.min(50, Number.isFinite(copies) ? copies : 1));
       for (let i = 0; i < n; i++) {
-        label.print(selectedPrinter);
+        label.print(selectedPrinter, printParamsXml);
       }
 
       setStatusDetail(`Printed ${n} label(s): ${item.sku}`);
@@ -242,7 +244,7 @@ export default function DymoClient({ items }: { items: LabelItem[] }) {
       for (const item of items) {
         const label = openLabelAndFill(item);
         for (let i = 0; i < n; i++) {
-          label.print(selectedPrinter);
+          label.print(selectedPrinter, printParamsXml);
         }
       }
       setStatusDetail(`Printed ${items.length} item(s) × ${n} copies.`);
