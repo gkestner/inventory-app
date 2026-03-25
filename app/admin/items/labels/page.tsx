@@ -138,6 +138,12 @@ export default async function ItemLabelsPage({
 
     return (
       <div className="labels-page">
+        <style>{`
+          @page {
+            size: 3.5in 1.125in;
+            margin: 0;
+          }
+        `}</style>
         {debug ? (
           <div className="debug-bar">
             <strong>DEBUG</strong> ids={ids.length} printable={printable.length} autoprint={String(autoprint)}

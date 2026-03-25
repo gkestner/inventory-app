@@ -353,12 +353,6 @@ svg {
   }
 }
 
-/* Label printing page styles */
-@page {
-  size: 3.5in 1.125in;
-  margin: 0;
-}
-
 :root {
   /* Keep content inset from hard edges; DYMO printable area is smaller than stock size. */
   --w: 3.21in;
@@ -391,8 +385,33 @@ body:has(.labels-page) > :not(.app-content-shell) {
   display: none !important;
 }
 
+body:has(.labels-page) .app-preview-controls,
+body:has(.labels-page) .site-nav-shell,
+body:has(.labels-page) .admin-layout-sidebar,
+body:has(.labels-page) .admin-layout-topbar {
+  display: none !important;
+}
+
 body:has(.labels-page) .app-content-shell > :not(.labels-page):not(:has(.labels-page)) {
   display: none !important;
+}
+
+body:has(.labels-page) .admin-layout-grid {
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 0 !important;
+  padding: 0 !important;
+  min-height: auto !important;
+}
+
+body:has(.labels-page) .admin-layout-main {
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+}
+
+body:has(.labels-page) .admin-layout-content {
+  padding: 0 !important;
 }
 
 .labels-page aside {
@@ -617,8 +636,33 @@ html[data-live-orders-fullscreen="true"] .live-orders-interactive {
     display: none !important;
   }
 
+  body.labels-print-mode .app-preview-controls,
+  body.labels-print-mode .site-nav-shell,
+  body.labels-print-mode .admin-layout-sidebar,
+  body.labels-print-mode .admin-layout-topbar {
+    display: none !important;
+  }
+
   body.labels-print-mode .app-content-shell > :not(:has(.labels-page)) {
     display: none !important;
+  }
+
+  body.labels-print-mode .admin-layout-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 0 !important;
+    padding: 0 !important;
+    min-height: auto !important;
+  }
+
+  body.labels-print-mode .admin-layout-main {
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+  }
+
+  body.labels-print-mode .admin-layout-content {
+    padding: 0 !important;
   }
 
   body.labels-print-mode .app-content-shell,
