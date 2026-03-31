@@ -4,7 +4,9 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildStructuredSku,
+  isValidSkuLocationPart,
   isValidTwoDigitSkuPart,
+  normalizeSkuLocationInput,
   normalizeSkuPartInput,
   parseSkuRoomParts,
   parseStructuredSkuParts,
@@ -27,6 +29,16 @@ type Tok =
 
 function isDigit(ch: string) {
   return ch >= "0" && ch <= "9";
+}
+
+function normalizeLocationForSku(value: string): string {
+  const trimmed = String(value ?? "").trim();
+  return trimmed.toLowerCase() === "vault" ? "vault" : trimmed.padStart(2, "0");
+}
+
+function prettyLocation(value: string): string {
+  const trimmed = String(value ?? "").trim();
+  return trimmed.toLowerCase() === "vault" ? "Vault" : trimmed.padStart(2, "0");
 }
 
 function tokenizeFormula(input: string): Tok[] {
@@ -942,7 +954,7 @@ export default function ItemsTableClient({
     const e: FieldErrors = {};
     if (!d.sku.trim()) e.sku = "SKU is required.";
     if (!d.name.trim()) e.name = "Name is required.";
-    if (!isValidTwoDigitSkuPart(d.maintLoc)) e.maintLoc = "Loc must be 1-2 digits.";
+    if (!isValidSkuLocationPart(d.maintLoc)) e.maintLoc = 'Loc must be 1-2 digits or "Vault".';
     if (!isValidTwoDigitSkuPart(d.maintShelf)) e.maintShelf = "Shelf must be 1-2 digits.";
     if (!isValidTwoDigitSkuPart(d.maintBin)) e.maintBin = "Bin must be 1-2 digits.";
     if (d.cost.trim() && !isValidMoney(d.cost)) e.cost = "Invalid money (max 2 decimals).";
@@ -1014,7 +1026,7 @@ export default function ItemsTableClient({
 
       const nextSku = buildStructuredSku(
         currentSkuParts.zone,
-        draft.maintLoc.trim().padStart(2, "0"),
+        normalizeLocationForSku(draft.maintLoc),
         draft.maintShelf.trim().padStart(2, "0"),
         draft.maintBin.trim().padStart(2, "0"),
         currentSkuParts.itemKey,
@@ -2098,10 +2110,9 @@ export default function ItemsTableClient({
                               <input
                                 value={draft?.maintLoc ?? ""}
                                 onChange={(e) =>
-                                  setDraft((d) => (d ? { ...d, maintLoc: normalizeSkuPartInput(e.target.value) } : d))
+                                  setDraft((d) => (d ? { ...d, maintLoc: normalizeSkuLocationInput(e.target.value) } : d))
                                 }
-                                inputMode="numeric"
-                                maxLength={2}
+                                maxLength={5}
                                 style={{
                                   width: 90,
                                   padding: "6px 8px",
@@ -2252,7 +2263,7 @@ export default function ItemsTableClient({
                                 if (!skuParts || !draft) return row.sku;
                                 return buildStructuredSku(
                                   skuParts.zone,
-                                  draft.maintLoc.trim().padStart(2, "0"),
+                                  normalizeLocationForSku(draft.maintLoc),
                                   draft.maintShelf.trim().padStart(2, "0"),
                                   draft.maintBin.trim().padStart(2, "0"),
                                   skuParts.itemKey,
@@ -2260,7 +2271,7 @@ export default function ItemsTableClient({
                               })()}
                             </span>
                             <span>
-                              <strong>Maint. Loc:</strong> {draft?.maintLoc ? draft.maintLoc.trim().padStart(2, "0") : detailText.roomLocation}
+                              <strong>Maint. Loc:</strong> {draft?.maintLoc ? prettyLocation(draft.maintLoc) : detailText.roomLocation}
                             </span>
                             <span>
                               <strong>Shelf:</strong> {draft?.maintShelf ? draft.maintShelf.trim().padStart(2, "0") : detailText.roomShelf}

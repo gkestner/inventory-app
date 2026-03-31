@@ -13,8 +13,23 @@ export function normalizeSkuPartInput(value: string): string {
   return String(value ?? "").replace(/\D/g, "").slice(0, 2);
 }
 
+export function normalizeSkuLocationInput(value: string): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+
+  // Allow users to type "Vault" for the maintenance location.
+  if ("vault".startsWith(raw.toLowerCase())) return raw.slice(0, 5);
+
+  return raw.replace(/\D/g, "").slice(0, 2);
+}
+
 export function isValidTwoDigitSkuPart(value: string): boolean {
   return /^\d{1,2}$/.test(String(value ?? "").trim());
+}
+
+export function isValidSkuLocationPart(value: string): boolean {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized === "vault" || /^\d{1,2}$/.test(normalized);
 }
 
 export function inferSkuZone(raw: string): string {

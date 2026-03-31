@@ -184,7 +184,18 @@ function parseTwoDigitSkuPart(raw: FormDataEntryValue | null, label: string): st
   return s.padStart(2, "0");
 }
 
+function parseSkuLocationPart(raw: FormDataEntryValue | null): string {
+  const s = String(raw ?? "").trim();
+  if (!s) throw new Error("Loc is required.");
+
+  if (s.toLowerCase() === "vault") return "vault";
+  if (!/^\d{1,2}$/.test(s)) throw new Error('Loc must be 1-2 digits or "Vault".');
+
+  return s.padStart(2, "0");
+}
+
 function buildSkuPrefix(loc: string, shelf: string, bin: string): string {
+  if (loc.toLowerCase() === "vault") return `VT${shelf}${bin}`;
   return `${loc}${shelf}${bin}`;
 }
 
@@ -260,7 +271,7 @@ export default async function AdminItemsPage({
     const name = requiredText(formData.get("name"), "Name");
 
     try {
-      const maintLoc = parseTwoDigitSkuPart(formData.get("maintLoc"), "Loc");
+      const maintLoc = parseSkuLocationPart(formData.get("maintLoc"));
       const maintShelf = parseTwoDigitSkuPart(formData.get("maintShelf"), "Shelf");
       const maintBin = parseTwoDigitSkuPart(formData.get("maintBin"), "Bin");
 
@@ -541,7 +552,7 @@ export default async function AdminItemsPage({
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)", gap: 12 }}>
               <label style={label}>
                 Loc (SKU middle)
-                <input name="maintLoc" placeholder="03" inputMode="numeric" pattern="\d{1,2}" required style={field} />
+                <input name="maintLoc" placeholder="03 or Vault" required style={field} />
               </label>
 
               <label style={label}>
@@ -556,7 +567,7 @@ export default async function AdminItemsPage({
             </div>
 
             <div style={{ fontSize: 12, opacity: 0.75, marginTop: -2 }}>
-              SKU is generated automatically as <code>LLSSBB - KEY</code>. Example: <code>010705 - ABC123</code>.
+              SKU is generated automatically as <code>LLSSBB - KEY</code> (or <code>VTSSBB - KEY</code> for Vault).
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 12 }}>
