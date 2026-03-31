@@ -259,29 +259,29 @@ export default async function AdminItemsPage({
 
     const name = requiredText(formData.get("name"), "Name");
 
-    const maintLoc = parseTwoDigitSkuPart(formData.get("maintLoc"), "Loc");
-    const maintShelf = parseTwoDigitSkuPart(formData.get("maintShelf"), "Shelf");
-    const maintBin = parseTwoDigitSkuPart(formData.get("maintBin"), "Bin");
-
-    const vendorRaw = String(formData.get("vendor") ?? "").trim();
-    const vendor: Vendor = vendorRaw === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS";
-
-    const partNumber = nullableText(formData.get("partNumber"));
-    const description = nullableText(formData.get("description"));
-    const category = nullableText(formData.get("category"));
-    const manufacturer = nullableText(formData.get("manufacturer"));
-    const orderFrom = nullableText(formData.get("orderFrom"));
-    const webUrl = nullableText(formData.get("webUrl"));
-
-    const cost = moneyToDecimalOrNull(formData.get("cost"));
-    const price = moneyToDecimalOrNull(formData.get("price"));
-
-    const taxable = String(formData.get("taxable") ?? "on") === "on";
-    const active = String(formData.get("active") ?? "on") === "on";
-
-    const minQty = Math.max(0, intOrDefault(formData.get("minQty"), 0));
-
     try {
+      const maintLoc = parseTwoDigitSkuPart(formData.get("maintLoc"), "Loc");
+      const maintShelf = parseTwoDigitSkuPart(formData.get("maintShelf"), "Shelf");
+      const maintBin = parseTwoDigitSkuPart(formData.get("maintBin"), "Bin");
+
+      const vendorRaw = String(formData.get("vendor") ?? "").trim();
+      const vendor: Vendor = vendorRaw === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS";
+
+      const partNumber = nullableText(formData.get("partNumber"));
+      const description = nullableText(formData.get("description"));
+      const category = nullableText(formData.get("category"));
+      const manufacturer = nullableText(formData.get("manufacturer"));
+      const orderFrom = nullableText(formData.get("orderFrom"));
+      const webUrl = nullableText(formData.get("webUrl"));
+
+      const cost = moneyToDecimalOrNull(formData.get("cost"));
+      const price = moneyToDecimalOrNull(formData.get("price"));
+
+      const taxable = String(formData.get("taxable") ?? "on") === "on";
+      const active = String(formData.get("active") ?? "on") === "on";
+
+      const minQty = Math.max(0, intOrDefault(formData.get("minQty"), 0));
+
       let createdSku = "";
       await prisma.$transaction(async (tx) => {
         const created = await tx.item.create({
@@ -541,17 +541,17 @@ export default async function AdminItemsPage({
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)", gap: 12 }}>
               <label style={label}>
                 Loc (SKU middle)
-                <input name="maintLoc" placeholder="03" inputMode="numeric" style={field} />
+                <input name="maintLoc" placeholder="03" inputMode="numeric" pattern="\d{1,2}" required style={field} />
               </label>
 
               <label style={label}>
                 Shelf (SKU middle)
-                <input name="maintShelf" placeholder="18" inputMode="numeric" style={field} />
+                <input name="maintShelf" placeholder="18" inputMode="numeric" pattern="\d{1,2}" required style={field} />
               </label>
 
               <label style={label}>
                 Bin (SKU middle)
-                <input name="maintBin" placeholder="02" inputMode="numeric" style={field} />
+                <input name="maintBin" placeholder="02" inputMode="numeric" pattern="\d{1,2}" required style={field} />
               </label>
             </div>
 
