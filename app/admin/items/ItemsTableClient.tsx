@@ -473,86 +473,6 @@ function readQFromLocation(): string {
   }
 }
 
-/**
- * ✅ Client-side search behavior:
- * - split query into tokens (words)
- * - match ANY field on screen (sku, part#, name, category, vendor label, mfg, orderFrom, url, cost/price, flags, qty)
- * - partial matches allowed
- * - AND semantics: all tokens must be found somewhere in the row
- */
-function normalizeSearchText(v: string): string {
-  return (v || "")
-    .normalize("NFKC")
-    .replace(/[‐‑‒–—−]/g, "-")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function tokenizeQuery(q: string): string[] {
-  const normalized = normalizeSearchText(q);
-  if (!normalized) return [];
-
-  return normalized
-    .split(/[ \-]+/g)
-    .map((t) => t.trim())
-    .filter((t) => t.length >= 2);
-}
-
-function rowSearchText(row: ItemRow): string {
-  const vendorLabel =
-    (row.vendor ?? "") === "AMERICAN_PLUS"
-      ? "american plus"
-      : (row.vendor ?? "") === "SUCCESS_PLUS"
-        ? "success plus"
-        : "";
-
-  const onHandStr = typeof row.onHandQty === "number" ? String(row.onHandQty) : "";
-  const usedStr = typeof row.usedQty === "number" ? String(row.usedQty) : "";
-  const minStr = typeof row.minQty === "number" ? String(row.minQty) : "";
-  const orderedStr = typeof row.orderedQty === "number" ? String(row.orderedQty) : "";
-  const suggestedMinStr = typeof row.suggestedMinQty30Day === "number" ? String(row.suggestedMinQty30Day) : "";
-  const usage30Str = typeof row.usage30Day === "number" ? String(row.usage30Day) : "";
-
-  const taxableStr = row.taxable ? "taxable yes" : "taxable no";
-  const activeStr = row.active ? "active yes" : "active no";
-  const skuRoom = parseSkuRoomParts(row.sku);
-  const skuRoomText = skuRoom ? `${skuRoom.location} ${skuRoom.shelf} ${skuRoom.bin}` : "";
-
-  return normalizeSearchText(
-    [
-      row.id,
-      row.sku,
-      row.partNumber ?? "",
-      vendorLabel,
-      row.name ?? "",
-      row.category ?? "",
-      row.description ?? "",
-      row.manufacturer ?? "",
-      row.orderFrom ?? "",
-      row.webUrl ?? "",
-      row.cost ?? "",
-      row.price ?? "",
-      taxableStr,
-      activeStr,
-      skuRoomText,
-      onHandStr,
-      usedStr,
-      minStr,
-      orderedStr,
-      suggestedMinStr,
-      usage30Str,
-    ].join(" "),
-  );
-}
-
-function rowMatchesQuery(row: ItemRow, q: string): boolean {
-  const tokens = tokenizeQuery(q);
-  if (tokens.length === 0) return true;
-  const hay = rowSearchText(row);
-  return tokens.every((tok) => hay.includes(tok));
-}
-
 export default function ItemsTableClient({
   initialItems,
   createdSku,
@@ -573,6 +493,10 @@ export default function ItemsTableClient({
   type ActionsMenuPosition = { top: number; left: number };
 
   const [rows, setRows] = useState<ItemRow[]>(initialItems ?? []);
+  const [urlQ, setUrlQ] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return readQFromLocation();
+  });
 
   // Search UI value
   const [qInput, setQInput] = useState<string>(() => {
@@ -641,16 +565,32 @@ export default function ItemsTableClient({
   // Treat new server snapshot as authoritative + prevent stale ops across pages
   useEffect(() => {
     setRows(initialItems ?? []);
+    setUrlQ(readQFromLocation());
     clearSelection();
     cancelEdit();
     closeHistory();
   }, [initialItems, page, perPage]);
 
   useEffect(() => {
-    const onPop = () => setQInput(readQFromLocation());
+    const onPop = () => {
+      const nextQ = readQFromLocation();
+      setUrlQ(nextQ);
+      setQInput(nextQ);
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
+
+  useEffect(() => {
+    const nextQ = (qInput || "").trim();
+    if (nextQ === urlQ) return;
+
+    const timeoutId = window.setTimeout(() => {
+      applySearch(nextQ);
+    }, 250);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [qInput, urlQ]);
 
   useEffect(() => {
     if (!openActionsForId) return;
@@ -709,22 +649,8 @@ export default function ItemsTableClient({
     setOpenActionsForId(rowId);
   }
 
-   // ✅ LIVE client-side filtered view while typing.
-  // If the current URL already contains this same q, rows are server-filtered,
-  // so do not apply an extra local filter that could hide valid server matches.
-  const viewRows = useMemo(() => {
-    const q = (qInput || "").trim();
-    if (!q) return rows;
-
-    try {
-      const urlQ = new URLSearchParams(window.location.search).get("q")?.trim() || "";
-      if (urlQ && urlQ === q) return rows;
-    } catch {
-      // no-op; fall back to local filter
-    }
-
-    return rows.filter((r) => rowMatchesQuery(r, q));
-  }, [rows, qInput]);
+  const searchSyncPending = (qInput || "").trim() !== urlQ;
+  const viewRows = useMemo(() => rows, [rows]);
 
   const mismatchCount = useMemo(
     () =>
@@ -1375,6 +1301,12 @@ export default function ItemsTableClient({
                 • showing <b>{viewRows.length}</b> on this page
               </>
             ) : null}
+            {searchSyncPending ? (
+              <>
+                {" "}
+                • searching all items...
+              </>
+            ) : null}
           </div>
 
           <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
@@ -1411,7 +1343,7 @@ export default function ItemsTableClient({
           </div>
         </div>
 
-        {/* ✅ Live filter as you type. Submit still does optional server-side search (URL sync). */}
+        {/* Search always syncs back to the server so results come from the full inventory, not just the current page. */}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -1445,7 +1377,7 @@ export default function ItemsTableClient({
             }}
             title="Optional: reload page with server-side q param"
           >
-            Search
+            {searchSyncPending ? "Searching..." : "Search"}
           </button>
           <button
             type="button"
@@ -2429,7 +2361,7 @@ export default function ItemsTableClient({
             {viewRows.length === 0 ? (
               <tr>
                 <td colSpan={COLS} style={{ padding: 16, opacity: 0.8 }}>
-                  No results.
+                  {searchSyncPending ? "Searching all items..." : "No results."}
                 </td>
               </tr>
             ) : null}
