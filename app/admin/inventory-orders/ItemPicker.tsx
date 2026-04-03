@@ -20,19 +20,13 @@ type ItemLite = {
 type Props = {
   name?: string;
   items: ItemLite[];
-
-  /**
-   * Support BOTH names so your page can pass either one:
-   * - defaultId (what your page.tsx currently uses)
-   * - defaultItemId (what your old picker used)
-   */
   defaultId?: string;
   defaultItemId?: string;
-
   placeholder?: string;
   style?: CSSProperties;
   inputStyle?: CSSProperties;
   onSelectedIdChange?: (id: string) => void;
+  enableGlobalScannerCapture?: boolean;
 };
 
 function normalize(s: string): string {
@@ -45,7 +39,6 @@ function normalize(s: string): string {
 function tokenize(q: string): string[] {
   const n = normalize(q).trim().replace(/\s+/g, " ");
   if (!n) return [];
-  // split on spaces + hyphens so "SATCO-ESCENT" can be found by "satco" or "escent"
   return n.split(/[ \-]+/g).filter((t) => t.length >= 2);
 }
 
@@ -58,6 +51,38 @@ function label(it: ItemLite): string {
 function haystack(it: ItemLite): string {
   const itemNumber = getItemLabelNumberDisplay(it.labelNumber) ?? "";
   return normalize([it.id, it.labelNumber ?? "", itemNumber, `item#${itemNumber}`, it.sku, it.partNumber ?? "", it.name, it.category ?? "", it.manufacturer ?? "", it.orderFrom ?? ""].join(" "));
+}
+
+function compactSearchValue(value: string): string {
+  return normalize(value).replace(/[^a-z0-9]/g, "");
+}
+
+function exactScannerCandidates(it: ItemLite): string[] {
+  const itemNumber = getItemLabelNumberDisplay(it.labelNumber) ?? "";
+  const rawItemNumber = typeof it.labelNumber === "number" ? String(it.labelNumber) : "";
+
+  return [it.id, it.sku, it.partNumber ?? "", itemNumber, rawItemNumber, itemNumber ? `ITEM# ${itemNumber}` : ""].filter(Boolean);
+}
+
+function findExactScannerMatch(items: ItemLite[], scanValue: string): ItemLite | null {
+  const compactScanValue = compactSearchValue(scanValue);
+  if (!compactScanValue) return null;
+
+  let match: ItemLite | null = null;
+  for (const item of items) {
+    const isMatch = exactScannerCandidates(item).some((candidate) => compactSearchValue(candidate) === compactScanValue);
+    if (!isMatch) continue;
+    if (match) return null;
+    match = item;
+  }
+
+  return match;
+}
+
+function isEditableElement(element: Element | null): boolean {
+  if (!(element instanceof HTMLElement)) return false;
+  if (element.isContentEditable) return true;
+  return element.tagName === "INPUT" || element.tagName === "TEXTAREA" || element.tagName === "SELECT";
 }
 
 type MenuPos = {
@@ -76,12 +101,14 @@ export default function ItemPicker({
   style,
   inputStyle,
   onSelectedIdChange,
+  enableGlobalScannerCapture = false,
 }: Props) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const scannerBufferRef = useRef("");
+  const scannerTimeoutRef = useRef<number | null>(null);
 
   const initialId = (defaultId ?? defaultItemId ?? "").trim();
-
   const defaultItem = useMemo(() => {
     if (!initialId) return null;
     return items.find((x) => x.id === initialId) ?? null;
@@ -91,11 +118,10 @@ export default function ItemPicker({
   const [query, setQuery] = useState<string>(() => (defaultItem ? label(defaultItem) : ""));
   const [selectedId, setSelectedId] = useState<string>(() => defaultItem?.id ?? "");
   const [activeIndex, setActiveIndex] = useState(0);
-
   const [mounted, setMounted] = useState(false);
   const [menuPos, setMenuPos] = useState<MenuPos | null>(null);
+  const menuDomId = useMemo(() => `itempicker-menu-${Math.random().toString(16).slice(2)}`, []);
 
-  // If the URL filter changes (defaultId changes), update selection + input label.
   useEffect(() => {
     if (!defaultItem) {
       if (initialId === "") {
@@ -104,6 +130,7 @@ export default function ItemPicker({
       }
       return;
     }
+
     setSelectedId(defaultItem.id);
     setQuery(label(defaultItem));
   }, [defaultItem, initialId]);
@@ -127,15 +154,33 @@ export default function ItemPicker({
       if (ok) out.push(it);
       if (out.length >= 120) break;
     }
+
     return out;
   }, [items, query]);
 
-  // Track mounting for createPortal safety.
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Close on outside click (works even with portal, because we check rootRef + the menu container id).
+  function computeMenuPos() {
+    const el = inputRef.current;
+    if (!el) return;
+
+    const r = el.getBoundingClientRect();
+    const gap = 8;
+    const spaceBelow = window.innerHeight - r.bottom - gap;
+    const spaceAbove = r.top - gap;
+    const placeAbove = spaceBelow < 160 && spaceAbove > spaceBelow;
+    const top = placeAbove ? Math.max(8, r.top - gap) : r.bottom + gap;
+
+    setMenuPos({
+      top,
+      left: Math.max(8, r.left),
+      width: Math.max(240, r.width),
+      placeAbove,
+    });
+  }
+
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       const root = rootRef.current;
@@ -143,18 +188,16 @@ export default function ItemPicker({
 
       const menuEl = document.getElementById(menuDomId);
       const target = e.target as Node | null;
-
       if (!target) return;
 
       const inRoot = root.contains(target);
       const inMenu = menuEl ? menuEl.contains(target) : false;
-
       if (!inRoot && !inMenu) setOpen(false);
     }
 
     window.addEventListener("mousedown", handleClickOutside);
     return () => window.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  }, [menuDomId]);
 
   useEffect(() => {
     if (!open) return;
@@ -169,30 +212,81 @@ export default function ItemPicker({
     requestAnimationFrame(() => inputRef.current?.focus());
   }
 
-  // --- Portal positioning ---
-  const menuDomId = useMemo(() => `itempicker-menu-${Math.random().toString(16).slice(2)}`, []);
+  function applyScannedValue(rawValue: string) {
+    const nextValue = rawValue.trim();
+    if (!nextValue) return;
 
-  function computeMenuPos() {
-    const el = inputRef.current;
-    if (!el) return;
+    const exactMatch = findExactScannerMatch(items, nextValue);
+    if (exactMatch) {
+      selectItem(exactMatch);
+      return;
+    }
 
-    const r = el.getBoundingClientRect();
-    const gap = 8;
-    const maxMenuH = 320;
+    setQuery(nextValue);
+    setSelectedId("");
+    onSelectedIdChange?.("");
+    setActiveIndex(0);
+    setOpen(true);
 
-    const spaceBelow = window.innerHeight - r.bottom - gap;
-    const spaceAbove = r.top - gap;
-
-    const placeAbove = spaceBelow < 160 && spaceAbove > spaceBelow; // if tight below, and above is better
-    const top = placeAbove ? Math.max(8, r.top - gap) : r.bottom + gap;
-
-    setMenuPos({
-      top,
-      left: Math.max(8, r.left),
-      width: Math.max(240, r.width),
-      placeAbove,
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      computeMenuPos();
     });
   }
+
+  useEffect(() => {
+    if (!enableGlobalScannerCapture) return;
+
+    function clearScannerTimeout() {
+      if (scannerTimeoutRef.current !== null) {
+        window.clearTimeout(scannerTimeoutRef.current);
+        scannerTimeoutRef.current = null;
+      }
+    }
+
+    function finalizeScan(forceFinalize: boolean) {
+      clearScannerTimeout();
+
+      const captured = scannerBufferRef.current.trim();
+      scannerBufferRef.current = "";
+      if (!captured) return;
+      if (!forceFinalize && captured.length < 3) return;
+
+      applyScannedValue(captured);
+    }
+
+    function scheduleFinalize() {
+      clearScannerTimeout();
+      scannerTimeoutRef.current = window.setTimeout(() => finalizeScan(false), 90);
+    }
+
+    function handleGlobalKeyDown(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return;
+
+      const activeElement = document.activeElement;
+      if (activeElement === inputRef.current) return;
+      if (isEditableElement(activeElement)) return;
+
+      if ((event.key === "Enter" || event.key === "Tab") && scannerBufferRef.current) {
+        event.preventDefault();
+        finalizeScan(true);
+        return;
+      }
+
+      if (event.key.length !== 1 || !event.key.trim()) return;
+
+      event.preventDefault();
+      scannerBufferRef.current += event.key;
+      scheduleFinalize();
+    }
+
+    window.addEventListener("keydown", handleGlobalKeyDown, true);
+    return () => {
+      clearScannerTimeout();
+      scannerBufferRef.current = "";
+      window.removeEventListener("keydown", handleGlobalKeyDown, true);
+    };
+  }, [enableGlobalScannerCapture, items, onSelectedIdChange]);
 
   useEffect(() => {
     if (!open) return;
@@ -203,7 +297,6 @@ export default function ItemPicker({
       computeMenuPos();
     }
 
-    // capture scroll from any ancestor scrollers too
     window.addEventListener("scroll", onScrollOrResize, true);
     window.addEventListener("resize", onScrollOrResize);
 
@@ -232,10 +325,9 @@ export default function ItemPicker({
             position: "fixed",
             left: menuPos.left,
             width: menuPos.width,
-            // If we place above, we anchor the menu's bottom to input's top by using translate.
             top: menuPos.top,
             transform: menuPos.placeAbove ? "translateY(calc(-100%))" : "none",
-            zIndex: 2147483647, // max practical z-index
+            zIndex: 2147483647,
             border,
             borderRadius: 12,
             background: surface,
@@ -255,7 +347,6 @@ export default function ItemPicker({
                     type="button"
                     onMouseEnter={() => setActiveIndex(idx)}
                     onMouseDown={(e) => {
-                      // keep focus in the input while clicking options
                       e.preventDefault();
                     }}
                     onClick={() => selectItem(it)}
@@ -285,17 +376,15 @@ export default function ItemPicker({
 
   return (
     <div ref={rootRef} style={{ width: "100%", ...style }}>
-      {/* Hidden input the server action reads */}
       <input type="hidden" name={name} value={selectedId} />
 
       <input
         ref={inputRef}
         value={query}
         placeholder={placeholder}
+        data-item-picker-input={name}
         onFocus={() => {
           setOpen(true);
-
-          // if a selection exists and the textbox is showing that label, select-all
           if (isShowingSelectedLabel) {
             requestAnimationFrame(() => inputRef.current?.select());
           }
