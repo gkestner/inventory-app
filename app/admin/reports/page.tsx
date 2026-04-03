@@ -244,6 +244,14 @@ export default async function AdminReportsIndexPage({
               </Link>
             ) : null}
 
+            {canItemsReports && matchesQuery(query, "min qty suggested minimum differences mismatch") ? (
+              <Link href="/admin/reports/min-qty-differences" style={cardStyle}>
+                <h2 style={titleStyle}>Min Qty Differences</h2>
+                <p style={descStyle}>Review items where current min qty differs from the suggested 30-day minimum and copy the suggestion row by row.</p>
+                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
+              </Link>
+            ) : null}
+
             {canItemsReports && matchesQuery(query, "item cost history pricing") ? (
               <Link href="/admin/reports/item-cost-history" style={cardStyle}>
                 <h2 style={titleStyle}>Item Cost History</h2>
