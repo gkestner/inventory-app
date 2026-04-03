@@ -194,10 +194,11 @@ export default async function MinQtyDifferencesReportPage({
   const border = "1px solid var(--border)";
   const cardBg = "var(--surface)";
   const panelBg = "var(--surface-2)";
+  const shellWidth = "min(100%, 1800px)";
 
   return (
     <main>
-      <div style={{ maxWidth: 1360, margin: "0 auto", color: "var(--foreground)" }}>
+      <div style={{ width: shellWidth, margin: "0 auto", color: "var(--foreground)" }}>
         <section
           style={{
             border,
@@ -325,19 +326,19 @@ export default async function MinQtyDifferencesReportPage({
             </div>
           ) : (
             <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "auto", minWidth: 1320 }}>
                 <thead>
                   <tr>
                     {[
-                      ["Item Name", "24%"],
-                      ["Part Number", "12%"],
-                      ["SKU", "11%"],
-                      ["Vendor", "14%"],
-                      ["On Hand", "8%"],
-                      ["Min Qty", "8%"],
-                      ["Suggested Min Qty", "10%"],
-                      ["Web Link", "7%"],
-                      ["Action", "14%"],
+                      ["Item Name", "auto"],
+                      ["Part Number", "auto"],
+                      ["SKU", "auto"],
+                      ["Vendor", "auto"],
+                      ["On Hand", 90],
+                      ["Min Qty", 90],
+                      ["Suggested Min Qty", 140],
+                      ["Web Link", 110],
+                      ["Action", 220],
                     ].map(([labelText, width]) => (
                       <th
                         key={labelText}
@@ -348,6 +349,8 @@ export default async function MinQtyDifferencesReportPage({
                           fontSize: 12,
                           opacity: 0.8,
                           width,
+                          minWidth: typeof width === "number" ? width : undefined,
+                          whiteSpace: typeof width === "number" ? "nowrap" : undefined,
                         }}
                       >
                         {labelText}
@@ -371,8 +374,8 @@ export default async function MinQtyDifferencesReportPage({
                             </Link>
                           </div>
                         </td>
-                        <td style={{ padding: 10, verticalAlign: "top", wordBreak: "break-word" }}>{row.partNumber || "—"}</td>
-                        <td style={{ padding: 10, verticalAlign: "top", fontWeight: 700, wordBreak: "break-word" }}>{row.sku}</td>
+                        <td style={{ padding: 10, verticalAlign: "top", whiteSpace: "nowrap" }}>{row.partNumber || "—"}</td>
+                        <td style={{ padding: 10, verticalAlign: "top", fontWeight: 700, whiteSpace: "nowrap" }}>{row.sku}</td>
                         <td style={{ padding: 10, verticalAlign: "top" }}>
                           <div>{row.vendor}</div>
                           <div style={{ marginTop: 4, fontSize: 12, opacity: 0.78 }}>{row.supplier || "—"}</div>
