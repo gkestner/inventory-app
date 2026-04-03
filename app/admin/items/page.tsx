@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
+import { getInventoryDemandRecommendations } from "@/app/lib/inventory-demand";
 import { parseItemLabelNumberSearchTerm } from "@/app/lib/item-label-number";
 import ItemsTableClient from "./ItemsTableClient";
 import { Permission, Prisma } from "@prisma/client";
@@ -22,7 +23,27 @@ type SearchParams = {
   q?: string | string[];
   createdSku?: string | string[];
   error?: string | string[];
+  active?: string | string[];
+  sort?: string | string[];
+  dir?: string | string[];
+  recommendation?: string | string[];
 };
+
+type SortKey =
+  | "updatedAt"
+  | "createdAt"
+  | "sku"
+  | "partNumber"
+  | "name"
+  | "category"
+  | "cost"
+  | "price"
+  | "taxable"
+  | "active"
+  | "suggestedMinQty30Day"
+  | "suggestedReorderQty30Day";
+
+type RecommendationFilter = "all" | "different" | "same" | "needsReorder";
 
 function first(v: string | string[] | undefined): string | undefined {
   if (!v) return undefined;
@@ -34,6 +55,57 @@ function toInt(v: string | undefined, fallback: number): number {
   if (!Number.isFinite(n)) return fallback;
   const x = Math.floor(n);
   return x > 0 ? x : fallback;
+}
+
+function parseActiveFilter(v: string | undefined): boolean | null {
+  const normalized = (v ?? "").trim().toLowerCase();
+  if (normalized === "true") return true;
+  if (normalized === "false") return false;
+  return null;
+}
+
+function parseSortKey(v: string | undefined): SortKey {
+  switch ((v ?? "").trim()) {
+    case "createdAt":
+    case "sku":
+    case "partNumber":
+    case "name":
+    case "category":
+    case "cost":
+    case "price":
+    case "taxable":
+    case "active":
+    case "suggestedMinQty30Day":
+    case "suggestedReorderQty30Day":
+      return v as SortKey;
+    default:
+      return "updatedAt";
+  }
+}
+
+function parseSortDir(v: string | undefined): "asc" | "desc" {
+  return (v ?? "").trim().toLowerCase() === "asc" ? "asc" : "desc";
+}
+
+function parseRecommendationFilter(v: string | undefined): RecommendationFilter {
+  switch ((v ?? "").trim()) {
+    case "different":
+    case "same":
+    case "needsReorder":
+      return v as RecommendationFilter;
+    default:
+      return "all";
+  }
+}
+
+function compareValues(left: string | number | boolean | Date | null, right: string | number | boolean | Date | null): number {
+  if (left === right) return 0;
+  if (left === null) return 1;
+  if (right === null) return -1;
+  if (left instanceof Date && right instanceof Date) return left.getTime() - right.getTime();
+  if (typeof left === "boolean" && typeof right === "boolean") return Number(left) - Number(right);
+  if (typeof left === "number" && typeof right === "number") return left - right;
+  return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" });
 }
 
 function isNextRedirectError(error: unknown): boolean {
@@ -119,9 +191,17 @@ function variants(token: string): string[] {
  * - OR across fields for each token
  * - contains + insensitive for partial matches
  */
-function buildWhere(qRaw: string): Prisma.ItemWhereInput {
+function buildWhere(qRaw: string, active: boolean | null): Prisma.ItemWhereInput {
   const tokens = tokenize(qRaw);
-  if (tokens.length === 0) return {};
+  const clauses: Prisma.ItemWhereInput[] = [];
+
+  if (active !== null) {
+    clauses.push({ active });
+  }
+
+  if (tokens.length === 0) {
+    return clauses.length ? { AND: clauses } : {};
+  }
 
   const tokenClauses: Prisma.ItemWhereInput[] = tokens.map((tok) => {
     const vs = variants(tok);
@@ -146,7 +226,7 @@ function buildWhere(qRaw: string): Prisma.ItemWhereInput {
     return { OR: ors };
   });
 
-  return { AND: tokenClauses };
+  return { AND: [...clauses, ...tokenClauses] };
 }
 
 function moneyToDecimalOrNull(v: FormDataEntryValue | null): Prisma.Decimal | null {
@@ -250,9 +330,12 @@ export default async function AdminItemsPage({
   const qRaw = (first(sp.q) ?? "").trim();
   const createdSku = (first(sp.createdSku) ?? "").trim() || null;
   const errMsg = (first(sp.error) ?? "").trim() || null;
+  const activeFilter = parseActiveFilter(first(sp.active));
+  const sort = parseSortKey(first(sp.sort));
+  const dir = parseSortDir(first(sp.dir));
+  const recommendationFilter = parseRecommendationFilter(first(sp.recommendation));
 
-  const where = buildWhere(qRaw);
-  const skip = (page - 1) * perPage;
+  const where = buildWhere(qRaw, activeFilter);
 
   // ✅ Safe fallback: vendor formulas blank unless you’ve wired them.
   const vendorFormulas: Record<Vendor, string> = {
@@ -400,40 +483,123 @@ export default async function AdminItemsPage({
     }
   }
 
-  const [total, items] = await Promise.all([
-    prisma.item.count({ where }),
-    prisma.item.findMany({
-      where,
-      // keeping your current behavior:
-      orderBy: { updatedAt: "desc" },
-      skip,
-      take: perPage,
-      select: {
-        id: true,
-        sku: true,
-        partNumber: true,
-        vendor: true,
-        name: true,
-        description: true,
-        category: true,
-        cost: true,
-        price: true,
-        taxable: true,
-        active: true,
-        createdAt: true,
-        updatedAt: true,
+  const allItems = await prisma.item.findMany({
+    where,
+    select: {
+      id: true,
+      sku: true,
+      partNumber: true,
+      vendor: true,
+      name: true,
+      description: true,
+      category: true,
+      cost: true,
+      price: true,
+      taxable: true,
+      active: true,
+      createdAt: true,
+      updatedAt: true,
 
-        manufacturer: true,
-        orderFrom: true,
-        webUrl: true,
+      manufacturer: true,
+      orderFrom: true,
+      webUrl: true,
 
-        onHandQty: true,
-        orderedQty: true,
-        usedQty: true,
-        minQty: true,
-      },
-    }),
-  ]);
+      onHandQty: true,
+      orderedQty: true,
+      usedQty: true,
+      minQty: true,
+    },
+  });
+
+  const recommendations = await getInventoryDemandRecommendations({
+    itemIds: allItems.map((item) => item.id),
+    includeInactive: true,
+  });
+  const recommendationMap = new Map(recommendations.map((entry) => [entry.itemId, entry]));
+
+  const filteredItems = allItems.filter((item) => {
+    const recommendation = recommendationMap.get(item.id);
+    const suggestedMinQty30Day = recommendation?.suggestedMinQty30Day ?? 0;
+    const suggestedReorderQty30Day = recommendation?.suggestedReorderQty30Day ?? 0;
+
+    if (recommendationFilter === "different") return item.minQty !== suggestedMinQty30Day;
+    if (recommendationFilter === "same") return item.minQty === suggestedMinQty30Day;
+    if (recommendationFilter === "needsReorder") return suggestedReorderQty30Day > 0;
+    return true;
+  });
+
+  const sortedItems = [...filteredItems].sort((left, right) => {
+    const leftRecommendation = recommendationMap.get(left.id);
+    const rightRecommendation = recommendationMap.get(right.id);
+
+    const leftValue = (() => {
+      switch (sort) {
+        case "createdAt":
+          return left.createdAt;
+        case "sku":
+          return left.sku;
+        case "partNumber":
+          return left.partNumber ?? "";
+        case "name":
+          return left.name;
+        case "category":
+          return left.category ?? "";
+        case "cost":
+          return left.cost ? Number(left.cost) : null;
+        case "price":
+          return left.price ? Number(left.price) : null;
+        case "taxable":
+          return left.taxable;
+        case "active":
+          return left.active;
+        case "suggestedMinQty30Day":
+          return leftRecommendation?.suggestedMinQty30Day ?? 0;
+        case "suggestedReorderQty30Day":
+          return leftRecommendation?.suggestedReorderQty30Day ?? 0;
+        case "updatedAt":
+        default:
+          return left.updatedAt;
+      }
+    })();
+
+    const rightValue = (() => {
+      switch (sort) {
+        case "createdAt":
+          return right.createdAt;
+        case "sku":
+          return right.sku;
+        case "partNumber":
+          return right.partNumber ?? "";
+        case "name":
+          return right.name;
+        case "category":
+          return right.category ?? "";
+        case "cost":
+          return right.cost ? Number(right.cost) : null;
+        case "price":
+          return right.price ? Number(right.price) : null;
+        case "taxable":
+          return right.taxable;
+        case "active":
+          return right.active;
+        case "suggestedMinQty30Day":
+          return rightRecommendation?.suggestedMinQty30Day ?? 0;
+        case "suggestedReorderQty30Day":
+          return rightRecommendation?.suggestedReorderQty30Day ?? 0;
+        case "updatedAt":
+        default:
+          return right.updatedAt;
+      }
+    })();
+
+    const compared = compareValues(leftValue, rightValue);
+    if (compared !== 0) return dir === "asc" ? compared : -compared;
+    return left.name.localeCompare(right.name, undefined, { sensitivity: "base" });
+  });
+
+  const total = sortedItems.length;
+  const skip = (page - 1) * perPage;
+  const items = sortedItems.slice(skip, skip + perPage);
 
   const initialItems = items.map((r) => ({
     ...r,
@@ -441,6 +607,10 @@ export default async function AdminItemsPage({
     price: r.price ? String(r.price) : null,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
+    suggestedMinQty30Day: recommendationMap.get(r.id)?.suggestedMinQty30Day ?? 0,
+    suggestedReorderQty30Day: recommendationMap.get(r.id)?.suggestedReorderQty30Day ?? 0,
+    usage30Day: recommendationMap.get(r.id)?.usage30Day ?? 0,
+    avgDailyUsage30Day: recommendationMap.get(r.id)?.avgDailyUsage30Day ?? 0,
   }));
 
   const shell: CSSProperties = { padding: 16 };
@@ -509,6 +679,84 @@ export default async function AdminItemsPage({
           Error: {errMsg}
         </div>
       ) : null}
+
+      <form
+        method="GET"
+        style={{
+          ...card,
+          marginBottom: 12,
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 12,
+          alignItems: "end",
+        }}
+      >
+        <input type="hidden" name="q" value={qRaw} />
+        <label style={label}>
+          Active
+          <select name="active" defaultValue={activeFilter === null ? "all" : String(activeFilter)} style={field}>
+            <option value="all">All</option>
+            <option value="true">Active</option>
+            <option value="false">Archived</option>
+          </select>
+        </label>
+
+        <label style={label}>
+          Sort
+          <select name="sort" defaultValue={sort} style={field}>
+            <option value="updatedAt">Updated</option>
+            <option value="createdAt">Created</option>
+            <option value="sku">SKU</option>
+            <option value="partNumber">Part #</option>
+            <option value="name">Name</option>
+            <option value="category">Category</option>
+            <option value="cost">Cost</option>
+            <option value="price">Price</option>
+            <option value="taxable">Taxable</option>
+            <option value="active">Active</option>
+            <option value="suggestedMinQty30Day">Suggested Min (30d)</option>
+            <option value="suggestedReorderQty30Day">Suggested Reorder</option>
+          </select>
+        </label>
+
+        <label style={label}>
+          Dir
+          <select name="dir" defaultValue={dir} style={field}>
+            <option value="desc">Desc</option>
+            <option value="asc">Asc</option>
+          </select>
+        </label>
+
+        <label style={label}>
+          Recommendation
+          <select name="recommendation" defaultValue={recommendationFilter} style={field}>
+            <option value="all">All</option>
+            <option value="different">Min differs from suggested</option>
+            <option value="same">Min matches suggested</option>
+            <option value="needsReorder">Needs reorder</option>
+          </select>
+        </label>
+
+        <label style={label}>
+          Per Page
+          <select name="perPage" defaultValue={String(perPage)} style={field}>
+            <option value="10">10</option>
+            <option value="25">25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="200">200</option>
+          </select>
+        </label>
+
+        <div style={{ display: "flex", gap: 10, alignItems: "end", marginLeft: "auto" }}>
+          <button type="submit" style={btnPrimary}>
+            Apply Filters
+          </button>
+          <Link href="/admin/items" style={{ ...btn, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+            Reset
+          </Link>
+        </div>
+      </form>
 
       {/* ✅ Create Item (collapsed until clicked) */}
       {canEditItems ? (

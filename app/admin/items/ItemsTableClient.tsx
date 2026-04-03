@@ -268,6 +268,10 @@ type ItemRow = {
   orderedQty?: number;
   usedQty?: number;
   minQty?: number;
+  suggestedMinQty30Day?: number;
+  suggestedReorderQty30Day?: number;
+  usage30Day?: number;
+  avgDailyUsage30Day?: number;
 
   // reference fields
   manufacturer?: string | null;
@@ -507,6 +511,8 @@ function rowSearchText(row: ItemRow): string {
   const usedStr = typeof row.usedQty === "number" ? String(row.usedQty) : "";
   const minStr = typeof row.minQty === "number" ? String(row.minQty) : "";
   const orderedStr = typeof row.orderedQty === "number" ? String(row.orderedQty) : "";
+  const suggestedMinStr = typeof row.suggestedMinQty30Day === "number" ? String(row.suggestedMinQty30Day) : "";
+  const usage30Str = typeof row.usage30Day === "number" ? String(row.usage30Day) : "";
 
   const taxableStr = row.taxable ? "taxable yes" : "taxable no";
   const activeStr = row.active ? "active yes" : "active no";
@@ -534,6 +540,8 @@ function rowSearchText(row: ItemRow): string {
       usedStr,
       minStr,
       orderedStr,
+      suggestedMinStr,
+      usage30Str,
     ].join(" "),
   );
 }
@@ -717,6 +725,15 @@ export default function ItemsTableClient({
 
     return rows.filter((r) => rowMatchesQuery(r, q));
   }, [rows, qInput]);
+
+  const mismatchCount = useMemo(
+    () =>
+      viewRows.reduce(
+        (count, row) => count + ((row.minQty ?? 0) !== (row.suggestedMinQty30Day ?? 0) ? 1 : 0),
+        0
+      ),
+    [viewRows]
+  );
 
   // Selection should be scoped to what's visible on this page (after filter)
   const pageIdSet = useMemo(() => new Set(viewRows.map((r) => r.id)), [viewRows]);
@@ -1099,6 +1116,10 @@ export default function ItemsTableClient({
           typeof updated.minQty === "number"
             ? updated.minQty
             : rows.find((r) => r.id === id)?.minQty,
+        suggestedMinQty30Day: rows.find((r) => r.id === id)?.suggestedMinQty30Day,
+        suggestedReorderQty30Day: rows.find((r) => r.id === id)?.suggestedReorderQty30Day,
+        usage30Day: rows.find((r) => r.id === id)?.usage30Day,
+        avgDailyUsage30Day: rows.find((r) => r.id === id)?.avgDailyUsage30Day,
 
         createdAt: updated.createdAt,
         updatedAt: updated.updatedAt,
@@ -1206,9 +1227,11 @@ export default function ItemsTableClient({
   const used = (row: ItemRow) => (typeof row.usedQty === "number" ? row.usedQty : null);
   const keep = (row: ItemRow) => (typeof row.minQty === "number" ? row.minQty : null);
   const onHand = (row: ItemRow) => (typeof row.onHandQty === "number" ? row.onHandQty : null);
+  const suggestedMin = (row: ItemRow) =>
+    typeof row.suggestedMinQty30Day === "number" ? row.suggestedMinQty30Day : null;
 
   // Column count (keep in sync with <thead> and colSpan below)
-  const COLS = 12;
+  const COLS = 13;
 
   return (
     <div
@@ -1220,6 +1243,19 @@ export default function ItemsTableClient({
         background: surface,
       }}
     >
+      {mismatchCount > 0 ? (
+        <div
+          style={{
+            padding: 12,
+            borderBottom: "1px solid var(--border)",
+            background: "rgba(255, 152, 0, 0.10)",
+            fontWeight: 800,
+          }}
+        >
+          {mismatchCount} visible item{mismatchCount === 1 ? "" : "s"} have a min qty different from the suggested 30-day minimum.
+        </div>
+      ) : null}
+
       {/* Global bulk error banner */}
       {bulkError ? (
         <div style={{ padding: 12, borderBottom: "1px solid var(--border)", color: danger, background: surface }}>
@@ -1492,6 +1528,7 @@ export default function ItemsTableClient({
                 "Name",
                 "Category",
                 "On Hand",
+                "Suggested Min (30d)",
                 "Cost",
                 "Price",
                 "Taxable",
@@ -1531,6 +1568,7 @@ export default function ItemsTableClient({
               const skuRoom = parseSkuRoomParts(row.sku);
 
               const oh = onHand(row);
+              const suggested = suggestedMin(row);
 
               const detailText = {
                 manufacturer: mfg || "—",
@@ -1538,6 +1576,12 @@ export default function ItemsTableClient({
                 onHand: oh ?? "—",
                 used: used(row) ?? "—",
                 keep: keep(row) ?? "—",
+                suggestedMin: suggested ?? "—",
+                suggestedReorder:
+                  typeof row.suggestedReorderQty30Day === "number" ? row.suggestedReorderQty30Day : "—",
+                usage30: typeof row.usage30Day === "number" ? row.usage30Day : "—",
+                avgDaily30:
+                  typeof row.avgDailyUsage30Day === "number" ? row.avgDailyUsage30Day.toFixed(2) : "—",
                 roomLocation: skuRoom?.location ?? "—",
                 roomShelf: skuRoom?.shelf ?? "—",
                 roomBin: skuRoom?.bin ?? "—",
@@ -1661,6 +1705,10 @@ export default function ItemsTableClient({
 
                     <td className="items-nowrap" style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 800 }}>
                       {oh === null ? "—" : oh.toLocaleString()}
+                    </td>
+
+                    <td className="items-nowrap" style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 800 }}>
+                      {suggested === null ? "—" : suggested.toLocaleString()}
                     </td>
 
                     <td className="items-nowrap" style={{ padding: 10, whiteSpace: "nowrap" }}>
@@ -2288,6 +2336,18 @@ export default function ItemsTableClient({
                             <span>
                               <strong>Keep on hand:</strong> {detailText.keep}
                             </span>
+                            <span>
+                              <strong>Suggested Min (30d):</strong> {detailText.suggestedMin}
+                            </span>
+                            <span>
+                              <strong>Suggested Reorder:</strong> {detailText.suggestedReorder}
+                            </span>
+                            <span>
+                              <strong>30d Usage:</strong> {detailText.usage30}
+                            </span>
+                            <span>
+                              <strong>Avg Daily (30d):</strong> {detailText.avgDaily30}
+                            </span>
                           </div>
                         </div>
                       ) : (
@@ -2326,6 +2386,18 @@ export default function ItemsTableClient({
                             </span>
                             <span>
                               <strong>Keep on hand:</strong> {detailText.keep}
+                            </span>
+                            <span>
+                              <strong>Suggested Min (30d):</strong> {detailText.suggestedMin}
+                            </span>
+                            <span>
+                              <strong>Suggested Reorder:</strong> {detailText.suggestedReorder}
+                            </span>
+                            <span>
+                              <strong>30d Usage:</strong> {detailText.usage30}
+                            </span>
+                            <span>
+                              <strong>Avg Daily (30d):</strong> {detailText.avgDaily30}
                             </span>
 
                             {/* ✅ Show vendor formula used by this item */}

@@ -8,6 +8,10 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import PrintHotkeys from "@/app/admin/items/PrintHotkeys";
+import {
+  getInventoryDemandRecommendations,
+  recalculateItemMinQuantitiesFrom30DayUsage,
+} from "@/app/lib/inventory-demand";
 export const dynamic = "force-dynamic";
 
 type SearchParams = {
@@ -81,6 +85,8 @@ export default async function ItemInventoryPage({
       updatedAt: true,
     },
   });
+
+  const recommendation = (await getInventoryDemandRecommendations({ itemIds: [id], includeInactive: true }))[0] ?? null;
 
   if (!item) {
     return (
@@ -253,25 +259,96 @@ export default async function ItemInventoryPage({
     }
   }
 
+  async function applySuggestedMinToItemAction() {
+    "use server";
+
+    try {
+      const session = await getServerSession(authOptions);
+      if (!session) throw new Error("Unauthorized");
+      if (!(await canAccessAdmin(session))) throw new Error("Forbidden");
+
+      const result = await recalculateItemMinQuantitiesFrom30DayUsage({ itemIds: [id], includeInactive: true });
+
+      revalidatePath(`/admin/items/${id}/inventory`);
+      revalidatePath(`/admin/items`);
+
+      const message =
+        result.updatedCount > 0
+          ? `Suggested minimum copied to min qty for ${result.updatedCount} item.`
+          : "This item already matches the suggested 30-day minimum.";
+
+      redirect(`/admin/items/${id}/inventory?ok=${enc(message)}`);
+    } catch (e: unknown) {
+      if (isNextRedirectError(e)) throw e;
+      const message = e instanceof Error ? e.message : "Failed to apply suggested minimum.";
+      redirect(`/admin/items/${id}/inventory?error=${enc(message)}`);
+    }
+  }
+
+  async function applySuggestedMinToAllItemsAction() {
+    "use server";
+
+    try {
+      const session = await getServerSession(authOptions);
+      if (!session) throw new Error("Unauthorized");
+      if (!(await canAccessAdmin(session))) throw new Error("Forbidden");
+
+      const result = await recalculateItemMinQuantitiesFrom30DayUsage({ includeInactive: true });
+
+      revalidatePath(`/admin/items/${id}/inventory`);
+      revalidatePath(`/admin/items`);
+
+      const message =
+        result.updatedCount > 0
+          ? `Suggested minimum copied to min qty for ${result.updatedCount} item${result.updatedCount === 1 ? "" : "s"}.`
+          : "All items already match the suggested 30-day minimum.";
+
+      redirect(`/admin/items/${id}/inventory?ok=${enc(message)}`);
+    } catch (e: unknown) {
+      if (isNextRedirectError(e)) throw e;
+      const message = e instanceof Error ? e.message : "Failed to apply suggested minimums.";
+      redirect(`/admin/items/${id}/inventory?error=${enc(message)}`);
+    }
+  }
+
   const updatedAt = new Date(item.updatedAt).toLocaleString();
 
   return (
     <main style={{ padding: 16 }}>
       <div style={{ marginBottom: 10 }}>
-        <Link
-          href={`/admin/items?id=${encodeURIComponent(item.id)}`}
-          style={{
-            display: "inline-block",
-            padding: "8px 12px",
-            borderRadius: 10,
-            border: "1px solid var(--border, rgba(0,0,0,0.2))",
-            textDecoration: "none",
-            color: "inherit",
-            fontWeight: 800,
-          }}
-        >
-          Back to Item
-        </Link>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+          <Link
+            href={`/admin/items?id=${encodeURIComponent(item.id)}`}
+            style={{
+              display: "inline-block",
+              padding: "8px 12px",
+              borderRadius: 10,
+              border: "1px solid var(--border, rgba(0,0,0,0.2))",
+              textDecoration: "none",
+              color: "inherit",
+              fontWeight: 800,
+            }}
+          >
+            Back to Item
+          </Link>
+
+          <form action={applySuggestedMinToAllItemsAction}>
+            <button
+              type="submit"
+              style={{
+                padding: "8px 12px",
+                borderRadius: 10,
+                border: "1px solid rgba(76, 175, 80, 0.45)",
+                background: "rgba(76, 175, 80, 0.16)",
+                color: "inherit",
+                fontWeight: 900,
+                cursor: "pointer",
+              }}
+            >
+              Copy Suggested Min Qty to All Items
+            </button>
+          </form>
+        </div>
       </div>
       <h1 style={{ fontSize: 20, fontWeight: 900 }}>Item Inventory</h1>
       <div style={{ marginTop: 6, opacity: 0.8 }}>
@@ -349,6 +426,98 @@ export default async function ItemInventoryPage({
           </div>
         </div>
       </div>
+
+      {recommendation ? (
+        <div
+          style={{
+            marginTop: 16,
+            padding: 12,
+            borderRadius: 12,
+            border: "1px solid var(--border, rgba(0,0,0,0.2))",
+            background: "var(--card, transparent)",
+            maxWidth: 760,
+          }}
+        >
+          <div style={{ fontWeight: 900, marginBottom: 8 }}>Usage Analytics</div>
+          <div style={{ fontSize: 13, opacity: 0.82, marginBottom: 10 }}>
+            Suggested minimum quantity is the recommended stock for the next 30 days based on the last 30 days of net usage.
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <form action={applySuggestedMinToItemAction}>
+              <button
+                type="submit"
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(76, 175, 80, 0.45)",
+                  background: "rgba(76, 175, 80, 0.16)",
+                  color: "inherit",
+                  fontWeight: 900,
+                  cursor: "pointer",
+                }}
+              >
+                Copy Suggested Min Qty to This Item
+              </button>
+            </form>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 8 }}>
+            <div style={{ opacity: 0.8 }}>Suggested minimum quantity (30d)</div>
+            <div>
+              <b>{recommendation.suggestedMinQty30Day}</b>
+            </div>
+
+            <div style={{ opacity: 0.8 }}>Suggested reorder quantity</div>
+            <div>
+              <b>{recommendation.suggestedReorderQty30Day}</b>
+            </div>
+
+            <div style={{ opacity: 0.8 }}>30 day usage</div>
+            <div>
+              <b>{recommendation.usage30Day}</b>
+            </div>
+
+            <div style={{ opacity: 0.8 }}>60 day usage</div>
+            <div>
+              <b>{recommendation.usage60Day}</b>
+            </div>
+
+            <div style={{ opacity: 0.8 }}>90 day usage</div>
+            <div>
+              <b>{recommendation.usage90Day}</b>
+            </div>
+
+            <div style={{ opacity: 0.8 }}>Average daily usage (30d)</div>
+            <div>
+              <b>{recommendation.avgDailyUsage30Day.toFixed(2)}</b>
+            </div>
+
+            <div style={{ opacity: 0.8 }}>30 day checkouts</div>
+            <div>
+              <b>{recommendation.checkoutQty30Day}</b>
+            </div>
+
+            <div style={{ opacity: 0.8 }}>30 day returns</div>
+            <div>
+              <b>{recommendation.returnQty30Day}</b>
+            </div>
+
+            <div style={{ opacity: 0.8 }}>Estimated lead time</div>
+            <div>
+              <b>{recommendation.estimatedLeadTimeDays === null ? "—" : `${recommendation.estimatedLeadTimeDays} days`}</b>
+            </div>
+
+            <div style={{ opacity: 0.8 }}>Days of cover at current stock</div>
+            <div>
+              <b>{recommendation.daysOfCover === null ? "—" : recommendation.daysOfCover}</b>
+            </div>
+
+            <div style={{ opacity: 0.8 }}>Last checkout</div>
+            <div>
+              <b>{recommendation.lastCheckoutAt ? new Date(recommendation.lastCheckoutAt).toLocaleString() : "—"}</b>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <form action={updateInventoryAction} style={{ marginTop: 16, display: "grid", gap: 12, maxWidth: 640 }}>
         <input type="hidden" name="itemId" value={item.id} />

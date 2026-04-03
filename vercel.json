@@ -1,5 +1,11 @@
 {
   "framework": "nextjs",
   "installCommand": "npm ci",
-  "buildCommand": "npm run build"
+  "buildCommand": "npm run build",
+  "crons": [
+    {
+      "path": "/api/admin/inventory-recommendations/recalculate?apply=1",
+      "schedule": "0 4 * * *"
+    }
+  ]
 }
