@@ -2,7 +2,7 @@
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 
@@ -102,12 +102,6 @@ type SearchParams = {
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
-}
-
-function isNextRedirectError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const digest = (error as { digest?: unknown }).digest;
-  return typeof digest === "string" && digest.startsWith("NEXT_REDIRECT");
 }
 
 function parseOptionalInt(v: FormDataEntryValue | null): number | null {
@@ -410,9 +404,7 @@ export default async function AdminInventoryOrdersPage({
       revalidatePath("/employee/live-orders");
       redirect(withQuery(back, { configOk: "1" }));
     } catch (error) {
-      if (isNextRedirectError(error)) {
-        throw error;
-      }
+      unstable_rethrow(error);
 
       const msg = error instanceof Error ? error.message : "Failed to save display settings.";
       redirect(withQuery(back, { configError: msg }));

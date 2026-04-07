@@ -2,7 +2,7 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono, Sora } from "next/font/google";
 import { cookies, headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { PHASE_PRODUCTION_BUILD } from "next/constants";
 import "./globals.css";
 
@@ -196,6 +196,7 @@ export default async function RootLayout({
       const h = await headers();
       redirect(safeReturnToPathFromReferer(h.get("referer")));
     } catch (error) {
+      unstable_rethrow(error);
       console.error("setPreviewAction error:", error);
       redirect("/");
     }
@@ -229,6 +230,7 @@ export default async function RootLayout({
       const h = await headers();
       redirect(safeReturnToPathFromReferer(h.get("referer")));
     } catch (error) {
+      unstable_rethrow(error);
       console.error("setDemoModeAction error:", error);
       redirect("/");
     }
