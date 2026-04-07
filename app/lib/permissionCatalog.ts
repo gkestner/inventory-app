@@ -24,6 +24,7 @@ import {
   RECEIVE_NOTIFICATION_WORK_ORDER_SCHEDULES,
   VIEW_COMPANY_VEHICLE_LOG,
   VIEW_EQUIPMENT_TRACKING,
+  VIEW_INVENTORY,
   VIEW_MAINTENANCE_REQUESTS,
   VIEW_PREVENTATIVE_MAINTENANCE,
   VIEW_RECEIPTS,
@@ -48,6 +49,12 @@ export const PERMISSION_CATALOG: PermissionCatalogEntry[] = [
     module: "Inventory",
     path: ["Checkout"],
     label: "View Checkout",
+  },
+  {
+    permission: VIEW_INVENTORY,
+    module: "Inventory",
+    path: ["Items"],
+    label: "View Inventory (read-only)",
   },
   {
     permission: Permission.CREATE_CHECKOUT,

@@ -14,6 +14,7 @@ import {
   CREATE_WORK_ORDERS_FOR_OTHERS,
   VIEW_COMPANY_VEHICLE_LOG,
   VIEW_EQUIPMENT_TRACKING,
+  VIEW_INVENTORY,
   VIEW_MAINTENANCE_REQUESTS,
   VIEW_PREVENTATIVE_MAINTENANCE,
   VIEW_RECEIPTS,
@@ -113,6 +114,7 @@ export default async function UserNav() {
   const canTravelLog = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
 
   const canCheckout = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
+  const canInventory = perms.allowAll || hasAnyPermission(perms, [VIEW_INVENTORY, Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
   const canMaintenanceRequests = perms.allowAll || hasAnyPermission(perms, [VIEW_MAINTENANCE_REQUESTS]);
   const canTemperatureDashboard =
     perms.allowAll || hasAnyPermission(perms, [VIEW_TEMPERATURE_DASHBOARD, ADMIN_VIEW_TEMPERATURE_DASHBOARD]);
@@ -129,6 +131,7 @@ export default async function UserNav() {
     canWorkOrders ||
     canOfficeEntry ||
     canCheckout ||
+    canInventory ||
     canMaintenanceRequests ||
     canTemperatureDashboard ||
     canReceipts ||
@@ -230,6 +233,12 @@ export default async function UserNav() {
             </Link>
           ) : null}
 
+          {canInventory ? (
+            <Link href="/inventory" className="site-link" style={linkStyle}>
+              Inventory
+            </Link>
+          ) : null}
+
           {canMaintenanceRequests ? (
             <Link href="/maintenance-requests" className="site-link" style={linkStyle}>
               Requests
@@ -242,7 +251,7 @@ export default async function UserNav() {
             </Link>
           ) : null}
 
-          {(canOfficeEntry || canTravelLog || canReceipts || canLiveOrders) && (
+          {(canOfficeEntry || canTravelLog || canReceipts) && (
             <details data-user-dropdown style={detailsStyle}>
               <summary style={summaryStyle}>More</summary>
               <div style={menuStyle}>
@@ -261,14 +270,15 @@ export default async function UserNav() {
                     Receipts
                   </Link>
                 ) : null}
-                {canLiveOrders ? (
-                  <Link href="/employee/live-orders" style={menuItemStyle}>
-                    Live Orders
-                  </Link>
-                ) : null}
               </div>
             </details>
           )}
+
+          {canLiveOrders ? (
+            <Link href="/employee/live-orders" className="site-link" style={linkStyle}>
+              Live Orders
+            </Link>
+          ) : null}
 
           {(canPreventativeMaintenance || canEquipmentTracking || canVehicleLog || canRoomDiagrams || canQuickCountEditor) && (
             <details data-user-dropdown style={detailsStyle}>

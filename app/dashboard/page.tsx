@@ -13,6 +13,7 @@ import {
   CREATE_WORK_ORDERS_FOR_OTHERS,
   VIEW_COMPANY_VEHICLE_LOG,
   VIEW_EQUIPMENT_TRACKING,
+  VIEW_INVENTORY,
   VIEW_MAINTENANCE_REQUESTS,
   VIEW_PREVENTATIVE_MAINTENANCE,
   VIEW_RECEIPTS,
@@ -46,6 +47,7 @@ export default async function DashboardPage() {
       Permission.SUBMIT_OWN_WORK_ORDERS,
       Permission.VIEW_CHECKOUT,
       Permission.CREATE_CHECKOUT,
+      VIEW_INVENTORY,
       Permission.VIEW_ROOM_DIAGRAMS,
       Permission.EDIT_QUICK_COUNT,
       Permission.VIEW_LIVE_ORDERS,
@@ -61,6 +63,7 @@ export default async function DashboardPage() {
 
   const canAdmin =
     perms.allowAll || hasAnyPermission(perms, ADMIN_ENTRY_PERMISSIONS);
+  const canInventory = perms.allowAll || hasAnyPermission(perms, [VIEW_INVENTORY, Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
 
   const card: CSSProperties = {
     border: "1px solid var(--border)",
@@ -111,6 +114,18 @@ export default async function DashboardPage() {
             </p>
             <Link href="/maintenance" style={action}>
               Open Maintenance Hub
+            </Link>
+          </article>
+        ) : null}
+
+        {canInventory ? (
+          <article style={card}>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Inventory</h2>
+            <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.45 }}>
+              Read-only inventory lookup for item availability, pricing, and reorder context.
+            </p>
+            <Link href="/inventory" style={action}>
+              Open Inventory
             </Link>
           </article>
         ) : null}

@@ -16,11 +16,10 @@ import {
   isUserWaitingForLiveOrder,
   setLiveOrderNotificationPreference,
 } from "@/app/lib/live-order-notifications";
+import { loadAppConfig } from "@/app/lib/app-config";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const LIVE_BOARD_RETENTION_DAYS = 14;
 
 type AppSession = {
   user?: {
@@ -110,16 +109,22 @@ function phaseLabel(s: string): string {
   return "ADDED TO INVENTORY";
 }
 
-function getLiveBoardRemovalDate(order: { status: string; addedToInventoryAt: Date | null; orderedAt: Date }): Date | null {
+function getLiveBoardRemovalDate(
+  order: { status: string; addedToInventoryAt: Date | null; orderedAt: Date },
+  retentionDays: number,
+): Date | null {
   if (order.status !== "ADDED_TO_INVENTORY") return null;
   const anchor = order.addedToInventoryAt ?? order.orderedAt;
-  return new Date(anchor.getTime() + LIVE_BOARD_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  return new Date(anchor.getTime() + retentionDays * 24 * 60 * 60 * 1000);
 }
 
 export default async function EmployeeLiveOrdersPage() {
   const { session } = await requireLiveOrdersView();
   const currentUserId = await resolveSessionUserId(session);
   if (!currentUserId) redirect("/");
+
+  const { config: appConfig } = await loadAppConfig();
+  const retentionDays = appConfig.liveOrdersAddedRetentionDays;
 
   async function toggleLiveOrderNotificationAction(formData: FormData) {
     "use server";
@@ -153,7 +158,7 @@ export default async function EmployeeLiveOrdersPage() {
   }
 
   const now = new Date();
-  const twoWeeksAgo = new Date(now.getTime() - LIVE_BOARD_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  const retentionCutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000);
 
   const orders = await prisma.inventoryOrder.findMany({
     where: {
@@ -163,10 +168,10 @@ export default async function EmployeeLiveOrdersPage() {
         {
           status: "ADDED_TO_INVENTORY",
           OR: [
-            { addedToInventoryAt: { gte: twoWeeksAgo } },
+            { addedToInventoryAt: { gte: retentionCutoff } },
             {
               addedToInventoryAt: null,
-              orderedAt: { gte: twoWeeksAgo },
+              orderedAt: { gte: retentionCutoff },
             },
           ],
         },
@@ -243,7 +248,7 @@ export default async function EmployeeLiveOrdersPage() {
       <div className="live-orders-header" style={header}>
         <div>
           <h1 style={title}>Live Orders</h1>
-          <div style={muted}>Shows Ordered → Arrived → Added to Inventory. Added items stay visible here for 14 days.</div>
+          <div style={muted}>Shows Ordered → Arrived → Added to Inventory. Added items stay visible here for {retentionDays} day{retentionDays === 1 ? "" : "s"}.</div>
         </div>
 
         <Link
@@ -293,9 +298,9 @@ export default async function EmployeeLiveOrdersPage() {
                       <div className="live-orders-interactive" style={{ fontSize: 11, opacity: 0.78, lineHeight: 1.35 }}>
                         {waiters.length > 0 ? `Waiting: ${waiters.map((waiter) => waiter.name).join(", ")}` : "No one is waiting for notifications yet."}
                       </div>
-                      {getLiveBoardRemovalDate(o) ? (
+                      {getLiveBoardRemovalDate(o, retentionDays) ? (
                         <div style={{ marginTop: 4, alignSelf: "flex-end", fontSize: 11, opacity: 0.76, whiteSpace: "nowrap" }}>
-                          Will be removed on {fmtDate(getLiveBoardRemovalDate(o))}
+                          Will be removed on {fmtDate(getLiveBoardRemovalDate(o, retentionDays))}
                         </div>
                       ) : null}
                     </div>

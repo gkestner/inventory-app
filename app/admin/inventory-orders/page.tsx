@@ -17,6 +17,7 @@ import ItemPicker from "./ItemPicker";
 import NewItemAutoCheck from "./NewItemAutoCheck";
 import OrderTotalPreview from "./OrderTotalPreview";
 import SearchFilters from "./SearchFilters";
+import { DEFAULT_APP_CONFIG, loadAppConfig, ORDER_HISTORY_PER_PAGE_OPTIONS, saveAppConfig } from "@/app/lib/app-config";
 import {
   addToInventoryAction as addToInventoryServerAction,
   createOrderAction as createOrderServerAction,
@@ -95,6 +96,8 @@ type SearchParams = {
 
   ok?: string;
   error?: string;
+  configOk?: string;
+  configError?: string;
 };
 
 function clamp(n: number, min: number, max: number) {
@@ -365,10 +368,47 @@ export default async function AdminInventoryOrdersPage({
   await requireOrderHistoryView();
 
   const sp = (await searchParams) ?? {};
+  const { config: appConfig, isAvailable: appConfigAvailable } = await loadAppConfig();
 
   async function createOrderFormAction(formData: FormData) {
     "use server";
     await createOrderServerAction(formData);
+  }
+
+  async function saveDisplaySettingsFormAction(formData: FormData) {
+    "use server";
+
+    try {
+      await requireOrderHistoryEdit();
+
+      const retentionDays = clamp(parseRequiredInt(formData.get("liveOrdersAddedRetentionDays")) || DEFAULT_APP_CONFIG.liveOrdersAddedRetentionDays, 1, 365);
+      const requestedPerPage = parseRequiredInt(formData.get("orderHistoryPerPage"));
+      const orderHistoryPerPage = ORDER_HISTORY_PER_PAGE_OPTIONS.includes(requestedPerPage as (typeof ORDER_HISTORY_PER_PAGE_OPTIONS)[number])
+        ? requestedPerPage
+        : DEFAULT_APP_CONFIG.orderHistoryPerPage;
+
+      const result = await saveAppConfig({
+        liveOrdersAddedRetentionDays: retentionDays,
+        orderHistoryPerPage,
+      });
+
+      const h = await headers();
+      const back = safeReturnToPathFromReferer(h.get("referer"));
+
+      if (!result.saved) {
+        redirect(withQuery(back, { configError: "Global settings are not available until the app-config migration is applied." }));
+      }
+
+      revalidatePath("/admin/inventory-orders");
+      revalidatePath("/admin/live-orders");
+      revalidatePath("/employee/live-orders");
+      redirect(withQuery(back, { configOk: "1" }));
+    } catch (error) {
+      const h = await headers();
+      const back = safeReturnToPathFromReferer(h.get("referer"));
+      const msg = error instanceof Error ? error.message : "Failed to save display settings.";
+      redirect(withQuery(back, { configError: msg }));
+    }
   }
 
   async function markArrivedFormAction(formData: FormData) {
@@ -465,8 +505,8 @@ export default async function AdminInventoryOrdersPage({
   const to = toStr ? parseOptionalDateOnlyToDate(toStr, true) : null;
 
   const page = clamp(Number(sp.page ?? "1") || 1, 1, 9999);
-  const perPageAllowed = new Set([10, 25, 50, 100]);
-  const perPage = perPageAllowed.has(Number(sp.perPage)) ? Number(sp.perPage) : 25;
+  const perPageAllowed = new Set<number>(ORDER_HISTORY_PER_PAGE_OPTIONS);
+  const perPage = perPageAllowed.has(Number(sp.perPage)) ? Number(sp.perPage) : appConfig.orderHistoryPerPage;
   const skip = (page - 1) * perPage;
 
   const border = "1px solid rgba(128,128,128,0.25)";
@@ -476,6 +516,8 @@ export default async function AdminInventoryOrdersPage({
 
   const okMsg = (sp.ok ?? "").trim() === "1";
   const errMsg = (sp.error ?? "").trim();
+  const configOkMsg = (sp.configOk ?? "").trim() === "1";
+  const configErrMsg = (sp.configError ?? "").trim();
 
   const controlLabel: CSSProperties = { display: "grid", gap: 6, fontSize: 12, opacity: 0.9, fontWeight: 900 };
   const controlBase: CSSProperties = {
@@ -1227,8 +1269,102 @@ export default async function AdminInventoryOrdersPage({
           </div>
         ) : null}
 
+        {configErrMsg ? (
+          <div
+            style={{
+              marginTop: 12,
+              padding: 12,
+              borderRadius: 14,
+              border: "1px solid rgba(244,67,54,0.45)",
+              background: "rgba(244,67,54,0.10)",
+              color: fg,
+              fontWeight: 800,
+              lineHeight: 1.4,
+            }}
+          >
+            Error: {configErrMsg}
+          </div>
+        ) : configOkMsg ? (
+          <div
+            style={{
+              marginTop: 12,
+              padding: 12,
+              borderRadius: 14,
+              border: "1px solid rgba(76,175,80,0.45)",
+              background: "rgba(76,175,80,0.10)",
+              color: fg,
+              fontWeight: 800,
+              lineHeight: 1.4,
+            }}
+          >
+            App-wide display settings saved.
+          </div>
+        ) : null}
+
+        <details style={{ marginTop: 12 }}>
+          <summary
+            style={{
+              cursor: "pointer",
+              userSelect: "none",
+              fontWeight: 900,
+              padding: 12,
+              border,
+              borderRadius: 14,
+              background: surface,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 10,
+            }}
+          >
+            <span>App-Wide Display Settings</span>
+            <span style={{ fontSize: 12, opacity: 0.75 }}>Click to expand</span>
+          </summary>
+
+          <div style={{ marginTop: 10, border, borderRadius: 14, background: surface, padding: 12 }}>
+            <div style={{ fontWeight: 900, marginBottom: 8, fontSize: 14 }}>App-Wide Display Settings</div>
+            <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 10 }}>
+              These values apply to everyone in the app.
+              {!appConfigAvailable ? " Defaults are showing until the app-config migration is applied." : ""}
+            </div>
+
+            <form action={saveDisplaySettingsFormAction} style={{ display: "grid", gap: 10 }}>
+              <div style={wrapRow}>
+                <label style={{ ...controlLabel, ...flexItem(220, 0) }}>
+                  Live Orders retention (days)
+                  <input
+                    type="number"
+                    name="liveOrdersAddedRetentionDays"
+                    min={1}
+                    max={365}
+                    defaultValue={appConfig.liveOrdersAddedRetentionDays}
+                    style={controlBase}
+                  />
+                </label>
+
+                <label style={{ ...controlLabel, ...flexItem(180, 0) }}>
+                  Default Order History count
+                  <select name="orderHistoryPerPage" defaultValue={String(appConfig.orderHistoryPerPage)} style={controlBase}>
+                    {ORDER_HISTORY_PER_PAGE_OPTIONS.map((count) => (
+                      <option key={count} value={String(count)}>
+                        {count}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <div style={{ ...flexItem(220, 1), display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                  <button type="submit" style={btnPrimary}>
+                    Save Display Settings
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </details>
+
         {/* CREATE ORDER */}
-        <details open style={{ marginTop: 12 }}>
+        <details style={{ marginTop: 12 }}>
           <summary
             style={{
               cursor: "pointer",
@@ -1421,6 +1557,7 @@ export default async function AdminInventoryOrdersPage({
           users={users.map((u) => ({ id: u.id, name: u.name, role: String(u.role) }))}
           locations={locations}
           phases={[...PHASES]}
+          defaultPerPage={appConfig.orderHistoryPerPage}
           values={{
             q,
             phase,

@@ -33,6 +33,7 @@ const GROUPS: Group[] = [
     permissions: [
       "VIEW_HOME",
       "VIEW_CHECKOUT",
+      "VIEW_INVENTORY",
       "CREATE_CHECKOUT",
       "VIEW_ROOM_DIAGRAMS",
       "EDIT_QUICK_COUNT",

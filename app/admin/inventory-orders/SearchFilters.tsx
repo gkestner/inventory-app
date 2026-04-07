@@ -33,6 +33,7 @@ type Props = {
   users: UserOption[];
   locations: LocationOption[];
   phases: string[];
+  defaultPerPage: number;
   values: {
     q: string;
     phase: string;
@@ -58,7 +59,7 @@ function phaseLabel(phase: string): string {
   return "ADDED TO INVENTORY";
 }
 
-function hasActiveFilters(values: Props["values"]): boolean {
+function hasActiveFilters(values: Props["values"], defaultPerPage: number): boolean {
   return Boolean(
     values.q ||
       values.phase ||
@@ -68,15 +69,15 @@ function hasActiveFilters(values: Props["values"]): boolean {
       values.forStoreId ||
       values.from ||
       values.to ||
-      values.perPage !== 25
+      values.perPage !== defaultPerPage
   );
 }
-function buildSearchParams(values: Props["values"]): URLSearchParams {
+function buildSearchParams(values: Props["values"], defaultPerPage: number): URLSearchParams {
   const nextSearch = new URLSearchParams();
 
   for (const [key, rawValue] of Object.entries(values)) {
     const value = String(rawValue).trim();
-    if (value && !(key === "perPage" && value === "25")) {
+    if (value && !(key === "perPage" && value === String(defaultPerPage))) {
       nextSearch.set(key, value);
     }
   }
@@ -85,16 +86,16 @@ function buildSearchParams(values: Props["values"]): URLSearchParams {
   return nextSearch;
 }
 
-export default function SearchFilters({ items, users, locations, phases, values, summary }: Props) {
+export default function SearchFilters({ items, users, locations, phases, defaultPerPage, values, summary }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
-  const [isOpen, setIsOpen] = useState(() => hasActiveFilters(values));
+  const [isOpen, setIsOpen] = useState(() => hasActiveFilters(values, defaultPerPage));
   const [qInput, setQInput] = useState(values.q);
 
   useEffect(() => {
-    if (hasActiveFilters(values)) setIsOpen(true);
-  }, [values]);
+    if (hasActiveFilters(values, defaultPerPage)) setIsOpen(true);
+  }, [defaultPerPage, values]);
 
   useEffect(() => {
     setQInput(values.q);
@@ -162,11 +163,11 @@ export default function SearchFilters({ items, users, locations, phases, values,
       forStoreId: String(formData.get("forStoreId") ?? "").trim(),
       from: String(formData.get("from") ?? "").trim(),
       to: String(formData.get("to") ?? "").trim(),
-      perPage: Number(formData.get("perPage") ?? values.perPage) || 25,
+      perPage: Number(formData.get("perPage") ?? values.perPage) || defaultPerPage,
     };
 
     setIsOpen(true);
-    navigate(buildSearchParams(submitValues));
+    navigate(buildSearchParams(submitValues, defaultPerPage));
   }
 
   function handleClear() {

@@ -4,6 +4,7 @@ import type { Permission } from "@prisma/client";
 export const CREATE_WORK_ORDERS_FOR_OTHERS = "CREATE_WORK_ORDERS_FOR_OTHERS" as Permission;
 
 // Maintenance feature permissions
+export const VIEW_INVENTORY = "VIEW_INVENTORY" as Permission;
 export const VIEW_PREVENTATIVE_MAINTENANCE = "VIEW_PREVENTATIVE_MAINTENANCE" as Permission;
 export const VIEW_EQUIPMENT_TRACKING = "VIEW_EQUIPMENT_TRACKING" as Permission;
 export const VIEW_COMPANY_VEHICLE_LOG = "VIEW_COMPANY_VEHICLE_LOG" as Permission;

@@ -916,6 +916,7 @@ export default async function AdminItemsPage({
         perPage={perPage}
         total={total}
         vendorFormulas={vendorFormulas}
+        canEdit={canEditItems}
       />
     </div>
   );

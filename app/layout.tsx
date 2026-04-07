@@ -15,6 +15,7 @@ import type { LoadedPermissions } from "@/app/lib/permissions";
 import {
   ADMIN_VIEW_TEMPERATURE_DASHBOARD,
   CREATE_RECEIPTS,
+  VIEW_INVENTORY,
   VIEW_COMPANY_VEHICLE_LOG,
   VIEW_EQUIPMENT_TRACKING,
   VIEW_MAINTENANCE_REQUESTS,
@@ -243,6 +244,7 @@ export default async function RootLayout({
     hasAnyPermission(perms, [
       Permission.VIEW_HOME,
       Permission.VIEW_CHECKOUT,
+      VIEW_INVENTORY,
       Permission.VIEW_ROOM_DIAGRAMS,
       Permission.EDIT_QUICK_COUNT,
       Permission.VIEW_WORK_ORDERS,

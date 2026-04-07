@@ -15,6 +15,7 @@ import {
   CREATE_WORK_ORDERS_FOR_OTHERS,
   VIEW_COMPANY_VEHICLE_LOG,
   VIEW_EQUIPMENT_TRACKING,
+  VIEW_INVENTORY,
   VIEW_MAINTENANCE_REQUESTS,
   VIEW_PREVENTATIVE_MAINTENANCE,
   VIEW_RECEIPTS,
@@ -45,6 +46,7 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
     hasAnyPermission(perms, [
       Permission.VIEW_CHECKOUT,
       Permission.CREATE_CHECKOUT,
+      VIEW_INVENTORY,
       Permission.VIEW_ROOM_DIAGRAMS,
       Permission.EDIT_QUICK_COUNT,
       Permission.VIEW_WORK_ORDERS,
@@ -67,6 +69,7 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
 
   // ✅ Checkout is permission-based ONLY (no role special-casing)
   const canCheckout = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
+  const canInventory = perms.allowAll || hasAnyPermission(perms, [VIEW_INVENTORY, Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
 
   // ✅ Work Orders are permission-based ONLY
   const canWorkOrders =
@@ -255,13 +258,25 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
               </Link>
             ) : null}
 
+            {canInventory ? (
+              <Link href="/inventory" className="site-link" style={pill()}>
+                Inventory
+              </Link>
+            ) : null}
+
             {canMaintenanceRequests ? (
               <Link href="/maintenance-requests" className="site-link" style={pill()}>
                 Requests
               </Link>
             ) : null}
 
-            {(canOfficeEntry || canTravelLog || canReceipts || canLiveOrders) && (
+            {canLiveOrders ? (
+              <Link href="/employee/live-orders" className="site-link" style={pill()}>
+                Live Orders
+              </Link>
+            ) : null}
+
+            {(canOfficeEntry || canTravelLog || canReceipts) && (
               <details data-maintenance-dropdown style={detailsStyle}>
                 <summary style={summaryStyle}>Operations</summary>
                 <div style={menuStyle}>
@@ -278,11 +293,6 @@ export default async function MaintenanceLayout({ children }: { children: ReactN
                   {canReceipts ? (
                     <Link href="/maintenance/receipts" style={menuItemStyle}>
                       Receipts
-                    </Link>
-                  ) : null}
-                  {canLiveOrders ? (
-                    <Link href="/employee/live-orders" style={menuItemStyle}>
-                      Live Orders
                     </Link>
                   ) : null}
                 </div>

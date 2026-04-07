@@ -12,11 +12,10 @@ import { loadUserPermissions, hasAnyPermission } from "@/app/lib/permissions";
 import LiveOrdersBoardControls from "@/app/components/LiveOrdersBoardControls";
 import { Permission, Role } from "@prisma/client";
 import { buildLiveOrderWaiterMap } from "@/app/lib/live-order-notifications";
+import { loadAppConfig } from "@/app/lib/app-config";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const LIVE_BOARD_RETENTION_DAYS = 14;
 
 type AdminSession = {
   user?: {
@@ -87,10 +86,13 @@ function fmtDate(d: Date | null | undefined) {
   }
 }
 
-function getLiveBoardRemovalDate(order: { status: string; addedToInventoryAt: Date | null; orderedAt: Date }): Date | null {
+function getLiveBoardRemovalDate(
+  order: { status: string; addedToInventoryAt: Date | null; orderedAt: Date },
+  retentionDays: number,
+): Date | null {
   if (order.status !== "ADDED_TO_INVENTORY") return null;
   const anchor = order.addedToInventoryAt ?? order.orderedAt;
-  return new Date(anchor.getTime() + LIVE_BOARD_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  return new Date(anchor.getTime() + retentionDays * 24 * 60 * 60 * 1000);
 }
 
 function fmtMoney(v: unknown) {
@@ -131,7 +133,10 @@ function phaseTextStyle(phase: string): CSSProperties {
 }
 
 export default async function LiveOrdersPage() {
-  const { canEdit } = await requireLiveOrdersAccess();
+  const { canEdit, session } = await requireLiveOrdersAccess();
+  const { config: appConfig } = await loadAppConfig();
+  const retentionDays = appConfig.liveOrdersAddedRetentionDays;
+  const retentionCutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
 
   async function setHiddenFromUserBoardAction(formData: FormData) {
     "use server";
@@ -157,6 +162,21 @@ export default async function LiveOrdersPage() {
   }
 
   const orders = await prisma.inventoryOrder.findMany({
+    where: {
+      OR: [
+        { status: { not: "ADDED_TO_INVENTORY" } },
+        {
+          status: "ADDED_TO_INVENTORY",
+          OR: [
+            { addedToInventoryAt: { gte: retentionCutoff } },
+            {
+              addedToInventoryAt: null,
+              orderedAt: { gte: retentionCutoff },
+            },
+          ],
+        },
+      ],
+    },
     orderBy: { orderedAt: "desc" },
     take: 100,
     include: {
@@ -324,7 +344,7 @@ export default async function LiveOrdersPage() {
         <div>
           <h1 style={h1}>Admin: Live Orders</h1>
           <div style={muted}>
-            Shows last 100 orders. Use “Hide” to remove an order from the general-user Live Orders board.
+            Shows the last 100 qualifying orders. Added-to-inventory rows stay visible for {retentionDays} day{retentionDays === 1 ? "" : "s"}. Use “Hide” to remove an order from the general-user Live Orders board.
           </div>
         </div>
 
@@ -361,7 +381,7 @@ export default async function LiveOrdersPage() {
           <tbody>
             {orders.map((o) => {
               const hidden = (o as any).hiddenFromUserLiveBoard === true;
-              const removalDate = getLiveBoardRemovalDate(o);
+              const removalDate = getLiveBoardRemovalDate(o, retentionDays);
               const waiters = waitersByOrderId[o.id] ?? [];
 
               return (

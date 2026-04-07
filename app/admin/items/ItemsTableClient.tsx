@@ -480,6 +480,7 @@ export default function ItemsTableClient({
   perPage,
   total,
   vendorFormulas,
+  canEdit = true,
 }: {
   initialItems: ItemRow[];
   createdSku: string | null;
@@ -489,6 +490,7 @@ export default function ItemsTableClient({
 
   // ✅ ONE formula per vendor (passed from server)
   vendorFormulas: Record<Vendor, string>;
+  canEdit?: boolean;
 }) {
   type ActionsMenuPosition = { top: number; left: number };
 
@@ -1190,7 +1192,7 @@ export default function ItemsTableClient({
       ) : null}
 
       {/* Bulk actions strip */}
-      {selectedOnPage.length > 0 ? (
+      {canEdit && selectedOnPage.length > 0 ? (
         <div
           style={{
             padding: 10,
@@ -1431,28 +1433,30 @@ export default function ItemsTableClient({
         <table data-items-table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "auto" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--border)" }}>
-              <th
-                style={{
-                  width: 44,
-                  textAlign: "left",
-                  padding: 10,
-                  fontWeight: 700,
-                  fontSize: 13,
-                  color: "var(--text)",
-                  whiteSpace: "nowrap",
-                  background: surface,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  aria-label="Select all on this page"
-                  checked={allOnPageSelected}
-                  ref={(el) => {
-                    if (el) el.indeterminate = !allOnPageSelected && anyOnPageSelected;
+              {canEdit ? (
+                <th
+                  style={{
+                    width: 44,
+                    textAlign: "left",
+                    padding: 10,
+                    fontWeight: 700,
+                    fontSize: 13,
+                    color: "var(--text)",
+                    whiteSpace: "nowrap",
+                    background: surface,
                   }}
-                  onChange={(e) => toggleAllOnPage(e.target.checked)}
-                />
-              </th>
+                >
+                  <input
+                    type="checkbox"
+                    aria-label="Select all on this page"
+                    checked={allOnPageSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = !allOnPageSelected && anyOnPageSelected;
+                    }}
+                    onChange={(e) => toggleAllOnPage(e.target.checked)}
+                  />
+                </th>
+              ) : null}
 
               {[
                 "Part #",
@@ -1466,7 +1470,7 @@ export default function ItemsTableClient({
                 "Taxable",
                 "Active",
                 "Updated",
-                "Actions",
+                ...(canEdit ? ["Actions"] : []),
               ].map((h) => (
                 <th
                   key={h}
@@ -1532,20 +1536,22 @@ export default function ItemsTableClient({
                       background: isCreated ? surface2 : "transparent",
                     }}
                   >
-                    <td style={{ padding: 10 }}>
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={(e) =>
-                          setSelectedIds((prev) => ({
-                            ...prev,
-                            [row.id]: e.target.checked,
-                          }))
-                        }
-                        aria-label={`Select ${row.sku}`}
-                        disabled={bulkBusy}
-                      />
-                    </td>
+                    {canEdit ? (
+                      <td style={{ padding: 10 }}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) =>
+                            setSelectedIds((prev) => ({
+                              ...prev,
+                              [row.id]: e.target.checked,
+                            }))
+                          }
+                          aria-label={`Select ${row.sku}`}
+                          disabled={bulkBusy}
+                        />
+                      </td>
+                    ) : null}
 
                     <td style={{ padding: 10, whiteSpace: "nowrap" }}>
                       {isEditing ? (
@@ -1734,15 +1740,16 @@ export default function ItemsTableClient({
                       {new Date(row.updatedAt).toLocaleString()}
                     </td>
 
-                    <td
-                      style={{
-                        padding: 10,
-                        whiteSpace: "nowrap",
-                        minWidth: 150,
-                        overflowWrap: "normal",
-                        wordBreak: "normal",
-                      }}
-                    >
+                    {canEdit ? (
+                      <td
+                        style={{
+                          padding: 10,
+                          whiteSpace: "nowrap",
+                          minWidth: 150,
+                          overflowWrap: "normal",
+                          wordBreak: "normal",
+                        }}
+                      >
                       {isEditing ? (
                         <div style={{ display: "flex", gap: 8 }}>
                           <button
@@ -2048,7 +2055,8 @@ export default function ItemsTableClient({
                           ) : null}
                         </>
                       )}
-                    </td>
+                      </td>
+                    ) : null}
                   </tr>
 
                   {/* Detail row */}

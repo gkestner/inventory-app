@@ -7,6 +7,7 @@ import { Permission } from "@prisma/client";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { VIEW_INVENTORY } from "@/app/lib/permission-constants";
 
 export const dynamic = "force-dynamic";
 
@@ -32,12 +33,14 @@ export default async function EmployeeHomePage() {
       Permission.SUBMIT_OWN_WORK_ORDERS,
     ]);
   const canTravelLog = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
+  const canInventory = perms.allowAll || hasAnyPermission(perms, [VIEW_INVENTORY, Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
 
   const canSeeEmployeeDashboard =
     perms.allowAll ||
     hasAnyPermission(perms, [
       Permission.VIEW_HOME,
       Permission.VIEW_CHECKOUT,
+      VIEW_INVENTORY,
       Permission.VIEW_ROOM_DIAGRAMS,
       Permission.EDIT_QUICK_COUNT,
       Permission.VIEW_LIVE_ORDERS,
@@ -135,6 +138,24 @@ export default async function EmployeeHomePage() {
               }}
             >
               Travel Log
+            </Link>
+          ) : null}
+
+          {canInventory ? (
+            <Link
+              href="/inventory"
+              style={{
+                display: "inline-block",
+                padding: "8px 14px",
+                borderRadius: 10,
+                border,
+                background: "var(--surface-2)",
+                color: "var(--foreground)",
+                fontWeight: 800,
+                textDecoration: "none",
+              }}
+            >
+              Inventory
             </Link>
           ) : null}
 

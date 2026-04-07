@@ -23,6 +23,7 @@ enum Permission {
 
   VIEW_CHECKOUT
   CREATE_CHECKOUT
+  VIEW_INVENTORY
   VIEW_ROOM_DIAGRAMS
   EDIT_QUICK_COUNT
 
@@ -1315,6 +1316,16 @@ model InvoiceVendorConfig {
 
   taxRatePct Decimal @db.Decimal(5, 2) @default(0)
   taxFormula String  @default("lineSubtotal * (taxRatePct / 100)")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AppConfig {
+  id String @id
+
+  liveOrdersAddedRetentionDays Int @default(14)
+  orderHistoryPerPage          Int @default(25)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

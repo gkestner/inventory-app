@@ -6,7 +6,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/lib/auth";
 import { Permission } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import { CREATE_WORK_ORDERS_FOR_OTHERS } from "@/app/lib/permission-constants";
+import { CREATE_WORK_ORDERS_FOR_OTHERS, VIEW_INVENTORY } from "@/app/lib/permission-constants";
 import LogoutSlot from "@/app/components/LogoutSlot";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +33,7 @@ export default async function TopNav() {
   const canWorkOrders = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_WORK_ORDERS]);
   const canOfficeEntry = perms.allowAll || hasAnyPermission(perms, [CREATE_WORK_ORDERS_FOR_OTHERS]);
   const canCheckout = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
+  const canInventory = perms.allowAll || hasAnyPermission(perms, [VIEW_INVENTORY, Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
   const canRoomDiagrams = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_ROOM_DIAGRAMS, Permission.EDIT_QUICK_COUNT]);
   const canQuickCountEditor = perms.allowAll || hasAnyPermission(perms, [Permission.EDIT_QUICK_COUNT]);
 
@@ -72,6 +73,12 @@ export default async function TopNav() {
           {canCheckout ? (
             <Link href="/maintenance/checkout" className="site-link" style={linkStyle}>
               Checkout
+            </Link>
+          ) : null}
+
+          {canInventory ? (
+            <Link href="/inventory" className="site-link" style={linkStyle}>
+              Inventory
             </Link>
           ) : null}
 

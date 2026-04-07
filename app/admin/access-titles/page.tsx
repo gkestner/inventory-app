@@ -29,6 +29,7 @@ import {
   RECEIVE_NOTIFICATION_WORK_ORDER_SCHEDULES,
   VIEW_COMPANY_VEHICLE_LOG,
   VIEW_EQUIPMENT_TRACKING,
+  VIEW_INVENTORY,
   VIEW_MAINTENANCE_REQUESTS,
   VIEW_PREVENTATIVE_MAINTENANCE,
   VIEW_RECEIPTS,
@@ -156,6 +157,12 @@ const PERMS: PermMeta[] = [
     module: "Inventory",
     group: "Checkout",
     label: "View Checkout",
+  },
+  {
+    perm: VIEW_INVENTORY,
+    module: "Inventory",
+    group: "Items",
+    label: "View Inventory (read-only)",
   },
   {
     perm: Permission.CREATE_CHECKOUT,

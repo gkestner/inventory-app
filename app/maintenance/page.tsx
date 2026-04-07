@@ -12,6 +12,7 @@ import {
   CREATE_WORK_ORDERS_FOR_OTHERS,
   VIEW_COMPANY_VEHICLE_LOG,
   VIEW_EQUIPMENT_TRACKING,
+  VIEW_INVENTORY,
   VIEW_MAINTENANCE_REQUESTS,
   VIEW_PREVENTATIVE_MAINTENANCE,
   VIEW_RECEIPTS,
@@ -37,6 +38,7 @@ export default async function MaintenanceHomePage() {
   const perms = await loadUserPermissions(session);
 
   const canCheckout = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
+  const canInventory = perms.allowAll || hasAnyPermission(perms, [VIEW_INVENTORY, Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
   const canWorkOrders =
     perms.allowAll ||
     hasAnyPermission(perms, [
@@ -265,6 +267,18 @@ export default async function MaintenanceHomePage() {
               </p>
               <Link href="/employee/live-orders" style={action}>
                 Open Live Orders
+              </Link>
+            </article>
+          ) : null}
+
+          {canInventory ? (
+            <article style={card}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Inventory</h2>
+              <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.5 }}>
+                Browse inventory details in a read-only view without edit controls.
+              </p>
+              <Link href="/inventory" style={action}>
+                Open Inventory
               </Link>
             </article>
           ) : null}
