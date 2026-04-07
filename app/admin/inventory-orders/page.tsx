@@ -397,7 +397,7 @@ export default async function AdminInventoryOrdersPage({
       });
 
       if (!result.saved) {
-        redirect(withQuery(back, { configError: "Global settings are not available until the app-config migration is applied." }));
+        redirect(withQuery(back, { configError: result.error ?? "Failed to save app-wide display settings." }));
       }
 
       revalidatePath("/admin/inventory-orders");

@@ -8,6 +8,18 @@ export type AppConfig = {
   orderHistoryPerPage: OrderHistoryPerPage;
 };
 
+type AppConfigResult = {
+  config: AppConfig;
+  isAvailable: boolean;
+  error?: string;
+};
+
+type SaveAppConfigResult = {
+  config: AppConfig;
+  saved: boolean;
+  error?: string;
+};
+
 export const DEFAULT_APP_CONFIG: AppConfig = {
   liveOrdersAddedRetentionDays: 14,
   orderHistoryPerPage: 25,
@@ -61,9 +73,20 @@ function getAppConfigClient(): AppConfigDelegate | null {
   };
 }
 
-export async function loadAppConfig(): Promise<{ config: AppConfig; isAvailable: boolean }> {
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) return error.message.trim();
+  return fallback;
+}
+
+export async function loadAppConfig(): Promise<AppConfigResult> {
   const client = getAppConfigClient();
-  if (!client) return { config: DEFAULT_APP_CONFIG, isAvailable: false };
+  if (!client) {
+    return {
+      config: DEFAULT_APP_CONFIG,
+      isAvailable: false,
+      error: "The running Prisma client does not include the AppConfig model. Restart or redeploy the app after generating Prisma client.",
+    };
+  }
 
   try {
     const row = await client.findUnique({
@@ -78,15 +101,25 @@ export async function loadAppConfig(): Promise<{ config: AppConfig; isAvailable:
       config: normalizeAppConfig(row ?? DEFAULT_APP_CONFIG),
       isAvailable: true,
     };
-  } catch {
-    return { config: DEFAULT_APP_CONFIG, isAvailable: false };
+  } catch (error) {
+    return {
+      config: DEFAULT_APP_CONFIG,
+      isAvailable: false,
+      error: getErrorMessage(error, "Failed to load app-wide display settings."),
+    };
   }
 }
 
-export async function saveAppConfig(raw: unknown): Promise<{ config: AppConfig; saved: boolean }> {
+export async function saveAppConfig(raw: unknown): Promise<SaveAppConfigResult> {
   const next = normalizeAppConfig(raw);
   const client = getAppConfigClient();
-  if (!client) return { config: next, saved: false };
+  if (!client) {
+    return {
+      config: next,
+      saved: false,
+      error: "The running Prisma client does not include the AppConfig model. Restart or redeploy the app after generating Prisma client.",
+    };
+  }
 
   try {
     await client.upsert({
@@ -103,7 +136,11 @@ export async function saveAppConfig(raw: unknown): Promise<{ config: AppConfig; 
     });
 
     return { config: next, saved: true };
-  } catch {
-    return { config: next, saved: false };
+  } catch (error) {
+    return {
+      config: next,
+      saved: false,
+      error: getErrorMessage(error, "Failed to save app-wide display settings."),
+    };
   }
 }
