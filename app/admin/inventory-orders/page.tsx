@@ -104,6 +104,12 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
+function isNextRedirectError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const digest = (error as { digest?: unknown }).digest;
+  return typeof digest === "string" && digest.startsWith("NEXT_REDIRECT");
+}
+
 function parseOptionalInt(v: FormDataEntryValue | null): number | null {
   if (v === null) return null;
   const s = String(v).trim();
@@ -378,6 +384,9 @@ export default async function AdminInventoryOrdersPage({
   async function saveDisplaySettingsFormAction(formData: FormData) {
     "use server";
 
+    const h = await headers();
+    const back = safeReturnToPathFromReferer(h.get("referer"));
+
     try {
       await requireOrderHistoryEdit();
 
@@ -392,9 +401,6 @@ export default async function AdminInventoryOrdersPage({
         orderHistoryPerPage,
       });
 
-      const h = await headers();
-      const back = safeReturnToPathFromReferer(h.get("referer"));
-
       if (!result.saved) {
         redirect(withQuery(back, { configError: "Global settings are not available until the app-config migration is applied." }));
       }
@@ -404,8 +410,10 @@ export default async function AdminInventoryOrdersPage({
       revalidatePath("/employee/live-orders");
       redirect(withQuery(back, { configOk: "1" }));
     } catch (error) {
-      const h = await headers();
-      const back = safeReturnToPathFromReferer(h.get("referer"));
+      if (isNextRedirectError(error)) {
+        throw error;
+      }
+
       const msg = error instanceof Error ? error.message : "Failed to save display settings.";
       redirect(withQuery(back, { configError: msg }));
     }
