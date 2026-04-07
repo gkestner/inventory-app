@@ -584,17 +584,6 @@ export default function ItemsTableClient({
   }, []);
 
   useEffect(() => {
-    const nextQ = (qInput || "").trim();
-    if (nextQ === urlQ) return;
-
-    const timeoutId = window.setTimeout(() => {
-      applySearch(nextQ);
-    }, 250);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [qInput, urlQ]);
-
-  useEffect(() => {
     if (!openActionsForId) return;
 
     const closeMenu = () => {
@@ -1379,7 +1368,7 @@ export default function ItemsTableClient({
             }}
             title="Optional: reload page with server-side q param"
           >
-            {searchSyncPending ? "Searching..." : "Search"}
+            {searchSyncPending ? "Apply Search" : "Search"}
           </button>
           <button
             type="button"
