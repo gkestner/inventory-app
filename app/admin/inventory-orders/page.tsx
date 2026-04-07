@@ -85,6 +85,7 @@ const PHASES: InventoryOrderPhase[] = ["ORDERED", "ARRIVED", "ADDED_TO_INVENTORY
 type SearchParams = {
   q?: string;
   phase?: string;
+  showAdded?: string;
   itemId?: string;
   supplier?: string;
   forStoreId?: string;
@@ -493,6 +494,7 @@ export default async function AdminInventoryOrdersPage({
 
   const phaseRaw = (sp.phase ?? "").trim().toUpperCase();
   const phase: InventoryOrderPhase | "" = (PHASES as readonly string[]).includes(phaseRaw) ? (phaseRaw as InventoryOrderPhase) : "";
+  const showAddedToInventory = (sp.showAdded ?? "").trim() === "1" || phase === "ADDED_TO_INVENTORY";
 
   const itemId = (sp.itemId ?? "").trim();
   const supplier = (sp.supplier ?? "").trim();
@@ -564,6 +566,7 @@ export default async function AdminInventoryOrdersPage({
 
   const where: Prisma.InventoryOrderWhereInput = {};
   if (phase) where.status = phase;
+  else if (!showAddedToInventory) where.status = { not: "ADDED_TO_INVENTORY" };
   if (itemId) where.itemId = itemId;
   if (supplier) where.supplierName = { contains: supplier, mode: "insensitive" };
   if (forStoreId) where.forStoreId = forStoreId;
@@ -628,6 +631,21 @@ export default async function AdminInventoryOrdersPage({
       }))
     )
   ) as ItemLite[];
+
+  const toggleAddedParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(sp)) {
+    if (value === undefined || value === null) continue;
+    const nextValue = String(value).trim();
+    if (!nextValue || key === "showAdded" || key === "page") continue;
+    toggleAddedParams.set(key, nextValue);
+  }
+  if (!showAddedToInventory && phase !== "ADDED_TO_INVENTORY") {
+    toggleAddedParams.set("showAdded", "1");
+  }
+  const toggleAddedHref = (() => {
+    const qs = toggleAddedParams.toString();
+    return qs ? `/admin/inventory-orders?${qs}` : "/admin/inventory-orders";
+  })();
 
   const pageCount = Math.max(1, Math.ceil(total / perPage));
 
@@ -1576,6 +1594,28 @@ export default async function AdminInventoryOrdersPage({
             pageCount,
           }}
         />
+
+        <div
+          style={{
+            marginTop: 12,
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            padding: 12,
+            border,
+            borderRadius: 14,
+            background: surface,
+          }}
+        >
+          <div style={{ fontSize: 13, opacity: 0.82, lineHeight: 1.4 }}>
+            Added-to-inventory rows are {showAddedToInventory ? "visible" : "hidden"} on this page by default. This toggle only changes Order History.
+          </div>
+          <Link href={toggleAddedHref} style={{ ...btn, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+            {showAddedToInventory ? "Hide Added to Inventory" : "Show Added to Inventory"}
+          </Link>
+        </div>
 
         {/* Responsive “no overlap, no horizontal scroll” layout */}
         <style>{`
