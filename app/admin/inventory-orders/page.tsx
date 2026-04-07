@@ -639,7 +639,7 @@ export default async function AdminInventoryOrdersPage({
     if (!nextValue || key === "showAdded" || key === "page") continue;
     toggleAddedParams.set(key, nextValue);
   }
-  if (!showAddedToInventory && phase !== "ADDED_TO_INVENTORY") {
+  if (!showAddedToInventory) {
     toggleAddedParams.set("showAdded", "1");
   }
   const toggleAddedHref = (() => {
