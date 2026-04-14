@@ -441,24 +441,41 @@ body:has(.labels-page) .admin-layout-content {
   color: #d4a017;
 }
 
-.labels-page .label {
-  width: var(--w);
-  height: var(--h);
-  box-sizing: border-box;
-  border: var(--b) solid #000;
+.labels-page .labels-list {
   display: grid;
-  grid-template-rows: 0.16in 1fr 0.17in;
+  justify-content: start;
+}
+
+.labels-page .label {
+  width: 3.5in;
+  height: 1.125in;
+  box-sizing: border-box;
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+  display: block;
   overflow: hidden;
   border-radius: 0;
   background: #fff;
-  margin: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+  margin: 0;
   page-break-after: always;
   break-after: page;
+  page-break-inside: avoid;
+  break-inside: avoid-page;
 }
 
 .labels-page .label:last-of-type {
   page-break-after: auto;
   break-after: auto;
+}
+
+.labels-page .label-frame {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: var(--b) solid #000;
+  display: grid;
+  grid-template-rows: 0.16in 1fr 0.17in;
+  overflow: hidden;
+  background: #fff;
 }
 
 .labels-page .sku {
@@ -632,6 +649,14 @@ html[data-live-orders-fullscreen="true"] .live-orders-interactive {
 }
 
 @media print {
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
   body.labels-print-mode > :not(.app-content-shell) {
     display: none !important;
   }
@@ -666,6 +691,14 @@ html[data-live-orders-fullscreen="true"] .live-orders-interactive {
   }
 
   body.labels-print-mode .app-content-shell,
+  body.labels-print-mode .admin-layout-grid,
+  body.labels-print-mode .admin-layout-main,
+  body.labels-print-mode .admin-layout-content {
+    min-height: auto !important;
+    height: auto !important;
+  }
+
+  body.labels-print-mode .app-content-shell,
   body.labels-print-mode .app-content-shell > :has(.labels-page),
   body.labels-print-mode .labels-page {
     display: block !important;
@@ -678,6 +711,10 @@ html[data-live-orders-fullscreen="true"] .live-orders-interactive {
     overflow: visible !important;
     background: #fff !important;
     color: #000 !important;
+    width: 3.5in !important;
+    max-width: 3.5in !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
 
   .labels-page {
@@ -685,6 +722,14 @@ html[data-live-orders-fullscreen="true"] .live-orders-interactive {
     inset: auto;
     z-index: auto;
     overflow: visible;
+  }
+
+  .labels-page .labels-list {
+    display: block !important;
+  }
+
+  .labels-page .label {
+    margin: 0 !important;
   }
 
   .labels-page .bar {

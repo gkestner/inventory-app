@@ -156,41 +156,45 @@ export default async function ItemLabelsPage({
         {printable.length === 0 ? (
           <div style={{ padding: 14, fontSize: 14 }}>No items selected.</div>
         ) : (
-          printable.map((item) => {
-            const labelId = getItemLabelNumberDisplay(item.labelNumber) ?? "UNASSIGNED";
-            const nameText = String(item.name ?? "")
-              .toUpperCase()
-              .replace(/\s+/g, " ")
-              .trim()
-              .slice(0, 40);
-            const nameSize = nameFontSizePx(nameText);
-            const partText = String(item.partNumber ?? "—").slice(0, 16);
-            return (
-              <div className="label" key={`${item.id}-${(item as any).__copy}`}>
-                <div className="sku">SKU: {item.sku}</div>
+          <div className="labels-list">
+            {printable.map((item) => {
+              const labelId = getItemLabelNumberDisplay(item.labelNumber) ?? "UNASSIGNED";
+              const nameText = String(item.name ?? "")
+                .toUpperCase()
+                .replace(/\s+/g, " ")
+                .trim()
+                .slice(0, 40);
+              const nameSize = nameFontSizePx(nameText);
+              const partText = String(item.partNumber ?? "—").slice(0, 16);
+              return (
+                <div className="label" key={`${item.id}-${(item as any).__copy}`}>
+                  <div className="label-frame">
+                    <div className="sku">SKU: {item.sku}</div>
 
-                <div className="mid">
-                  <div className="qr">
-                    <img src={qrImageUrl(item.id)} alt={`Item ID: ${item.id}`} />
-                  </div>
+                    <div className="mid">
+                      <div className="qr">
+                        <img src={qrImageUrl(item.id)} alt={`Item ID: ${item.id}`} />
+                      </div>
 
-                  <div className="nameblock">
-                    <div className="name" style={{ fontSize: `${nameSize}px` }}>
-                      {nameText}
+                      <div className="nameblock">
+                        <div className="name" style={{ fontSize: `${nameSize}px` }}>
+                          {nameText}
+                        </div>
+                        {item.description ? (
+                          <div className="desc">({item.description})</div>
+                        ) : null}
+                      </div>
                     </div>
-                    {item.description ? (
-                      <div className="desc">({item.description})</div>
-                    ) : null}
+
+                    <div className="bottom">
+                      <span className="idbox">ITEM# {labelId}</span>
+                      <span className="part">PART# {partText}</span>
+                    </div>
                   </div>
                 </div>
-
-                <div className="bottom">
-                  <span className="idbox">ITEM# {labelId}</span>
-                  <span className="part">PART# {partText}</span>
-                </div>
-              </div>
-            );
-          })
+              );
+            })}
+          </div>
         )}
 
         <Script
