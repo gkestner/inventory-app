@@ -551,8 +551,8 @@ export async function createInvoicesForWindow(args: {
 }): Promise<{ results: Array<{ storeId: string; invoiceId?: string; created?: boolean; reason?: string }> }> {
   // IMPORTANT behavior:
   // - If admin selects AMERICAN_PLUS: only invoice AMERICAN_PLUS tickets
-  // - If admin selects SUCCESS_PLUS: invoice BOTH vendors based on ticket.vendorSnapshot
-  //   (this is what allows "american plus" labeled items to generate American Plus invoices automatically)
+  // - If admin selects SUCCESS_PLUS: invoice all eligible tickets into one store invoice
+  // - Grouping is by store only, so mixed checkout dates and mixed effective vendors stay on the same invoice
   const requestedVendor = normalizeVendor(args.vendor);
 
   const periodStart = args.periodStart ? new Date(args.periodStart) : null;
@@ -616,21 +616,17 @@ export async function createInvoicesForWindow(args: {
     return { results: [] };
   }
 
-  // Group by (storeId, effectiveVendor)
+  // Group by store only.
   type Ticket = (typeof tickets)[number];
-  const byStoreVendor = new Map<string, Ticket[]>();
+  const byStore = new Map<string, Ticket[]>();
 
   for (const t of tickets) {
-    const v = effectiveTicketVendor(t);
-    const key = `${t.storeId}::${v}`;
-    const arr = byStoreVendor.get(key) ?? [];
+    const arr = byStore.get(t.storeId) ?? [];
     arr.push(t);
-    byStoreVendor.set(key, arr);
+    byStore.set(t.storeId, arr);
   }
 
-  const storeIds = Array.from(
-    new Set(Array.from(byStoreVendor.keys()).map((k) => k.split("::")[0]).filter(Boolean))
-  );
+  const storeIds = Array.from(new Set(Array.from(byStore.keys()).filter(Boolean)));
 
   const locations = await prisma.location.findMany({
     where: { id: { in: storeIds } },
@@ -642,10 +638,9 @@ export async function createInvoicesForWindow(args: {
   const results: Array<{ storeId: string; invoiceId?: string; created?: boolean; reason?: string }> = [];
   const successfulInvoiceIds: string[] = [];
 
-  // Process each (store, vendor) group in its own transaction
-  for (const [key, storeVendorTickets] of byStoreVendor.entries()) {
-    const [storeId, vendorRaw] = key.split("::");
-    const vendor = normalizeVendor(vendorRaw);
+  // Process each store group in its own transaction.
+  for (const [storeId, storeTickets] of byStore.entries()) {
+    const invoiceVendor = requestedVendor;
 
     const loc = locById.get(storeId);
 
@@ -664,18 +659,15 @@ export async function createInvoicesForWindow(args: {
       continue;
     }
 
-    if (storeVendorTickets.length === 0) {
+    if (storeTickets.length === 0) {
       results.push({ storeId, created: false, reason: "No tickets" });
       continue;
     }
 
-    // Load correct vendor-specific formulas/settings
-    const cfg = await loadVendorPricingAndTaxConfig(vendor);
-
     try {
       const created = await prisma.$transaction(async (tx) => {
         // Re-read the same tickets inside the transaction to avoid racing with another generation run.
-        const ids = storeVendorTickets.map((t) => t.id);
+        const ids = storeTickets.map((t) => t.id);
 
         const freshAll = await tx.partsCheckoutTicket.findMany({
           where: {
@@ -701,14 +693,29 @@ export async function createInvoicesForWindow(args: {
           orderBy: [{ createdAt: "asc" }],
         });
 
-                const fresh = freshAll.filter((t) => effectiveTicketVendor(t) === vendor);
+        const fresh =
+          invoiceVendor === InvoiceVendor.AMERICAN_PLUS
+            ? freshAll.filter((t) => effectiveTicketVendor(t) === InvoiceVendor.AMERICAN_PLUS)
+            : freshAll;
 
         if (fresh.length === 0) {
           return { invoiceId: undefined as string | undefined, created: false, reason: "No eligible tickets" };
         }
 
+        const pricingVendors = Array.from(new Set(fresh.map((t) => effectiveTicketVendor(t))));
+        const pricingConfigEntries = await Promise.all(
+          pricingVendors.map(async (vendor) => [vendor, await loadVendorPricingAndTaxConfig(vendor)] as const)
+        );
+        const pricingConfigByVendor = new Map(pricingConfigEntries);
+
         const lineBuild = await Promise.all(
           fresh.map(async (t) => {
+            const ticketVendor = effectiveTicketVendor(t);
+            const cfg = pricingConfigByVendor.get(ticketVendor);
+            if (!cfg) {
+              throw new Error(`Missing pricing config for vendor ${ticketVendor}`);
+            }
+
             const cost = Math.max(0, toNumberLoose(t.costSnapshot));
             const qtyRaw = toNumberLoose(t.quantity);
             const qty = Math.max(0, qtyRaw);
@@ -767,7 +774,7 @@ export async function createInvoicesForWindow(args: {
 
         const invoice = await tx.invoice.create({
           data: {
-            vendor,
+            vendor: invoiceVendor,
             vendorNumber: "N/A",
             billedTo: `${storeNumber} ${loc.name}`,
             storeId,

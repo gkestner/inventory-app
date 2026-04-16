@@ -258,31 +258,27 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
           html, body {
             margin: 0 !important;
             padding: 0 !important;
+            background: #fff !important;
           }
 
-          .admin-layout-sidebar,
-          .admin-layout-topbar,
-          .app-preview-controls,
+          body * {
+            visibility: hidden !important;
+          }
+
+          #print-root,
+          #print-root * {
+            visibility: visible !important;
+          }
+
+          #print-root {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+          }
+
           .no-print {
             display: none !important;
-          }
-
-          .admin-layout-grid {
-            display: block !important;
-            padding: 0 !important;
-            gap: 0 !important;
-          }
-
-          .admin-layout-main {
-            border: 0 !important;
-            border-radius: 0 !important;
-            box-shadow: none !important;
-            background: #fff !important;
-            overflow: visible !important;
-          }
-
-          .admin-layout-content {
-            padding: 0 !important;
           }
 
           .sheet {
