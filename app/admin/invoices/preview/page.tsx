@@ -441,6 +441,7 @@ export default async function InvoicePreviewPage({
                 </div>
               </div>
             </div>
+          </div>
         )}
       </div>
     </main>
