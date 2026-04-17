@@ -93,7 +93,7 @@ type PreviewLine = {
   taxable: boolean;
 };
 
-type PreviewInvoice = {
+type VendorGroup = {
   vendor: InvoiceVendor;
   storeName: string;
   storeNumber: string;
@@ -164,93 +164,92 @@ export default async function InvoicePreviewPage({
 
   const storeNumber = String(location.locationNumber ?? "").trim();
   const storeName = location.name;
-  const invoiceVendor = vendorFilter === "AMERICAN_PLUS" ? InvoiceVendor.AMERICAN_PLUS : InvoiceVendor.SUCCESS_PLUS;
 
-  const includedTickets = tickets.filter((t) => {
-    const ticketVendor = effectiveTicketVendor(t);
-    return ticketVendor === invoiceVendor;
-  });
+  // Group by effective vendor
+  const byVendor = new Map<InvoiceVendor, typeof tickets>();
+  for (const t of tickets) {
+    const v = effectiveTicketVendor(t);
+    // Apply vendor filter if specified
+    if (vendorFilter === "AMERICAN_PLUS" && v !== InvoiceVendor.AMERICAN_PLUS) continue;
+    const arr = byVendor.get(v) ?? [];
+    arr.push(t);
+    byVendor.set(v, arr);
+  }
 
-  const pricingVendors = Array.from(new Set(includedTickets.map((t) => effectiveTicketVendor(t))));
-  const pricingConfigEntries = await Promise.all(
-    pricingVendors.map(async (vendor) => [vendor, await loadVendorPricingAndTaxConfig(vendor)] as const)
-  );
-  const pricingConfigByVendor = new Map(pricingConfigEntries);
+  // Calculate line items per vendor group
+  const vendorGroups: VendorGroup[] = [];
 
-  const lines: PreviewLine[] = [];
-  let subtotalCents = 0;
-  let taxCents = 0;
+  for (const [vendor, vTickets] of byVendor.entries()) {
+    const cfg = await loadVendorPricingAndTaxConfig(vendor);
 
-  for (const t of includedTickets) {
-    const ticketVendor = effectiveTicketVendor(t);
-    const cfg = pricingConfigByVendor.get(ticketVendor);
-    if (!cfg) continue;
+    const lines: PreviewLine[] = [];
+    let subtotalCents = 0;
+    let taxCents = 0;
 
-    const cost = Math.max(0, toNum(t.costSnapshot));
-    const qty = Math.max(0, toNum(t.quantity));
+    for (const t of vTickets) {
+      const cost = Math.max(0, toNum(t.costSnapshot));
+      const qty = Math.max(0, toNum(t.quantity));
 
-    let unitPrice = 0;
-    try {
-      unitPrice = round2(
-        await evaluatePartsPriceFormula(cfg.partsPriceFormula, {
-          cost,
-          partsUpchargePct: cfg.partsUpchargePct,
-        })
-      );
-    } catch {
-      unitPrice = round2(cost);
-    }
-
-    const lineSubtotal = round2(unitPrice * qty);
-
-    let lineTax = 0;
-    if (t.taxableSnapshot) {
+      let unitPrice = 0;
       try {
-        lineTax = round2(
-          await evaluateTaxFormula(cfg.taxFormula, {
-            lineSubtotal,
-            taxRatePct: cfg.taxRatePct,
-            quantity: qty,
-            unitPrice,
+        unitPrice = round2(
+          await evaluatePartsPriceFormula(cfg.partsPriceFormula, {
+            cost,
+            partsUpchargePct: cfg.partsUpchargePct,
           })
         );
       } catch {
-        lineTax = 0;
+        unitPrice = round2(cost);
       }
+
+      const lineSubtotal = round2(unitPrice * qty);
+
+      let lineTax = 0;
+      if (t.taxableSnapshot) {
+        try {
+          lineTax = round2(
+            await evaluateTaxFormula(cfg.taxFormula, {
+              lineSubtotal,
+              taxRatePct: cfg.taxRatePct,
+              quantity: qty,
+              unitPrice,
+            })
+          );
+        } catch {
+          lineTax = 0;
+        }
+      }
+
+      const lineTotal = round2(lineSubtotal + lineTax);
+
+      subtotalCents += Math.round(lineSubtotal * 100);
+      taxCents += Math.round(lineTax * 100);
+
+      lines.push({
+        id: t.id,
+        submittedAt: t.createdAt,
+        sku: t.skuSnapshot,
+        partNumber: t.partNumberSnapshot ?? null,
+        name: t.nameSnapshot,
+        quantity: qty,
+        unitPrice,
+        lineSubtotal,
+        lineTax,
+        lineTotal,
+        taxable: t.taxableSnapshot,
+      });
     }
 
-    const lineTotal = round2(lineSubtotal + lineTax);
-
-    subtotalCents += Math.round(lineSubtotal * 100);
-    taxCents += Math.round(lineTax * 100);
-
-    lines.push({
-      id: t.id,
-      submittedAt: t.createdAt,
-      sku: t.skuSnapshot,
-      partNumber: t.partNumberSnapshot ?? null,
-      name: t.nameSnapshot,
-      quantity: qty,
-      unitPrice,
-      lineSubtotal,
-      lineTax,
-      lineTotal,
-      taxable: t.taxableSnapshot,
+    vendorGroups.push({
+      vendor,
+      storeName,
+      storeNumber,
+      lines,
+      subtotal: subtotalCents / 100,
+      taxTotal: taxCents / 100,
+      total: (subtotalCents + taxCents) / 100,
     });
   }
-
-  const previewInvoice: PreviewInvoice | null =
-    lines.length > 0
-      ? {
-          vendor: invoiceVendor,
-          storeName,
-          storeNumber,
-          lines,
-          subtotal: subtotalCents / 100,
-          taxTotal: taxCents / 100,
-          total: (subtotalCents + taxCents) / 100,
-        }
-      : null;
 
   const border = "1px solid rgba(128,128,128,0.25)";
   const surface = "var(--background)";
@@ -288,10 +287,10 @@ export default async function InvoicePreviewPage({
 
         <div style={{ fontSize: 13, opacity: 0.75, marginBottom: 16 }}>
           Store: <b>{storeNumber} {storeName}</b> &nbsp;|&nbsp; Window: <b>{fromStr || "All pending"}</b>{fromStr || toStr ? <> → <b>{toStr || "Now"}</b></> : null}
-          &nbsp;|&nbsp; Invoice format: <b>{vendorLabel(invoiceVendor)}</b> &nbsp;|&nbsp; This is an <b>estimate</b> based on current vendor pricing settings. Final amounts are set when invoices are generated.
+          &nbsp;|&nbsp; This is an <b>estimate</b> based on current vendor pricing settings. Final amounts are set when invoices are generated.
         </div>
 
-        {!previewInvoice ? (
+        {vendorGroups.length === 0 ? (
           <div
             style={{
               padding: 20,
@@ -304,137 +303,140 @@ export default async function InvoicePreviewPage({
             No pending tickets found for this store in the selected window.
           </div>
         ) : (
-          <div
-            style={{ marginBottom: 24, border, borderRadius: 14, background: surface, overflow: "hidden" }}
-          >
-            {/* Invoice header mimicking the print layout */}
+          vendorGroups.map((group) => (
             <div
-              style={{
-                padding: "16px 20px",
-                borderBottom: border,
-                background: "rgba(33,150,243,0.06)",
-              }}
+              key={group.vendor}
+              style={{ marginBottom: 24, border, borderRadius: 14, background: surface, overflow: "hidden" }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-                <div style={{ fontSize: 20, fontWeight: 900 }}>
-                  {vendorLabel(previewInvoice.vendor)} Invoice — PREVIEW
+              {/* Invoice header mimicking the print layout */}
+              <div
+                style={{
+                  padding: "16px 20px",
+                  borderBottom: border,
+                  background: "rgba(33,150,243,0.06)",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                  <div style={{ fontSize: 20, fontWeight: 900 }}>
+                    {vendorLabel(group.vendor)} Invoice — PREVIEW
+                  </div>
+                  <div style={{ fontSize: 13, opacity: 0.75, fontStyle: "italic" }}>
+                    Estimated · not yet generated
+                  </div>
                 </div>
-                <div style={{ fontSize: 13, opacity: 0.75, fontStyle: "italic" }}>
-                  Estimated · not yet generated
+
+                <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.6 }}>
+                  <div>
+                    <b>Store:</b> {group.storeNumber} {group.storeName}
+                  </div>
+                  <div>
+                    <b>Period:</b> {fromStr || "All pending"}{fromStr || toStr ? ` – ${toStr || "Now"}` : ""}
+                  </div>
+                  <div>
+                    <b>Tickets:</b> {group.lines.length}
+                  </div>
                 </div>
               </div>
 
-              <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.6 }}>
-                <div>
-                  <b>Store:</b> {previewInvoice.storeNumber} {previewInvoice.storeName}
-                </div>
-                <div>
-                  <b>Period:</b> {fromStr || "All pending"}{fromStr || toStr ? ` – ${toStr || "Now"}` : ""}
-                </div>
-                <div>
-                  <b>Tickets:</b> {previewInvoice.lines.length}
-                </div>
-              </div>
-            </div>
-
-            {/* Line items table */}
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    {[
-                      "Date Submitted",
-                      "SKU",
-                      "Part #",
-                      "Name",
-                      "Qty",
-                      "Unit Price",
-                      "Subtotal",
-                      "Tax",
-                      "Total",
-                    ].map((h) => (
-                      <th
-                        key={h}
+              {/* Line items table */}
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      {[
+                        "Date Submitted",
+                        "SKU",
+                        "Part #",
+                        "Name",
+                        "Qty",
+                        "Unit Price",
+                        "Subtotal",
+                        "Tax",
+                        "Total",
+                      ].map((h) => (
+                        <th
+                          key={h}
+                          style={{
+                            textAlign: "left",
+                            padding: "8px 12px",
+                            borderBottom: border,
+                            fontSize: 12,
+                            opacity: 0.85,
+                            whiteSpace: "nowrap",
+                            background: "rgba(128,128,128,0.06)",
+                          }}
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {group.lines.map((line, i) => (
+                      <tr
+                        key={line.id}
                         style={{
-                          textAlign: "left",
-                          padding: "8px 12px",
                           borderBottom: border,
-                          fontSize: 12,
-                          opacity: 0.85,
-                          whiteSpace: "nowrap",
-                          background: "rgba(128,128,128,0.06)",
+                          background: i % 2 === 0 ? "transparent" : "rgba(128,128,128,0.03)",
                         }}
                       >
-                        {h}
-                      </th>
+                        <td style={{ padding: "8px 12px", whiteSpace: "nowrap", fontSize: 13 }}>
+                          {fmtDate(line.submittedAt)}
+                        </td>
+                        <td style={{ padding: "8px 12px", whiteSpace: "nowrap", fontSize: 13 }}>
+                          {line.sku}
+                        </td>
+                        <td style={{ padding: "8px 12px", whiteSpace: "nowrap", fontSize: 13 }}>
+                          {line.partNumber ?? "—"}
+                        </td>
+                        <td style={{ padding: "8px 12px", fontSize: 13 }}>{line.name}</td>
+                        <td style={{ padding: "8px 12px", whiteSpace: "nowrap", fontSize: 13 }}>
+                          {line.quantity}
+                        </td>
+                        <td style={{ padding: "8px 12px", whiteSpace: "nowrap", fontSize: 13 }}>
+                          {money(line.unitPrice)}
+                        </td>
+                        <td style={{ padding: "8px 12px", whiteSpace: "nowrap", fontSize: 13 }}>
+                          {money(line.lineSubtotal)}
+                        </td>
+                        <td style={{ padding: "8px 12px", whiteSpace: "nowrap", fontSize: 13 }}>
+                          {money(line.lineTax)}
+                          {!line.taxable ? (
+                            <span style={{ fontSize: 11, opacity: 0.6 }}> (exempt)</span>
+                          ) : null}
+                        </td>
+                        <td style={{ padding: "8px 12px", whiteSpace: "nowrap", fontWeight: 900, fontSize: 13 }}>
+                          {money(line.lineTotal)}
+                        </td>
+                      </tr>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {previewInvoice.lines.map((line, i) => (
-                    <tr
-                      key={line.id}
-                      style={{
-                        borderBottom: border,
-                        background: i % 2 === 0 ? "transparent" : "rgba(128,128,128,0.03)",
-                      }}
-                    >
-                      <td style={{ padding: "8px 12px", whiteSpace: "nowrap", fontSize: 13 }}>
-                        {fmtDate(line.submittedAt)}
-                      </td>
-                      <td style={{ padding: "8px 12px", whiteSpace: "nowrap", fontSize: 13 }}>
-                        {line.sku}
-                      </td>
-                      <td style={{ padding: "8px 12px", whiteSpace: "nowrap", fontSize: 13 }}>
-                        {line.partNumber ?? "—"}
-                      </td>
-                      <td style={{ padding: "8px 12px", fontSize: 13 }}>{line.name}</td>
-                      <td style={{ padding: "8px 12px", whiteSpace: "nowrap", fontSize: 13 }}>
-                        {line.quantity}
-                      </td>
-                      <td style={{ padding: "8px 12px", whiteSpace: "nowrap", fontSize: 13 }}>
-                        {money(line.unitPrice)}
-                      </td>
-                      <td style={{ padding: "8px 12px", whiteSpace: "nowrap", fontSize: 13 }}>
-                        {money(line.lineSubtotal)}
-                      </td>
-                      <td style={{ padding: "8px 12px", whiteSpace: "nowrap", fontSize: 13 }}>
-                        {money(line.lineTax)}
-                        {!line.taxable ? (
-                          <span style={{ fontSize: 11, opacity: 0.6 }}> (exempt)</span>
-                        ) : null}
-                      </td>
-                      <td style={{ padding: "8px 12px", whiteSpace: "nowrap", fontWeight: 900, fontSize: 13 }}>
-                        {money(line.lineTotal)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </tbody>
+                </table>
+              </div>
 
-            {/* Totals footer */}
-            <div
-              style={{
-                padding: "14px 20px",
-                borderTop: border,
-                display: "flex",
-                justifyContent: "flex-end",
-              }}
-            >
-              <div style={{ textAlign: "right", lineHeight: 1.8, fontSize: 14 }}>
-                <div>
-                  Subtotal: <b>{money(previewInvoice.subtotal)}</b>
-                </div>
-                <div>
-                  Tax: <b>{money(previewInvoice.taxTotal)}</b>
-                </div>
-                <div style={{ fontSize: 18, fontWeight: 900, marginTop: 4 }}>
-                  Estimated Total: {money(previewInvoice.total)}
+              {/* Totals footer */}
+              <div
+                style={{
+                  padding: "14px 20px",
+                  borderTop: border,
+                  display: "flex",
+                  justifyContent: "flex-end",
+                }}
+              >
+                <div style={{ textAlign: "right", lineHeight: 1.8, fontSize: 14 }}>
+                  <div>
+                    Subtotal: <b>{money(group.subtotal)}</b>
+                  </div>
+                  <div>
+                    Tax: <b>{money(group.taxTotal)}</b>
+                  </div>
+                  <div style={{ fontSize: 18, fontWeight: 900, marginTop: 4 }}>
+                    Estimated Total: {money(group.total)}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          ))
         )}
       </div>
     </main>
