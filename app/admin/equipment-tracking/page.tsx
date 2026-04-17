@@ -61,7 +61,38 @@ const SECTION_TITLE_BY_KEY = new Map(EQUIPMENT_SECTIONS.map((s) => [s.key, s.tit
 type SearchParams = {
   ok?: string;
   err?: string;
+  view?: string;
 };
+
+type NumberedLocation = {
+  id: string;
+  name: string;
+  locationNumber: string | null;
+};
+
+function locationSortValue(locationNumber: string | null | undefined): number {
+  const raw = String(locationNumber ?? "").trim();
+  if (!raw) return Number.MAX_SAFE_INTEGER;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+}
+
+function sortLocationsByNumberThenName(a: NumberedLocation, b: NumberedLocation): number {
+  const an = locationSortValue(a.locationNumber);
+  const bn = locationSortValue(b.locationNumber);
+  if (an !== bn) return an - bn;
+  return a.name.localeCompare(b.name);
+}
+
+function formatStoreSummaryLabel(location: NumberedLocation): string {
+  const locationNumber = String(location.locationNumber ?? "").trim();
+  return locationNumber || location.name;
+}
+
+function formatLocationLabel(location: NumberedLocation): string {
+  const locationNumber = String(location.locationNumber ?? "").trim();
+  return locationNumber ? `${locationNumber} - ${location.name}` : location.name;
+}
 
 type CsvImportRow = {
   locationId: string;
@@ -217,6 +248,7 @@ export default async function AdminEquipmentTrackingPage({ searchParams }: { sea
   const sp = (await searchParams) ?? {};
   const okMsg = String(sp.ok ?? "").trim();
   const errMsg = String(sp.err ?? "").trim();
+  const viewMode = sp.view === "store" ? "store" : "user";
 
   async function saveEquipmentSectionAsAdminAction(formData: FormData) {
     "use server";
@@ -352,7 +384,7 @@ export default async function AdminEquipmentTrackingPage({ searchParams }: { sea
     prisma.location.findMany({
       where: { active: true, NOT: [{ name: "Office" }, { name: "office" }] },
       orderBy: { name: "asc" },
-      select: { id: true, name: true },
+      select: { id: true, name: true, locationNumber: true },
     }),
     loadMaintenancePrimaryAssignments(),
     db.equipmentTrackingLog.findMany({
@@ -395,12 +427,12 @@ export default async function AdminEquipmentTrackingPage({ searchParams }: { sea
     usersByLocation.set(a.locationId, list);
   }
 
-  const groupMap = new Map<string, { label: string; locations: Array<{ id: string; name: string }> }>();
+  const groupMap = new Map<string, { key: string; label: string; locations: NumberedLocation[] }>();
   for (const location of locations) {
     const assignedUsers = usersByLocation.get(location.id) ?? [];
     if (assignedUsers.length === 0) {
       const key = "__unassigned__";
-      const existing = groupMap.get(key) ?? { label: "Unassigned", locations: [] };
+      const existing = groupMap.get(key) ?? { key, label: "Unassigned", locations: [] };
       existing.locations.push(location);
       groupMap.set(key, existing);
       continue;
@@ -408,17 +440,24 @@ export default async function AdminEquipmentTrackingPage({ searchParams }: { sea
 
     for (const user of assignedUsers) {
       const key = user.userId;
-      const existing = groupMap.get(key) ?? { label: user.userName, locations: [] };
+      const existing = groupMap.get(key) ?? { key, label: user.userName, locations: [] };
       existing.locations.push(location);
       groupMap.set(key, existing);
     }
   }
 
-  const groups = Array.from(groupMap.values()).sort((a, b) => {
-    if (a.label === "Unassigned") return 1;
-    if (b.label === "Unassigned") return -1;
-    return a.label.localeCompare(b.label);
-  });
+  const groups = Array.from(groupMap.values())
+    .map((group) => ({
+      ...group,
+      locations: [...group.locations].sort(sortLocationsByNumberThenName),
+    }))
+    .sort((a, b) => {
+      if (a.label === "Unassigned") return 1;
+      if (b.label === "Unassigned") return -1;
+      return a.label.localeCompare(b.label);
+    });
+
+  const locationsByStoreOrder = [...locations].sort(sortLocationsByNumberThenName);
 
   const card: CSSProperties = {
     border: "1px solid var(--border)",
@@ -448,8 +487,14 @@ export default async function AdminEquipmentTrackingPage({ searchParams }: { sea
     whiteSpace: "nowrap",
   };
 
+  const selectedBtn: CSSProperties = {
+    ...btn,
+    background: "color-mix(in srgb, var(--brand) 22%, var(--surface-2))",
+    border: "1px solid color-mix(in srgb, var(--brand) 42%, var(--border))",
+  };
+
   const groupHeaderStyle: CSSProperties = {
-    margin: "0 0 8px",
+    margin: 0,
     fontSize: 20,
     fontWeight: 950,
     letterSpacing: "0.02em",
@@ -458,6 +503,22 @@ export default async function AdminEquipmentTrackingPage({ searchParams }: { sea
     border: "1px solid var(--border)",
     background: "linear-gradient(90deg, color-mix(in srgb, var(--brand) 24%, var(--surface-2)) 0%, var(--surface-2) 100%)",
     display: "inline-block",
+  };
+
+  const groupSummaryStyle: CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    cursor: "pointer",
+    listStyle: "none",
+  };
+
+  const groupSummaryStoresStyle: CSSProperties = {
+    color: "var(--muted)",
+    fontSize: 13,
+    fontWeight: 700,
+    textAlign: "right",
   };
 
   const sectionHeaderStyle: CSSProperties = {
@@ -483,6 +544,83 @@ export default async function AdminEquipmentTrackingPage({ searchParams }: { sea
   const tableHeaderActionStyle: CSSProperties = {
     ...tableHeaderStyle,
     textAlign: "right",
+  };
+
+  const renderSectionTables = (scopeKey: string, scopedLocations: NumberedLocation[]) => (
+    <div style={{ display: "grid", gap: 12, marginTop: 10 }}>
+      {EQUIPMENT_SECTIONS.map((section) => (
+        <div key={`${scopeKey}-${section.key}`}>
+          <h3 style={sectionHeaderStyle}>{section.title}</h3>
+
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+              <thead>
+                <tr>
+                  <th style={{ ...tableHeaderStyle, minWidth: 180 }}>
+                    Store
+                  </th>
+                  {section.fields.map((field) => (
+                    <th
+                      key={`${scopeKey}-${section.key}-head-${field.key}`}
+                      style={{ ...tableHeaderStyle, minWidth: 160 }}
+                    >
+                      {field.label}
+                    </th>
+                  ))}
+                  <th style={{ ...tableHeaderActionStyle, minWidth: 120 }}>
+                    Action
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {scopedLocations.map((location) => {
+                  const row = rowMap.get(`${location.id}::${section.key}`);
+                  const cols = `repeat(${section.fields.length}, minmax(160px, 1fr)) 120px`;
+                  return (
+                    <tr key={`${scopeKey}-${section.key}-${location.id}`}>
+                      <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>
+                        {formatLocationLabel(location)}
+                      </td>
+                      <td colSpan={section.fields.length + 1} style={{ padding: 0, borderBottom: "1px solid var(--border)" }}>
+                        <form
+                          action={saveEquipmentSectionAsAdminAction}
+                          style={{ display: "grid", gridTemplateColumns: cols, gap: 8, padding: 8, alignItems: "center" }}
+                        >
+                          <input type="hidden" name="locationId" value={location.id} />
+                          <input type="hidden" name="sectionKey" value={section.key} />
+
+                          {section.fields.map((field) => (
+                            <input
+                              key={`${scopeKey}-${section.key}-${location.id}-${field.key}`}
+                              name={field.key}
+                              defaultValue={String(row?.[field.key] ?? "")}
+                              style={input}
+                            />
+                          ))}
+
+                          <button type="submit" style={{ ...btn, cursor: "pointer", width: "100%" }}>
+                            Save
+                          </button>
+                        </form>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  const buildViewHref = (nextViewMode: "user" | "store") => {
+    const params = new URLSearchParams();
+    if (nextViewMode === "store") params.set("view", "store");
+    if (okMsg) params.set("ok", okMsg);
+    if (errMsg) params.set("err", errMsg);
+    const query = params.toString();
+    return query ? `/admin/equipment-tracking?${query}` : "/admin/equipment-tracking";
   };
 
   return (
@@ -526,77 +664,54 @@ export default async function AdminEquipmentTrackingPage({ searchParams }: { sea
         </div>
       </section>
 
-      {groups.map((group) => (
-        <section key={group.label} style={card}>
-          <h2 style={groupHeaderStyle}>{group.label}</h2>
+      <section style={{ ...card, padding: 10 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Link href={buildViewHref("user")} style={viewMode === "user" ? selectedBtn : btn}>
+            Sort by Maintenance User
+          </Link>
+          <Link href={buildViewHref("store")} style={viewMode === "store" ? selectedBtn : btn}>
+            Sort by Store Order
+          </Link>
+        </div>
+      </section>
 
-          <div style={{ display: "grid", gap: 12, marginTop: 10 }}>
-            {EQUIPMENT_SECTIONS.map((section) => (
-              <div key={`${group.label}-${section.key}`}>
-                <h3 style={sectionHeaderStyle}>{section.title}</h3>
+      {viewMode === "user"
+        ? groups.map((group) => {
+            const storeSummary = group.locations.map(formatStoreSummaryLabel).join(", ");
 
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
-                    <thead>
-                      <tr>
-                        <th style={{ ...tableHeaderStyle, minWidth: 180 }}>
-                          Store
-                        </th>
-                        {section.fields.map((field) => (
-                          <th
-                            key={`${group.label}-${section.key}-head-${field.key}`}
-                            style={{ ...tableHeaderStyle, minWidth: 160 }}
-                          >
-                            {field.label}
-                          </th>
-                        ))}
-                        <th style={{ ...tableHeaderActionStyle, minWidth: 120 }}>
-                          Action
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {group.locations.map((location) => {
-                        const row = rowMap.get(`${location.id}::${section.key}`);
-                        const cols = `repeat(${section.fields.length}, minmax(160px, 1fr)) 120px`;
-                        return (
-                          <tr key={`${group.label}-${section.key}-${location.id}`}>
-                            <td style={{ padding: "10px 8px", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>
-                              {location.name}
-                            </td>
-                            <td colSpan={section.fields.length + 1} style={{ padding: 0, borderBottom: "1px solid var(--border)" }}>
-                              <form
-                                action={saveEquipmentSectionAsAdminAction}
-                                style={{ display: "grid", gridTemplateColumns: cols, gap: 8, padding: 8, alignItems: "center" }}
-                              >
-                                <input type="hidden" name="locationId" value={location.id} />
-                                <input type="hidden" name="sectionKey" value={section.key} />
+            return (
+              <section key={group.key} style={card}>
+                <details>
+                  <summary style={groupSummaryStyle}>
+                    <h2 style={groupHeaderStyle}>{group.label}</h2>
+                    <span style={groupSummaryStoresStyle}>
+                      Stores: {storeSummary || "None"}
+                    </span>
+                  </summary>
 
-                                {section.fields.map((field) => (
-                                  <input
-                                    key={`${group.label}-${section.key}-${location.id}-${field.key}`}
-                                    name={field.key}
-                                    defaultValue={String(row?.[field.key] ?? "")}
-                                    style={input}
-                                  />
-                                ))}
+                  {renderSectionTables(group.key, group.locations)}
+                </details>
+              </section>
+            );
+          })
+        : locationsByStoreOrder.map((location) => {
+            const assignedUsers = (usersByLocation.get(location.id) ?? []).map((user) => user.userName).join(", ");
 
-                                <button type="submit" style={{ ...btn, cursor: "pointer", width: "100%" }}>
-                                  Save
-                                </button>
-                              </form>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      ))}
+            return (
+              <section key={location.id} style={card}>
+                <details>
+                  <summary style={groupSummaryStyle}>
+                    <h2 style={groupHeaderStyle}>{formatLocationLabel(location)}</h2>
+                    <span style={groupSummaryStoresStyle}>
+                      Maintenance User: {assignedUsers || "Unassigned"}
+                    </span>
+                  </summary>
+
+                  {renderSectionTables(location.id, [location])}
+                </details>
+              </section>
+            );
+          })}
     </main>
   );
 }

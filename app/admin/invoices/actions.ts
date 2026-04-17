@@ -550,9 +550,9 @@ export async function createInvoicesForWindow(args: {
   createdByUserId?: string | null;
 }): Promise<{ results: Array<{ storeId: string; invoiceId?: string; created?: boolean; reason?: string }> }> {
   // IMPORTANT behavior:
-  // - If admin selects AMERICAN_PLUS: only invoice AMERICAN_PLUS tickets
-  // - If admin selects SUCCESS_PLUS: invoice all eligible tickets into one store invoice
-  // - Grouping is by store only, so mixed checkout dates and mixed effective vendors stay on the same invoice
+  // - Invoice runs are vendor-specific.
+  // - AMERICAN_PLUS tickets generate on American Plus invoices only.
+  // - SUCCESS_PLUS tickets generate on Success Plus invoices only.
   const requestedVendor = normalizeVendor(args.vendor);
 
   const periodStart = args.periodStart ? new Date(args.periodStart) : null;
@@ -608,15 +608,13 @@ export async function createInvoicesForWindow(args: {
   });
   
   const tickets =
-    requestedVendor === InvoiceVendor.AMERICAN_PLUS
-      ? ticketsAll.filter((t) => effectiveTicketVendor(t) === InvoiceVendor.AMERICAN_PLUS)
-      : ticketsAll;
+    ticketsAll.filter((t) => effectiveTicketVendor(t) === requestedVendor);
 
   if (tickets.length === 0) {
     return { results: [] };
   }
 
-  // Group by store only.
+  // Group by store for the requested vendor only.
   type Ticket = (typeof tickets)[number];
   const byStore = new Map<string, Ticket[]>();
 
@@ -694,9 +692,7 @@ export async function createInvoicesForWindow(args: {
         });
 
         const fresh =
-          invoiceVendor === InvoiceVendor.AMERICAN_PLUS
-            ? freshAll.filter((t) => effectiveTicketVendor(t) === InvoiceVendor.AMERICAN_PLUS)
-            : freshAll;
+          freshAll.filter((t) => effectiveTicketVendor(t) === invoiceVendor);
 
         if (fresh.length === 0) {
           return { invoiceId: undefined as string | undefined, created: false, reason: "No eligible tickets" };

@@ -101,7 +101,6 @@ type PreviewInvoice = {
   subtotal: number;
   taxTotal: number;
   total: number;
-  usesMixedVendorPricing: boolean;
 };
 
 export default async function InvoicePreviewPage({
@@ -169,7 +168,7 @@ export default async function InvoicePreviewPage({
 
   const includedTickets = tickets.filter((t) => {
     const ticketVendor = effectiveTicketVendor(t);
-    return invoiceVendor !== InvoiceVendor.AMERICAN_PLUS || ticketVendor === InvoiceVendor.AMERICAN_PLUS;
+    return ticketVendor === invoiceVendor;
   });
 
   const pricingVendors = Array.from(new Set(includedTickets.map((t) => effectiveTicketVendor(t))));
@@ -250,7 +249,6 @@ export default async function InvoicePreviewPage({
           subtotal: subtotalCents / 100,
           taxTotal: taxCents / 100,
           total: (subtotalCents + taxCents) / 100,
-          usesMixedVendorPricing: includedTickets.some((t) => effectiveTicketVendor(t) !== invoiceVendor),
         }
       : null;
 
@@ -336,11 +334,6 @@ export default async function InvoicePreviewPage({
                 <div>
                   <b>Tickets:</b> {previewInvoice.lines.length}
                 </div>
-                {previewInvoice.usesMixedVendorPricing ? (
-                  <div>
-                    <b>Pricing:</b> Mixed ticket vendors are combined on this one store invoice.
-                  </div>
-                ) : null}
               </div>
             </div>
 
