@@ -75,6 +75,51 @@ function parseIds(raw: string | undefined): string[] {
     .slice(0, 200);
 }
 
+function vendorSortRank(vendor: InvoiceVendor) {
+  return vendor === InvoiceVendor.AMERICAN_PLUS ? 0 : 1;
+}
+
+function locationSortValue(storeNumber: string) {
+  const trimmed = String(storeNumber ?? "").trim();
+  const asNumber = Number(trimmed);
+  if (trimmed && Number.isFinite(asNumber)) {
+    return asNumber.toString().padStart(6, "0");
+  }
+  return trimmed;
+}
+
+function corporationSortValue(corporationNumber: string | null | undefined) {
+  const trimmed = String(corporationNumber ?? "").trim();
+  const asNumber = Number(trimmed);
+  if (trimmed && Number.isFinite(asNumber)) {
+    return asNumber.toString().padStart(6, "0");
+  }
+  return trimmed ? `A-${trimmed}` : "Z-UNASSIGNED";
+}
+
+function compareInvoicesForPrint(
+  left: { vendor: InvoiceVendor; storeNumber: string; storeName: string; createdAt: Date; store?: { corporationNumber: string | null } | null },
+  right: { vendor: InvoiceVendor; storeNumber: string; storeName: string; createdAt: Date; store?: { corporationNumber: string | null } | null }
+) {
+  const vendorDiff = vendorSortRank(left.vendor) - vendorSortRank(right.vendor);
+  if (vendorDiff !== 0) return vendorDiff;
+
+  if (left.vendor === InvoiceVendor.SUCCESS_PLUS && right.vendor === InvoiceVendor.SUCCESS_PLUS) {
+    const corpDiff = corporationSortValue(left.store?.corporationNumber).localeCompare(
+      corporationSortValue(right.store?.corporationNumber)
+    );
+    if (corpDiff !== 0) return corpDiff;
+  }
+
+  const storeNumberDiff = locationSortValue(left.storeNumber).localeCompare(locationSortValue(right.storeNumber));
+  if (storeNumberDiff !== 0) return storeNumberDiff;
+
+  const storeNameDiff = left.storeName.localeCompare(right.storeName);
+  if (storeNameDiff !== 0) return storeNameDiff;
+
+  return left.createdAt.getTime() - right.createdAt.getTime();
+}
+
 export default async function PrintInvoiceBatchPage({ searchParams }: { searchParams: { ids?: string; autoExport?: string } }) {
   await requireInvoicesView();
 
@@ -87,19 +132,21 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
       ? await prisma.invoice
           .findMany({
             where: { id: { in: ids } },
-            include: { lines: { orderBy: { submittedAt: "asc" } } },
+            include: {
+              lines: { orderBy: { submittedAt: "asc" } },
+              store: { select: { corporationNumber: true } },
+            },
           })
-          .then((rows) => {
-            // Preserve requested order
-            const map = new Map(rows.map((r) => [r.id, r]));
-            return ids.map((id) => map.get(id)).filter(Boolean) as typeof rows;
-          })
+          .then((rows) => rows.sort(compareInvoicesForPrint))
       : await prisma.invoice.findMany({
           where: { status: InvoiceStatus.DRAFT },
           orderBy: { createdAt: "asc" },
           take: 200,
-          include: { lines: { orderBy: { submittedAt: "asc" } } },
-        });
+          include: {
+            lines: { orderBy: { submittedAt: "asc" } },
+            store: { select: { corporationNumber: true } },
+          },
+        }).then((rows) => rows.sort(compareInvoicesForPrint));
 
   if (invoices.length === 0) {
     return (
