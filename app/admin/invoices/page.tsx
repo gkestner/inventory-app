@@ -685,11 +685,13 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   let invoiceTotal = 0;
   let invoices: InvoiceRow[] = [];
   let lastGeneratedInvoices: LastGeneratedInvoiceSummary[] = [];
+  const invoiceListWhere = { vendor };
 
   try {
     const [count, rows] = await Promise.all([
-      prisma.invoice.count(),
+      prisma.invoice.count({ where: invoiceListWhere }),
       prisma.invoice.findMany({
+        where: invoiceListWhere,
         orderBy: { createdAt: "desc" },
         take: perPage,
         skip,
