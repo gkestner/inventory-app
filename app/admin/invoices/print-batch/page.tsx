@@ -98,8 +98,20 @@ function corporationSortValue(corporationNumber: string | null | undefined) {
 }
 
 function compareInvoicesForPrint(
-  left: { vendor: InvoiceVendor; storeNumber: string; storeName: string; createdAt: Date; store?: { corporationNumber: string | null } | null },
-  right: { vendor: InvoiceVendor; storeNumber: string; storeName: string; createdAt: Date; store?: { corporationNumber: string | null } | null }
+  left: {
+    vendor: InvoiceVendor;
+    storeNumber: string;
+    storeName: string;
+    createdAt: Date;
+    store?: { corporationNumber: string | null; locationNumber: string | null } | null;
+  },
+  right: {
+    vendor: InvoiceVendor;
+    storeNumber: string;
+    storeName: string;
+    createdAt: Date;
+    store?: { corporationNumber: string | null; locationNumber: string | null } | null;
+  }
 ) {
   const vendorDiff = vendorSortRank(left.vendor) - vendorSortRank(right.vendor);
   if (vendorDiff !== 0) return vendorDiff;
@@ -111,7 +123,9 @@ function compareInvoicesForPrint(
     if (corpDiff !== 0) return corpDiff;
   }
 
-  const storeNumberDiff = locationSortValue(left.storeNumber).localeCompare(locationSortValue(right.storeNumber));
+  const leftLocationNumber = left.store?.locationNumber ?? left.storeNumber;
+  const rightLocationNumber = right.store?.locationNumber ?? right.storeNumber;
+  const storeNumberDiff = locationSortValue(leftLocationNumber).localeCompare(locationSortValue(rightLocationNumber));
   if (storeNumberDiff !== 0) return storeNumberDiff;
 
   const storeNameDiff = left.storeName.localeCompare(right.storeName);
@@ -134,7 +148,7 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
             where: { id: { in: ids } },
             include: {
               lines: { orderBy: { submittedAt: "asc" } },
-              store: { select: { corporationNumber: true } },
+              store: { select: { corporationNumber: true, locationNumber: true } },
             },
           })
           .then((rows) => rows.sort(compareInvoicesForPrint))
@@ -144,7 +158,7 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
           take: 200,
           include: {
             lines: { orderBy: { submittedAt: "asc" } },
-            store: { select: { corporationNumber: true } },
+            store: { select: { corporationNumber: true, locationNumber: true } },
           },
         }).then((rows) => rows.sort(compareInvoicesForPrint));
 
