@@ -4,11 +4,29 @@ import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+const LIVE_ORDERS_REFRESH_VALUE_KEY = "live-orders-refresh-value";
+const LIVE_ORDERS_REFRESH_UNIT_KEY = "live-orders-refresh-unit";
 const LIVE_ORDERS_SCROLL_SPEED_KEY = "live-orders-scroll-speed";
+const MAX_TIMEOUT_MS = 2_147_483_647;
 
-function clampIntervalSec(value: number): number {
+type RefreshUnit = "seconds" | "minutes" | "hours";
+
+function normalizeIntervalValue(value: number): number {
   if (!Number.isFinite(value)) return 30;
-  return Math.max(10, Math.min(300, Math.floor(value)));
+  return Math.max(1, Math.floor(value));
+}
+
+function normalizeRefreshUnit(value: string | null | undefined): RefreshUnit {
+  if (value === "minutes" || value === "hours") return value;
+  return "seconds";
+}
+
+function intervalMsFromValueAndUnit(value: number, unit: RefreshUnit): number {
+  const normalizedValue = normalizeIntervalValue(value);
+
+  if (unit === "hours") return normalizedValue * 60 * 60 * 1000;
+  if (unit === "minutes") return normalizedValue * 60 * 1000;
+  return normalizedValue * 1000;
 }
 
 function clampScrollSpeed(value: number): number {
@@ -40,7 +58,8 @@ export default function LiveOrdersBoardControls({
 }) {
   const router = useRouter();
   const [enabled, setEnabled] = useState<boolean>(defaultEnabled);
-  const [intervalSec, setIntervalSec] = useState<number>(clampIntervalSec(defaultIntervalSec));
+  const [intervalValue, setIntervalValue] = useState<number>(normalizeIntervalValue(defaultIntervalSec));
+  const [intervalUnit, setIntervalUnit] = useState<RefreshUnit>("seconds");
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
@@ -49,7 +68,11 @@ export default function LiveOrdersBoardControls({
 
   useEffect(() => {
     try {
+      const storedRefreshValue = window.localStorage.getItem(LIVE_ORDERS_REFRESH_VALUE_KEY);
+      const storedRefreshUnit = window.localStorage.getItem(LIVE_ORDERS_REFRESH_UNIT_KEY);
       const raw = window.localStorage.getItem(LIVE_ORDERS_SCROLL_SPEED_KEY);
+      if (storedRefreshValue) setIntervalValue(normalizeIntervalValue(Number(storedRefreshValue)));
+      if (storedRefreshUnit) setIntervalUnit(normalizeRefreshUnit(storedRefreshUnit));
       if (!raw) return;
       setScrollSpeed(clampScrollSpeed(Number(raw)));
     } catch {
@@ -59,11 +82,13 @@ export default function LiveOrdersBoardControls({
 
   useEffect(() => {
     try {
+      window.localStorage.setItem(LIVE_ORDERS_REFRESH_VALUE_KEY, String(normalizeIntervalValue(intervalValue)));
+      window.localStorage.setItem(LIVE_ORDERS_REFRESH_UNIT_KEY, intervalUnit);
       window.localStorage.setItem(LIVE_ORDERS_SCROLL_SPEED_KEY, String(clampScrollSpeed(scrollSpeed)));
     } catch {
       // Ignore storage failures; runtime controls still work.
     }
-  }, [scrollSpeed]);
+  }, [intervalUnit, intervalValue, scrollSpeed]);
 
   useEffect(() => {
     if (!defaultFullscreen) return;
@@ -97,14 +122,35 @@ export default function LiveOrdersBoardControls({
   useEffect(() => {
     if (!enabled) return;
 
-    const safeIntervalMs = clampIntervalSec(intervalSec) * 1000;
-    const id = window.setInterval(() => {
-      router.refresh();
-      setLastRefreshedAt(new Date());
-    }, safeIntervalMs);
+    const safeIntervalMs = intervalMsFromValueAndUnit(intervalValue, intervalUnit);
+    let cancelled = false;
+    let timeoutId: number | null = null;
 
-    return () => window.clearInterval(id);
-  }, [enabled, intervalSec, router]);
+    const scheduleNextRefresh = (remainingMs: number) => {
+      if (cancelled) return;
+
+      const nextDelay = Math.min(remainingMs, MAX_TIMEOUT_MS);
+      timeoutId = window.setTimeout(() => {
+        if (cancelled) return;
+
+        if (remainingMs > MAX_TIMEOUT_MS) {
+          scheduleNextRefresh(remainingMs - MAX_TIMEOUT_MS);
+          return;
+        }
+
+        router.refresh();
+        setLastRefreshedAt(new Date());
+        scheduleNextRefresh(safeIntervalMs);
+      }, nextDelay);
+    };
+
+    scheduleNextRefresh(safeIntervalMs);
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    };
+  }, [enabled, intervalUnit, intervalValue, router]);
 
   useEffect(() => {
     if (!isFullscreen || !autoScrollEnabled) return;
@@ -256,6 +302,12 @@ export default function LiveOrdersBoardControls({
     outline: "none",
   };
 
+  const select: CSSProperties = {
+    ...input,
+    width: 110,
+    cursor: "pointer",
+  };
+
   const hint: CSSProperties = { fontSize: 12, opacity: 0.78 };
   const compactShell: CSSProperties = {
     ...shell,
@@ -295,11 +347,21 @@ export default function LiveOrdersBoardControls({
             style={input}
             inputMode="numeric"
             pattern="[0-9]*"
-            value={String(intervalSec)}
-            onChange={(e) => setIntervalSec(clampIntervalSec(Number(e.target.value)))}
-            aria-label="Refresh interval in seconds"
+            min={1}
+            value={String(intervalValue)}
+            onChange={(e) => setIntervalValue(normalizeIntervalValue(Number(e.target.value)))}
+            aria-label="Refresh interval value"
           />
-          <span style={hint}>sec</span>
+          <select
+            style={select}
+            value={intervalUnit}
+            onChange={(e) => setIntervalUnit(normalizeRefreshUnit(e.target.value))}
+            aria-label="Refresh interval unit"
+          >
+            <option value="seconds">Seconds</option>
+            <option value="minutes">Minutes</option>
+            <option value="hours">Hours</option>
+          </select>
         </label>
       </div>
 
