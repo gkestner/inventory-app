@@ -155,6 +155,8 @@ function getInventoryOrderModel(p: unknown): InventoryOrderModel | null {
 export default async function AdminItemCostHistoryReportPage({ searchParams }: { searchParams: SearchParams }) {
   await requireReportView();
 
+  const sp: SearchParams = (searchParams instanceof Promise ? await searchParams : searchParams) ?? {};
+
   const inventoryOrder = getInventoryOrderModel(prisma);
   if (!inventoryOrder) {
     return (
@@ -199,23 +201,23 @@ export default async function AdminItemCostHistoryReportPage({ searchParams }: {
     );
   }
 
-  const itemId = String(searchParams.itemId ?? "").trim();
-  const supplier = String(searchParams.supplier ?? "").trim();
+  const itemId = String(sp.itemId ?? "").trim();
+  const supplier = String(sp.supplier ?? "").trim();
 
-  const methodRaw = String(searchParams.method ?? "LAST_BEFORE").trim().toUpperCase();
+  const methodRaw = String(sp.method ?? "LAST_BEFORE").trim().toUpperCase();
   const method: "LAST_BEFORE" | "AVG_WINDOW" = methodRaw === "AVG_WINDOW" ? "AVG_WINDOW" : "LAST_BEFORE";
 
   const monthsAllowed = new Set([1, 3, 6, 12, 24, 36, 60]);
-  const months = monthsAllowed.has(Number(searchParams.months)) ? Number(searchParams.months) : 6;
+  const months = monthsAllowed.has(Number(sp.months)) ? Number(sp.months) : 6;
 
   const today = startOfDay(new Date());
-  const asOfStr = String(searchParams.asOf ?? "").trim();
+  const asOfStr = String(sp.asOf ?? "").trim();
   const asOf = parseOptionalDateOnlyToDate(asOfStr, true) ?? new Date(today.getTime() + 23 * 60 * 60 * 1000);
   const windowStart = addMonths(startOfDay(asOf), -months);
 
   const perPageAllowed = new Set([25, 50, 100]);
-  const perPage = perPageAllowed.has(Number(searchParams.perPage)) ? Number(searchParams.perPage) : 50;
-  const page = clamp(Number(searchParams.page ?? "1") || 1, 1, 9999);
+  const perPage = perPageAllowed.has(Number(sp.perPage)) ? Number(sp.perPage) : 50;
+  const page = clamp(Number(sp.page ?? "1") || 1, 1, 9999);
   const skip = (page - 1) * perPage;
 
   const border = "1px solid rgba(128,128,128,0.25)";
