@@ -35,6 +35,8 @@ export type CompatDb = {
     findMany: (args?: AnyRecord) => Promise<any[]>;
     create: (args: AnyRecord) => Promise<any>;
     updateMany: (args: AnyRecord) => Promise<any>;
+    delete: (args: AnyRecord) => Promise<any>;
+    deleteMany: (args: AnyRecord) => Promise<any>;
   };
   user?: {
     findMany: (args?: AnyRecord) => Promise<Array<{ id: string; active: boolean; uiPreferences: unknown }>>;
