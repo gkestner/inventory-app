@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Permission } from "@prisma/client";
+import { Permission, Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/app/lib/auth";
@@ -71,6 +71,11 @@ function monthKey(date: Date): string {
 
 function monthLabel(date: Date): string {
   return date.toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+}
+
+function hasStructuredRoomSlot(sku: string): boolean {
+  const parsed = parseSkuRoomParts(sku);
+  return Boolean(parsed?.location && parsed?.shelf && parsed?.bin);
 }
 
 function recentMonths(count: number): Array<{ key: string; label: string; start: Date }> {
@@ -297,14 +302,18 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      const structuredSku = parseStructuredSkuParts(current.sku) ?? {
-        zone: location === "vault" ? "VT" : location,
-        location,
-        shelf,
-        bin,
-        itemKey: current.sku,
-      };
-      const nextSku = buildStructuredSku(structuredSku.zone, location, shelf, bin, structuredSku.itemKey);
+      const nextSku = hasStructuredRoomSlot(current.sku)
+        ? (() => {
+            const structuredSku = parseStructuredSkuParts(current.sku) ?? {
+              zone: location === "vault" ? "VT" : location,
+              location,
+              shelf,
+              bin,
+              itemKey: current.sku,
+            };
+            return buildStructuredSku(structuredSku.zone, location, shelf, bin, structuredSku.itemKey);
+          })()
+        : current.sku;
 
       const saved = await tx.item.update({
         where: { id: itemId },
@@ -360,6 +369,15 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return json(
+        {
+          error:
+            "Save failed because that room location would create a duplicate SKU. Try a different location, shelf, or bin.",
+        },
+        409
+      );
+    }
     return json({ error: error instanceof Error ? error.message : "Save failed" }, 500);
   }
 }
