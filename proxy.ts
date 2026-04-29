@@ -8,6 +8,8 @@ function isPublicPath(pathname: string) {
   if (pathname.startsWith("/api/integrations/mocreo/sync")) return true;
   if (pathname.startsWith("/api/integrations/mocreo/webhook")) return true;
   if (pathname.startsWith("/_next")) return true;
+  if (pathname === "/sw.js") return true;
+  if (pathname === "/manifest.webmanifest") return true;
   if (pathname === "/favicon.ico") return true;
   if (pathname === "/robots.txt") return true;
   if (pathname === "/sitemap.xml") return true;
@@ -68,5 +70,5 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.webmanifest).*)"],
 };
