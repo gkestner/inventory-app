@@ -1,4 +1,4 @@
-const CACHE_VERSION = "inventory-app-v3";
+const CACHE_VERSION = "inventory-app-v4";
 const APP_SHELL = ["/favicon.ico"];
 
 self.addEventListener("install", (event) => {
@@ -28,7 +28,7 @@ self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
   const isSameOrigin = url.origin === self.location.origin;
-  const isStaticAsset = ["script", "style", "image", "font"].includes(request.destination);
+  const isCacheableAsset = ["image", "font"].includes(request.destination);
 
   if (request.method !== "GET") return;
 
@@ -38,7 +38,8 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (!isSameOrigin || !isStaticAsset) {
+  // Avoid caching framework JS/CSS so deploys do not mix old bundles with new HTML.
+  if (!isSameOrigin || !isCacheableAsset || url.pathname.startsWith("/_next/")) {
     return;
   }
 
