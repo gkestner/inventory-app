@@ -94,9 +94,8 @@ async function requireScannerCountAccess() {
   const allowed =
     perms.allowAll ||
     hasAnyPermission(perms, [
-      Permission.EDIT_QUICK_COUNT,
-      Permission.ADMIN_EDIT_ITEMS,
       Permission.ADMIN_VIEW_ITEMS,
+      Permission.ADMIN_EDIT_ITEMS,
     ]);
 
   if (!allowed) return { ok: false as const, status: 403, error: "Forbidden" };

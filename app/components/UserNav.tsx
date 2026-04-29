@@ -125,7 +125,8 @@ export default async function UserNav() {
   const canRoomDiagrams =
     perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_ROOM_DIAGRAMS, Permission.EDIT_QUICK_COUNT]);
   const canQuickCountEditor = perms.allowAll || hasAnyPermission(perms, [Permission.EDIT_QUICK_COUNT]);
-  const canScannerCount = perms.allowAll || hasAnyPermission(perms, [Permission.EDIT_QUICK_COUNT, Permission.ADMIN_EDIT_ITEMS]);
+  const canScannerCount =
+    perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
   const canLiveOrders = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_LIVE_ORDERS]);
 
   const homeHref =
@@ -268,14 +269,14 @@ export default async function UserNav() {
                     Office Entry
                   </Link>
                 ) : null}
-                {canTravelLog ? (
-                  <Link href="/maintenance/travel-log" style={menuItemStyle}>
-                    Travel Log
-                  </Link>
-                ) : null}
                 {canReceipts ? (
                   <Link href="/maintenance/receipts" style={menuItemStyle}>
                     Receipts
+                  </Link>
+                ) : null}
+                {canTravelLog ? (
+                  <Link href="/maintenance/travel-log" style={menuItemStyle}>
+                    Travel Log
                   </Link>
                 ) : null}
               </div>
@@ -292,21 +293,6 @@ export default async function UserNav() {
             <details data-user-dropdown style={detailsStyle}>
               <summary style={summaryStyle}>PM List</summary>
               <div style={menuStyle}>
-                {canRoomDiagrams ? (
-                  <Link href="/maintenance/room-diagrams" style={menuItemStyle}>
-                    Room Diagrams
-                  </Link>
-                ) : null}
-                {canQuickCountEditor ? (
-                  <Link href="/maintenance/room-diagrams/quick-count" style={menuItemStyle}>
-                    Quick Count Editor
-                  </Link>
-                ) : null}
-                {canPreventativeMaintenance ? (
-                  <Link href="/maintenance/preventative-maintenance" style={menuItemStyle}>
-                    Preventative Maintenance
-                  </Link>
-                ) : null}
                 {canPreventativeMaintenance ? (
                   <Link href="/maintenance/preventative-maintenance/compliance" style={menuItemStyle}>
                     Backflow / Grease Trap / Boiler
@@ -315,6 +301,21 @@ export default async function UserNav() {
                 {canEquipmentTracking ? (
                   <Link href="/maintenance/equipment-tracking" style={menuItemStyle}>
                     Equipment Tracking
+                  </Link>
+                ) : null}
+                {canPreventativeMaintenance ? (
+                  <Link href="/maintenance/preventative-maintenance" style={menuItemStyle}>
+                    Preventative Maintenance
+                  </Link>
+                ) : null}
+                {canRoomDiagrams ? (
+                  <Link href="/maintenance/room-diagrams" style={menuItemStyle}>
+                    Room Diagrams
+                  </Link>
+                ) : null}
+                {canQuickCountEditor ? (
+                  <Link href="/maintenance/room-diagrams/quick-count" style={menuItemStyle}>
+                    Quick Count Editor
                   </Link>
                 ) : null}
                 {canVehicleLog ? (

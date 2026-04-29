@@ -42,9 +42,8 @@ export default async function ScannerCountPage() {
   const canUseScannerCount =
     perms.allowAll ||
     hasAnyPermission(perms, [
-      Permission.EDIT_QUICK_COUNT,
-      Permission.ADMIN_EDIT_ITEMS,
       Permission.ADMIN_VIEW_ITEMS,
+      Permission.ADMIN_EDIT_ITEMS,
     ]);
 
   if (!canUseScannerCount) redirect("/maintenance");

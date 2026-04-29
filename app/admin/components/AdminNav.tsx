@@ -349,9 +349,9 @@ export default async function AdminNav() {
             <details data-admin-dropdown style={detailsStyle}>
               <summary style={summaryStyle}>Inventory</summary>
               <div style={menuStyle}>
-                {canAdminItems ? (
-                  <Link href="/admin/items" style={menuItemStyle}>
-                    Items
+                {canAdminInventoryAlerts ? (
+                  <Link href="/admin/inventory-alerts" style={menuItemStyle}>
+                    Alerts
                   </Link>
                 ) : null}
                 {canAdminItems ? (
@@ -359,14 +359,14 @@ export default async function AdminNav() {
                     AI Price Lookup
                   </Link>
                 ) : null}
+                {canAdminItems ? (
+                  <Link href="/admin/items" style={menuItemStyle}>
+                    Items
+                  </Link>
+                ) : null}
                 {canAdminOrderHistory ? (
                   <Link href="/admin/inventory-orders" style={menuItemStyle}>
                     Order History
-                  </Link>
-                ) : null}
-                {canAdminInventoryAlerts ? (
-                  <Link href="/admin/inventory-alerts" style={menuItemStyle}>
-                    Alerts
                   </Link>
                 ) : null}
               </div>
@@ -411,14 +411,14 @@ export default async function AdminNav() {
             <details data-admin-dropdown style={detailsStyle}>
               <summary style={summaryStyle}>Admin</summary>
               <div style={menuStyle}>
-                {canAdminUsers ? (
-                  <Link href="/admin/users" style={menuItemStyle}>
-                    Users
-                  </Link>
-                ) : null}
                 {canAdminLocations ? (
                   <Link href="/admin/locations" style={menuItemStyle}>
                     Locations
+                  </Link>
+                ) : null}
+                {canAdminUsers ? (
+                  <Link href="/admin/users" style={menuItemStyle}>
+                    Users
                   </Link>
                 ) : null}
               </div>
@@ -430,6 +430,36 @@ export default async function AdminNav() {
             <details data-admin-dropdown style={detailsStyle}>
               <summary style={summaryStyle}>Maintenance</summary>
               <div style={menuStyle}>
+                {canAdminUsers ? (
+                  <Link href="/admin/audit" style={menuItemStyle}>
+                    Audit Trail
+                  </Link>
+                ) : null}
+                {canPreventativeMaintenance ? (
+                  <Link href="/admin/preventative-maintenance/compliance" style={menuItemStyle}>
+                    Backflow / Grease Trap / Boiler
+                  </Link>
+                ) : null}
+                {canCheckout ? (
+                  <Link href="/maintenance/checkout" style={menuItemStyle}>
+                    Checkout
+                  </Link>
+                ) : null}
+                {canCompanyVehicles ? (
+                  <Link href="/admin/company-vehicles" style={menuItemStyle}>
+                    Company Vehicles
+                  </Link>
+                ) : null}
+                {canAdminWorkOrders ? (
+                  <Link href="/admin/cycle-counts" style={menuItemStyle}>
+                    Cycle Counts
+                  </Link>
+                ) : null}
+                {canEquipmentTracking ? (
+                  <Link href="/admin/equipment-tracking" style={menuItemStyle}>
+                    Equipment Tracking
+                  </Link>
+                ) : null}
                 {canAdminMaintenanceTickets ? (
                   <Link href="/admin/maintenance-tickets" style={menuItemStyle}>
                     Maintenance Tickets (Parts)
@@ -440,29 +470,19 @@ export default async function AdminNav() {
                     Maintenance Requests (Queue)
                   </Link>
                 ) : null}
+                {canAdminWorkOrders ? (
+                  <Link href="/admin/work-orders/schedules" style={menuItemStyle}>
+                    PM Scheduler
+                  </Link>
+                ) : null}
+                {canAdminUsers ? (
+                  <Link href="/admin/permission-diagnostics" style={menuItemStyle}>
+                    Permission Diagnostics
+                  </Link>
+                ) : null}
                 {canPreventativeMaintenance ? (
                   <Link href="/admin/preventative-maintenance" style={menuItemStyle}>
                     Preventative Maintenance
-                  </Link>
-                ) : null}
-                {canPreventativeMaintenance ? (
-                  <Link href="/admin/preventative-maintenance/compliance" style={menuItemStyle}>
-                    Backflow / Grease Trap / Boiler
-                  </Link>
-                ) : null}
-                {canEquipmentTracking ? (
-                  <Link href="/admin/equipment-tracking" style={menuItemStyle}>
-                    Equipment Tracking
-                  </Link>
-                ) : null}
-                {canCompanyVehicles ? (
-                  <Link href="/admin/company-vehicles" style={menuItemStyle}>
-                    Company Vehicles
-                  </Link>
-                ) : null}
-                {canTemperatureDashboard ? (
-                  <Link href="/maintenance/temperature-dashboard" style={menuItemStyle}>
-                    Temperature Dashboard
                   </Link>
                 ) : null}
                 {canRoomDiagrams ? (
@@ -475,14 +495,9 @@ export default async function AdminNav() {
                     Quick Count Editor
                   </Link>
                 ) : null}
-                {canAdminWorkOrders ? (
-                  <Link href="/admin/work-orders" style={menuItemStyle}>
-                    Work Orders
-                  </Link>
-                ) : null}
-                {canAdminWorkOrders ? (
-                  <Link href="/admin/work-orders/schedules" style={menuItemStyle}>
-                    PM Scheduler
+                {canTemperatureDashboard ? (
+                  <Link href="/maintenance/temperature-dashboard" style={menuItemStyle}>
+                    Temperature Dashboard
                   </Link>
                 ) : null}
                 {canAdminTravelLogs ? (
@@ -493,28 +508,13 @@ export default async function AdminNav() {
                   <span style={menuItemDisabled}>Travel Logs</span>
                 )}
                 {canAdminWorkOrders ? (
-                  <Link href="/admin/cycle-counts" style={menuItemStyle}>
-                    Cycle Counts
-                  </Link>
-                ) : null}
-                {canAdminUsers ? (
-                  <Link href="/admin/permission-diagnostics" style={menuItemStyle}>
-                    Permission Diagnostics
-                  </Link>
-                ) : null}
-                {canAdminUsers ? (
-                  <Link href="/admin/audit" style={menuItemStyle}>
-                    Audit Trail
+                  <Link href="/admin/work-orders" style={menuItemStyle}>
+                    Work Orders
                   </Link>
                 ) : null}
                 {canUserWorkOrders ? (
                   <Link href="/maintenance/work-orders" style={menuItemStyle}>
                     Work Orders (User)
-                  </Link>
-                ) : null}
-                {canCheckout ? (
-                  <Link href="/maintenance/checkout" style={menuItemStyle}>
-                    Checkout
                   </Link>
                 ) : null}
               </div>
