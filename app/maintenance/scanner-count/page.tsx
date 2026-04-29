@@ -105,7 +105,15 @@ export default async function ScannerCountPage() {
   ].sort((a, b) => a.label.localeCompare(b.label));
 
   return (
-    <main>
+    <main data-scanner-count-page>
+      <style>{`
+        body:has([data-scanner-count-page]) .app-preview-controls,
+        body:has([data-scanner-count-page]) [data-admin-nav-root],
+        body:has([data-scanner-count-page]) [data-user-nav-root],
+        body:has([data-scanner-count-page]) .site-nav-shell {
+          display: none !important;
+        }
+      `}</style>
       <div style={{ maxWidth: 1040, margin: "0 auto", display: "grid", gap: 14 }}>
         <section
           style={{

@@ -22,6 +22,7 @@ type Props = {
   items: ItemLite[];
   defaultId?: string;
   defaultItemId?: string;
+  autoFocus?: boolean;
   placeholder?: string;
   style?: CSSProperties;
   inputStyle?: CSSProperties;
@@ -97,6 +98,7 @@ export default function ItemPicker({
   items,
   defaultId,
   defaultItemId,
+  autoFocus = false,
   placeholder = "Search item #, ID, SKU, part #, name, category, manufacturer…",
   style,
   inputStyle,
@@ -161,6 +163,11 @@ export default function ItemPicker({
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!autoFocus) return;
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, [autoFocus]);
 
   function computeMenuPos() {
     const el = inputRef.current;

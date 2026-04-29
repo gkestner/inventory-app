@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import ItemPicker from "@/app/admin/inventory-orders/ItemPicker";
 
@@ -190,7 +190,6 @@ export default function ScannerCountClient({
   items: SearchItem[];
   availableLocations: string[];
 }) {
-  const readyRef = useRef<HTMLDivElement | null>(null);
   const [searchItems, setSearchItems] = useState<SearchItem[]>(items);
   const [pickerResetKey, setPickerResetKey] = useState(0);
   const [selectedId, setSelectedId] = useState("");
@@ -201,13 +200,6 @@ export default function ScannerCountClient({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [openChart, setOpenChart] = useState<"cost" | "usage" | null>(null);
-
-  useEffect(() => {
-    document.body.classList.add("scanner-count-mode");
-    return () => {
-      document.body.classList.remove("scanner-count-mode");
-    };
-  }, []);
 
   useEffect(() => {
     if (!selectedId) {
@@ -300,11 +292,6 @@ export default function ScannerCountClient({
       setOpenChart(null);
       setPickerResetKey((current) => current + 1);
       setNotice("Item saved. Ready for the next scan.");
-      requestAnimationFrame(() => {
-        const active = document.activeElement;
-        if (active instanceof HTMLElement) active.blur();
-        readyRef.current?.focus();
-      });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Failed to save item.");
     } finally {
@@ -315,13 +302,6 @@ export default function ScannerCountClient({
   return (
     <>
       <style>{`
-        body.scanner-count-mode .app-preview-controls,
-        body.scanner-count-mode [data-admin-nav-root],
-        body.scanner-count-mode [data-user-nav-root],
-        body.scanner-count-mode .site-nav-shell {
-          display: none !important;
-        }
-
         .scanner-count-shell {
           display: grid;
           gap: 14px;
@@ -606,7 +586,7 @@ export default function ScannerCountClient({
         }
       `}</style>
 
-      <div className="scanner-count-shell" ref={readyRef} tabIndex={-1}>
+      <div className="scanner-count-shell">
         <section className="scanner-editor-card">
           <div style={{ display: "grid", gap: 8 }}>
             <div style={{ fontSize: 12, fontWeight: 900, color: "var(--muted)", letterSpacing: 0.3 }}>FIND PART</div>
@@ -614,6 +594,7 @@ export default function ScannerCountClient({
               key={pickerResetKey}
               name="scannerCountSelectedItem"
               items={searchItems}
+              autoFocus
               placeholder="Scan QR / barcode or search ITEM#, SKU, part #, name, category, manufacturer…"
               onSelectedIdChange={setSelectedId}
               enableGlobalScannerCapture
