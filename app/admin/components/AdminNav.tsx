@@ -199,6 +199,8 @@ export default async function AdminNav() {
     ]);
   const canQuickCountEditor =
     isAdmin || hasAnyPermission(perms, [Permission.EDIT_QUICK_COUNT, Permission.ADMIN_EDIT_ITEMS]);
+  const canScannerCount =
+    isAdmin || hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
   const canAdminTravelLogs = canAdminWorkOrders || canUserWorkOrders;
 
   // For now: gate invoices + order history under items perms (no enum changes)
@@ -493,6 +495,11 @@ export default async function AdminNav() {
                 {canQuickCountEditor ? (
                   <Link href="/maintenance/room-diagrams/quick-count" style={menuItemStyle}>
                     Quick Count Editor
+                  </Link>
+                ) : null}
+                {canScannerCount ? (
+                  <Link href="/maintenance/scanner-count" style={menuItemStyle}>
+                    Scanner Count
                   </Link>
                 ) : null}
                 {canTemperatureDashboard ? (
