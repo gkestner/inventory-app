@@ -69,6 +69,7 @@ export default async function MaintenanceHomePage() {
     ]);
   const canQuickCountEditor =
     perms.allowAll || hasAnyPermission(perms, [Permission.EDIT_QUICK_COUNT, Permission.ADMIN_EDIT_ITEMS]);
+  const canScannerCount = canQuickCountEditor;
 
   const border = "1px solid var(--border)";
 
@@ -253,6 +254,11 @@ export default async function MaintenanceHomePage() {
                 {canQuickCountEditor ? (
                   <Link href="/maintenance/room-diagrams/quick-count" style={action}>
                     Open Quick Count Editor
+                  </Link>
+                ) : null}
+                {canScannerCount ? (
+                  <Link href="/maintenance/scanner-count" style={action}>
+                    Open Scanner Count
                   </Link>
                 ) : null}
               </div>

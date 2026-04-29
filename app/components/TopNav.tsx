@@ -36,6 +36,7 @@ export default async function TopNav() {
   const canInventory = perms.allowAll || hasAnyPermission(perms, [VIEW_INVENTORY, Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
   const canRoomDiagrams = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_ROOM_DIAGRAMS, Permission.EDIT_QUICK_COUNT]);
   const canQuickCountEditor = perms.allowAll || hasAnyPermission(perms, [Permission.EDIT_QUICK_COUNT]);
+  const canScannerCount = perms.allowAll || hasAnyPermission(perms, [Permission.EDIT_QUICK_COUNT, Permission.ADMIN_EDIT_ITEMS]);
 
   // ✅ NEW: Live Orders board (general users)
   const canLiveOrders = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_LIVE_ORDERS]);
@@ -91,6 +92,12 @@ export default async function TopNav() {
           {canQuickCountEditor ? (
             <Link href="/maintenance/room-diagrams/quick-count" className="site-link" style={linkStyle}>
               Quick Count
+            </Link>
+          ) : null}
+
+          {canScannerCount ? (
+            <Link href="/maintenance/scanner-count" className="site-link" style={linkStyle}>
+              Scanner Count
             </Link>
           ) : null}
 

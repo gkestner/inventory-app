@@ -125,6 +125,7 @@ export default async function UserNav() {
   const canRoomDiagrams =
     perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_ROOM_DIAGRAMS, Permission.EDIT_QUICK_COUNT]);
   const canQuickCountEditor = perms.allowAll || hasAnyPermission(perms, [Permission.EDIT_QUICK_COUNT]);
+  const canScannerCount = perms.allowAll || hasAnyPermission(perms, [Permission.EDIT_QUICK_COUNT, Permission.ADMIN_EDIT_ITEMS]);
   const canLiveOrders = perms.allowAll || hasAnyPermission(perms, [Permission.VIEW_LIVE_ORDERS]);
 
   const homeHref =
@@ -140,6 +141,7 @@ export default async function UserNav() {
     canVehicleLog ||
     canRoomDiagrams ||
     canQuickCountEditor ||
+    canScannerCount ||
     canLiveOrders
       ? "/maintenance"
       : "/";
@@ -220,6 +222,12 @@ export default async function UserNav() {
           <Link href={homeHref} className="site-brand" style={brand}>
             Maintenance
           </Link>
+
+          {canScannerCount ? (
+            <Link href="/maintenance/scanner-count" className="site-link" style={linkStyle}>
+              Scanner Count
+            </Link>
+          ) : null}
 
           {canWorkOrders ? (
             <Link href="/maintenance/work-orders" className="site-link" style={linkStyle}>
