@@ -2,7 +2,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getItemLabelNumberDisplay } from "@/app/lib/item-label-number";
 
@@ -122,7 +122,7 @@ export default function ItemPicker({
   const [activeIndex, setActiveIndex] = useState(0);
   const [mounted, setMounted] = useState(false);
   const [menuPos, setMenuPos] = useState<MenuPos | null>(null);
-  const menuDomId = useMemo(() => `itempicker-menu-${Math.random().toString(16).slice(2)}`, []);
+  const menuDomId = useId().replace(/:/g, "-");
 
   useEffect(() => {
     if (!defaultItem) {
