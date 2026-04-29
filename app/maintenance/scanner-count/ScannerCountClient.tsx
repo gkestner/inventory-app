@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import ItemPicker from "@/app/admin/inventory-orders/ItemPicker";
 
@@ -28,7 +28,7 @@ type ItemDetail = {
   name: string;
   onHandQty: number;
   minQty: number;
-  price: string | null;
+  cost: string | null;
   location: string;
   shelf: string;
   bin: string;
@@ -190,7 +190,9 @@ export default function ScannerCountClient({
   items: SearchItem[];
   availableLocations: string[];
 }) {
+  const readyRef = useRef<HTMLDivElement | null>(null);
   const [searchItems, setSearchItems] = useState<SearchItem[]>(items);
+  const [pickerResetKey, setPickerResetKey] = useState(0);
   const [selectedId, setSelectedId] = useState("");
   const [detail, setDetail] = useState<ItemDetail | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -199,6 +201,13 @@ export default function ScannerCountClient({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [openChart, setOpenChart] = useState<"cost" | "usage" | null>(null);
+
+  useEffect(() => {
+    document.body.classList.add("scanner-count-mode");
+    return () => {
+      document.body.classList.remove("scanner-count-mode");
+    };
+  }, []);
 
   useEffect(() => {
     if (!selectedId) {
@@ -274,27 +283,6 @@ export default function ScannerCountClient({
       if (!res.ok) throw new Error(("error" in data && data.error) || `Save failed (${res.status})`);
 
       const saved = (data as SaveResponse).item;
-      setDetail((current) =>
-        current
-          ? {
-              ...current,
-              sku: saved.sku,
-              name: saved.name,
-              onHandQty: saved.onHandQty,
-              location: saved.location,
-              shelf: saved.shelf,
-              bin: saved.bin,
-              updatedAt: saved.updatedAt,
-            }
-          : current
-      );
-      setDraft({
-        name: saved.name,
-        onHandQty: String(saved.onHandQty),
-        location: saved.location,
-        shelf: saved.shelf,
-        bin: saved.bin,
-      });
       setSearchItems((current) =>
         current.map((item) =>
           item.id === saved.id
@@ -306,7 +294,17 @@ export default function ScannerCountClient({
             : item
         )
       );
-      setNotice("Item saved.");
+      setSelectedId("");
+      setDetail(null);
+      setDraft(null);
+      setOpenChart(null);
+      setPickerResetKey((current) => current + 1);
+      setNotice("Item saved. Ready for the next scan.");
+      requestAnimationFrame(() => {
+        const active = document.activeElement;
+        if (active instanceof HTMLElement) active.blur();
+        readyRef.current?.focus();
+      });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Failed to save item.");
     } finally {
@@ -317,6 +315,13 @@ export default function ScannerCountClient({
   return (
     <>
       <style>{`
+        body.scanner-count-mode .app-preview-controls,
+        body.scanner-count-mode [data-admin-nav-root],
+        body.scanner-count-mode [data-user-nav-root],
+        body.scanner-count-mode .site-nav-shell {
+          display: none !important;
+        }
+
         .scanner-count-shell {
           display: grid;
           gap: 14px;
@@ -601,11 +606,12 @@ export default function ScannerCountClient({
         }
       `}</style>
 
-      <div className="scanner-count-shell">
+      <div className="scanner-count-shell" ref={readyRef} tabIndex={-1}>
         <section className="scanner-editor-card">
           <div style={{ display: "grid", gap: 8 }}>
             <div style={{ fontSize: 12, fontWeight: 900, color: "var(--muted)", letterSpacing: 0.3 }}>FIND PART</div>
             <ItemPicker
+              key={pickerResetKey}
               name="scannerCountSelectedItem"
               items={searchItems}
               placeholder="Scan QR / barcode or search ITEM#, SKU, part #, name, category, manufacturer…"
@@ -713,8 +719,8 @@ export default function ScannerCountClient({
                     </label>
 
                     <label className="scanner-label">
-                      PRICE
-                      <div className="scanner-readonly">{detail.price ? `$${detail.price}` : "No price set"}</div>
+                      COST
+                      <div className="scanner-readonly">{detail.cost ? `$${detail.cost}` : "No cost set"}</div>
                     </label>
                   </div>
 

@@ -7,6 +7,7 @@ import { authOptions } from "@/app/lib/auth";
 import { parseSkuRoomParts } from "@/app/lib/item-sku";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { prisma } from "@/app/lib/prisma";
+import SignOutButton from "@/app/components/SignOutButton";
 import ScannerCountClient from "@/app/maintenance/scanner-count/ScannerCountClient";
 
 type SessionShape = {
@@ -88,9 +89,93 @@ export default async function ScannerCountPage() {
     return Number(a) - Number(b);
   });
 
+  const compactNavLinks = [
+    { href: "/admin", label: "Admin Home" },
+    { href: "/maintenance/checkout", label: "Checkout" },
+    { href: "/admin/items", label: "Items" },
+    { href: "/notifications", label: "Notifications" },
+    { href: "/admin/inventory-orders", label: "Order History" },
+    { href: "/maintenance/room-diagrams/quick-count", label: "Quick Count Editor" },
+    { href: "/admin/reports", label: "Reports" },
+    { href: "/maintenance/room-diagrams", label: "Room Diagrams" },
+    { href: "/maintenance/scanner-count", label: "Scanner Count" },
+    { href: "/settings", label: "Settings" },
+    { href: "/admin/users", label: "Users" },
+    { href: "/admin/work-orders", label: "Work Orders" },
+  ].sort((a, b) => a.label.localeCompare(b.label));
+
   return (
     <main>
       <div style={{ maxWidth: 1040, margin: "0 auto", display: "grid", gap: 14 }}>
+        <section
+          style={{
+            border: "1px solid var(--border)",
+            borderRadius: 16,
+            padding: 12,
+            background: "var(--surface)",
+            boxShadow: "var(--shadow)",
+          }}
+        >
+          <details>
+            <summary
+              style={{
+                listStyle: "none",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
+                fontWeight: 900,
+                fontSize: 16,
+              }}
+            >
+              <span>Menu</span>
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>Tap to open</span>
+            </summary>
+            <div
+              style={{
+                marginTop: 12,
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                gap: 8,
+              }}
+            >
+              {compactNavLinks.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  style={{
+                    textDecoration: "none",
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: "1px solid var(--border)",
+                    background: link.href === "/maintenance/scanner-count" ? "var(--surface-2)" : "var(--surface)",
+                    color: "var(--foreground)",
+                    fontWeight: 800,
+                  }}
+                >
+                  {link.label}
+                </Link>
+              ))}
+            </div>
+            <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
+              <SignOutButton
+                label="Logout"
+                callbackUrl="/login"
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 10,
+                  border: "1px solid color-mix(in srgb, var(--brand) 55%, var(--border))",
+                  background: "linear-gradient(160deg, var(--brand-2) 0%, var(--brand) 100%)",
+                  color: "var(--brand-contrast)",
+                  fontWeight: 800,
+                  cursor: "pointer",
+                }}
+              />
+            </div>
+          </details>
+        </section>
+
         <section
           style={{
             border: "1px solid var(--border)",
@@ -107,36 +192,6 @@ export default async function ScannerCountPage() {
               <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.5, maxWidth: 760 }}>
                 Scan a label, review the current stock, update the part name or room location inline, and save without leaving the screen.
               </p>
-            </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <Link
-                href="/maintenance"
-                style={{
-                  textDecoration: "none",
-                  padding: "9px 13px",
-                  borderRadius: 10,
-                  border: "1px solid var(--border)",
-                  background: "var(--surface)",
-                  color: "var(--foreground)",
-                  fontWeight: 800,
-                }}
-              >
-                Maintenance Hub
-              </Link>
-              <Link
-                href="/maintenance/room-diagrams/quick-count"
-                style={{
-                  textDecoration: "none",
-                  padding: "9px 13px",
-                  borderRadius: 10,
-                  border: "1px solid var(--border)",
-                  background: "var(--surface-2)",
-                  color: "var(--foreground)",
-                  fontWeight: 800,
-                }}
-              >
-                Quick Count Editor
-              </Link>
             </div>
           </div>
           <div style={{ marginTop: 14, fontSize: 13, color: "var(--muted)", lineHeight: 1.45 }}>
