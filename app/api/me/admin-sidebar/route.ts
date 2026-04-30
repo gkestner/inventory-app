@@ -3,7 +3,11 @@ import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
-import { DEFAULT_USER_PREFERENCES, normalizeUserPreferences, setNormalizedUserPreferences } from "@/app/lib/user-preferences";
+import {
+  parseAdminSidebarPreferences,
+  setAdminSidebarPreferences,
+  type AdminSidebarPreferences,
+} from "@/app/lib/user-preferences";
 
 type AppSession = {
   user?: {
@@ -12,15 +16,13 @@ type AppSession = {
   } | null;
 } | null;
 
-// Some editor sessions can temporarily lag Prisma type regeneration.
-// Keep this route resilient by using a narrow cast for reads/writes of the JSON field.
 type PrismaUserCompat = {
   findUnique: (args: unknown) => Promise<{ id?: string; uiPreferences?: unknown } | null>;
   update: (args: unknown) => Promise<unknown>;
 };
 
 function getPrismaUser(): PrismaUserCompat {
-  return (prisma.user as unknown) as PrismaUserCompat;
+  return prisma.user as unknown as PrismaUserCompat;
 }
 
 async function requireSessionUser() {
@@ -39,6 +41,12 @@ async function requireSessionUser() {
   return { ok: true as const, userId: found.id };
 }
 
+function normalizePayload(body: unknown): AdminSidebarPreferences {
+  const raw = (body as { sidebar?: unknown; items?: unknown } | null)?.sidebar ?? body;
+  const parsed = parseAdminSidebarPreferences({ adminSidebar: raw });
+  return parsed ?? { items: [] };
+}
+
 export async function GET() {
   const auth = await requireSessionUser();
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -48,8 +56,8 @@ export async function GET() {
     select: { uiPreferences: true },
   });
 
-  const prefs = normalizeUserPreferences(user?.uiPreferences ?? DEFAULT_USER_PREFERENCES);
-  return NextResponse.json({ preferences: prefs }, { status: 200 });
+  const sidebar = parseAdminSidebarPreferences(user?.uiPreferences) ?? { items: [] };
+  return NextResponse.json({ sidebar }, { status: 200 });
 }
 
 export async function PATCH(req: Request) {
@@ -63,8 +71,7 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const prefs = normalizeUserPreferences((body as { preferences?: unknown } | null)?.preferences ?? body);
-
+  const sidebar = normalizePayload(body);
   const existing = await getPrismaUser().findUnique({
     where: { id: auth.userId },
     select: { uiPreferences: true },
@@ -72,8 +79,8 @@ export async function PATCH(req: Request) {
 
   await getPrismaUser().update({
     where: { id: auth.userId },
-    data: { uiPreferences: setNormalizedUserPreferences(existing?.uiPreferences, prefs) },
+    data: { uiPreferences: setAdminSidebarPreferences(existing?.uiPreferences, sidebar) },
   });
 
-  return NextResponse.json({ preferences: prefs }, { status: 200 });
+  return NextResponse.json({ sidebar }, { status: 200 });
 }

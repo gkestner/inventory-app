@@ -8,6 +8,9 @@ import { Role, Permission } from "@prisma/client";
 import { authOptions } from "@/app/lib/auth";
 import { loadUserPermissions, hasAnyPermission, type LoadedPermissions } from "@/app/lib/permissions";
 import SignOutButton from "@/app/components/SignOutButton";
+import AdminSidebar, { type AdminSidebarCatalogItem } from "@/app/admin/components/AdminSidebar";
+import { prisma } from "@/app/lib/prisma";
+import { parseAdminSidebarPreferences, type AdminSidebarItemPreference } from "@/app/lib/user-preferences";
 import {
   ADMIN_VIEW_COMPANY_VEHICLES,
   ADMIN_VIEW_EQUIPMENT_TRACKING,
@@ -135,6 +138,21 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   const canMaintenanceRequests = allowAll || hasAnyPermission(perms, [ADMIN_VIEW_MAINTENANCE_REQUESTS]);
   const canTemperatureDashboard = allowAll || hasAnyPermission(perms, [ADMIN_VIEW_TEMPERATURE_DASHBOARD]);
 
+  const canCheckout =
+    allowAll || hasAnyPermission(perms, [Permission.VIEW_CHECKOUT, Permission.CREATE_CHECKOUT]);
+  const canQuickCountEditor = allowAll || hasAnyPermission(perms, [Permission.EDIT_QUICK_COUNT, Permission.ADMIN_EDIT_ITEMS]);
+  const canRoomDiagrams =
+    allowAll ||
+    hasAnyPermission(perms, [
+      Permission.VIEW_ROOM_DIAGRAMS,
+      Permission.EDIT_QUICK_COUNT,
+      ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
+      Permission.ADMIN_VIEW_ITEMS,
+      Permission.ADMIN_EDIT_ITEMS,
+    ]);
+  const canScannerCount = allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
+  const canAuditTools = canUsers;
+
   const wrap: CSSProperties = {
     display: "grid",
     gridTemplateColumns: "260px minmax(0, 1fr)",
@@ -167,58 +185,6 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     overflow: "hidden",
   };
 
-  const brand: CSSProperties = {
-    fontWeight: 900,
-    fontSize: 16,
-    marginBottom: 10,
-  };
-
-  const meta: CSSProperties = {
-    fontSize: 12,
-    color: "var(--muted)",
-    marginBottom: 14,
-    lineHeight: 1.3,
-  };
-
-  const nav: CSSProperties = {
-    display: "flex",
-    flexDirection: "column",
-    gap: 8,
-  };
-
-  const linkStyle: CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-    border: "1px solid var(--border)",
-    borderRadius: 10,
-    padding: "10px 10px",
-    textDecoration: "none",
-    color: "var(--foreground)",
-    background: "var(--surface)",
-    fontSize: 13,
-  };
-
-  const pill: CSSProperties = {
-    fontSize: 11,
-    padding: "2px 8px",
-    borderRadius: 999,
-    border: "1px solid var(--border)",
-    background: "var(--surface-2)",
-    color: "var(--muted)",
-    whiteSpace: "nowrap",
-  };
-
-  const sectionTitle: CSSProperties = {
-    marginTop: 14,
-    marginBottom: 8,
-    fontSize: 12,
-    fontWeight: 800,
-    color: "var(--muted)",
-    letterSpacing: 0.2,
-  };
-
   const contentWrap: CSSProperties = {
     padding: 16,
   };
@@ -246,7 +212,98 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     cursor: "pointer",
   };
 
+  const userId = (session.user as unknown as { id?: string | null } | null)?.id?.trim() || "";
   const email = (session.user as unknown as { email?: string | null } | null)?.email ?? "—";
+  const sidebarUser = userId
+    ? await prisma.user.findUnique({ where: { id: userId }, select: { uiPreferences: true } })
+    : null;
+
+  const availableSidebarItems: AdminSidebarCatalogItem[] = [];
+
+  if (canItems) {
+    availableSidebarItems.push({ key: "items", label: "Items", href: "/admin/items", tag: "Catalog", group: "Inventory" });
+    availableSidebarItems.push({ key: "price-lookup", label: "AI Price Lookup", href: "/admin/price-lookup", tag: "GPT", group: "Inventory" });
+  }
+  if (canAlerts) {
+    availableSidebarItems.push({ key: "inventory-alerts", label: "Inventory Alerts", href: "/admin/inventory-alerts", tag: "Alerts", group: "Inventory" });
+  }
+  if (canOrders) {
+    availableSidebarItems.push({ key: "inventory-orders", label: "Inventory Orders", href: "/admin/inventory-orders", tag: "History", group: "Inventory" });
+  }
+  if (canReports) {
+    availableSidebarItems.push({ key: "reports", label: "Reports Hub", href: "/admin/reports", tag: "Reports", group: "Inventory" });
+  }
+  if (canQuickCountEditor) {
+    availableSidebarItems.push({ key: "quick-count", label: "Quick Count Editor", href: "/maintenance/room-diagrams/quick-count", tag: "Count", group: "Inventory" });
+  }
+  if (canScannerCount) {
+    availableSidebarItems.push({ key: "scanner-count", label: "Scanner Count", href: "/maintenance/scanner-count", tag: "Scan", group: "Inventory" });
+  }
+  if (canLiveOrders) {
+    availableSidebarItems.push({ key: "live-orders", label: "Live Orders Board", href: "/admin/live-orders", tag: "Live", group: "Operations" });
+  }
+  if (canWorkOrders) {
+    availableSidebarItems.push({ key: "work-orders", label: "Work Orders", href: "/admin/work-orders", tag: "Ops", group: "Operations" });
+    availableSidebarItems.push({ key: "pm-scheduler", label: "PM Scheduler", href: "/admin/work-orders/schedules", tag: "PM", group: "Facilities" });
+    availableSidebarItems.push({ key: "travel-log", label: "Travel Logs", href: "/admin/travel-log", tag: "Travel", group: "Operations" });
+  }
+  if (canMaintenanceRequests) {
+    availableSidebarItems.push({ key: "maintenance-requests", label: "Maintenance Requests", href: "/admin/maintenance-requests", tag: "Queue", group: "Operations" });
+  }
+  if (canTickets) {
+    availableSidebarItems.push({ key: "maintenance-tickets", label: "Maintenance Tickets", href: "/admin/maintenance-tickets", tag: "Parts", group: "Operations" });
+  }
+  if (canCheckout) {
+    availableSidebarItems.push({ key: "checkout", label: "Checkout", href: "/maintenance/checkout", tag: "Stock", group: "Operations" });
+  }
+  if (canRoomDiagrams) {
+    availableSidebarItems.push({ key: "room-diagrams", label: "Room Diagrams", href: "/maintenance/room-diagrams", tag: "Layout", group: "Facilities" });
+  }
+  if (canPreventativeMaintenance) {
+    availableSidebarItems.push({ key: "preventative-maintenance", label: "Preventative Maintenance", href: "/admin/preventative-maintenance", tag: "PM", group: "Facilities" });
+    availableSidebarItems.push({ key: "pm-compliance", label: "Backflow / Grease Trap / Boiler", href: "/admin/preventative-maintenance/compliance", tag: "Compliance", group: "Facilities" });
+  }
+  if (canEquipmentTracking) {
+    availableSidebarItems.push({ key: "equipment-tracking", label: "Equipment Tracking", href: "/admin/equipment-tracking", tag: "Assets", group: "Facilities" });
+  }
+  if (canCompanyVehicles) {
+    availableSidebarItems.push({ key: "company-vehicles", label: "Company Vehicles", href: "/admin/company-vehicles", tag: "Fleet", group: "Facilities" });
+  }
+  if (canTemperatureDashboard) {
+    availableSidebarItems.push({ key: "temperature-dashboard", label: "Temperature Dashboard", href: "/maintenance/temperature-dashboard", tag: "Mocreo", group: "Facilities" });
+  }
+  if (canUsers) {
+    availableSidebarItems.push({ key: "users", label: "Users", href: "/admin/users", tag: "Security", group: "Administration" });
+  }
+  if (canLocations) {
+    availableSidebarItems.push({ key: "locations", label: "Locations", href: "/admin/locations", tag: "Setup", group: "Administration" });
+  }
+  if (canRoles) {
+    availableSidebarItems.push({ key: "access-titles", label: "Permission Titles", href: "/admin/access-titles", tag: "RBAC", group: "Administration" });
+  }
+  if (canAuditTools) {
+    availableSidebarItems.push({ key: "audit", label: "Audit Trail", href: "/admin/audit", tag: "Audit", group: "Administration" });
+    availableSidebarItems.push({ key: "permission-diagnostics", label: "Permission Diagnostics", href: "/admin/permission-diagnostics", tag: "Tools", group: "Administration" });
+  }
+  availableSidebarItems.push({ key: "notifications", label: "Notifications", href: "/notifications", tag: "Inbox", group: "General" });
+
+  const defaultSidebarItems: AdminSidebarItemPreference[] = [
+    { type: "preset" as const, key: "items" },
+    { type: "preset" as const, key: "inventory-alerts" },
+    { type: "preset" as const, key: "inventory-orders" },
+    { type: "preset" as const, key: "quick-count" },
+    { type: "preset" as const, key: "scanner-count" },
+    { type: "preset" as const, key: "reports" },
+    { type: "preset" as const, key: "work-orders" },
+    { type: "preset" as const, key: "maintenance-requests" },
+    { type: "preset" as const, key: "live-orders" },
+    { type: "preset" as const, key: "preventative-maintenance" },
+    { type: "preset" as const, key: "users" },
+    { type: "preset" as const, key: "locations" },
+  ].filter((item) => availableSidebarItems.some((availableItem) => availableItem.key === item.key));
+
+  const savedSidebar = parseAdminSidebarPreferences(sidebarUser?.uiPreferences);
+  const initialSidebarItems = savedSidebar?.items ?? defaultSidebarItems;
 
   return (
     <div className="admin-layout-grid" style={wrap}>
@@ -264,145 +321,13 @@ export default async function AdminLayout({ children }: { children: ReactNode })
       `}</style>
 
       <aside className="admin-layout-sidebar" style={sidebar}>
-        <div style={brand}>Admin</div>
-        <div style={meta}>
-          <div>{email}</div>
-          <div style={{ marginTop: 2 }}>Role: {roleLabel}</div>
-        </div>
-
-        <div style={sectionTitle}>Operations</div>
-        <nav style={nav}>
-          {canItems ? (
-            <Link href="/admin/price-lookup" style={linkStyle}>
-              <span>AI Price Lookup</span>
-              <span style={pill}>GPT</span>
-            </Link>
-          ) : null}
-
-          {canAlerts ? (
-            <Link href="/admin/inventory-alerts" style={linkStyle}>
-              <span>Inventory Alerts</span>
-              <span style={pill}>Alerts</span>
-            </Link>
-          ) : null}
-
-          {canOrders ? (
-            <Link href="/admin/inventory-orders" style={linkStyle}>
-              <span>Inventory Orders</span>
-              <span style={pill}>History</span>
-            </Link>
-          ) : null}
-
-          {canItems ? (
-            <Link href="/admin/items" style={linkStyle}>
-              <span>Items</span>
-              <span style={pill}>Catalog</span>
-            </Link>
-          ) : null}
-
-          {canLiveOrders ? (
-            <Link href="/admin/live-orders" style={linkStyle}>
-              <span>Live Orders Board</span>
-              <span style={pill}>Live</span>
-            </Link>
-          ) : null}
-
-          {canReports ? (
-            <Link href="/admin/reports" style={linkStyle}>
-              <span>Reports Hub</span>
-              <span style={pill}>Reports</span>
-            </Link>
-          ) : null}
-        </nav>
-
-        <div style={sectionTitle}>Admin</div>
-        <nav style={nav}>
-          {canCompanyVehicles ? (
-            <Link href="/admin/company-vehicles" style={linkStyle}>
-              <span>Company Vehicles</span>
-              <span style={pill}>Fleet</span>
-            </Link>
-          ) : null}
-
-          {canEquipmentTracking ? (
-            <Link href="/admin/equipment-tracking" style={linkStyle}>
-              <span>Equipment Tracking</span>
-              <span style={pill}>Assets</span>
-            </Link>
-          ) : null}
-
-          {canLocations ? (
-            <Link href="/admin/locations" style={linkStyle}>
-              <span>Locations</span>
-              <span style={pill}>Setup</span>
-            </Link>
-          ) : null}
-
-          {canMaintenanceRequests ? (
-            <Link href="/admin/maintenance-requests" style={linkStyle}>
-              <span>Maintenance Requests (Queue)</span>
-              <span style={pill}>Queue</span>
-            </Link>
-          ) : null}
-
-          {canTickets ? (
-            <Link href="/admin/maintenance-tickets" style={linkStyle}>
-              <span>Maintenance Tickets (Parts)</span>
-              <span style={pill}>Invoicing</span>
-            </Link>
-          ) : null}
-
-          {canRoles ? (
-            <Link href="/admin/access-titles" style={linkStyle}>
-              <span>Permission Titles</span>
-              <span style={pill}>RBAC</span>
-            </Link>
-          ) : null}
-
-          {canPreventativeMaintenance ? (
-            <Link href="/admin/preventative-maintenance" style={linkStyle}>
-              <span>Preventative Maintenance</span>
-              <span style={pill}>PM</span>
-            </Link>
-          ) : null}
-
-          {canTemperatureDashboard ? (
-            <Link href="/maintenance/temperature-dashboard" style={linkStyle}>
-              <span>Temperature Dashboard</span>
-              <span style={pill}>Mocreo</span>
-            </Link>
-          ) : null}
-
-          {canUsers ? (
-            <Link href="/admin/users" style={linkStyle}>
-              <span>Users</span>
-              <span style={pill}>Security</span>
-            </Link>
-          ) : null}
-
-          {canWorkOrders ? (
-            <Link href="/admin/work-orders" style={linkStyle}>
-              <span>Work Orders</span>
-              <span style={pill}>Ops</span>
-            </Link>
-          ) : null}
-        </nav>
-
-        <div style={{ marginTop: 16, display: "grid", gap: 8 }}>
-          <Link href="/settings" style={{ ...linkStyle, justifyContent: "center" }}>
-            Account Settings
-          </Link>
-
-          <Link href="/" style={{ ...linkStyle, justifyContent: "center", background: "var(--surface-2)" }}>
-            ← Back to App
-          </Link>
-
-          <SignOutButton
-            label="Logout"
-            callbackUrl="/login"
-            style={{ ...linkStyle, justifyContent: "center", cursor: "pointer" }}
-          />
-        </div>
+        <AdminSidebar
+          email={email}
+          roleLabel={roleLabel}
+          availableItems={availableSidebarItems}
+          defaultItems={defaultSidebarItems}
+          initialItems={initialSidebarItems}
+        />
       </aside>
 
       <section className="admin-layout-main" style={main}>

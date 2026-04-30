@@ -10,6 +10,14 @@ export type UserPreferences = {
   labelsAutoclose: boolean;
 };
 
+export type AdminSidebarItemPreference =
+  | { type: "preset"; key: string }
+  | { type: "custom"; label: string; href: string };
+
+export type AdminSidebarPreferences = {
+  items: AdminSidebarItemPreference[];
+};
+
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   theme: "system",
   density: "comfortable",
@@ -21,6 +29,10 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
 
 function asRecord(v: unknown): Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+}
+
+function hasOwn(obj: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, key);
 }
 
 function toTheme(v: unknown): ThemeMode {
@@ -42,6 +54,34 @@ function toCopies(v: unknown): number {
   const n = Number(v);
   if (!Number.isFinite(n)) return DEFAULT_USER_PREFERENCES.labelsDefaultCopies;
   return Math.max(1, Math.min(20, Math.floor(n)));
+}
+
+function normalizeInternalHref(v: unknown): string | null {
+  const raw = String(v ?? "").trim();
+  if (!raw) return null;
+  if (/^(https?:|mailto:|tel:)/i.test(raw)) return null;
+  if (raw.startsWith("/")) return raw;
+  return `/${raw.replace(/^\/+/, "")}`;
+}
+
+function normalizeAdminSidebarItem(raw: unknown): AdminSidebarItemPreference | null {
+  const obj = asRecord(raw);
+  const type = String(obj.type ?? "").trim();
+
+  if (type === "preset") {
+    const key = String(obj.key ?? "").trim();
+    if (!key) return null;
+    return { type: "preset", key };
+  }
+
+  if (type === "custom") {
+    const label = String(obj.label ?? "").trim();
+    const href = normalizeInternalHref(obj.href);
+    if (!label || !href) return null;
+    return { type: "custom", label, href };
+  }
+
+  return null;
 }
 
 /**
@@ -74,4 +114,39 @@ export function normalizeUserPreferences(raw: unknown): UserPreferences {
     labelsAutoprint: toBool(obj.labelsAutoprint, DEFAULT_USER_PREFERENCES.labelsAutoprint),
     labelsAutoclose: toBool(obj.labelsAutoclose, DEFAULT_USER_PREFERENCES.labelsAutoclose),
   };
+}
+
+export function setNormalizedUserPreferences(raw: unknown, prefs: UserPreferences): Record<string, unknown> {
+  const root = asRecord(raw);
+  root.theme = prefs.theme;
+  root.density = prefs.density;
+  root.reducedMotion = prefs.reducedMotion;
+  root.labelsDefaultCopies = prefs.labelsDefaultCopies;
+  root.labelsAutoprint = prefs.labelsAutoprint;
+  root.labelsAutoclose = prefs.labelsAutoclose;
+  return root;
+}
+
+export function parseAdminSidebarPreferences(raw: unknown): AdminSidebarPreferences | null {
+  const root = asRecord(raw);
+  if (!hasOwn(root, "adminSidebar")) return null;
+
+  const sidebar = asRecord(root.adminSidebar);
+  const items = Array.isArray(sidebar.items)
+    ? sidebar.items.map((item) => normalizeAdminSidebarItem(item)).filter((item): item is AdminSidebarItemPreference => item !== null)
+    : [];
+
+  return { items };
+}
+
+export function setAdminSidebarPreferences(raw: unknown, prefs: AdminSidebarPreferences): Record<string, unknown> {
+  const root = asRecord(raw);
+  root.adminSidebar = {
+    items: prefs.items.map((item) =>
+      item.type === "preset"
+        ? { type: "preset", key: item.key }
+        : { type: "custom", label: item.label, href: item.href },
+    ),
+  };
+  return root;
 }
