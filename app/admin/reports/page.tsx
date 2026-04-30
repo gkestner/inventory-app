@@ -260,6 +260,14 @@ export default async function AdminReportsIndexPage({
               </Link>
             ) : null}
 
+            {canItemsReports && matchesQuery(query, "scanner count untouched unscanned looked up not scanned") ? (
+              <Link href="/admin/reports/scanner-count-untouched" style={cardStyle}>
+                <h2 style={titleStyle}>Scanner Count Untouched Parts</h2>
+                <p style={descStyle}>Parts you have not looked up or updated from scanner count since the last reset, with reset control for the next pass.</p>
+                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
+              </Link>
+            ) : null}
+
             {canItemsReports && matchesQuery(query, "order history inventory orders") ? (
               <Link href="/admin/inventory-orders" style={cardStyle}>
                 <h2 style={titleStyle}>Order History</h2>

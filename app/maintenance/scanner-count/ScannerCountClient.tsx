@@ -58,21 +58,6 @@ type SaveResponse = {
   };
 };
 
-type ReportRow = {
-  id: string;
-  name: string;
-  onHandQty: number;
-  location: string;
-  link: string | null;
-  partNumber: string | null;
-};
-
-type ReportResponse = {
-  resetAt: string | null;
-  total: number;
-  items: ReportRow[];
-};
-
 function prettyCode(value: string): string {
   const n = Number(value);
   return Number.isFinite(n) ? String(n) : value;
@@ -215,33 +200,6 @@ export default function ScannerCountClient({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [openChart, setOpenChart] = useState<"cost" | "usage" | null>(null);
-  const [report, setReport] = useState<ReportResponse | null>(null);
-  const [reportLoading, setReportLoading] = useState(true);
-  const [reportError, setReportError] = useState<string | null>(null);
-  const [resettingReport, setResettingReport] = useState(false);
-
-  async function loadReport() {
-    setReportLoading(true);
-    setReportError(null);
-
-    try {
-      const res = await fetch("/api/maintenance/scanner-count/report", {
-        method: "GET",
-        cache: "no-store",
-      });
-      const data = (await res.json()) as ReportResponse | { error?: string };
-      if (!res.ok) throw new Error(("error" in data && data.error) || `Report failed (${res.status})`);
-      setReport(data as ReportResponse);
-    } catch (loadError) {
-      setReportError(loadError instanceof Error ? loadError.message : "Failed to load report.");
-    } finally {
-      setReportLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    void loadReport();
-  }, []);
 
   useEffect(() => {
     if (!selectedId) {
@@ -277,7 +235,6 @@ export default function ScannerCountClient({
           shelf: loaded.shelf,
           bin: loaded.bin,
         });
-        void loadReport();
       } catch (loadError) {
         if (ignore || (loadError instanceof DOMException && loadError.name === "AbortError")) return;
         setError(loadError instanceof Error ? loadError.message : "Failed to load item.");
@@ -335,30 +292,10 @@ export default function ScannerCountClient({
       setOpenChart(null);
       setPickerResetKey((current) => current + 1);
       setNotice("Item saved. Ready for the next scan.");
-      void loadReport();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Failed to save item.");
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function resetReport() {
-    setResettingReport(true);
-    setReportError(null);
-
-    try {
-      const res = await fetch("/api/maintenance/scanner-count/report", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      const data = (await res.json()) as ReportResponse | { error?: string };
-      if (!res.ok) throw new Error(("error" in data && data.error) || `Reset failed (${res.status})`);
-      setReport(data as ReportResponse);
-    } catch (resetError) {
-      setReportError(resetError instanceof Error ? resetError.message : "Failed to reset report.");
-    } finally {
-      setResettingReport(false);
     }
   }
 
@@ -533,72 +470,6 @@ export default function ScannerCountClient({
           box-shadow: var(--shadow);
         }
 
-        .scanner-report-card {
-          border: 1px solid var(--border);
-          border-radius: 18px;
-          background: var(--surface);
-          box-shadow: var(--shadow);
-          padding: 16px;
-          display: grid;
-          gap: 14px;
-        }
-
-        .scanner-report-head {
-          display: flex;
-          gap: 12px;
-          justify-content: space-between;
-          align-items: flex-start;
-          flex-wrap: wrap;
-        }
-
-        .scanner-report-meta {
-          display: grid;
-          gap: 4px;
-          font-size: 13px;
-          color: var(--muted);
-          line-height: 1.45;
-        }
-
-        .scanner-report-table-wrap {
-          overflow-x: auto;
-          border: 1px solid var(--border);
-          border-radius: 14px;
-        }
-
-        .scanner-report-table {
-          width: 100%;
-          min-width: 760px;
-          border-collapse: collapse;
-        }
-
-        .scanner-report-table th,
-        .scanner-report-table td {
-          padding: 12px 14px;
-          border-bottom: 1px solid var(--border);
-          text-align: left;
-          vertical-align: top;
-        }
-
-        .scanner-report-table th {
-          font-size: 12px;
-          letter-spacing: 0.3px;
-          color: var(--muted);
-        }
-
-        .scanner-report-table tr:last-child td {
-          border-bottom: none;
-        }
-
-        .scanner-link {
-          color: var(--brand);
-          font-weight: 800;
-          text-decoration: none;
-        }
-
-        .scanner-link:hover {
-          text-decoration: underline;
-        }
-
         .scanner-chart-wrap {
           padding: 16px;
           display: grid;
@@ -716,71 +587,6 @@ export default function ScannerCountClient({
       `}</style>
 
       <div className="scanner-count-shell">
-        <section className="scanner-report-card">
-          <div className="scanner-report-head">
-            <div style={{ display: "grid", gap: 6 }}>
-              <div style={{ fontSize: 12, fontWeight: 900, color: "var(--muted)", letterSpacing: 0.3 }}>
-                NOT SCANNED / LOOKED UP REPORT
-              </div>
-              <div style={{ fontSize: 18, fontWeight: 900 }}>
-                {report ? `${report.total.toLocaleString()} parts still untouched` : "Loading report..."}
-              </div>
-              <div className="scanner-report-meta">
-                <span>Tracks items you have not opened or saved on this scanner count page since the last reset.</span>
-                <span>
-                  {report?.resetAt
-                    ? `Last reset ${new Date(report.resetAt).toLocaleString()}`
-                    : "No reset yet. Report includes every part not touched yet."}
-                </span>
-              </div>
-            </div>
-
-            <button className="scanner-button" type="button" onClick={() => void resetReport()} disabled={resettingReport}>
-              {resettingReport ? "Resetting..." : "Reset Report"}
-            </button>
-          </div>
-
-          {reportError ? <div className="scanner-error">{reportError}</div> : null}
-          {reportLoading && !report ? <div className="scanner-loading">Loading report…</div> : null}
-          {report && report.items.length === 0 ? (
-            <div className="scanner-notice">Everything has been scanned or looked up since the last reset.</div>
-          ) : null}
-          {report && report.items.length > 0 ? (
-            <div className="scanner-report-table-wrap">
-              <table className="scanner-report-table">
-                <thead>
-                  <tr>
-                    <th>Item Name</th>
-                    <th>Qty On Hand</th>
-                    <th>Location</th>
-                    <th>Link</th>
-                    <th>Part Number</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {report.items.map((row) => (
-                    <tr key={row.id}>
-                      <td>{row.name}</td>
-                      <td>{row.onHandQty}</td>
-                      <td>{row.location}</td>
-                      <td>
-                        {row.link ? (
-                          <a className="scanner-link" href={row.link} target="_blank" rel="noreferrer">
-                            Open link
-                          </a>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      <td>{row.partNumber || "-"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </section>
-
         <section className="scanner-editor-card">
           <div style={{ display: "grid", gap: 8 }}>
             <div style={{ fontSize: 12, fontWeight: 900, color: "var(--muted)", letterSpacing: 0.3 }}>FIND PART</div>
