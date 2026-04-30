@@ -234,18 +234,17 @@ export default async function AdminNav() {
   const brandLabel = canAdminItems ? "Inventory Admin" : "Admin";
 
   const showAccounting = canAdminInvoices;
-  const showInventory = canAdminItems || canAdminOrderHistory || canAdminInventoryAlerts;
+  const showInventory = canAdminItems || canAdminOrderHistory || canAdminInventoryAlerts || canQuickCountEditor || canScannerCount;
   const showAdmin = canAdminUsers || canAdminLocations;
-  const showMaintenance =
-    canAdminMaintenanceTickets ||
-    canAdminWorkOrders ||
-    canUserWorkOrders ||
-    canCheckout ||
+  const showOperations = canCheckout || canRoomDiagrams;
+  const showWorkOrders = canAdminWorkOrders || canUserWorkOrders || canAdminMaintenanceTickets || canMaintenanceRequests || canAdminTravelLogs;
+  const showFacilities =
     canPreventativeMaintenance ||
     canEquipmentTracking ||
     canCompanyVehicles ||
-    canMaintenanceRequests ||
-    canTemperatureDashboard;
+    canTemperatureDashboard ||
+    canAdminWorkOrders;
+  const showAdminTools = canAdminUsers;
 
   return (
     <div className="site-nav-shell" style={shell} data-admin-nav-root>
@@ -371,6 +370,16 @@ export default async function AdminNav() {
                     Order History
                   </Link>
                 ) : null}
+                {canQuickCountEditor ? (
+                  <Link href="/maintenance/room-diagrams/quick-count" style={menuItemStyle}>
+                    Quick Count Editor
+                  </Link>
+                ) : null}
+                {canScannerCount ? (
+                  <Link href="/maintenance/scanner-count" style={menuItemStyle}>
+                    Scanner Count
+                  </Link>
+                ) : null}
               </div>
             </details>
           ) : null}
@@ -427,41 +436,30 @@ export default async function AdminNav() {
             </details>
           ) : null}
 
-          {/* Maintenance */}
-          {showMaintenance ? (
+          {/* Operations */}
+          {showOperations ? (
             <details data-admin-dropdown style={detailsStyle}>
-              <summary style={summaryStyle}>Maintenance</summary>
+              <summary style={summaryStyle}>Operations</summary>
               <div style={menuStyle}>
-                {canAdminUsers ? (
-                  <Link href="/admin/audit" style={menuItemStyle}>
-                    Audit Trail
-                  </Link>
-                ) : null}
-                {canPreventativeMaintenance ? (
-                  <Link href="/admin/preventative-maintenance/compliance" style={menuItemStyle}>
-                    Backflow / Grease Trap / Boiler
-                  </Link>
-                ) : null}
                 {canCheckout ? (
                   <Link href="/maintenance/checkout" style={menuItemStyle}>
                     Checkout
                   </Link>
                 ) : null}
-                {canCompanyVehicles ? (
-                  <Link href="/admin/company-vehicles" style={menuItemStyle}>
-                    Company Vehicles
+                {canRoomDiagrams ? (
+                  <Link href="/maintenance/room-diagrams" style={menuItemStyle}>
+                    Room Diagrams
                   </Link>
                 ) : null}
-                {canAdminWorkOrders ? (
-                  <Link href="/admin/cycle-counts" style={menuItemStyle}>
-                    Cycle Counts
-                  </Link>
-                ) : null}
-                {canEquipmentTracking ? (
-                  <Link href="/admin/equipment-tracking" style={menuItemStyle}>
-                    Equipment Tracking
-                  </Link>
-                ) : null}
+              </div>
+            </details>
+          ) : null}
+
+          {/* Work Orders */}
+          {showWorkOrders ? (
+            <details data-admin-dropdown style={detailsStyle}>
+              <summary style={summaryStyle}>Work Orders</summary>
+              <div style={menuStyle}>
                 {canAdminMaintenanceTickets ? (
                   <Link href="/admin/maintenance-tickets" style={menuItemStyle}>
                     Maintenance Tickets (Parts)
@@ -470,41 +468,6 @@ export default async function AdminNav() {
                 {canMaintenanceRequests ? (
                   <Link href="/admin/maintenance-requests" style={menuItemStyle}>
                     Maintenance Requests (Queue)
-                  </Link>
-                ) : null}
-                {canAdminWorkOrders ? (
-                  <Link href="/admin/work-orders/schedules" style={menuItemStyle}>
-                    PM Scheduler
-                  </Link>
-                ) : null}
-                {canAdminUsers ? (
-                  <Link href="/admin/permission-diagnostics" style={menuItemStyle}>
-                    Permission Diagnostics
-                  </Link>
-                ) : null}
-                {canPreventativeMaintenance ? (
-                  <Link href="/admin/preventative-maintenance" style={menuItemStyle}>
-                    Preventative Maintenance
-                  </Link>
-                ) : null}
-                {canRoomDiagrams ? (
-                  <Link href="/maintenance/room-diagrams" style={menuItemStyle}>
-                    Room Diagrams
-                  </Link>
-                ) : null}
-                {canQuickCountEditor ? (
-                  <Link href="/maintenance/room-diagrams/quick-count" style={menuItemStyle}>
-                    Quick Count Editor
-                  </Link>
-                ) : null}
-                {canScannerCount ? (
-                  <Link href="/maintenance/scanner-count" style={menuItemStyle}>
-                    Scanner Count
-                  </Link>
-                ) : null}
-                {canTemperatureDashboard ? (
-                  <Link href="/maintenance/temperature-dashboard" style={menuItemStyle}>
-                    Temperature Dashboard
                   </Link>
                 ) : null}
                 {canAdminTravelLogs ? (
@@ -524,6 +487,60 @@ export default async function AdminNav() {
                     Work Orders (User)
                   </Link>
                 ) : null}
+              </div>
+            </details>
+          ) : null}
+
+          {/* Facilities */}
+          {showFacilities ? (
+            <details data-admin-dropdown style={detailsStyle}>
+              <summary style={summaryStyle}>Facilities</summary>
+              <div style={menuStyle}>
+                {canPreventativeMaintenance ? (
+                  <Link href="/admin/preventative-maintenance/compliance" style={menuItemStyle}>
+                    Backflow / Grease Trap / Boiler
+                  </Link>
+                ) : null}
+                {canCompanyVehicles ? (
+                  <Link href="/admin/company-vehicles" style={menuItemStyle}>
+                    Company Vehicles
+                  </Link>
+                ) : null}
+                {canEquipmentTracking ? (
+                  <Link href="/admin/equipment-tracking" style={menuItemStyle}>
+                    Equipment Tracking
+                  </Link>
+                ) : null}
+                {canAdminWorkOrders ? (
+                  <Link href="/admin/work-orders/schedules" style={menuItemStyle}>
+                    PM Scheduler
+                  </Link>
+                ) : null}
+                {canPreventativeMaintenance ? (
+                  <Link href="/admin/preventative-maintenance" style={menuItemStyle}>
+                    Preventative Maintenance
+                  </Link>
+                ) : null}
+                {canTemperatureDashboard ? (
+                  <Link href="/maintenance/temperature-dashboard" style={menuItemStyle}>
+                    Temperature Dashboard
+                  </Link>
+                ) : null}
+              </div>
+            </details>
+          ) : null}
+
+          {/* Tools */}
+          {showAdminTools ? (
+            <details data-admin-dropdown style={detailsStyle}>
+              <summary style={summaryStyle}>Tools</summary>
+              <div style={menuStyle}>
+                <Link href="/admin/audit" style={menuItemStyle}>
+                  Audit Trail
+                </Link>
+                <Link href="/admin/permission-diagnostics" style={menuItemStyle}>
+                  Permission Diagnostics
+                </Link>
               </div>
             </details>
           ) : null}

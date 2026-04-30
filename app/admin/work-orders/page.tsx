@@ -648,9 +648,6 @@ export default async function AdminWorkOrdersPage({
           <Link href="/admin/audit" style={btn}>
             Audit
           </Link>
-          <Link href="/admin/cycle-counts" style={btn}>
-            Cycle Counts
-          </Link>
           <Link href="/admin/reports/work-order-costs" style={btn}>
             Cost Rollup
           </Link>
