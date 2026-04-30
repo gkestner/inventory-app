@@ -633,7 +633,10 @@ export default function ScannerCountClient({
                       <input
                         className="scanner-field"
                         value={draft.name}
-                        onChange={(event) => setDraft((current) => (current ? { ...current, name: event.currentTarget.value } : current))}
+                        onChange={(event) => {
+                          const nextValue = event.currentTarget.value;
+                          setDraft((current) => (current ? { ...current, name: nextValue } : current));
+                        }}
                       />
                     </label>
 
@@ -645,7 +648,10 @@ export default function ScannerCountClient({
                         min="0"
                         inputMode="numeric"
                         value={draft.onHandQty}
-                        onChange={(event) => setDraft((current) => (current ? { ...current, onHandQty: event.currentTarget.value } : current))}
+                        onChange={(event) => {
+                          const nextValue = event.currentTarget.value;
+                          setDraft((current) => (current ? { ...current, onHandQty: nextValue } : current));
+                        }}
                       />
                     </label>
                   </div>
@@ -656,7 +662,10 @@ export default function ScannerCountClient({
                       <select
                         className="scanner-select"
                         value={draft.location}
-                        onChange={(event) => setDraft((current) => (current ? { ...current, location: event.currentTarget.value } : current))}
+                        onChange={(event) => {
+                          const nextValue = event.currentTarget.value;
+                          setDraft((current) => (current ? { ...current, location: nextValue } : current));
+                        }}
                       >
                         {availableLocations.map((location) => (
                           <option key={location} value={location}>
@@ -675,7 +684,10 @@ export default function ScannerCountClient({
                         max="99"
                         inputMode="numeric"
                         value={draft.shelf}
-                        onChange={(event) => setDraft((current) => (current ? { ...current, shelf: event.currentTarget.value } : current))}
+                        onChange={(event) => {
+                          const nextValue = event.currentTarget.value;
+                          setDraft((current) => (current ? { ...current, shelf: nextValue } : current));
+                        }}
                       />
                     </label>
 
@@ -688,7 +700,10 @@ export default function ScannerCountClient({
                         max="99"
                         inputMode="numeric"
                         value={draft.bin}
-                        onChange={(event) => setDraft((current) => (current ? { ...current, bin: event.currentTarget.value } : current))}
+                        onChange={(event) => {
+                          const nextValue = event.currentTarget.value;
+                          setDraft((current) => (current ? { ...current, bin: nextValue } : current));
+                        }}
                       />
                     </label>
                   </div>
