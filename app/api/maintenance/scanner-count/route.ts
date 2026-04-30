@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Permission, Prisma } from "@prisma/client";
+import { InvoiceVendor, Permission, Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/app/lib/auth";
@@ -76,6 +76,87 @@ function monthLabel(date: Date): string {
 function hasStructuredRoomSlot(sku: string): boolean {
   const parsed = parseSkuRoomParts(sku);
   return Boolean(parsed?.location && parsed?.shelf && parsed?.bin);
+}
+
+function normalizeVendor(value: unknown): InvoiceVendor {
+  const normalized = String(value ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/[-\s]+/g, "_");
+  return normalized === InvoiceVendor.AMERICAN_PLUS ? InvoiceVendor.AMERICAN_PLUS : InvoiceVendor.SUCCESS_PLUS;
+}
+
+function extractStructuredItemKey(sku: string): string {
+  const raw = String(sku ?? "").trim();
+  if (!raw) return "";
+
+  const canonicalMatch = raw.match(/^(?:VT\d{4}|\d{6})\s*-\s*(.+)$/i);
+  if (canonicalMatch?.[1]) return canonicalMatch[1].trim();
+
+  const legacyVaultMatch = raw.match(/^VT\s*-\s*\d{1,2}\s*-\s*\d{1,2}\s*-\s*(.+)$/i);
+  if (legacyVaultMatch?.[1]) return legacyVaultMatch[1].trim();
+
+  const legacyNumericMatch = raw.match(/^\d{1,2}\s*-\s*\d{1,2}\s*-\s*\d{1,2}\s*-\s*(.+)$/);
+  if (legacyNumericMatch?.[1]) return legacyNumericMatch[1].trim();
+
+  return raw;
+}
+
+function hasRoomChange(
+  currentSku: string,
+  nextLocation: string,
+  nextShelf: string,
+  nextBin: string
+): boolean {
+  const current = parseSkuRoomParts(currentSku);
+  if (!current) return false;
+  return current.location !== nextLocation || current.shelf !== nextShelf || current.bin !== nextBin;
+}
+
+function buildItemVersionSnapshot(
+  item: {
+    id: string;
+    sku: string;
+    partNumber: string | null;
+    vendor: unknown;
+    name: string;
+    description: string | null;
+    category: string | null;
+    manufacturer: string | null;
+    orderFrom: string | null;
+    webUrl: string | null;
+    cost: Prisma.Decimal | null;
+    price: Prisma.Decimal | null;
+    taxable: boolean;
+    active: boolean;
+    onHandQty: number;
+    orderedQty: number;
+    usedQty: number;
+    minQty: number;
+  },
+  version: number
+) {
+  return {
+    itemId: item.id,
+    version,
+    sku: item.sku,
+    partNumber: item.partNumber,
+    vendor: normalizeVendor(item.vendor),
+    name: item.name,
+    description: item.description,
+    category: item.category,
+    manufacturer: item.manufacturer,
+    orderFrom: item.orderFrom,
+    webUrl: item.webUrl,
+    cost: item.cost,
+    price: item.price,
+    taxable: item.taxable,
+    active: item.active,
+    onHandQty: item.onHandQty,
+    orderedQty: item.orderedQty,
+    usedQty: item.usedQty,
+    minQty: item.minQty,
+  };
 }
 
 function recentMonths(count: number): Array<{ key: string; label: string; start: Date }> {
@@ -182,6 +263,21 @@ export async function GET(req: NextRequest) {
     usageByMonth.set(key, (usageByMonth.get(key) ?? 0) + delta);
   }
 
+  await prisma.auditLog.create({
+    data: {
+      actorUserId: gate.actorId,
+      module: "INVENTORY_COUNT",
+      action: "SCANNER_COUNT_VIEW",
+      entityType: "Item",
+      entityId: item.id,
+      message: `Scanner count lookup for ${item.name}`,
+      metadata: {
+        sku: item.sku,
+        partNumber: item.partNumber,
+      },
+    },
+  });
+
   return json({
     id: item.id,
     labelNumber: item.labelNumber,
@@ -279,39 +375,26 @@ export async function POST(req: NextRequest) {
       const nextVersion = (latest?.version ?? 0) + 1;
 
       await tx.itemVersion.create({
-        data: {
-          itemId,
-          version: nextVersion,
-          sku: current.sku,
-          partNumber: current.partNumber,
-          vendor: current.vendor,
-          name: current.name,
-          description: current.description,
-          category: current.category,
-          manufacturer: current.manufacturer,
-          orderFrom: current.orderFrom,
-          webUrl: current.webUrl,
-          cost: current.cost,
-          price: current.price,
-          taxable: current.taxable,
-          active: current.active,
-          onHandQty: current.onHandQty,
-          orderedQty: current.orderedQty,
-          usedQty: current.usedQty,
-          minQty: current.minQty,
-        },
+        data: buildItemVersionSnapshot(current, nextVersion),
       });
 
-      const nextSku = hasStructuredRoomSlot(current.sku)
+      const shouldRewriteSku = hasStructuredRoomSlot(current.sku) && hasRoomChange(current.sku, location, shelf, bin);
+      const nextSku = shouldRewriteSku
         ? (() => {
             const structuredSku = parseStructuredSkuParts(current.sku) ?? {
               zone: location === "vault" ? "VT" : location,
               location,
               shelf,
               bin,
-              itemKey: current.sku,
+              itemKey: extractStructuredItemKey(current.sku),
             };
-            return buildStructuredSku(structuredSku.zone, location, shelf, bin, structuredSku.itemKey);
+            return buildStructuredSku(
+              structuredSku.zone,
+              location,
+              shelf,
+              bin,
+              extractStructuredItemKey(current.sku) || structuredSku.itemKey
+            );
           })()
         : current.sku;
 
