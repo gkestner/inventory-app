@@ -1,7 +1,7 @@
 // app/admin/inventory-orders/ItemPicker.tsx
 "use client";
 
-import type { CSSProperties } from "react";
+import type { CSSProperties, InputHTMLAttributes } from "react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getItemLabelNumberDisplay } from "@/app/lib/item-label-number";
@@ -24,6 +24,9 @@ type Props = {
   defaultItemId?: string;
   autoFocus?: boolean;
   placeholder?: string;
+  inputMode?: InputHTMLAttributes<HTMLInputElement>["inputMode"];
+  requireExplicitManualEntry?: boolean;
+  manualEntryButtonLabel?: string;
   style?: CSSProperties;
   inputStyle?: CSSProperties;
   onSelectedIdChange?: (id: string) => void;
@@ -100,6 +103,9 @@ export default function ItemPicker({
   defaultItemId,
   autoFocus = false,
   placeholder = "Search item #, ID, SKU, part #, name, category, manufacturer…",
+  inputMode,
+  requireExplicitManualEntry = false,
+  manualEntryButtonLabel = "Type search",
   style,
   inputStyle,
   onSelectedIdChange,
@@ -119,6 +125,7 @@ export default function ItemPicker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState<string>(() => (defaultItem ? label(defaultItem) : ""));
   const [selectedId, setSelectedId] = useState<string>(() => defaultItem?.id ?? "");
+  const [manualEntryEnabled, setManualEntryEnabled] = useState(() => !requireExplicitManualEntry);
   const [activeIndex, setActiveIndex] = useState(0);
   const [mounted, setMounted] = useState(false);
   const [menuPos, setMenuPos] = useState<MenuPos | null>(null);
@@ -166,8 +173,15 @@ export default function ItemPicker({
 
   useEffect(() => {
     if (!autoFocus) return;
+    if (requireExplicitManualEntry && !manualEntryEnabled) return;
     requestAnimationFrame(() => inputRef.current?.focus());
-  }, [autoFocus]);
+  }, [autoFocus, manualEntryEnabled, requireExplicitManualEntry]);
+
+  useEffect(() => {
+    if (!requireExplicitManualEntry) {
+      setManualEntryEnabled(true);
+    }
+  }, [requireExplicitManualEntry]);
 
   function computeMenuPos() {
     const el = inputRef.current;
@@ -216,7 +230,22 @@ export default function ItemPicker({
     setQuery(label(it));
     setOpen(false);
     onSelectedIdChange?.(it.id);
+    if (requireExplicitManualEntry) {
+      setManualEntryEnabled(false);
+      requestAnimationFrame(() => inputRef.current?.blur());
+      return;
+    }
     requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
+  function enableManualEntry() {
+    setManualEntryEnabled(true);
+    setOpen(true);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+      computeMenuPos();
+    });
   }
 
   function applyScannedValue(rawValue: string) {
@@ -234,9 +263,14 @@ export default function ItemPicker({
     onSelectedIdChange?.("");
     setActiveIndex(0);
     setOpen(true);
+    if (requireExplicitManualEntry) {
+      setManualEntryEnabled(false);
+    }
 
     requestAnimationFrame(() => {
-      inputRef.current?.focus();
+      if (manualEntryEnabled) {
+        inputRef.current?.focus();
+      }
       computeMenuPos();
     });
   }
@@ -271,8 +305,9 @@ export default function ItemPicker({
       if (event.defaultPrevented || event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return;
 
       const activeElement = document.activeElement;
-      if (activeElement === inputRef.current) return;
-      if (isEditableElement(activeElement)) return;
+      if (activeElement === inputRef.current && manualEntryEnabled) return;
+      const isLockedPickerInput = activeElement === inputRef.current && !manualEntryEnabled;
+      if (!isLockedPickerInput && isEditableElement(activeElement)) return;
 
       if ((event.key === "Enter" || event.key === "Tab") && scannerBufferRef.current) {
         event.preventDefault();
@@ -293,7 +328,7 @@ export default function ItemPicker({
       scannerBufferRef.current = "";
       window.removeEventListener("keydown", handleGlobalKeyDown, true);
     };
-  }, [enableGlobalScannerCapture, items, onSelectedIdChange]);
+  }, [enableGlobalScannerCapture, items, manualEntryEnabled, onSelectedIdChange]);
 
   useEffect(() => {
     if (!open) return;
@@ -385,62 +420,91 @@ export default function ItemPicker({
     <div ref={rootRef} style={{ width: "100%", ...style }}>
       <input type="hidden" name={name} value={selectedId} />
 
-      <input
-        ref={inputRef}
-        value={query}
-        placeholder={placeholder}
-        data-item-picker-input={name}
-        onFocus={() => {
-          setOpen(true);
-          if (isShowingSelectedLabel) {
-            requestAnimationFrame(() => inputRef.current?.select());
-          }
-        }}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          setOpen(true);
-          setSelectedId("");
-          onSelectedIdChange?.("");
-          setActiveIndex(0);
-          requestAnimationFrame(() => computeMenuPos());
-        }}
-        onKeyDown={(e) => {
-          if (!open && (e.key === "ArrowDown" || e.key === "Enter")) {
+      <div style={{ display: "grid", gap: 8 }}>
+        <input
+          ref={inputRef}
+          value={query}
+          placeholder={placeholder}
+          inputMode={manualEntryEnabled ? inputMode : "none"}
+          readOnly={requireExplicitManualEntry && !manualEntryEnabled}
+          data-item-picker-input={name}
+          onFocus={() => {
             setOpen(true);
+            if (isShowingSelectedLabel && manualEntryEnabled) {
+              requestAnimationFrame(() => inputRef.current?.select());
+            }
+          }}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+            setSelectedId("");
+            onSelectedIdChange?.("");
+            setActiveIndex(0);
             requestAnimationFrame(() => computeMenuPos());
-            return;
-          }
-          if (e.key === "Escape") {
-            setOpen(false);
-            return;
-          }
-          if (!open) return;
+          }}
+          onKeyDown={(e) => {
+            if (!open && (e.key === "ArrowDown" || e.key === "Enter")) {
+              setOpen(true);
+              requestAnimationFrame(() => computeMenuPos());
+              return;
+            }
+            if (e.key === "Escape") {
+              setOpen(false);
+              if (requireExplicitManualEntry) {
+                setManualEntryEnabled(false);
+                inputRef.current?.blur();
+              }
+              return;
+            }
+            if (!open) return;
 
-          if (e.key === "ArrowDown") {
-            e.preventDefault();
-            setActiveIndex((i) => Math.min(i + 1, filtered.length - 1));
-          } else if (e.key === "ArrowUp") {
-            e.preventDefault();
-            setActiveIndex((i) => Math.max(i - 1, 0));
-          } else if (e.key === "Enter") {
-            e.preventDefault();
-            const it = filtered[activeIndex];
-            if (it) selectItem(it);
-          }
-        }}
-        style={{
-          width: "100%",
-          padding: "10px 12px",
-          borderRadius: 12,
-          border,
-          background: surface,
-          color: fg,
-          outline: "none",
-          fontSize: 14,
-          boxSizing: "border-box",
-          ...inputStyle,
-        }}
-      />
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setActiveIndex((i) => Math.min(i + 1, filtered.length - 1));
+            } else if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setActiveIndex((i) => Math.max(i - 1, 0));
+            } else if (e.key === "Enter") {
+              e.preventDefault();
+              const it = filtered[activeIndex];
+              if (it) selectItem(it);
+            }
+          }}
+          style={{
+            width: "100%",
+            padding: "10px 12px",
+            borderRadius: 12,
+            border,
+            background: surface,
+            color: fg,
+            outline: "none",
+            fontSize: 14,
+            boxSizing: "border-box",
+            ...inputStyle,
+          }}
+        />
+
+        {requireExplicitManualEntry && !manualEntryEnabled ? (
+          <button
+            type="button"
+            onClick={enableManualEntry}
+            style={{
+              alignSelf: "start",
+              minHeight: 42,
+              padding: "10px 14px",
+              borderRadius: 12,
+              border,
+              background: surface,
+              color: fg,
+              fontSize: 14,
+              fontWeight: 900,
+              cursor: "pointer",
+            }}
+          >
+            {manualEntryButtonLabel}
+          </button>
+        ) : null}
+      </div>
 
       {menu}
     </div>

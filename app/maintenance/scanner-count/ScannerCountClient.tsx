@@ -595,6 +595,9 @@ export default function ScannerCountClient({
               name="scannerCountSelectedItem"
               items={searchItems}
               autoFocus
+              inputMode="none"
+              requireExplicitManualEntry
+              manualEntryButtonLabel="Type search instead"
               placeholder="Scan QR / barcode or search ITEM#, SKU, part #, name, category, manufacturer…"
               onSelectedIdChange={setSelectedId}
               enableGlobalScannerCapture
