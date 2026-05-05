@@ -188,6 +188,46 @@ function parseTwoDigitSkuPart(raw: FormDataEntryValue | null, label: string): st
   return s.padStart(2, "0");
 }
 
+function buildSkuPrefix(loc: string, shelf: string, bin: string): string {
+  return `${loc}${shelf}${bin}`;
+}
+
+function buildSkuKeyCandidates(itemId: string): string[] {
+  const compact = itemId.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  const lengths = [6, 8, 10, 12, compact.length];
+  const out: string[] = [];
+  for (const len of lengths) {
+    const key = compact.slice(-Math.max(1, len));
+    if (key && !out.includes(key)) out.push(key);
+  }
+  return out;
+}
+
+async function buildUniqueGeneratedSku(
+  tx: Prisma.TransactionClient,
+  itemId: string,
+  loc: string,
+  shelf: string,
+  bin: string,
+): Promise<string> {
+  const prefix = buildSkuPrefix(loc, shelf, bin);
+  const candidates = buildSkuKeyCandidates(itemId);
+
+  for (const key of candidates) {
+    const sku = `${prefix} - ${key}`;
+    const existing = await tx.item.findFirst({
+      where: {
+        sku,
+        NOT: { id: itemId },
+      },
+      select: { id: true },
+    });
+    if (!existing) return sku;
+  }
+
+  return `${prefix} - ${itemId.replace(/[^a-zA-Z0-9]/g, "").toUpperCase()}`;
+}
+
 function applySkuMiddleFromParts(skuRaw: string, loc: string, shelf: string, bin: string): string {
   if (!loc && !shelf && !bin) return skuRaw;
 
@@ -378,7 +418,9 @@ export async function createOrderAction(formData: FormData) {
     const note = String(formData.get("note") ?? "").trim();
 
     if (isNewItem) {
-      if (!newSku) throw new Error("New item SKU is required");
+      if (!newSku && (!newLoc || !newShelf || !newBin)) {
+        throw new Error("Loc, Shelf, and Bin are required when SKU is blank.");
+      }
       if (!newName) throw new Error("New item name is required");
     } else {
       if (!itemId) throw new Error("Missing item. Pick an item from the dropdown (or check New item).");
@@ -396,35 +438,60 @@ export async function createOrderAction(formData: FormData) {
       // If this order is for a brand-new item (SKU not in list), create it first (or reuse if it exists).
       if (isNewItem) {
         const vendor = newVendorRaw === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS";
+        if (newSku) {
+          const createdOrExisting = await tx.item.upsert({
+            where: { sku: newSku },
+            update: {
+              // Keep conservative: fill in details, but do not touch quantities here.
+              name: newName,
+              partNumber: newPartNumber || null,
+              vendor,
+              category: newCategory || null,
+              manufacturer: newManufacturer || null,
+              orderFrom: newOrderFrom || null,
+              webUrl: newWebUrl || null,
+              active: true,
+            },
+            create: {
+              sku: newSku,
+              name: newName,
+              partNumber: newPartNumber || null,
+              vendor,
+              category: newCategory || null,
+              manufacturer: newManufacturer || null,
+              orderFrom: newOrderFrom || null,
+              webUrl: newWebUrl || null,
+              active: true,
+            },
+            select: { id: true, sku: true },
+          });
 
-        const createdOrExisting = await tx.item.upsert({
-          where: { sku: newSku },
-          update: {
-            // Keep conservative: fill in details, but do not touch quantities here.
-            name: newName,
-            partNumber: newPartNumber || null,
-            vendor,
-            category: newCategory || null,
-            manufacturer: newManufacturer || null,
-            orderFrom: newOrderFrom || null,
-            webUrl: newWebUrl || null,
-            active: true,
-          },
-          create: {
-            sku: newSku,
-            name: newName,
-            partNumber: newPartNumber || null,
-            vendor,
-            category: newCategory || null,
-            manufacturer: newManufacturer || null,
-            orderFrom: newOrderFrom || null,
-            webUrl: newWebUrl || null,
-            active: true,
-          },
-          select: { id: true, sku: true },
-        });
+          itemId = createdOrExisting.id;
+        } else {
+          const created = await tx.item.create({
+            data: {
+              sku: `PENDING-${Date.now()}-${Math.random().toString(36).slice(2, 10).toUpperCase()}`,
+              name: newName,
+              partNumber: newPartNumber || null,
+              vendor,
+              category: newCategory || null,
+              manufacturer: newManufacturer || null,
+              orderFrom: newOrderFrom || null,
+              webUrl: newWebUrl || null,
+              active: true,
+            },
+            select: { id: true },
+          });
 
-        itemId = createdOrExisting.id;
+          const generatedSku = await buildUniqueGeneratedSku(tx, created.id, newLoc, newShelf, newBin);
+          const finalized = await tx.item.update({
+            where: { id: created.id },
+            data: { sku: generatedSku },
+            select: { id: true },
+          });
+
+          itemId = finalized.id;
+        }
       }
 
       const item = await tx.item.findUnique({

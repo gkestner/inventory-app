@@ -1449,12 +1449,12 @@ export default async function AdminInventoryOrdersPage({
                 <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
                   <label style={{ display: "flex", gap: 10, alignItems: "center", fontWeight: 900 }}>
                     <input type="checkbox" name="isNewItem" />
-                    Create / use item by SKU (instead of selecting)
+                    Create a new item from these fields (instead of selecting)
                   </label>
 
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                     <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
-                      SKU (required for new)
+                      SKU (optional override)
                       <input name="newSku" placeholder="SKU…" style={controlBase} />
                     </label>
 
