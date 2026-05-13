@@ -81,6 +81,12 @@ function withQuery(basePath: string, next: Record<string, string | undefined>) {
   return qs ? `${u.pathname}?${qs}` : u.pathname;
 }
 
+function revalidateTouchedItemPaths(itemId: string | null | undefined) {
+  if (!itemId) return;
+  revalidatePath(`/admin/items/${itemId}`);
+  revalidatePath(`/admin/items/${itemId}/inventory`);
+}
+
 function isRedirectLikeError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const digest = (error as { digest?: unknown }).digest;
@@ -432,6 +438,8 @@ export async function createOrderAction(formData: FormData) {
     const createdByUserId = await resolveSessionUserId(session);
     if (!createdByUserId) throw new Error("Missing session user id");
 
+    let touchedItemId: string | null = null;
+
     await prisma.$transaction(async (tx) => {
       const canonicalSupplierName = await resolveCanonicalSupplierName(tx, supplierName);
 
@@ -562,10 +570,13 @@ export async function createOrderAction(formData: FormData) {
       if (created.orderedAt.getTime() !== orderedAt.getTime()) {
         await syncItemCostAndOrderFromFromLatestOrder(tx, itemId);
       }
+
+      touchedItemId = itemId;
     });
 
     revalidatePath("/admin/inventory-orders");
     revalidatePath("/admin/items");
+    revalidateTouchedItemPaths(touchedItemId);
 
     const h = await headers();
     const back = safeReturnToPathFromReferer(h.get("referer"));
@@ -604,6 +615,8 @@ export async function saveOrderDetailsAction(formData: FormData) {
     const userNote = String(formData.get("note") ?? "").trim();
 
     if (!unitPriceStr) throw new Error("Unit price is required");
+
+    let touchedItemId: string | null = null;
 
     await prisma.$transaction(async (tx) => {
       const canonicalSupplierName = await resolveCanonicalSupplierName(tx, supplierName);
@@ -706,10 +719,13 @@ export async function saveOrderDetailsAction(formData: FormData) {
 
       // Keep the Item's cost + orderFrom synced to the *latest* order for the item
       await syncItemCostAndOrderFromFromLatestOrder(tx, existing.itemId);
+
+      touchedItemId = existing.itemId;
     });
 
     revalidatePath("/admin/inventory-orders");
     revalidatePath("/admin/items");
+    revalidateTouchedItemPaths(touchedItemId);
 
     const h = await headers();
     const back = safeReturnToPathFromReferer(h.get("referer"));
@@ -807,6 +823,8 @@ export async function addToInventoryAction(formData: FormData) {
     const id = String(formData.get("id") ?? "").trim();
     if (!id) throw new Error("Missing order id");
 
+    let touchedItemId: string | null = null;
+
     const notification = await prisma.$transaction(async (tx) => {
       const existing = await tx.inventoryOrder.findUnique({
         where: { id },
@@ -888,6 +906,8 @@ export async function addToInventoryAction(formData: FormData) {
         });
       }
 
+      touchedItemId = existing.itemId;
+
       if (waiters.length === 0) return null;
 
       return {
@@ -913,6 +933,7 @@ export async function addToInventoryAction(formData: FormData) {
 
     revalidatePath("/admin/inventory-orders");
     revalidatePath("/admin/items");
+    revalidateTouchedItemPaths(touchedItemId);
     revalidatePath("/admin/live-orders");
     revalidatePath("/employee/live-orders");
 
@@ -938,6 +959,8 @@ export async function deleteOrderAction(formData: FormData) {
 
     const confirmText = String(formData.get("confirm") ?? "").trim().toUpperCase();
     if (confirmText !== "DELETE") throw new Error('Type "DELETE" to confirm deletion.');
+
+    let touchedItemId: string | null = null;
 
     await prisma.$transaction(async (tx) => {
       const existing = await tx.inventoryOrder.findUnique({
@@ -976,10 +999,13 @@ export async function deleteOrderAction(formData: FormData) {
 
       // After deletion, re-sync item cost/orderFrom from latest order (if any)
       await syncItemCostAndOrderFromFromLatestOrder(tx, existing.itemId);
+
+      touchedItemId = existing.itemId;
     });
 
     revalidatePath("/admin/inventory-orders");
     revalidatePath("/admin/items");
+    revalidateTouchedItemPaths(touchedItemId);
 
     const h = await headers();
     const back = safeReturnToPathFromReferer(h.get("referer"));
