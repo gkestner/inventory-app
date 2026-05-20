@@ -181,8 +181,6 @@ export async function GET(req: Request) {
   });
 
   const grouped = new Map<string, { name: string; email: string; rows: typeof rows; hours: number; miles: number }>();
-  let grandHours = 0;
-  let grandMiles = 0;
 
   for (const r of rows) {
     const key = r.createdByUser?.id ?? "unknown";
@@ -201,14 +199,12 @@ export async function GET(req: Request) {
     const h = hoursBetweenNumber(r.startTime, r.endTime);
     if (h !== null) {
       (g as { hours: number }).hours += h;
-      grandHours += h;
     }
 
     if (typeof r.startingMileage === "number" && typeof r.endingMileage === "number") {
       const delta = r.endingMileage - r.startingMileage;
       if (Number.isFinite(delta) && delta >= 0) {
         (g as { miles: number }).miles += delta;
-        grandMiles += delta;
       }
     }
 
@@ -219,7 +215,13 @@ export async function GET(req: Request) {
 
   const sectionsHtml =
     groups.length === 0
-      ? '<div class="card"><div class="empty">No entries in this filter range.</div></div>'
+      ? `<section class="card keep">
+<div class="page-head">
+  <div class="title">Admin Travel Logs</div>
+  <div class="meta">Range: <b>${escapeHtml(fromLabel)} to ${escapeHtml(toLabel)}</b></div>
+</div>
+<div class="empty">No entries in this filter range.</div>
+</section>`
       : groups
           .map((g) => {
             const rowsHtml = g.rows
@@ -244,6 +246,10 @@ export async function GET(req: Request) {
               .join("");
 
             return `<section class="card keep">
+<div class="page-head">
+  <div class="title">Admin Travel Logs</div>
+  <div class="meta">Range: <b>${escapeHtml(fromLabel)} to ${escapeHtml(toLabel)}</b></div>
+</div>
 <div class="section-head">
   <div>
     <div class="name">${escapeHtml(g.name)}</div>
@@ -282,11 +288,12 @@ export async function GET(req: Request) {
     @page { margin: 10mm; }
     body { margin: 0; font-family: Segoe UI, Arial, sans-serif; color: #000; background: #fff; }
     .wrap { max-width: 1080px; margin: 0 auto; padding: 10px; }
-    .top { border: 1px solid #777; padding: 10px; margin-bottom: 10px; }
     .title { font-size: 22px; font-weight: 900; margin-bottom: 6px; }
     .meta { font-size: 12px; color: #222; }
     .card { border: 1px solid #999; padding: 10px; margin-bottom: 10px; }
-    .keep { break-inside: avoid-page; page-break-inside: avoid; }
+    .keep { break-inside: avoid-page; page-break-inside: avoid; break-after: page; page-break-after: always; }
+    .keep:last-of-type { break-after: auto; page-break-after: auto; }
+    .page-head { margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid #bbb; }
     .section-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-end; margin-bottom: 6px; }
     .name { font-size: 17px; font-weight: 900; }
     .email { font-size: 12px; color: #333; }
@@ -314,13 +321,6 @@ export async function GET(req: Request) {
 <body>
   <script>window.addEventListener('load', function () { try { window.print(); } catch (e) {} });</script>
   <div class="wrap">
-    <div class="top">
-      <div class="title">Admin Travel Logs</div>
-      <div class="meta">Range: <b>${escapeHtml(fromLabel)} to ${escapeHtml(toLabel)}</b></div>
-      <div class="meta">Users: <b>${groups.length}</b> | Entries: <b>${rows.length}</b> | Total Hours: <b>${escapeHtml(
-        fmtFixed2(grandHours)
-      )}</b> | Total Miles: <b>${escapeHtml(fmtFixed2(grandMiles))}</b></div>
-    </div>
     ${sectionsHtml}
   </div>
 </body>
