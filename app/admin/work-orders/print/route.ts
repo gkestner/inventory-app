@@ -260,7 +260,16 @@ export async function GET(req: Request) {
   );
 
   const rowHtml = userGroups
-    .map(([, group]) => {
+    .map(([, group], index) => {
+      const coverSheet =
+        index > 0
+          ? `<section class="cover-sheet">
+  <div class="cover-eyebrow">Next User Batch</div>
+  <div class="cover-name">${escapeHtml(group.userLabel)}</div>
+  <div class="cover-meta">Work orders in batch: <b>${group.rows.length}</b></div>
+</section>`
+          : "";
+
       const cardHtml = group.rows
         .map((r, index) => {
           const miles =
@@ -314,7 +323,7 @@ export async function GET(req: Request) {
         })
         .join("\n");
 
-      return `<div class="user-batch">
+      return `${coverSheet}<div class="user-batch">
   <div class="group-title">User Batch: ${escapeHtml(group.userLabel)}</div>
   <div class="group-meta">Work orders in batch: <b>${group.rows.length}</b></div>
   ${cardHtml}
@@ -350,7 +359,24 @@ export async function GET(req: Request) {
     .right { text-align: right; }
     .user-batch { border-top: 2px solid #111; margin: 20px 0 24px; padding-top: 10px; }
     .top + .user-batch { margin-top: 0; }
-    .user-batch + .user-batch { break-before: page; page-break-before: always; }
+    .cover-sheet {
+      min-height: calc(100vh - 30mm);
+      border: 2px solid #111;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 12px;
+      padding: 24px;
+      text-align: center;
+      break-before: page;
+      page-break-before: always;
+      break-after: page;
+      page-break-after: always;
+    }
+    .cover-eyebrow { font-size: 14px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+    .cover-name { font-size: 30px; font-weight: 900; }
+    .cover-meta { font-size: 16px; }
     .group-title { font-size: 18px; font-weight: 900; margin: 0 0 4px; }
     .group-meta { font-size: 12px; margin-bottom: 10px; }
     .card { border: 1px solid #999; padding: 10px; margin-bottom: 10px; }
