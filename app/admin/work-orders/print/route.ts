@@ -338,7 +338,7 @@ export async function GET(req: Request) {
         url.searchParams.get("status") ? `Status: ${url.searchParams.get("status")}` : "",
         url.searchParams.get("from") ? `From: ${url.searchParams.get("from")}` : "",
         url.searchParams.get("to") ? `To: ${url.searchParams.get("to")}` : "",
-        url.searchParams.get("userId") && url.searchParams.get("userId") !== "ALL" ? "Filtered user" : "",
+        url.searchParams.get("userId") && url.searchParams.get("userId") !== "ALL" ? "Filtered created by" : "",
       ]
         .filter(Boolean)
         .join(" | ") || "All records";

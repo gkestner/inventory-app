@@ -497,6 +497,11 @@ export default async function AdminWorkOrdersPage({
       : {}),
   };
 
+  const pingWhere: Prisma.WorkOrderPingWhereInput = {
+    ...(Object.keys(where).length > 0 ? { workOrder: { is: where } } : {}),
+    ...(userId !== "ALL" ? { actorUserId: userId } : {}),
+  };
+
   const [workOrders, pings] = await Promise.all([
     prisma.workOrder.findMany({
       where,
@@ -518,6 +523,7 @@ export default async function AdminWorkOrdersPage({
       },
     }),
     prisma.workOrderPing.findMany({
+      where: pingWhere,
       orderBy: { createdAt: "desc" },
       take: 120,
       select: {
@@ -670,7 +676,7 @@ export default async function AdminWorkOrdersPage({
               <input
                 name="q"
                 defaultValue={q}
-                placeholder="id, status, location, user, notes"
+                placeholder="id, status, location, created by, notes"
                 style={filterInput}
               />
             </label>
@@ -686,9 +692,9 @@ export default async function AdminWorkOrdersPage({
             </label>
 
             <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontWeight: 900, fontSize: 12 }}>User</span>
+              <span style={{ fontWeight: 900, fontSize: 12 }}>Created By</span>
               <select name="userId" defaultValue={userId} style={filterInput}>
-                <option value="ALL">All users</option>
+                <option value="ALL">All creators</option>
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.name} ({u.email})
