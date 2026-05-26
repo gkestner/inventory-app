@@ -138,6 +138,56 @@ export default async function MinQtyDifferencesReportPage({
     }
   }
 
+  async function applyAllSuggestedMinAction(formData: FormData) {
+    "use server";
+
+    const qBack = String(formData.get("q") ?? "").trim();
+    const itemIds = Array.from(
+      new Set(
+        formData
+          .getAll("itemIds")
+          .map((value) => String(value ?? "").trim())
+          .filter(Boolean)
+      )
+    );
+
+    try {
+      const { perms } = await requireReportView();
+      const canEdit = perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_EDIT_ITEMS]);
+      if (!canEdit) throw new Error("Forbidden");
+      if (itemIds.length === 0) throw new Error("No items in the current report to update.");
+
+      const result = await recalculateItemMinQuantitiesFrom30DayUsage({ itemIds });
+
+      revalidatePath("/admin/reports/min-qty-differences");
+      revalidatePath("/admin/items");
+      for (const itemId of itemIds) {
+        revalidatePath(`/admin/items/${itemId}/inventory`);
+      }
+
+      const message =
+        result.updatedCount > 0
+          ? `Copied suggested min qty for ${result.updatedCount} item${result.updatedCount === 1 ? "" : "s"}.`
+          : "All items in this report already match the suggested min qty.";
+
+      redirect(
+        `/admin/reports/min-qty-differences${qs({
+          q: qBack || undefined,
+          ok: message,
+        })}`
+      );
+    } catch (error: unknown) {
+      if (isNextRedirectError(error)) throw error;
+      const message = error instanceof Error ? error.message : "Failed to copy suggested min qty for this report.";
+      redirect(
+        `/admin/reports/min-qty-differences${qs({
+          q: qBack || undefined,
+          error: message,
+        })}`
+      );
+    }
+  }
+
   const items = await prisma.item.findMany({
     where: { active: true },
     select: {
@@ -163,6 +213,7 @@ export default async function MinQtyDifferencesReportPage({
     .map((item) => {
       const recommendation = recommendationMap.get(item.id);
       if (!recommendation) return null;
+      if (!recommendation.compareMinQty) return null;
       if (item.minQty === recommendation.suggestedMinQty30Day) return null;
 
       const displayVendor = vendorLabel(item.vendor);
@@ -318,6 +369,42 @@ export default async function MinQtyDifferencesReportPage({
             <div style={{ fontSize: 28, fontWeight: 900, marginTop: 6 }}>{totalDiff}</div>
           </div>
         </section>
+
+        {canEdit && rows.length > 0 ? (
+          <section
+            style={{
+              marginTop: 12,
+              border,
+              borderRadius: 12,
+              background: cardBg,
+              boxShadow: "var(--shadow)",
+              padding: 12,
+              display: "flex",
+              justifyContent: "flex-end",
+            }}
+          >
+            <form action={applyAllSuggestedMinAction} style={{ display: "contents" }}>
+              <input type="hidden" name="q" value={query} />
+              {rows.map((row) => (
+                <input key={row.id} type="hidden" name="itemIds" value={row.id} />
+              ))}
+              <button
+                type="submit"
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: 12,
+                  border: "1px solid rgba(22, 163, 74, 0.35)",
+                  background: "rgba(22, 163, 74, 0.12)",
+                  color: "var(--foreground)",
+                  fontWeight: 900,
+                  cursor: "pointer",
+                }}
+              >
+                Copy Suggested Min Qty for All Report Items
+              </button>
+            </form>
+          </section>
+        ) : null}
 
         <section style={{ marginTop: 14, border, borderRadius: 16, background: cardBg, boxShadow: "var(--shadow)", overflow: "hidden" }}>
           {rows.length === 0 ? (

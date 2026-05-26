@@ -440,7 +440,7 @@ export default async function ItemInventoryPage({
         >
           <div style={{ fontWeight: 900, marginBottom: 8 }}>Usage Analytics</div>
           <div style={{ fontSize: 13, opacity: 0.82, marginBottom: 10 }}>
-            Suggested minimum quantity is the recommended stock for the next 30 days based on the last 30 days of net usage.
+            Suggested minimum quantity is the recommended stock for the next 30 days based on full net usage history for this item.
           </div>
           <div style={{ marginBottom: 12 }}>
             <form action={applySuggestedMinToItemAction}>

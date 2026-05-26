@@ -1,10 +1,12 @@
 import { prisma } from "@/app/lib/prisma";
+import { DEFAULT_APP_CONFIG, loadAppConfig } from "@/app/lib/app-config";
 
 type ItemInventorySnapshot = {
   id: string;
   sku: string;
   name: string;
   active: boolean;
+  createdAt: Date;
   onHandQty: number;
   orderedQty: number;
   minQty: number;
@@ -45,6 +47,9 @@ export type InventoryDemandRecommendation = {
   estimatedLeadTimeDays: number | null;
   daysOfCover: number | null;
   lastCheckoutAt: string | null;
+  historyDays: number;
+  hasOneYearHistory: boolean;
+  compareMinQty: boolean;
 };
 
 export type RecalculateMinQtyResult = {
@@ -81,9 +86,26 @@ function roundTo(value: number, places: number): number {
   return Math.round(value * factor) / factor;
 }
 
+function daysBetween(start: Date, end: Date): number {
+  const diffMs = end.getTime() - start.getTime();
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return 1;
+  return Math.max(1, Math.ceil(diffMs / (24 * 60 * 60 * 1000)));
+}
+
+function clamp01(value: number): number {
+  if (value <= 0) return 0;
+  if (value >= 1) return 1;
+  return value;
+}
+
+const RAMP_DOWN_MULTIPLIER = 1.5;
+const RAMP_DOWN_MIN_STOCK_UNITS = 20;
+const DEFAULT_MAX_REDUCTION_PER_30_DAYS = DEFAULT_APP_CONFIG.minQtyRampDownMaxReductionPer30DaysPct / 100;
+
 function buildRecommendationMap(items: ItemInventorySnapshot[]) {
   return new Map<string, {
     item: ItemInventorySnapshot;
+    usageLifetime: number;
     checkout30: number;
     returns30: number;
     usage30: number;
@@ -96,6 +118,7 @@ function buildRecommendationMap(items: ItemInventorySnapshot[]) {
       item.id,
       {
         item,
+        usageLifetime: 0,
         checkout30: 0,
         returns30: 0,
         usage30: 0,
@@ -112,6 +135,14 @@ export async function getInventoryDemandRecommendations(
   args: RecommendationArgs = {}
 ): Promise<InventoryDemandRecommendation[]> {
   const now = args.now ?? new Date();
+  const { config: appConfig } = await loadAppConfig();
+  const configuredMaxReductionPer30Days = Math.max(
+    0,
+    Math.min(1, appConfig.minQtyRampDownMaxReductionPer30DaysPct / 100)
+  );
+  const maxReductionPer30Days = Number.isFinite(configuredMaxReductionPer30Days)
+    ? configuredMaxReductionPer30Days
+    : DEFAULT_MAX_REDUCTION_PER_30_DAYS;
   const start30 = subDays(now, 30);
   const start60 = subDays(now, 60);
   const start90 = subDays(now, 90);
@@ -129,6 +160,7 @@ export async function getInventoryDemandRecommendations(
       sku: true,
       name: true,
       active: true,
+      createdAt: true,
       onHandQty: true,
       orderedQty: true,
       minQty: true,
@@ -144,7 +176,6 @@ export async function getInventoryDemandRecommendations(
     prisma.partsCheckoutTicket.findMany({
       where: {
         itemId: { in: itemIds },
-        createdAt: { gte: start90 },
       },
       select: {
         itemId: true,
@@ -185,6 +216,8 @@ export async function getInventoryDemandRecommendations(
     const sign = isReturn ? -1 : 1;
     const createdAtMs = ticket.createdAt.getTime();
 
+    bucket.usageLifetime += sign * quantity;
+
     if (!isReturn && (!bucket.lastCheckoutAt || bucket.lastCheckoutAt < ticket.createdAt)) {
       bucket.lastCheckoutAt = ticket.createdAt;
     }
@@ -212,15 +245,43 @@ export async function getInventoryDemandRecommendations(
     const usage30 = Math.max(0, bucket.usage30);
     const usage60 = Math.max(0, bucket.usage60);
     const usage90 = Math.max(0, bucket.usage90);
+    const usageLifetime = Math.max(0, bucket.usageLifetime);
+    const historyStart = item.createdAt;
+    const historyDays = daysBetween(historyStart, now);
+    const hasOneYearHistory = historyDays >= 365;
+    const historyProgress = clamp01(historyDays / 365);
+    const conservativeHistoryProgress = historyProgress ** 2;
+    const elapsed30DayPeriods = historyDays / 30;
     const availableQty = item.onHandQty + item.orderedQty;
     const avgDailyUsage30Day = usage30 / 30;
-    const suggestedMinQty30Day = Math.max(0, usage30);
+    const avgDailyUsageLifetime = usageLifetime / historyDays;
+    const baseSuggestedMinQty30Day = Math.max(0, Math.ceil(avgDailyUsageLifetime * 30));
+
+    // If history is still short and current stock is high, phase down large min-qty drops over the first year.
+    // This reduces abrupt reductions that could cause parts to run out while history is still maturing.
+    const hasLargeOnHand = availableQty >= Math.max(RAMP_DOWN_MIN_STOCK_UNITS, Math.ceil(baseSuggestedMinQty30Day * RAMP_DOWN_MULTIPLIER));
+    const shouldRampDown = !hasOneYearHistory && hasLargeOnHand && item.minQty > baseSuggestedMinQty30Day;
+    const rampedMinQtyRaw = shouldRampDown
+      ? Math.ceil(item.minQty - (item.minQty - baseSuggestedMinQty30Day) * conservativeHistoryProgress)
+      : baseSuggestedMinQty30Day;
+
+    // Additional hard safety cap: min qty can only decline by 10% per 30 days of history.
+    const maxAllowedReductionFraction = clamp01(elapsed30DayPeriods * maxReductionPer30Days);
+    const minAllowedByRateCap = Math.max(
+      baseSuggestedMinQty30Day,
+      Math.ceil(item.minQty * (1 - maxAllowedReductionFraction))
+    );
+
+    const rampedMinQty = shouldRampDown ? Math.max(rampedMinQtyRaw, minAllowedByRateCap) : rampedMinQtyRaw;
+
+    const suggestedMinQty30Day = Math.max(baseSuggestedMinQty30Day, rampedMinQty);
     const suggestedReorderQty30Day = Math.max(0, suggestedMinQty30Day - availableQty);
     const estimatedLeadTimeDays =
       bucket.leadTimes.length > 0
         ? roundTo(bucket.leadTimes.reduce((sum, days) => sum + days, 0) / bucket.leadTimes.length, 1)
         : null;
     const daysOfCover = avgDailyUsage30Day > 0 ? roundTo(availableQty / avgDailyUsage30Day, 1) : null;
+    const compareMinQty = suggestedMinQty30Day > 0 || hasOneYearHistory;
 
     return {
       itemId: item.id,
@@ -242,6 +303,9 @@ export async function getInventoryDemandRecommendations(
       estimatedLeadTimeDays,
       daysOfCover,
       lastCheckoutAt: bucket.lastCheckoutAt ? bucket.lastCheckoutAt.toISOString() : null,
+      historyDays,
+      hasOneYearHistory,
+      compareMinQty,
     };
   });
 }
@@ -251,6 +315,7 @@ export async function recalculateItemMinQuantitiesFrom30DayUsage(
 ): Promise<RecalculateMinQtyResult> {
   const recommendations = await getInventoryDemandRecommendations(args);
   const changes = recommendations
+    .filter((entry) => entry.compareMinQty)
     .filter((entry) => entry.currentMinQty !== entry.suggestedMinQty30Day)
     .map((entry) => ({
       itemId: entry.itemId,

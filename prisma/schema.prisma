@@ -1326,6 +1326,7 @@ model AppConfig {
 
   liveOrdersAddedRetentionDays Int @default(14)
   orderHistoryPerPage          Int @default(25)
+  minQtyRampDownMaxReductionPer30DaysPct Int @default(10)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

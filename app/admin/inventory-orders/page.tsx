@@ -390,10 +390,15 @@ export default async function AdminInventoryOrdersPage({
       const orderHistoryPerPage = ORDER_HISTORY_PER_PAGE_OPTIONS.includes(requestedPerPage as (typeof ORDER_HISTORY_PER_PAGE_OPTIONS)[number])
         ? requestedPerPage
         : DEFAULT_APP_CONFIG.orderHistoryPerPage;
+      const requestedRampDownReductionPct = Number(formData.get("minQtyRampDownMaxReductionPer30DaysPct"));
+      const minQtyRampDownMaxReductionPer30DaysPct = Number.isFinite(requestedRampDownReductionPct)
+        ? clamp(Math.round(requestedRampDownReductionPct), 0, 100)
+        : DEFAULT_APP_CONFIG.minQtyRampDownMaxReductionPer30DaysPct;
 
       const result = await saveAppConfig({
         liveOrdersAddedRetentionDays: retentionDays,
         orderHistoryPerPage,
+        minQtyRampDownMaxReductionPer30DaysPct,
       });
 
       if (!result.saved) {
@@ -403,6 +408,9 @@ export default async function AdminInventoryOrdersPage({
       revalidatePath("/admin/inventory-orders");
       revalidatePath("/admin/live-orders");
       revalidatePath("/employee/live-orders");
+      revalidatePath("/admin/items");
+      revalidatePath("/inventory");
+      revalidatePath("/admin/reports/min-qty-differences");
       redirect(withQuery(back, { configOk: "1" }));
     } catch (error) {
       unstable_rethrow(error);
@@ -1369,6 +1377,19 @@ export default async function AdminInventoryOrdersPage({
                       </option>
                     ))}
                   </select>
+                </label>
+
+                <label style={{ ...controlLabel, ...flexItem(260, 0) }}>
+                  Min Qty max reduction per 30 days (%)
+                  <input
+                    type="number"
+                    name="minQtyRampDownMaxReductionPer30DaysPct"
+                    min={0}
+                    max={100}
+                    step={1}
+                    defaultValue={appConfig.minQtyRampDownMaxReductionPer30DaysPct}
+                    style={controlBase}
+                  />
                 </label>
 
                 <div style={{ ...flexItem(220, 1), display: "flex", gap: 10, justifyContent: "flex-end" }}>

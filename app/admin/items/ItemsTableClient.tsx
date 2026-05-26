@@ -272,6 +272,7 @@ type ItemRow = {
   suggestedReorderQty30Day?: number;
   usage30Day?: number;
   avgDailyUsage30Day?: number;
+  compareMinQty?: boolean;
 
   // reference fields
   manufacturer?: string | null;
@@ -646,7 +647,7 @@ export default function ItemsTableClient({
   const mismatchCount = useMemo(
     () =>
       viewRows.reduce(
-        (count, row) => count + ((row.minQty ?? 0) !== (row.suggestedMinQty30Day ?? 0) ? 1 : 0),
+        (count, row) => count + ((row.compareMinQty ?? true) && (row.minQty ?? 0) !== (row.suggestedMinQty30Day ?? 0) ? 1 : 0),
         0
       ),
     [viewRows]

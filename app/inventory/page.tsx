@@ -210,10 +210,11 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
 
   const filteredItems = allItems.filter((item) => {
     const recommendation = recommendationMap.get(item.id);
+    const compareMinQty = recommendation?.compareMinQty ?? true;
     const suggestedMinQty30Day = recommendation?.suggestedMinQty30Day ?? 0;
     const suggestedReorderQty30Day = recommendation?.suggestedReorderQty30Day ?? 0;
-    if (recommendationFilter === "different") return item.minQty !== suggestedMinQty30Day;
-    if (recommendationFilter === "same") return item.minQty === suggestedMinQty30Day;
+    if (recommendationFilter === "different") return compareMinQty && item.minQty !== suggestedMinQty30Day;
+    if (recommendationFilter === "same") return compareMinQty && item.minQty === suggestedMinQty30Day;
     if (recommendationFilter === "needsReorder") return suggestedReorderQty30Day > 0;
     return true;
   });

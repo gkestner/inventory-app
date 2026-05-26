@@ -6,6 +6,7 @@ export type OrderHistoryPerPage = (typeof ORDER_HISTORY_PER_PAGE_OPTIONS)[number
 export type AppConfig = {
   liveOrdersAddedRetentionDays: number;
   orderHistoryPerPage: OrderHistoryPerPage;
+  minQtyRampDownMaxReductionPer30DaysPct: number;
 };
 
 type AppConfigResult = {
@@ -23,6 +24,7 @@ type SaveAppConfigResult = {
 export const DEFAULT_APP_CONFIG: AppConfig = {
   liveOrdersAddedRetentionDays: 14,
   orderHistoryPerPage: 25,
+  minQtyRampDownMaxReductionPer30DaysPct: 10,
 };
 
 const APP_CONFIG_SINGLETON_ID = "default";
@@ -49,11 +51,20 @@ function toOrderHistoryPerPage(value: unknown): OrderHistoryPerPage {
     : DEFAULT_APP_CONFIG.orderHistoryPerPage;
 }
 
+function toMinQtyRampDownMaxReductionPer30DaysPct(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_APP_CONFIG.minQtyRampDownMaxReductionPer30DaysPct;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
 export function normalizeAppConfig(raw: unknown): AppConfig {
   const obj = isRecord(raw) ? raw : {};
   return {
     liveOrdersAddedRetentionDays: toRetentionDays(obj.liveOrdersAddedRetentionDays),
     orderHistoryPerPage: toOrderHistoryPerPage(obj.orderHistoryPerPage),
+    minQtyRampDownMaxReductionPer30DaysPct: toMinQtyRampDownMaxReductionPer30DaysPct(
+      obj.minQtyRampDownMaxReductionPer30DaysPct
+    ),
   };
 }
 
@@ -89,13 +100,26 @@ export async function loadAppConfig(): Promise<AppConfigResult> {
   }
 
   try {
-    const row = await client.findUnique({
-      where: { id: APP_CONFIG_SINGLETON_ID },
-      select: {
-        liveOrdersAddedRetentionDays: true,
-        orderHistoryPerPage: true,
-      },
-    });
+    let row: unknown;
+    try {
+      row = await client.findUnique({
+        where: { id: APP_CONFIG_SINGLETON_ID },
+        select: {
+          liveOrdersAddedRetentionDays: true,
+          orderHistoryPerPage: true,
+          minQtyRampDownMaxReductionPer30DaysPct: true,
+        },
+      });
+    } catch {
+      // Backward compatibility with deployments where the new column is not present yet.
+      row = await client.findUnique({
+        where: { id: APP_CONFIG_SINGLETON_ID },
+        select: {
+          liveOrdersAddedRetentionDays: true,
+          orderHistoryPerPage: true,
+        },
+      });
+    }
 
     return {
       config: normalizeAppConfig(row ?? DEFAULT_APP_CONFIG),
@@ -122,18 +146,36 @@ export async function saveAppConfig(raw: unknown): Promise<SaveAppConfigResult> 
   }
 
   try {
-    await client.upsert({
-      where: { id: APP_CONFIG_SINGLETON_ID },
-      create: {
-        id: APP_CONFIG_SINGLETON_ID,
-        liveOrdersAddedRetentionDays: next.liveOrdersAddedRetentionDays,
-        orderHistoryPerPage: next.orderHistoryPerPage,
-      },
-      update: {
-        liveOrdersAddedRetentionDays: next.liveOrdersAddedRetentionDays,
-        orderHistoryPerPage: next.orderHistoryPerPage,
-      },
-    });
+    try {
+      await client.upsert({
+        where: { id: APP_CONFIG_SINGLETON_ID },
+        create: {
+          id: APP_CONFIG_SINGLETON_ID,
+          liveOrdersAddedRetentionDays: next.liveOrdersAddedRetentionDays,
+          orderHistoryPerPage: next.orderHistoryPerPage,
+          minQtyRampDownMaxReductionPer30DaysPct: next.minQtyRampDownMaxReductionPer30DaysPct,
+        },
+        update: {
+          liveOrdersAddedRetentionDays: next.liveOrdersAddedRetentionDays,
+          orderHistoryPerPage: next.orderHistoryPerPage,
+          minQtyRampDownMaxReductionPer30DaysPct: next.minQtyRampDownMaxReductionPer30DaysPct,
+        },
+      });
+    } catch {
+      // Backward compatibility with deployments where the new column is not present yet.
+      await client.upsert({
+        where: { id: APP_CONFIG_SINGLETON_ID },
+        create: {
+          id: APP_CONFIG_SINGLETON_ID,
+          liveOrdersAddedRetentionDays: next.liveOrdersAddedRetentionDays,
+          orderHistoryPerPage: next.orderHistoryPerPage,
+        },
+        update: {
+          liveOrdersAddedRetentionDays: next.liveOrdersAddedRetentionDays,
+          orderHistoryPerPage: next.orderHistoryPerPage,
+        },
+      });
+    }
 
     return { config: next, saved: true };
   } catch (error) {

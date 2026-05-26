@@ -519,11 +519,12 @@ export default async function AdminItemsPage({
 
   const filteredItems = allItems.filter((item) => {
     const recommendation = recommendationMap.get(item.id);
+    const compareMinQty = recommendation?.compareMinQty ?? true;
     const suggestedMinQty30Day = recommendation?.suggestedMinQty30Day ?? 0;
     const suggestedReorderQty30Day = recommendation?.suggestedReorderQty30Day ?? 0;
 
-    if (recommendationFilter === "different") return item.minQty !== suggestedMinQty30Day;
-    if (recommendationFilter === "same") return item.minQty === suggestedMinQty30Day;
+    if (recommendationFilter === "different") return compareMinQty && item.minQty !== suggestedMinQty30Day;
+    if (recommendationFilter === "same") return compareMinQty && item.minQty === suggestedMinQty30Day;
     if (recommendationFilter === "needsReorder") return suggestedReorderQty30Day > 0;
     return true;
   });
@@ -611,6 +612,7 @@ export default async function AdminItemsPage({
     suggestedReorderQty30Day: recommendationMap.get(r.id)?.suggestedReorderQty30Day ?? 0,
     usage30Day: recommendationMap.get(r.id)?.usage30Day ?? 0,
     avgDailyUsage30Day: recommendationMap.get(r.id)?.avgDailyUsage30Day ?? 0,
+    compareMinQty: recommendationMap.get(r.id)?.compareMinQty ?? true,
   }));
 
   const shell: CSSProperties = { padding: 16 };
