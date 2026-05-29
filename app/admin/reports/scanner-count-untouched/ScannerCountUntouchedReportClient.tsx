@@ -14,6 +14,7 @@ type ReportRow = {
 type ReportResponse = {
   resetAt: string | null;
   total: number;
+  hiddenCount: number;
   items: ReportRow[];
 };
 
@@ -22,6 +23,7 @@ export default function ScannerCountUntouchedReportClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
   async function loadReport() {
     setLoading(true);
@@ -65,6 +67,26 @@ export default function ScannerCountUntouchedReportClient() {
     }
   }
 
+  async function hideItem(itemId: string) {
+    setRemovingId(itemId);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/maintenance/scanner-count/report", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId }),
+      });
+      const data = (await res.json()) as ReportResponse | { error?: string };
+      if (!res.ok) throw new Error(("error" in data && data.error) || `Remove failed (${res.status})`);
+      setReport(data as ReportResponse);
+    } catch (hideError) {
+      setError(hideError instanceof Error ? hideError.message : "Failed to remove item from report.");
+    } finally {
+      setRemovingId((current) => (current === itemId ? null : current));
+    }
+  }
+
   const border = "1px solid var(--border)";
 
   return (
@@ -86,7 +108,11 @@ export default function ScannerCountUntouchedReportClient() {
               NOT SCANNED / LOOKED UP REPORT
             </div>
             <div style={{ fontSize: 24, fontWeight: 900 }}>
-              {report ? `${report.total.toLocaleString()} parts still untouched` : "Loading report..."}
+              {report
+                ? report.hiddenCount > 0
+                  ? `${report.items.length.toLocaleString()} shown of ${report.total.toLocaleString()} untouched parts`
+                  : `${report.total.toLocaleString()} parts still untouched`
+                : "Loading report..."}
             </div>
             <div style={{ display: "grid", gap: 4, color: "var(--muted)", fontSize: 13, lineHeight: 1.45 }}>
               <span>Tracks items you have not opened or saved on the scanner count page since the last reset.</span>
@@ -95,6 +121,7 @@ export default function ScannerCountUntouchedReportClient() {
                   ? `Last reset ${new Date(report.resetAt).toLocaleString()}`
                   : "No reset yet. Report includes every part not touched yet."}
               </span>
+              {report?.hiddenCount ? <span>{`${report.hiddenCount.toLocaleString()} hidden until the next report reset.`}</span> : null}
             </div>
           </div>
 
@@ -102,7 +129,7 @@ export default function ScannerCountUntouchedReportClient() {
             <button
               type="button"
               onClick={() => void loadReport()}
-              disabled={loading || resetting}
+              disabled={loading || resetting || Boolean(removingId)}
               style={{
                 minHeight: 44,
                 padding: "10px 14px",
@@ -111,7 +138,7 @@ export default function ScannerCountUntouchedReportClient() {
                 background: "var(--surface-2)",
                 color: "var(--foreground)",
                 fontWeight: 900,
-                cursor: "pointer",
+                cursor: loading || resetting || removingId ? "not-allowed" : "pointer",
               }}
             >
               Refresh
@@ -119,7 +146,7 @@ export default function ScannerCountUntouchedReportClient() {
             <button
               type="button"
               onClick={() => void resetReport()}
-              disabled={resetting}
+              disabled={resetting || Boolean(removingId)}
               style={{
                 minHeight: 44,
                 padding: "10px 14px",
@@ -128,7 +155,7 @@ export default function ScannerCountUntouchedReportClient() {
                 background: "color-mix(in srgb, var(--brand) 16%, var(--surface))",
                 color: "var(--foreground)",
                 fontWeight: 900,
-                cursor: "pointer",
+                cursor: resetting || removingId ? "not-allowed" : "pointer",
               }}
             >
               {resetting ? "Resetting..." : "Reset Report"}
@@ -146,19 +173,25 @@ export default function ScannerCountUntouchedReportClient() {
           <div style={{ border, borderRadius: 12, padding: 14, background: "var(--surface)" }}>Loading report...</div>
         ) : null}
 
-        {report && report.items.length === 0 ? (
+        {report && report.total === 0 ? (
           <div style={{ border: "1px solid rgba(34, 197, 94, 0.45)", background: "rgba(34, 197, 94, 0.12)", borderRadius: 12, padding: 12 }}>
             Everything has been scanned or looked up since the last reset.
+          </div>
+        ) : null}
+
+        {report && report.total > 0 && report.items.length === 0 ? (
+          <div style={{ border: "1px solid rgba(245, 158, 11, 0.45)", background: "rgba(245, 158, 11, 0.12)", borderRadius: 12, padding: 12 }}>
+            All remaining untouched parts are hidden until the next report reset.
           </div>
         ) : null}
       </section>
 
       {report && report.items.length > 0 ? (
         <section style={{ border, borderRadius: 14, background: "var(--surface)", boxShadow: "var(--shadow)", overflow: "auto" }}>
-          <table style={{ width: "100%", minWidth: 760, borderCollapse: "collapse" }}>
+          <table style={{ width: "100%", minWidth: 940, borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                {["Item Name", "Qty On Hand", "Location", "Link", "Part Number"].map((heading) => (
+                {["Item Name", "Qty On Hand", "Location", "Link", "Part Number", "Action"].map((heading) => (
                   <th key={heading} style={{ textAlign: "left", padding: "12px 14px", borderBottom: border, fontSize: 12, letterSpacing: 0.3, color: "var(--muted)" }}>
                     {heading}
                   </th>
@@ -181,6 +214,26 @@ export default function ScannerCountUntouchedReportClient() {
                     )}
                   </td>
                   <td style={{ padding: "12px 14px", borderBottom: border }}>{row.partNumber || "-"}</td>
+                  <td style={{ padding: "12px 14px", borderBottom: border }}>
+                    <button
+                      type="button"
+                      onClick={() => void hideItem(row.id)}
+                      disabled={loading || resetting || Boolean(removingId)}
+                      style={{
+                        minHeight: 38,
+                        padding: "8px 12px",
+                        borderRadius: 10,
+                        border,
+                        background: removingId === row.id ? "var(--surface-2)" : "color-mix(in srgb, var(--surface-2) 88%, var(--surface))",
+                        color: "var(--foreground)",
+                        fontWeight: 800,
+                        whiteSpace: "nowrap",
+                        cursor: loading || resetting || removingId ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      {removingId === row.id ? "Removing..." : "Hide until reset"}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

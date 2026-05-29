@@ -67,7 +67,8 @@ async function buildReport(userId: string, uiPreferences: unknown) {
   });
 
   const touchedIds = new Set(touchedRows.map((row) => row.entityId).filter((value): value is string => Boolean(value)));
-  const items = await prisma.item.findMany({
+  const hiddenIds = new Set(prefs.hiddenItemIds);
+  const untouchedItems = await prisma.item.findMany({
     where: {
       active: true,
       ...(touchedIds.size > 0 ? { id: { notIn: [...touchedIds] } } : {}),
@@ -82,10 +83,13 @@ async function buildReport(userId: string, uiPreferences: unknown) {
       webUrl: true,
     },
   });
+  const items = hiddenIds.size > 0 ? untouchedItems.filter((item) => !hiddenIds.has(item.id)) : untouchedItems;
+  const hiddenCount = untouchedItems.length - items.length;
 
   return {
     resetAt: prefs.resetAt,
-    total: items.length,
+    total: untouchedItems.length,
+    hiddenCount,
     items: items.map((item) => ({
       id: item.id,
       name: item.name,
@@ -111,7 +115,7 @@ export async function POST() {
   if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
   const resetAt = new Date().toISOString();
-  const nextUiPreferences = setScannerCountReportPreferences(gate.user.uiPreferences, { resetAt });
+  const nextUiPreferences = setScannerCountReportPreferences(gate.user.uiPreferences, { resetAt, hiddenItemIds: [] });
   await prisma.user.update({
     where: { id: gate.user.id },
     data: { uiPreferences: nextUiPreferences as Prisma.InputJsonValue },
@@ -128,6 +132,38 @@ export async function POST() {
       message: "Scanner count report reset.",
       metadata: { resetAt },
     },
+  });
+
+  return NextResponse.json(await buildReport(gate.user.id, nextUiPreferences), {
+    headers: { "Cache-Control": "no-store" },
+  });
+}
+
+export async function PATCH(req: Request) {
+  const gate = await requireScannerCountUser();
+  if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const itemId = String((body as { itemId?: unknown } | null)?.itemId ?? "").trim();
+  if (!itemId) return NextResponse.json({ error: "Item ID is required" }, { status: 400 });
+
+  const prefs = getScannerCountReportPreferences(gate.user.uiPreferences);
+  const nextHiddenItemIds = Array.from(new Set([...prefs.hiddenItemIds, itemId]));
+  const nextUiPreferences = setScannerCountReportPreferences(gate.user.uiPreferences, {
+    resetAt: prefs.resetAt,
+    hiddenItemIds: nextHiddenItemIds,
+  });
+
+  await prisma.user.update({
+    where: { id: gate.user.id },
+    data: { uiPreferences: nextUiPreferences as Prisma.InputJsonValue },
+    select: { id: true },
   });
 
   return NextResponse.json(await buildReport(gate.user.id, nextUiPreferences), {
