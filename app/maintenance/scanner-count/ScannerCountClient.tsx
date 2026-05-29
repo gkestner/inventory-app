@@ -563,6 +563,12 @@ export default function ScannerCountClient({
 
         @media (max-width: 900px) {
           .scanner-grid {
+            grid-template-columns: minmax(0, 1fr) minmax(240px, 0.72fr);
+          }
+        }
+
+        @media (max-width: 640px) {
+          .scanner-grid {
             grid-template-columns: minmax(0, 1fr);
           }
         }
