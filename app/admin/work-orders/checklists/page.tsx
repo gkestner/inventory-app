@@ -209,7 +209,8 @@ export default async function AdminWorkOrderChecklistsPage({ searchParams }: { s
     background: "rgba(220,60,60,0.12)",
   };
   const areaGrid: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 14 };
-  const rowGrid: CSSProperties = { display: "grid", gridTemplateColumns: "1.9fr 1fr auto", gap: 10, alignItems: "end" };
+  const createRowGrid: CSSProperties = { display: "grid", gridTemplateColumns: "1.9fr auto", gap: 10, alignItems: "end" };
+  const rowGrid: CSSProperties = { display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: 10, alignItems: "end" };
 
   return (
     <main style={shell}>
@@ -240,12 +241,11 @@ export default async function AdminWorkOrderChecklistsPage({ searchParams }: { s
 
               <form action={createChecklistItemAction} style={{ display: "grid", gap: 10, marginBottom: 14 }}>
                 <input type="hidden" name="area" value={area} />
-                <div style={rowGrid}>
+                <div style={createRowGrid}>
                   <label style={label}>
                     New Checklist Item
                     <input name="label" placeholder="Example: Check trap lid seal" style={input} required />
                   </label>
-                  <div />
                   <button type="submit" style={btn}>Add</button>
                 </div>
               </form>
@@ -254,17 +254,10 @@ export default async function AdminWorkOrderChecklistsPage({ searchParams }: { s
                 {rows.map((row: EquipmentAreaChecklistItemRow) => (
                   <form key={row.id} action={updateChecklistItemAction} style={{ ...rowGrid, padding: 10, border: "1px solid rgba(128,128,128,0.18)", borderRadius: 12 }}>
                     <input type="hidden" name="id" value={row.id} />
+                    <input type="hidden" name="area" value={area} />
                     <label style={label}>
                       Label
                       <input name="label" defaultValue={row.label} style={input} required />
-                    </label>
-                    <label style={{ ...label, alignSelf: "center" }}>
-                      Area
-                      <select name="area" defaultValue={row.area} style={input}>
-                        {WORK_ORDER_EQUIPMENT_AREAS.map((option) => (
-                          <option key={`${row.id}-${option}`} value={option}>{formatWorkOrderEquipmentAreaLabel(option)}</option>
-                        ))}
-                      </select>
                     </label>
                     <div style={{ display: "grid", gap: 10 }}>
                       <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 800 }}>
