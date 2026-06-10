@@ -168,6 +168,7 @@ export default async function AdminNav() {
     Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
     Permission.ADMIN_EXPORT_MAINTENANCE_TICKETS,
   ]);
+  const canAdminWorkOrderChecklists = canAdminWorkOrders;
 
   const canPreventativeMaintenance = isAdmin || hasAnyPermission(perms, [ADMIN_VIEW_PREVENTATIVE_MAINTENANCE]);
   const canEquipmentTracking = isAdmin || hasAnyPermission(perms, [ADMIN_VIEW_EQUIPMENT_TRACKING]);
@@ -235,7 +236,7 @@ export default async function AdminNav() {
 
   const showAccounting = canAdminInvoices;
   const showInventory = canAdminItems || canAdminOrderHistory || canAdminInventoryAlerts || canQuickCountEditor || canScannerCount;
-  const showAdmin = canAdminUsers || canAdminLocations;
+  const showAdmin = canAdminUsers || canAdminLocations || canAdminWorkOrderChecklists;
   const showOperations = canCheckout || canRoomDiagrams;
   const showWorkOrders = canAdminWorkOrders || canUserWorkOrders || canAdminMaintenanceTickets || canMaintenanceRequests || canAdminTravelLogs;
   const showFacilities =
@@ -432,6 +433,11 @@ export default async function AdminNav() {
                     Users
                   </Link>
                 ) : null}
+                {canAdminWorkOrderChecklists ? (
+                  <Link href="/admin/work-orders/checklists" style={menuItemStyle}>
+                    Work Order Checklists
+                  </Link>
+                ) : null}
               </div>
             </details>
           ) : null}
@@ -480,11 +486,6 @@ export default async function AdminNav() {
                 {canAdminWorkOrders ? (
                   <Link href="/admin/work-orders" style={menuItemStyle}>
                     Work Orders
-                  </Link>
-                ) : null}
-                {canAdminWorkOrders ? (
-                  <Link href="/admin/work-orders/checklists" style={menuItemStyle}>
-                    Work Order Checklists
                   </Link>
                 ) : null}
                 {canUserWorkOrders ? (

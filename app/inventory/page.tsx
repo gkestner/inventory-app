@@ -422,20 +422,160 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
   const field: CSSProperties = { width: "100%", minWidth: 0, boxSizing: "border-box", padding: "10px 12px", borderRadius: 10, border, background: surface, color: fg, outline: "none" };
   const btn: CSSProperties = { padding: "10px 14px", borderRadius: 10, border, background: surface, color: fg, fontWeight: 900, textDecoration: "none", whiteSpace: "nowrap" };
   const smallBtn: CSSProperties = { ...btn, padding: "8px 10px", fontSize: 12 };
+  const tabletCard: CSSProperties = { border, borderRadius: 14, padding: 14, background: surface, color: fg, display: "grid", gap: 12 };
+  const tabletMetricGrid: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10 };
+  const tabletMetricCard: CSSProperties = { border, borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)", display: "grid", gap: 4 };
+  const tabletMetaGrid: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 };
+  const tabletMetaCard: CSSProperties = { border, borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)", display: "grid", gap: 4 };
+
+  function renderCommentForm(itemId: string, comment: InventoryCommentRow | undefined, compact = false) {
+    return (
+      <form action={saveItemCommentAction} style={{ display: "grid", gap: 8 }}>
+        <input type="hidden" name="itemId" value={itemId} />
+        <input type="hidden" name="returnTo" value={currentHref} />
+        <textarea
+          name="comment"
+          defaultValue={comment?.comment ?? ""}
+          placeholder="Need More, Named Wrong, or other note..."
+          style={{ ...field, minHeight: compact ? 92 : 72, resize: "vertical" }}
+        />
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ fontSize: 11, opacity: 0.72 }}>
+            {comment ? `Updated ${comment.updatedAt.toLocaleString()}` : "Saved per item for your account"}
+          </div>
+          <button type="submit" style={smallBtn}>Save Comment</button>
+        </div>
+      </form>
+    );
+  }
 
   return (
-    <main style={{ padding: 16 }}>
-      <div style={{ display: "grid", gap: 12 }}>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+    <main className="inventory-page" style={{ padding: 16 }}>
+      <style>{`
+        .inventory-shell {
+          width: 100%;
+          max-width: 1400px;
+          margin: 0 auto;
+          display: grid;
+          gap: 12px;
+        }
+
+        .inventory-header {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+
+        .inventory-filter-form {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 12px;
+          align-items: end;
+        }
+
+        .inventory-filter-actions {
+          display: flex;
+          gap: 10px;
+          align-items: end;
+          margin-left: auto;
+        }
+
+        .inventory-table-view {
+          display: block;
+        }
+
+        .inventory-card-list {
+          display: none;
+        }
+
+        .inventory-pagination {
+          display: flex;
+          gap: 10px;
+          justify-content: flex-end;
+        }
+
+        @media (max-width: 1100px) {
+          .inventory-filter-form {
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            align-items: end !important;
+          }
+
+          .inventory-search-label {
+            grid-column: 1 / -1;
+          }
+
+          .inventory-filter-actions {
+            grid-column: 1 / -1;
+            margin-left: 0 !important;
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
+          .inventory-filter-actions > * {
+            width: 100%;
+            justify-content: center;
+          }
+
+          .inventory-table-view {
+            display: none;
+          }
+
+          .inventory-card-list {
+            display: grid;
+            gap: 12px;
+            padding: 12px;
+          }
+
+          .inventory-pagination {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            justify-content: stretch !important;
+          }
+
+          .inventory-pagination > a {
+            text-align: center;
+            justify-content: center;
+          }
+        }
+
+        @media (max-width: 760px) {
+          .inventory-filter-form {
+            grid-template-columns: minmax(0, 1fr);
+          }
+
+          .inventory-filter-actions {
+            grid-template-columns: minmax(0, 1fr);
+          }
+
+          .inventory-header-home {
+            width: 100%;
+            margin-left: 0 !important;
+          }
+
+          .inventory-card-head {
+            flex-direction: column;
+            align-items: flex-start !important;
+          }
+
+          .inventory-card-meta {
+            grid-template-columns: minmax(0, 1fr) !important;
+          }
+        }
+      `}</style>
+
+      <div className="inventory-shell">
+        <div className="inventory-header">
           <h1 style={{ margin: 0, fontSize: 26, fontWeight: 900 }}>Inventory</h1>
           <div style={{ fontSize: 13, opacity: 0.78 }}>Search inventory, see stock and order status, and leave item comments.</div>
-          <div style={{ marginLeft: "auto" }}>
+          <div className="inventory-header-home" style={{ marginLeft: "auto" }}>
             <Link href="/" style={{ ...btn, display: "inline-flex", alignItems: "center" }}>Home</Link>
           </div>
         </div>
 
-        <form method="GET" style={{ ...card, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "end" }}>
-          <label style={{ ...label, flex: "2 1 280px" }}>
+        <form method="GET" className="inventory-filter-form" style={{ ...card, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "end" }}>
+          <label className="inventory-search-label" style={{ ...label, flex: "2 1 280px" }}>
             Search
             <input name="q" defaultValue={qRaw} placeholder="Search SKU, part #, name, category, manufacturer..." style={field} />
           </label>
@@ -487,83 +627,142 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
               <option value="200">200</option>
             </select>
           </label>
-          <div style={{ display: "flex", gap: 10, alignItems: "end", marginLeft: "auto" }}>
+          <div className="inventory-filter-actions" style={{ display: "flex", gap: 10, alignItems: "end", marginLeft: "auto" }}>
             <button type="submit" style={btn}>Apply Filters</button>
             <Link href="/inventory" style={{ ...btn, display: "inline-flex", alignItems: "center" }}>Reset</Link>
           </div>
         </form>
 
-        <div style={{ ...card, padding: 0, overflowX: "auto" }}>
+        <div style={{ ...card, padding: 0, overflow: "hidden" }}>
           <div style={{ padding: 12, borderBottom: border, fontSize: 12, opacity: 0.84 }}>
             {total.toLocaleString()} results • page {safePage} / {pageCount}
           </div>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                {["SKU", "Part #", "Vendor", "Name", "Category", "In Stock", "Ordered", "Arrived", "Min", "Suggested Min (30d)", "Active", "My Comment", "Updated"].map((h) => (
-                  <th key={h} style={{ textAlign: "left", padding: 10, borderBottom: border, whiteSpace: "nowrap", fontSize: 13 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {pageItems.map((item) => {
-                const recommendation = recommendationMap.get(item.id);
-                const statusCounts = itemStatusMap.get(item.id) ?? { ordered: 0, arrived: 0 };
-                const comment = commentMap.get(item.id);
-                return (
-                  <tr key={item.id}>
-                    <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap", fontWeight: 800 }}>{item.sku}</td>
-                    <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{item.partNumber ?? "—"}</td>
-                    <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{item.vendor ?? "—"}</td>
-                    <td style={{ padding: 10, borderBottom: border }}>{item.name}</td>
-                    <td style={{ padding: 10, borderBottom: border }}>{item.category ?? "—"}</td>
-                    <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap", fontWeight: 800 }}>{item.onHandQty.toLocaleString()}</td>
-                    <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{statusCounts.ordered.toLocaleString()}</td>
-                    <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{statusCounts.arrived.toLocaleString()}</td>
-                    <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{item.minQty.toLocaleString()}</td>
-                    <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{(recommendation?.suggestedMinQty30Day ?? 0).toLocaleString()}</td>
-                    <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{item.active ? "Yes" : "No"}</td>
-                    <td style={{ padding: 10, borderBottom: border, minWidth: 280 }}>
-                      <form action={saveItemCommentAction} style={{ display: "grid", gap: 8 }}>
-                        <input type="hidden" name="itemId" value={item.id} />
-                        <input type="hidden" name="returnTo" value={currentHref} />
-                        <textarea
-                          name="comment"
-                          defaultValue={comment?.comment ?? ""}
-                          placeholder="Need More, Named Wrong, or other note..."
-                          style={{ ...field, minHeight: 72, resize: "vertical" }}
-                        />
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
-                          <div style={{ fontSize: 11, opacity: 0.72 }}>
-                            {comment ? `Updated ${comment.updatedAt.toLocaleString()}` : "Saved per item for your account"}
-                          </div>
-                          <button type="submit" style={smallBtn}>Save Comment</button>
-                        </div>
-                      </form>
-                    </td>
-                    <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap", fontSize: 12, opacity: 0.84 }}>{item.updatedAt.toLocaleString()}</td>
-                  </tr>
-                );
-              })}
-              {pageItems.length === 0 ? (
+          <div className="inventory-table-view" style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
                 <tr>
-                  <td colSpan={13} style={{ padding: 16, opacity: 0.76 }}>No inventory items matched your filters.</td>
+                  {["SKU", "Part #", "Vendor", "Name", "Category", "In Stock", "Ordered", "Arrived", "Min", "Suggested Min (30d)", "Active", "My Comment", "Updated"].map((h) => (
+                    <th key={h} style={{ textAlign: "left", padding: 10, borderBottom: border, whiteSpace: "nowrap", fontSize: 13 }}>{h}</th>
+                  ))}
                 </tr>
-              ) : null}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {pageItems.map((item) => {
+                  const recommendation = recommendationMap.get(item.id);
+                  const statusCounts = itemStatusMap.get(item.id) ?? { ordered: 0, arrived: 0 };
+                  const comment = commentMap.get(item.id);
+                  return (
+                    <tr key={item.id}>
+                      <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap", fontWeight: 800 }}>{item.sku}</td>
+                      <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{item.partNumber ?? "—"}</td>
+                      <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{item.vendor ?? "—"}</td>
+                      <td style={{ padding: 10, borderBottom: border }}>{item.name}</td>
+                      <td style={{ padding: 10, borderBottom: border }}>{item.category ?? "—"}</td>
+                      <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap", fontWeight: 800 }}>{item.onHandQty.toLocaleString()}</td>
+                      <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{statusCounts.ordered.toLocaleString()}</td>
+                      <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{statusCounts.arrived.toLocaleString()}</td>
+                      <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{item.minQty.toLocaleString()}</td>
+                      <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{(recommendation?.suggestedMinQty30Day ?? 0).toLocaleString()}</td>
+                      <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{item.active ? "Yes" : "No"}</td>
+                      <td style={{ padding: 10, borderBottom: border, minWidth: 280 }}>
+                        {renderCommentForm(item.id, comment)}
+                      </td>
+                      <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap", fontSize: 12, opacity: 0.84 }}>{item.updatedAt.toLocaleString()}</td>
+                    </tr>
+                  );
+                })}
+                {pageItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={13} style={{ padding: 16, opacity: 0.76 }}>No inventory items matched your filters.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="inventory-card-list">
+            {pageItems.length === 0 ? (
+              <div style={{ padding: 4, opacity: 0.76 }}>No inventory items matched your filters.</div>
+            ) : null}
+
+            {pageItems.map((item) => {
+              const recommendation = recommendationMap.get(item.id);
+              const statusCounts = itemStatusMap.get(item.id) ?? { ordered: 0, arrived: 0 };
+              const comment = commentMap.get(item.id);
+              const metaLine = [item.partNumber ? `Part # ${item.partNumber}` : null, item.vendor ? `Vendor ${item.vendor}` : null, item.category ?? null]
+                .filter(Boolean)
+                .join(" • ");
+
+              return (
+                <article key={item.id} style={tabletCard}>
+                  <div className="inventory-card-head" style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+                    <div style={{ display: "grid", gap: 4 }}>
+                      <div style={{ fontSize: 12, fontWeight: 900, opacity: 0.7 }}>{item.sku}</div>
+                      <div style={{ fontSize: 18, fontWeight: 900, lineHeight: 1.2 }}>{item.name}</div>
+                      {metaLine ? <div style={{ fontSize: 13, opacity: 0.78, lineHeight: 1.35 }}>{metaLine}</div> : null}
+                    </div>
+
+                    <div
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 999,
+                        border,
+                        background: item.active ? "rgba(11, 107, 115, 0.12)" : "rgba(128,128,128,0.14)",
+                        fontSize: 12,
+                        fontWeight: 900,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {item.active ? "Active" : "Archived"}
+                    </div>
+                  </div>
+
+                  <div style={tabletMetricGrid}>
+                    {[
+                      ["In Stock", item.onHandQty.toLocaleString()],
+                      ["Ordered", statusCounts.ordered.toLocaleString()],
+                      ["Arrived", statusCounts.arrived.toLocaleString()],
+                      ["Min", item.minQty.toLocaleString()],
+                      ["Suggested Min", (recommendation?.suggestedMinQty30Day ?? 0).toLocaleString()],
+                    ].map(([title, value]) => (
+                      <div key={`${item.id}-${title}`} style={tabletMetricCard}>
+                        <div style={{ fontSize: 11, fontWeight: 900, opacity: 0.7, textTransform: "uppercase", letterSpacing: 0.2 }}>{title}</div>
+                        <div style={{ fontSize: 18, fontWeight: 900 }}>{value}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="inventory-card-meta" style={tabletMetaGrid}>
+                    <div style={tabletMetaCard}>
+                      <div style={{ fontSize: 11, fontWeight: 900, opacity: 0.7, textTransform: "uppercase", letterSpacing: 0.2 }}>Vendor</div>
+                      <div style={{ fontSize: 14, fontWeight: 800 }}>{item.vendor ?? "—"}</div>
+                    </div>
+                    <div style={tabletMetaCard}>
+                      <div style={{ fontSize: 11, fontWeight: 900, opacity: 0.7, textTransform: "uppercase", letterSpacing: 0.2 }}>Updated</div>
+                      <div style={{ fontSize: 14, fontWeight: 800 }}>{item.updatedAt.toLocaleString()}</div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "grid", gap: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 900, opacity: 0.78 }}>My Comment</div>
+                    {renderCommentForm(item.id, comment, true)}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
         </div>
 
-        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        <div className="inventory-pagination" style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <Link
             href={buildHref({ q: qRaw || undefined, active: activeFilter === null ? undefined : String(activeFilter), sort, dir, recommendation: recommendationFilter === "all" ? undefined : recommendationFilter, perPage: String(perPage), page: String(Math.max(1, safePage - 1)) })}
-            style={{ ...btn, pointerEvents: safePage <= 1 ? "none" : "auto", opacity: safePage <= 1 ? 0.6 : 1 }}
+            style={{ ...btn, display: "inline-flex", alignItems: "center", pointerEvents: safePage <= 1 ? "none" : "auto", opacity: safePage <= 1 ? 0.6 : 1 }}
           >
             Prev
           </Link>
           <Link
             href={buildHref({ q: qRaw || undefined, active: activeFilter === null ? undefined : String(activeFilter), sort, dir, recommendation: recommendationFilter === "all" ? undefined : recommendationFilter, perPage: String(perPage), page: String(Math.min(pageCount, safePage + 1)) })}
-            style={{ ...btn, pointerEvents: safePage >= pageCount ? "none" : "auto", opacity: safePage >= pageCount ? 0.6 : 1 }}
+            style={{ ...btn, display: "inline-flex", alignItems: "center", pointerEvents: safePage >= pageCount ? "none" : "auto", opacity: safePage >= pageCount ? 0.6 : 1 }}
           >
             Next
           </Link>
