@@ -148,10 +148,10 @@ export async function listChecklistItems(args?: { includeInactive?: boolean }): 
 export function groupChecklistItemsByArea(
   rows: EquipmentAreaChecklistItemRow[]
 ): Record<WorkOrderEquipmentArea, EquipmentAreaChecklistItemRow[]> {
-  const grouped = Object.fromEntries(WORK_ORDER_EQUIPMENT_AREAS.map((area) => [area, []])) as Record<
-    WorkOrderEquipmentArea,
-    EquipmentAreaChecklistItemRow[]
-  >;
+  const grouped = {} as Record<WorkOrderEquipmentArea, EquipmentAreaChecklistItemRow[]>;
+  for (const area of WORK_ORDER_EQUIPMENT_AREAS) {
+    grouped[area] = [];
+  }
 
   for (const row of rows) {
     if (!isWorkOrderEquipmentArea(row.area)) continue;
