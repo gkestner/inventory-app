@@ -244,6 +244,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   }
   if (canWorkOrders) {
     availableSidebarItems.push({ key: "work-orders", label: "Work Orders", href: "/admin/work-orders", tag: "Ops", group: "Operations" });
+    availableSidebarItems.push({ key: "work-order-checklists", label: "Work Order Checklists", href: "/admin/work-orders/checklists", tag: "Setup", group: "Operations" });
     availableSidebarItems.push({ key: "pm-scheduler", label: "PM Scheduler", href: "/admin/work-orders/schedules", tag: "PM", group: "Facilities" });
     availableSidebarItems.push({ key: "travel-log", label: "Travel Logs", href: "/admin/travel-log", tag: "Travel", group: "Operations" });
   }

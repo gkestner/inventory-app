@@ -24,6 +24,39 @@ type SearchParams = {
   recommendation?: string;
 };
 
+type InventorySession = {
+  user?: {
+    email?: string | null;
+  } | null;
+} | null;
+
+type InventoryCommentRow = {
+  itemId: string;
+  comment: string;
+  updatedAt: Date;
+};
+
+type InventoryStatusAggregateRow = {
+  itemId: string;
+  status: "ORDERED" | "ARRIVED" | "ADDED_TO_INVENTORY";
+  _sum: { quantity: number | null };
+};
+
+type InventoryCommentDelegate = {
+  findMany: (args: unknown) => Promise<InventoryCommentRow[]>;
+  upsert: (args: unknown) => Promise<unknown>;
+  deleteMany: (args: unknown) => Promise<unknown>;
+};
+
+type InventoryOrderAggregateDelegate = {
+  groupBy: (args: unknown) => Promise<InventoryStatusAggregateRow[]>;
+};
+
+const db = prisma as unknown as {
+  inventoryItemComment: InventoryCommentDelegate;
+  inventoryOrder: InventoryOrderAggregateDelegate;
+};
+
 type SortKey =
   | "updatedAt"
   | "sku"
@@ -159,7 +192,7 @@ function buildHref(values: Record<string, string | undefined>) {
   return qs ? `/inventory?${qs}` : "/inventory";
 }
 
-async function requireInventoryView() {
+async function requireInventoryView(): Promise<InventorySession> {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
 
@@ -169,10 +202,17 @@ async function requireInventoryView() {
     hasAnyPermission(perms, [VIEW_INVENTORY, Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS, Permission.ADMIN_IMPORT_EXPORT_ITEMS]);
 
   if (!canView) redirect("/");
+
+  return session as InventorySession;
 }
 
 export default async function InventoryPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  await requireInventoryView();
+  const session = await requireInventoryView();
+  const email = String(session?.user?.email ?? "").trim().toLowerCase();
+  const me = email
+    ? await prisma.user.findUnique({ where: { email }, select: { id: true, active: true } })
+    : null;
+  if (!me || !me.active) redirect("/login");
 
   const sp = (await searchParams) ?? {};
   const qRaw = (sp.q ?? "").trim();
@@ -288,6 +328,76 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
   const pageCount = Math.max(1, Math.ceil(total / perPage));
   const safePage = Math.min(page, pageCount);
   const pageItems = sortedItems.slice((safePage - 1) * perPage, safePage * perPage);
+  const pageItemIds = pageItems.map((item) => item.id);
+
+  async function saveItemCommentAction(formData: FormData) {
+    "use server";
+
+    const session = await requireInventoryView();
+    const email = String(session?.user?.email ?? "").trim().toLowerCase();
+    const me = email
+      ? await prisma.user.findUnique({ where: { email }, select: { id: true, active: true } })
+      : null;
+    if (!me || !me.active) redirect("/login");
+
+    const itemId = String(formData.get("itemId") ?? "").trim();
+    const comment = String(formData.get("comment") ?? "").trim();
+    const returnTo = String(formData.get("returnTo") ?? "/inventory").trim() || "/inventory";
+
+    if (!itemId) redirect(returnTo);
+
+    if (!comment) {
+      await db.inventoryItemComment.deleteMany({ where: { itemId, userId: me.id } } as unknown);
+    } else {
+      await db.inventoryItemComment.upsert({
+        where: { itemId_userId: { itemId, userId: me.id } },
+        update: { comment },
+        create: { itemId, userId: me.id, comment },
+      } as unknown);
+    }
+
+    revalidatePath("/inventory");
+    redirect(returnTo);
+  }
+
+  const [statusRows, commentRows] = await Promise.all([
+    pageItemIds.length > 0
+      ? db.inventoryOrder.groupBy({
+          by: ["itemId", "status"],
+          where: {
+            itemId: { in: pageItemIds },
+            status: { in: ["ORDERED", "ARRIVED"] },
+          },
+          _sum: { quantity: true },
+        } as unknown)
+      : Promise.resolve([] as InventoryStatusAggregateRow[]),
+    pageItemIds.length > 0
+      ? db.inventoryItemComment.findMany({
+          where: { userId: me.id, itemId: { in: pageItemIds } },
+          select: { itemId: true, comment: true, updatedAt: true },
+        } as unknown)
+      : Promise.resolve([] as InventoryCommentRow[]),
+  ]);
+
+  const itemStatusMap = new Map<string, { ordered: number; arrived: number }>();
+  for (const row of statusRows) {
+    const current = itemStatusMap.get(row.itemId) ?? { ordered: 0, arrived: 0 };
+    const qty = row._sum?.quantity ?? 0;
+    if (row.status === "ORDERED") current.ordered += qty;
+    if (row.status === "ARRIVED") current.arrived += qty;
+    itemStatusMap.set(row.itemId, current);
+  }
+
+  const commentMap = new Map(commentRows.map((row) => [row.itemId, row]));
+  const currentHref = buildHref({
+    q: qRaw || undefined,
+    active: activeFilter === null ? undefined : String(activeFilter),
+    sort,
+    dir,
+    recommendation: recommendationFilter === "all" ? undefined : recommendationFilter,
+    perPage: String(perPage),
+    page: String(safePage),
+  });
 
   const border = "1px solid rgba(128,128,128,0.25)";
   const surface = "var(--background)";
@@ -296,13 +406,14 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
   const label: CSSProperties = { display: "grid", gap: 6, minWidth: 0, fontSize: 12, fontWeight: 800, opacity: 0.95 };
   const field: CSSProperties = { width: "100%", minWidth: 0, boxSizing: "border-box", padding: "10px 12px", borderRadius: 10, border, background: surface, color: fg, outline: "none" };
   const btn: CSSProperties = { padding: "10px 14px", borderRadius: 10, border, background: surface, color: fg, fontWeight: 900, textDecoration: "none", whiteSpace: "nowrap" };
+  const smallBtn: CSSProperties = { ...btn, padding: "8px 10px", fontSize: 12 };
 
   return (
     <main style={{ padding: 16 }}>
       <div style={{ display: "grid", gap: 12 }}>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <h1 style={{ margin: 0, fontSize: 26, fontWeight: 900 }}>Inventory</h1>
-          <div style={{ fontSize: 13, opacity: 0.78 }}>Read-only inventory access</div>
+          <div style={{ fontSize: 13, opacity: 0.78 }}>Search inventory, see stock and order status, and leave item comments.</div>
           <div style={{ marginLeft: "auto" }}>
             <Link href="/" style={{ ...btn, display: "inline-flex", alignItems: "center" }}>Home</Link>
           </div>
@@ -329,8 +440,6 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
               <option value="partNumber">Part #</option>
               <option value="name">Name</option>
               <option value="category">Category</option>
-              <option value="cost">Cost</option>
-              <option value="price">Price</option>
               <option value="taxable">Taxable</option>
               <option value="active">Active</option>
               <option value="suggestedMinQty30Day">Suggested Min (30d)</option>
@@ -376,7 +485,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                {["SKU", "Part #", "Vendor", "Name", "Category", "On Hand", "Min", "Suggested Min (30d)", "Cost", "Price", "Active", "Updated"].map((h) => (
+                {["SKU", "Part #", "Vendor", "Name", "Category", "In Stock", "Ordered", "Arrived", "Min", "Suggested Min (30d)", "Active", "My Comment", "Updated"].map((h) => (
                   <th key={h} style={{ textAlign: "left", padding: 10, borderBottom: border, whiteSpace: "nowrap", fontSize: 13 }}>{h}</th>
                 ))}
               </tr>
@@ -384,6 +493,8 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
             <tbody>
               {pageItems.map((item) => {
                 const recommendation = recommendationMap.get(item.id);
+                const statusCounts = itemStatusMap.get(item.id) ?? { ordered: 0, arrived: 0 };
+                const comment = commentMap.get(item.id);
                 return (
                   <tr key={item.id}>
                     <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap", fontWeight: 800 }}>{item.sku}</td>
@@ -392,18 +503,36 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                     <td style={{ padding: 10, borderBottom: border }}>{item.name}</td>
                     <td style={{ padding: 10, borderBottom: border }}>{item.category ?? "—"}</td>
                     <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap", fontWeight: 800 }}>{item.onHandQty.toLocaleString()}</td>
+                    <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{statusCounts.ordered.toLocaleString()}</td>
+                    <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{statusCounts.arrived.toLocaleString()}</td>
                     <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{item.minQty.toLocaleString()}</td>
                     <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{(recommendation?.suggestedMinQty30Day ?? 0).toLocaleString()}</td>
-                    <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{item.cost ? String(item.cost) : "—"}</td>
-                    <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{item.price ? String(item.price) : "—"}</td>
                     <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{item.active ? "Yes" : "No"}</td>
+                    <td style={{ padding: 10, borderBottom: border, minWidth: 280 }}>
+                      <form action={saveItemCommentAction} style={{ display: "grid", gap: 8 }}>
+                        <input type="hidden" name="itemId" value={item.id} />
+                        <input type="hidden" name="returnTo" value={currentHref} />
+                        <textarea
+                          name="comment"
+                          defaultValue={comment?.comment ?? ""}
+                          placeholder="Need More, Named Wrong, or other note..."
+                          style={{ ...field, minHeight: 72, resize: "vertical" }}
+                        />
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                          <div style={{ fontSize: 11, opacity: 0.72 }}>
+                            {comment ? `Updated ${comment.updatedAt.toLocaleString()}` : "Saved per item for your account"}
+                          </div>
+                          <button type="submit" style={smallBtn}>Save Comment</button>
+                        </div>
+                      </form>
+                    </td>
                     <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap", fontSize: 12, opacity: 0.84 }}>{item.updatedAt.toLocaleString()}</td>
                   </tr>
                 );
               })}
               {pageItems.length === 0 ? (
                 <tr>
-                  <td colSpan={12} style={{ padding: 16, opacity: 0.76 }}>No inventory items matched your filters.</td>
+                  <td colSpan={13} style={{ padding: 16, opacity: 0.76 }}>No inventory items matched your filters.</td>
                 </tr>
               ) : null}
             </tbody>

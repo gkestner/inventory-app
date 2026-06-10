@@ -12,6 +12,12 @@ import { parseHiddenFromDropdowns } from "@/app/lib/user-preferences";
 import { getCompatDb } from "@/app/lib/workflow-foundations";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { CREATE_RECEIPTS, VIEW_RECEIPTS } from "@/app/lib/permission-constants";
+import {
+  WORK_ORDER_EQUIPMENT_AREAS,
+  type WorkOrderEquipmentArea,
+  formatWorkOrderEquipmentAreaLabel,
+  parseWorkOrderEquipmentAreas,
+} from "@/app/lib/work-order-equipment";
 import BulkHistoricalReceiptUploader from "./BulkHistoricalReceiptUploader";
 import ReceiptDropzone from "./ReceiptDropzone";
 import ReceiptRowFileUploader from "./ReceiptRowFileUploader";
@@ -25,40 +31,9 @@ type SessionShape = {
   } | null;
 } | null;
 
-type RequiredEquipmentArea =
-  | "DOUGH_ROLLER"
-  | "MAKETABLE"
-  | "DOUGH_COOLER"
-  | "MIXER"
-  | "OVEN"
-  | "WALK_IN"
-  | "FREEZER"
-  | "BUILDING_STRUCTURE"
-  | "LIGHTING"
-  | "PARKING_LOT"
-  | "OFFICE"
-  | "HVAC_GAME_ROOM"
-  | "HVAC_KITCHEN"
-  | "HVAC_DINING_ROOM"
-  | "OTHER";
+type RequiredEquipmentArea = WorkOrderEquipmentArea;
 
-const EQUIPMENT_AREAS: RequiredEquipmentArea[] = [
-  "DOUGH_ROLLER",
-  "MAKETABLE",
-  "DOUGH_COOLER",
-  "MIXER",
-  "OVEN",
-  "WALK_IN",
-  "FREEZER",
-  "BUILDING_STRUCTURE",
-  "LIGHTING",
-  "PARKING_LOT",
-  "OFFICE",
-  "HVAC_GAME_ROOM",
-  "HVAC_KITCHEN",
-  "HVAC_DINING_ROOM",
-  "OTHER",
-];
+const EQUIPMENT_AREAS: readonly RequiredEquipmentArea[] = WORK_ORDER_EQUIPMENT_AREAS;
 
 const BILLED_BACK_VENDORS = [
   "United Refrigeration",
@@ -163,25 +138,7 @@ function splitAmountAcrossLocations(totalCents: number, count: number): number[]
 }
 
 function parseAreas(formData: FormData): RequiredEquipmentArea[] {
-  const raw = formData.getAll("areas");
-  const allowed = new Set<string>(EQUIPMENT_AREAS);
-
-  const out: RequiredEquipmentArea[] = [];
-  for (const v of raw) {
-    if (typeof v !== "string") continue;
-    const s = v.trim();
-    if (!allowed.has(s)) continue;
-    out.push(s as RequiredEquipmentArea);
-  }
-
-  const seen = new Set<RequiredEquipmentArea>();
-  const uniq: RequiredEquipmentArea[] = [];
-  for (const a of out) {
-    if (seen.has(a)) continue;
-    seen.add(a);
-    uniq.push(a);
-  }
-  return uniq;
+  return parseWorkOrderEquipmentAreas(formData);
 }
 
 function cleanSegment(v: string): string {
@@ -191,15 +148,7 @@ function cleanSegment(v: string): string {
 }
 
 function formatAreaLabel(area: string): string {
-  const parts = area.split("_").filter(Boolean);
-  return parts
-    .map((p) => {
-      const up = p.toUpperCase();
-      if (up === "HVAC") return "HVAC";
-      if (up === "DOUGH") return "Dough";
-      return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
-    })
-    .join(" ");
+  return formatWorkOrderEquipmentAreaLabel(area);
 }
 
 function moneyFromCents(cents: number): string {

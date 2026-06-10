@@ -12,6 +12,23 @@ import { canAccessAdmin } from "@/app/lib/admin-access";
 import { createAuditLog, getCompatDb, getGcsConfig } from "@/app/lib/workflow-foundations";
 import { ensureFinalizedWorkOrderNumber, finalizePendingWorkOrders } from "@/app/lib/work-order-number";
 import AttachmentUploader from "./AttachmentUploader";
+import WorkOrderEquipmentSelector from "@/app/components/WorkOrderEquipmentSelector";
+import {
+  WORK_ORDER_EQUIPMENT_AREAS,
+  type WorkOrderChecklistTx,
+  type WorkOrderEquipmentArea,
+  buildChecklistItemIdSet,
+  formatChecklistSelectionSummary,
+  formatWorkOrderEquipmentAreaLabel,
+  formatWorkOrderEquipmentAreaLabelWithLegacy,
+  groupChecklistItemsByArea,
+  isLegacyWorkOrderEquipmentArea,
+  listChecklistItems,
+  listChecklistSelectionsForWorkOrders,
+  parseChecklistItemIds,
+  parseWorkOrderEquipmentAreas,
+  syncWorkOrderChecklistSelections,
+} from "@/app/lib/work-order-equipment";
 
 export const dynamic = "force-dynamic";
 
@@ -33,48 +50,12 @@ async function requireAdmin(session: AdminSession) {
  */
 type WorkOrderStatus = "DRAFT" | "SUBMITTED" | "FINALIZED";
 
-/**
- * UI/requirements equipment areas (selectable)
- */
-type EquipmentArea =
-  | "DOUGH_ROLLER"
-  | "MAKETABLE"
-  | "DOUGH_COOLER"
-  | "MIXER"
-  | "OVEN"
-  | "WALK_IN"
-  | "FREEZER"
-  | "BUILDING_STRUCTURE"
-  | "LIGHTING"
-  | "PARKING_LOT"
-  | "OFFICE"
-  | "PLUMBING"
-  | "HVAC_GAME_ROOM"
-  | "HVAC_KITCHEN"
-  | "HVAC_DINING_ROOM"
-  | "OTHER";
+type EquipmentArea = WorkOrderEquipmentArea;
 
 type LegacyEquipmentArea = "FRONT_COUNTER" | "DRIVE_THRU" | "KITCHEN" | "ROOF" | "HVAC";
 type EquipmentAreaDb = EquipmentArea | LegacyEquipmentArea;
 
-const EQUIPMENT_AREAS: EquipmentArea[] = [
-  "DOUGH_ROLLER",
-  "MAKETABLE",
-  "DOUGH_COOLER",
-  "MIXER",
-  "OVEN",
-  "WALK_IN",
-  "FREEZER",
-  "BUILDING_STRUCTURE",
-  "LIGHTING",
-  "PARKING_LOT",
-  "OFFICE",
-  "PLUMBING",
-  "HVAC_GAME_ROOM",
-  "HVAC_KITCHEN",
-  "HVAC_DINING_ROOM",
-  "OTHER",
-];
+const EQUIPMENT_AREAS: readonly EquipmentArea[] = WORK_ORDER_EQUIPMENT_AREAS;
 
 const LEGACY_AREAS: LegacyEquipmentArea[] = ["FRONT_COUNTER", "DRIVE_THRU", "KITCHEN", "ROOF", "HVAC"];
 const STATUSES: WorkOrderStatus[] = ["DRAFT", "SUBMITTED", "FINALIZED"];
@@ -146,31 +127,11 @@ const db = prisma as unknown as {
 };
 
 function isLegacyArea(area: EquipmentAreaDb): area is LegacyEquipmentArea {
-  return (LEGACY_AREAS as readonly string[]).includes(area);
+  return isLegacyWorkOrderEquipmentArea(area);
 }
 
 function parseAreas(formData: FormData): EquipmentArea[] {
-  const raw = formData.getAll("areas");
-  const allowed = new Set<string>(EQUIPMENT_AREAS);
-
-  const out: EquipmentArea[] = [];
-  for (const v of raw) {
-    if (typeof v !== "string") continue;
-    const s = v.trim();
-    if (!s) continue;
-    if (!allowed.has(s)) continue;
-    out.push(s as EquipmentArea);
-  }
-
-  // de-dupe preserving order
-  const seen = new Set<EquipmentArea>();
-  const uniq: EquipmentArea[] = [];
-  for (const a of out) {
-    if (seen.has(a)) continue;
-    seen.add(a);
-    uniq.push(a);
-  }
-  return uniq;
+  return parseWorkOrderEquipmentAreas(formData);
 }
 
 function parseOptionalInt(v: FormDataEntryValue | null): number | null {
@@ -283,21 +244,11 @@ function fmtForDatetimeLocal(d: Date | null): string {
 }
 
 function formatAreaLabel(area: string): string {
-  const parts = area.split("_").filter(Boolean);
-  const out: string[] = [];
-  for (const p of parts) {
-    const up = p.toUpperCase();
-    if (up === "HVAC") {
-      out.push("HVAC");
-      continue;
-    }
-    if (up === "DOUGH") {
-      out.push("Dough");
-      continue;
-    }
-    out.push(p.charAt(0).toUpperCase() + p.slice(1).toLowerCase());
-  }
-  return out.join(" ");
+  return formatWorkOrderEquipmentAreaLabel(area);
+}
+
+function formatAreaLabelWithLegacy(area: EquipmentAreaDb): string {
+  return formatWorkOrderEquipmentAreaLabelWithLegacy(area);
 }
 
 function statusLabel(s: WorkOrderStatus): string {
@@ -423,6 +374,15 @@ export default async function AdminWorkOrderDetailPage({
 
   const selectedAreasDb = workOrder.equipmentAreas.map((a) => a.area);
   const hasLegacy = selectedAreasDb.some((a) => isLegacyArea(a));
+  const [checklistItems, checklistSelections] = await Promise.all([
+    listChecklistItems(),
+    listChecklistSelectionsForWorkOrders([id]),
+  ]);
+  const checklistItemsByArea = groupChecklistItemsByArea(checklistItems);
+  const selectedChecklistItemIds = buildChecklistItemIdSet(checklistSelections);
+  const checklistSummary = formatChecklistSelectionSummary(
+    checklistSelections.map((row) => ({ area: row.area, labelSnapshot: row.labelSnapshot }))
+  );
 
   async function startNowAction() {
     "use server";
@@ -505,6 +465,7 @@ export default async function AdminWorkOrderDetailPage({
     const startingMileage = parseOptionalInt(formData.get("startingMileage"));
     const endingMileage = parseOptionalInt(formData.get("endingMileage"));
     const areas = parseAreas(formData);
+    const checklistItemIds = parseChecklistItemIds(formData);
 
     if (status === "FINALIZED") {
       if (!endTime) throw new Error("Archived work orders require End Time.");
@@ -532,6 +493,12 @@ export default async function AdminWorkOrderDetailPage({
           data: areas.map((area) => ({ workOrderId: id, area })),
         });
       }
+
+      await syncWorkOrderChecklistSelections(tx as unknown as WorkOrderChecklistTx, {
+        workOrderId: id,
+        areas,
+        checklistItemIds,
+      });
 
       if (status === "FINALIZED") {
         await ensureFinalizedWorkOrderNumber(tx, id, actorUserId);
@@ -846,22 +813,19 @@ export default async function AdminWorkOrderDetailPage({
             </div>
 
             <div>
-              <div style={{ fontSize: 12, fontWeight: 900, opacity: 0.9 }}>Equipment Areas</div>
-              <div style={gridWrap}>
-                {EQUIPMENT_AREAS.map((area) => (
-                  <label key={area} style={gridLabel}>
-                    <input
-                      type="checkbox"
-                      name="areas"
-                      value={area}
-                      defaultChecked={selectedAreasDb.some((a) => a === area)}
-                    />
-                    <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {formatAreaLabel(area)}
-                    </span>
-                  </label>
-                ))}
-              </div>
+              <WorkOrderEquipmentSelector
+                title="Equipment Areas"
+                templatesByArea={checklistItemsByArea}
+                selectedAreas={selectedAreasDb}
+                selectedChecklistItemIds={selectedChecklistItemIds}
+              />
+
+              {checklistSummary ? (
+                <div style={{ marginTop: 10, padding: 10, border, borderRadius: 12, background: soft, fontSize: 12 }}>
+                  <div style={{ fontWeight: 900, marginBottom: 6 }}>Selected checklist items</div>
+                  <div style={{ opacity: 0.9 }}>{checklistSummary}</div>
+                </div>
+              ) : null}
 
               {/* Legacy display (read-only) */}
               {selectedAreasDb.some((a) => isLegacyArea(a)) ? (
@@ -870,7 +834,7 @@ export default async function AdminWorkOrderDetailPage({
                   <div style={{ opacity: 0.9 }}>
                     {selectedAreasDb
                       .filter((a) => isLegacyArea(a))
-                      .map((a) => formatAreaLabel(a))
+                      .map((a) => formatAreaLabelWithLegacy(a))
                       .join(", ")}
                   </div>
                 </div>

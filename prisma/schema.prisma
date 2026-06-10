@@ -300,6 +300,9 @@ enum EquipmentArea {
   WALK_IN
   FREEZER
   BUILDING_STRUCTURE
+  GENERAL_BUILDING_MAINTENANCE
+  GREASE_TRAPS
+  EQUIPMENT_FILTERS
   LIGHTING
   PARKING_LOT
   OFFICE
@@ -403,6 +406,7 @@ model User {
   securityQuestionPrompt     String?
   securityQuestionAnswerHash String?
   uiPreferences              Json?
+  nextWorkOrderStartingMileage Int?
 
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -446,6 +450,7 @@ model User {
   mocreoHubRecipients MocreoHubRecipient[]
   receiptEntriesCreated ReceiptEntry[] @relation("ReceiptEntryCreatedBy")
   receiptFilesUploadedBy ReceiptFile[] @relation("ReceiptFilesUploadedBy")
+  inventoryItemComments InventoryItemComment[]
 }
 
 model UserPermission {
@@ -506,6 +511,7 @@ model WorkOrder {
   updatedAt DateTime @updatedAt
 
   equipmentAreas WorkOrderEquipmentArea[]
+  checklistSelections WorkOrderChecklistSelection[]
   pings          WorkOrderPing[]
   attachments    WorkOrderAttachment[]
   auditLogs      AuditLog[]
@@ -620,6 +626,23 @@ model EquipmentTrackingLog {
   @@unique([locationId, sectionKey])
   @@index([sectionKey])
   @@index([updatedByUserId])
+}
+
+model EquipmentAreaChecklistItem {
+  id String @id @default(cuid())
+
+  area EquipmentArea
+  label String
+  sortOrder Int @default(0)
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workOrderSelections WorkOrderChecklistSelection[]
+
+  @@index([area, active, sortOrder])
+  @@index([area, label])
 }
 
 model CompanyVehicle {
@@ -1022,6 +1045,20 @@ model WorkOrderEquipmentArea {
   @@id([workOrderId, area])
 }
 
+model WorkOrderChecklistSelection {
+  workOrderId String
+  checklistItemId String
+  labelSnapshot String
+  area EquipmentArea
+
+  workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  checklistItem EquipmentAreaChecklistItem @relation(fields: [checklistItemId], references: [id], onDelete: Restrict)
+
+  @@id([workOrderId, checklistItemId])
+  @@index([checklistItemId])
+  @@index([area])
+}
+
 model ReceiptEntry {
   id String @id @default(cuid())
 
@@ -1176,6 +1213,7 @@ model Item {
   cycleCountItems CycleCountItem[]
 
   inventoryOrders InventoryOrder[]
+  inventoryItemComments InventoryItemComment[]
 
   @@index([updatedAt])
   @@index([vendor])
@@ -1184,6 +1222,24 @@ model Item {
   @@index([manufacturer])
   @@index([orderFrom])
   @@index([reorderIgnored])
+}
+
+model InventoryItemComment {
+  id String @id @default(cuid())
+
+  itemId String
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  comment String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([itemId, userId])
+  @@index([itemId, updatedAt])
+  @@index([userId, updatedAt])
 }
 
 model ItemVersion {

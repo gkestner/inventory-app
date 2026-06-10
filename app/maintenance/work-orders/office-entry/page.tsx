@@ -8,6 +8,18 @@ import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { CREATE_WORK_ORDERS_FOR_OTHERS } from "@/app/lib/permission-constants";
+import WorkOrderEquipmentSelector from "@/app/components/WorkOrderEquipmentSelector";
+import {
+  WORK_ORDER_EQUIPMENT_AREAS,
+  type WorkOrderChecklistTx,
+  type WorkOrderEquipmentArea,
+  formatWorkOrderEquipmentAreaLabel,
+  groupChecklistItemsByArea,
+  listChecklistItems,
+  parseChecklistItemIds,
+  parseWorkOrderEquipmentAreas,
+  syncWorkOrderChecklistSelections,
+} from "@/app/lib/work-order-equipment";
 
 export const dynamic = "force-dynamic";
 
@@ -20,43 +32,9 @@ type SessionShape = {
 } | null;
 
 type WorkOrderStatus = "DRAFT" | "SUBMITTED";
+type EquipmentArea = WorkOrderEquipmentArea;
 
-type EquipmentArea =
-  | "DOUGH_ROLLER"
-  | "MAKETABLE"
-  | "DOUGH_COOLER"
-  | "MIXER"
-  | "OVEN"
-  | "WALK_IN"
-  | "FREEZER"
-  | "BUILDING_STRUCTURE"
-  | "LIGHTING"
-  | "PARKING_LOT"
-  | "OFFICE"
-  | "PLUMBING"
-  | "HVAC_GAME_ROOM"
-  | "HVAC_KITCHEN"
-  | "HVAC_DINING_ROOM"
-  | "OTHER";
-
-const EQUIPMENT_AREAS: EquipmentArea[] = [
-  "DOUGH_ROLLER",
-  "MAKETABLE",
-  "DOUGH_COOLER",
-  "MIXER",
-  "OVEN",
-  "WALK_IN",
-  "FREEZER",
-  "BUILDING_STRUCTURE",
-  "LIGHTING",
-  "PARKING_LOT",
-  "OFFICE",
-  "PLUMBING",
-  "HVAC_GAME_ROOM",
-  "HVAC_KITCHEN",
-  "HVAC_DINING_ROOM",
-  "OTHER",
-];
+const EQUIPMENT_AREAS: readonly EquipmentArea[] = WORK_ORDER_EQUIPMENT_AREAS;
 
 async function requireOfficeEntryAccess(session: SessionShape) {
   if (!session) redirect("/login");
@@ -87,39 +65,11 @@ function parseOptionalDateTimeLocal(v: FormDataEntryValue | null): Date | null {
 }
 
 function parseAreas(formData: FormData): EquipmentArea[] {
-  const raw = formData.getAll("areas");
-  const allowed = new Set<string>(EQUIPMENT_AREAS);
-  const out: EquipmentArea[] = [];
-
-  for (const v of raw) {
-    if (typeof v !== "string") continue;
-    const s = v.trim();
-    if (!allowed.has(s)) continue;
-    out.push(s as EquipmentArea);
-  }
-
-  const seen = new Set<EquipmentArea>();
-  const uniq: EquipmentArea[] = [];
-  for (const a of out) {
-    if (seen.has(a)) continue;
-    seen.add(a);
-    uniq.push(a);
-  }
-  return uniq;
+  return parseWorkOrderEquipmentAreas(formData);
 }
 
 function formatAreaLabel(area: string): string {
-  const parts = area.split("_").filter(Boolean);
-  const out: string[] = [];
-  for (const p of parts) {
-    const up = p.toUpperCase();
-    if (up === "HVAC") {
-      out.push("HVAC");
-      continue;
-    }
-    out.push(p.charAt(0).toUpperCase() + p.slice(1).toLowerCase());
-  }
-  return out.join(" ");
+  return formatWorkOrderEquipmentAreaLabel(area);
 }
 
 function fmtForDatetimeLocal(d: Date | null): string {
@@ -149,6 +99,7 @@ function fmtLocal(d: Date | null): string {
 export default async function WorkOrderOfficeEntryPage() {
   const session = (await getServerSession(authOptions)) as SessionShape;
   await requireOfficeEntryAccess(session);
+  const checklistItemsByArea = groupChecklistItemsByArea(await listChecklistItems());
 
   async function createOfficeWorkOrderAction(formData: FormData) {
     "use server";
@@ -178,6 +129,7 @@ export default async function WorkOrderOfficeEntryPage() {
     const endingMileage = parseOptionalInt(formData.get("endingMileage"));
     const notes = String(formData.get("notes") ?? "");
     const areas = parseAreas(formData);
+    const checklistItemIds = parseChecklistItemIds(formData);
 
     const targetUser = await prisma.user.findUnique({
       where: { id: createdByUserId },
@@ -220,6 +172,12 @@ export default async function WorkOrderOfficeEntryPage() {
           data: areas.map((area) => ({ workOrderId: wo.id, area })),
         });
       }
+
+      await syncWorkOrderChecklistSelections(tx as unknown as WorkOrderChecklistTx, {
+        workOrderId: wo.id,
+        areas,
+        checklistItemIds,
+      });
     });
 
     revalidatePath("/maintenance/work-orders/office-entry");
@@ -383,15 +341,11 @@ export default async function WorkOrderOfficeEntryPage() {
           </label>
 
           <div>
-            <div style={{ fontSize: 14, fontWeight: 900 }}>Equipment Areas (optional)</div>
-            <div style={gridWrap}>
-              {EQUIPMENT_AREAS.map((area) => (
-                <label key={area} style={gridItem}>
-                  <input type="checkbox" name="areas" value={area} />
-                  <span>{formatAreaLabel(area)}</span>
-                </label>
-              ))}
-            </div>
+            <WorkOrderEquipmentSelector
+              title="Equipment Areas (optional)"
+              templatesByArea={checklistItemsByArea}
+              helperText="Office entry can assign both the high-level area and any detailed checklist items completed on the paper form."
+            />
           </div>
 
           <button type="submit" style={{ ...btn, width: 340 }}>

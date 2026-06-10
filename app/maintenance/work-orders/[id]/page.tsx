@@ -11,6 +11,23 @@ import { authOptions } from "@/app/lib/auth";
 import { getCompatDb, getGcsConfig } from "@/app/lib/workflow-foundations";
 import { EquipmentArea, Role, WorkOrderPingEvent } from "@prisma/client";
 import AttachmentUploader from "./AttachmentUploader";
+import WorkOrderEquipmentSelector from "@/app/components/WorkOrderEquipmentSelector";
+import {
+  WORK_ORDER_EQUIPMENT_AREAS,
+  type WorkOrderChecklistTx,
+  type WorkOrderEquipmentArea,
+  buildChecklistItemIdSet,
+  formatChecklistSelectionSummary,
+  formatWorkOrderEquipmentAreaLabel,
+  formatWorkOrderEquipmentAreaLabelWithLegacy,
+  groupChecklistItemsByArea,
+  isLegacyWorkOrderEquipmentArea,
+  listChecklistItems,
+  listChecklistSelectionsForWorkOrders,
+  parseChecklistItemIds,
+  parseWorkOrderEquipmentAreas,
+  syncWorkOrderChecklistSelections,
+} from "@/app/lib/work-order-equipment";
 
 export const dynamic = "force-dynamic";
 
@@ -29,24 +46,6 @@ function requireSession(session: SessionShape) {
 
 type WorkOrderStatus = "DRAFT" | "SUBMITTED" | "FINALIZED";
 
-type RequiredEquipmentArea =
-  | "DOUGH_ROLLER"
-  | "MAKETABLE"
-  | "DOUGH_COOLER"
-  | "MIXER"
-  | "OVEN"
-  | "WALK_IN"
-  | "FREEZER"
-  | "BUILDING_STRUCTURE"
-  | "LIGHTING"
-  | "PARKING_LOT"
-  | "OFFICE"
-  | "PLUMBING"
-  | "HVAC_GAME_ROOM"
-  | "HVAC_KITCHEN"
-  | "HVAC_DINING_ROOM"
-  | "OTHER";
-
 type LegacyEquipmentArea = "FRONT_COUNTER" | "DRIVE_THRU" | "KITCHEN" | "ROOF" | "HVAC";
 
 type WorkOrderAttachmentRow = {
@@ -60,30 +59,13 @@ type WorkOrderAttachmentRow = {
   addedByUser: { name: string | null; email: string } | null;
 };
 
-const EQUIPMENT_AREAS: RequiredEquipmentArea[] = [
-  "DOUGH_ROLLER",
-  "MAKETABLE",
-  "DOUGH_COOLER",
-  "MIXER",
-  "OVEN",
-  "WALK_IN",
-  "FREEZER",
-  "BUILDING_STRUCTURE",
-  "LIGHTING",
-  "PARKING_LOT",
-  "OFFICE",
-  "PLUMBING",
-  "HVAC_GAME_ROOM",
-  "HVAC_KITCHEN",
-  "HVAC_DINING_ROOM",
-  "OTHER",
-];
+const EQUIPMENT_AREAS: readonly WorkOrderEquipmentArea[] = WORK_ORDER_EQUIPMENT_AREAS;
 
 const LEGACY_AREAS: LegacyEquipmentArea[] = ["FRONT_COUNTER", "DRIVE_THRU", "KITCHEN", "ROOF", "HVAC"];
 const STATUSES: WorkOrderStatus[] = ["DRAFT", "SUBMITTED", "FINALIZED"];
 
 function isLegacyArea(a: EquipmentArea): boolean {
-  return (LEGACY_AREAS as readonly string[]).includes(String(a));
+  return isLegacyWorkOrderEquipmentArea(String(a));
 }
 
 function isNonEmptyString(v: unknown): v is string {
@@ -91,25 +73,7 @@ function isNonEmptyString(v: unknown): v is string {
 }
 
 function parseAreas(formData: FormData): EquipmentArea[] {
-  const raw = formData.getAll("areas");
-  const allowed = new Set<string>(EQUIPMENT_AREAS);
-
-  const out: EquipmentArea[] = [];
-  for (const v of raw) {
-    if (!isNonEmptyString(v)) continue;
-    const s = v.trim();
-    if (!allowed.has(s)) continue;
-    out.push(s as EquipmentArea);
-  }
-
-  const seen = new Set<EquipmentArea>();
-  const uniq: EquipmentArea[] = [];
-  for (const a of out) {
-    if (seen.has(a)) continue;
-    seen.add(a);
-    uniq.push(a);
-  }
-  return uniq;
+  return parseWorkOrderEquipmentAreas(formData) as EquipmentArea[];
 }
 
 function parseOptionalInt(v: FormDataEntryValue | null): number | null {
@@ -222,26 +186,11 @@ function fmtForDatetimeLocal(d: Date | null): string {
 }
 
 function formatAreaLabel(area: string): string {
-  const parts = area.split("_").filter(Boolean);
-  const out: string[] = [];
-  for (const p of parts) {
-    const up = p.toUpperCase();
-    if (up === "HVAC") {
-      out.push("HVAC");
-      continue;
-    }
-    if (up === "DOUGH") {
-      out.push("Dough");
-      continue;
-    }
-    out.push(p.charAt(0).toUpperCase() + p.slice(1).toLowerCase());
-  }
-  return out.join(" ");
+  return formatWorkOrderEquipmentAreaLabel(area);
 }
 
 function formatAreaLabelWithLegacy(area: EquipmentArea): string {
-  const label = formatAreaLabel(String(area));
-  return isLegacyArea(area) ? `${label} (legacy)` : label;
+  return formatWorkOrderEquipmentAreaLabelWithLegacy(String(area) as WorkOrderEquipmentArea | LegacyEquipmentArea);
 }
 
 function statusLabel(s: WorkOrderStatus): string {
@@ -357,6 +306,15 @@ export default async function MaintenanceWorkOrderDetailPage({
 
   const selectedAreasDb: EquipmentArea[] = workOrder.equipmentAreas.map((a) => a.area);
   const hasLegacy = selectedAreasDb.some((a) => isLegacyArea(a));
+  const [checklistItems, checklistSelections] = await Promise.all([
+    listChecklistItems(),
+    listChecklistSelectionsForWorkOrders([id]),
+  ]);
+  const checklistItemsByArea = groupChecklistItemsByArea(checklistItems);
+  const selectedChecklistItemIds = buildChecklistItemIdSet(checklistSelections);
+  const checklistSummary = formatChecklistSelectionSummary(
+    checklistSelections.map((row) => ({ area: row.area, labelSnapshot: row.labelSnapshot }))
+  );
   const gcs = getGcsConfig();
 
   const compat = getCompatDb() as any;
@@ -572,6 +530,7 @@ export default async function MaintenanceWorkOrderDetailPage({
     const endingMileage = parseOptionalInt(formData.get("endingMileage"));
 
     const areas = parseAreas(formData);
+    const checklistItemIds = parseChecklistItemIds(formData);
 
     await prisma.$transaction(async (tx) => {
       await tx.workOrder.update({
@@ -604,6 +563,12 @@ export default async function MaintenanceWorkOrderDetailPage({
           data: areas.map((area) => ({ workOrderId: id, area })),
         });
       }
+
+      await syncWorkOrderChecklistSelections(tx as unknown as WorkOrderChecklistTx, {
+        workOrderId: id,
+        areas: areas as WorkOrderEquipmentArea[],
+        checklistItemIds,
+      });
     });
 
     revalidatePath(`/maintenance/work-orders/${id}`);
@@ -803,23 +768,22 @@ export default async function MaintenanceWorkOrderDetailPage({
             </div>
 
             <div>
-              <div style={{ fontSize: 15, fontWeight: 900, opacity: 0.9 }}>Equipment Areas</div>
-              <div style={gridWrap}>
-                {EQUIPMENT_AREAS.map((area) => (
-                  <label key={area} style={gridItem}>
-                    <input
-                      type="checkbox"
-                      name="areas"
-                      value={area}
-                      defaultChecked={selectedAreasDb.some((a) => String(a) === area)}
-                      style={checkbox}
-                    />
-                    <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {formatAreaLabel(area)}
-                    </span>
-                  </label>
-                ))}
-              </div>
+              <WorkOrderEquipmentSelector
+                title="Equipment Areas"
+                templatesByArea={checklistItemsByArea}
+                selectedAreas={selectedAreasDb.map((a) => String(a))}
+                selectedChecklistItemIds={selectedChecklistItemIds}
+                checkboxStyle={checkbox}
+                gridWrapStyle={gridWrap}
+                areaLabelStyle={gridItem}
+              />
+
+              {checklistSummary ? (
+                <div style={{ marginTop: 12, padding: 12, border, borderRadius: 14, background: soft, fontSize: 14 }}>
+                  <div style={{ fontWeight: 900, marginBottom: 8 }}>Selected checklist items</div>
+                  <div style={{ opacity: 0.9 }}>{checklistSummary}</div>
+                </div>
+              ) : null}
 
               {selectedAreasDb.some((a) => isLegacyArea(a)) ? (
                 <div style={{ marginTop: 12, padding: 12, border, borderRadius: 14, background: soft, fontSize: 14 }}>

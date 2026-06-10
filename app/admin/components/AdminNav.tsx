@@ -482,6 +482,11 @@ export default async function AdminNav() {
                     Work Orders
                   </Link>
                 ) : null}
+                {canAdminWorkOrders ? (
+                  <Link href="/admin/work-orders/checklists" style={menuItemStyle}>
+                    Work Order Checklists
+                  </Link>
+                ) : null}
                 {canUserWorkOrders ? (
                   <Link href="/maintenance/work-orders" style={menuItemStyle}>
                     Work Orders (User)

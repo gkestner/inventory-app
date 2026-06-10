@@ -10,6 +10,7 @@ import { prisma } from "@/app/lib/prisma";
 import { getCompatDb } from "@/app/lib/workflow-foundations";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { CREATE_RECEIPTS, VIEW_RECEIPTS } from "@/app/lib/permission-constants";
+import { formatWorkOrderEquipmentAreaLabel, type WorkOrderEquipmentArea } from "@/app/lib/work-order-equipment";
 import ReceiptRowFileUploader from "../ReceiptRowFileUploader";
 
 export const dynamic = "force-dynamic";
@@ -20,22 +21,7 @@ type SessionShape = {
   } | null;
 } | null;
 
-type RequiredEquipmentArea =
-  | "DOUGH_ROLLER"
-  | "MAKETABLE"
-  | "DOUGH_COOLER"
-  | "MIXER"
-  | "OVEN"
-  | "WALK_IN"
-  | "FREEZER"
-  | "BUILDING_STRUCTURE"
-  | "LIGHTING"
-  | "PARKING_LOT"
-  | "OFFICE"
-  | "HVAC_GAME_ROOM"
-  | "HVAC_KITCHEN"
-  | "HVAC_DINING_ROOM"
-  | "OTHER";
+type RequiredEquipmentArea = WorkOrderEquipmentArea;
 
 function requireSession(session: SessionShape) {
   if (!session) redirect("/login");
@@ -43,15 +29,7 @@ function requireSession(session: SessionShape) {
 }
 
 function formatAreaLabel(area: string): string {
-  const parts = area.split("_").filter(Boolean);
-  return parts
-    .map((p) => {
-      const up = p.toUpperCase();
-      if (up === "HVAC") return "HVAC";
-      if (up === "DOUGH") return "Dough";
-      return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
-    })
-    .join(" ");
+  return formatWorkOrderEquipmentAreaLabel(area);
 }
 
 function moneyFromCents(cents: number): string {

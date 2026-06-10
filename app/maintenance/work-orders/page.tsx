@@ -7,6 +7,25 @@ import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { Permission, Role, WorkOrderPingEvent } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import WorkOrderEquipmentSelector from "@/app/components/WorkOrderEquipmentSelector";
+import {
+  WORK_ORDER_EQUIPMENT_AREAS,
+  type WorkOrderChecklistTx,
+  type WorkOrderEquipmentArea as SharedEquipmentArea,
+  type WorkOrderEquipmentAreaDb,
+  buildChecklistItemIdSet,
+  formatChecklistSelectionSummary,
+  formatWorkOrderEquipmentAreaLabel,
+  formatWorkOrderEquipmentAreaLabelWithLegacy,
+  groupChecklistItemsByArea,
+  groupChecklistSelectionsByWorkOrder,
+  isLegacyWorkOrderEquipmentArea,
+  listChecklistItems,
+  listChecklistSelectionsForWorkOrders,
+  parseChecklistItemIds,
+  parseWorkOrderEquipmentAreas,
+  syncWorkOrderChecklistSelections,
+} from "@/app/lib/work-order-equipment";
 
 export const dynamic = "force-dynamic";
 
@@ -80,51 +99,13 @@ async function requireWorkOrdersUpdateOwn(session: SessionShape) {
 }
 
 type WorkOrderStatus = "DRAFT" | "SUBMITTED" | "FINALIZED";
+type EquipmentArea = SharedEquipmentArea;
+type EquipmentAreaDb = WorkOrderEquipmentAreaDb;
 
-type EquipmentArea =
-  | "DOUGH_ROLLER"
-  | "MAKETABLE"
-  | "DOUGH_COOLER"
-  | "MIXER"
-  | "OVEN"
-  | "WALK_IN"
-  | "FREEZER"
-  | "BUILDING_STRUCTURE"
-  | "LIGHTING"
-  | "PARKING_LOT"
-  | "OFFICE"
-  | "PLUMBING"
-  | "HVAC_GAME_ROOM"
-  | "HVAC_KITCHEN"
-  | "HVAC_DINING_ROOM"
-  | "OTHER";
+const EQUIPMENT_AREAS: readonly EquipmentArea[] = WORK_ORDER_EQUIPMENT_AREAS;
 
-type LegacyEquipmentArea = "FRONT_COUNTER" | "DRIVE_THRU" | "KITCHEN" | "ROOF" | "HVAC";
-type EquipmentAreaDb = EquipmentArea | LegacyEquipmentArea;
-
-const EQUIPMENT_AREAS: EquipmentArea[] = [
-  "DOUGH_ROLLER",
-  "MAKETABLE",
-  "DOUGH_COOLER",
-  "MIXER",
-  "OVEN",
-  "WALK_IN",
-  "FREEZER",
-  "BUILDING_STRUCTURE",
-  "LIGHTING",
-  "PARKING_LOT",
-  "OFFICE",
-  "PLUMBING",
-  "HVAC_GAME_ROOM",
-  "HVAC_KITCHEN",
-  "HVAC_DINING_ROOM",
-  "OTHER",
-];
-
-const LEGACY_AREAS: LegacyEquipmentArea[] = ["FRONT_COUNTER", "DRIVE_THRU", "KITCHEN", "ROOF", "HVAC"];
-
-function isLegacyArea(a: EquipmentAreaDb): a is LegacyEquipmentArea {
-  return (LEGACY_AREAS as readonly string[]).includes(a);
+function isLegacyArea(a: EquipmentAreaDb): boolean {
+  return isLegacyWorkOrderEquipmentArea(a);
 }
 
 function isNonEmptyString(v: unknown): v is string {
@@ -132,25 +113,7 @@ function isNonEmptyString(v: unknown): v is string {
 }
 
 function parseAreas(formData: FormData): EquipmentArea[] {
-  const raw = formData.getAll("areas");
-  const allowed = new Set<string>(EQUIPMENT_AREAS);
-
-  const out: EquipmentArea[] = [];
-  for (const v of raw) {
-    if (!isNonEmptyString(v)) continue;
-    const s = v.trim();
-    if (!allowed.has(s)) continue;
-    out.push(s as EquipmentArea);
-  }
-
-  const seen = new Set<EquipmentArea>();
-  const uniq: EquipmentArea[] = [];
-  for (const a of out) {
-    if (seen.has(a)) continue;
-    seen.add(a);
-    uniq.push(a);
-  }
-  return uniq;
+  return parseWorkOrderEquipmentAreas(formData);
 }
 
 function requireNotesWhenOtherAreaSelected(areas: EquipmentArea[], notes: string) {
@@ -207,26 +170,11 @@ function fmtLocal(d: Date | null): string {
 }
 
 function formatAreaLabel(area: string): string {
-  const parts = area.split("_").filter(Boolean);
-  const out: string[] = [];
-  for (const p of parts) {
-    const up = p.toUpperCase();
-    if (up === "HVAC") {
-      out.push("HVAC");
-      continue;
-    }
-    if (up === "DOUGH") {
-      out.push("Dough");
-      continue;
-    }
-    out.push(p.charAt(0).toUpperCase() + p.slice(1).toLowerCase());
-  }
-  return out.join(" ");
+  return formatWorkOrderEquipmentAreaLabel(area);
 }
 
 function formatAreaLabelWithLegacy(area: EquipmentAreaDb): string {
-  const label = formatAreaLabel(area);
-  return isLegacyArea(area) ? `${label} (legacy)` : label;
+  return formatWorkOrderEquipmentAreaLabelWithLegacy(area);
 }
 
 function statusLabel(s: WorkOrderStatus): string {
@@ -256,6 +204,7 @@ export default async function MaintenanceWorkOrdersPage() {
       id: true,
       active: true,
       role: true,
+      nextWorkOrderStartingMileage: true,
       locationId: true,
       location: { select: { id: true, name: true, active: true, receiptEnabled: true } },
       allowedLocations: {
@@ -329,6 +278,14 @@ export default async function MaintenanceWorkOrdersPage() {
       equipmentAreas: { select: { area: true } },
     },
   });
+
+  const workOrderIds = Array.from(new Set([...(inProgress ? [inProgress.id] : []), ...workOrders.map((wo) => wo.id)]));
+  const [checklistItems, checklistSelections] = await Promise.all([
+    listChecklistItems(),
+    listChecklistSelectionsForWorkOrders(workOrderIds),
+  ]);
+  const checklistItemsByArea = groupChecklistItemsByArea(checklistItems);
+  const checklistSelectionsByWorkOrder = groupChecklistSelectionsByWorkOrder(checklistSelections);
 
   const CONTENT_WIDTH = 1100;
   const BASE_FONT = 16;
@@ -429,6 +386,8 @@ export default async function MaintenanceWorkOrdersPage() {
   };
 
   const photoTargetId = inProgress?.id ?? workOrders[0]?.id ?? null;
+  const suggestedStartingMileage = me.nextWorkOrderStartingMileage;
+  const isFirstWorkOrderOfDay = suggestedStartingMileage === null;
 
   const gridWrap: CSSProperties = {
     display: "grid",
@@ -496,6 +455,7 @@ export default async function MaintenanceWorkOrdersPage() {
     const notes = String(formData.get("notes") ?? "");
     const startingMileage = parseOptionalInt(formData.get("startingMileage"));
     const areas = parseAreas(formData);
+    const checklistItemIds = parseChecklistItemIds(formData);
 
     requireNotesWhenOtherAreaSelected(areas, notes);
 
@@ -518,6 +478,12 @@ export default async function MaintenanceWorkOrdersPage() {
         });
       }
 
+      await syncWorkOrderChecklistSelections(tx as unknown as WorkOrderChecklistTx, {
+        workOrderId: wo.id,
+        areas,
+        checklistItemIds,
+      });
+
       await tx.workOrderPing.create({
         data: {
           workOrderId: wo.id,
@@ -537,6 +503,18 @@ export default async function MaintenanceWorkOrdersPage() {
   async function endWorkOrderAction(formData: FormData) {
     "use server";
 
+    await completeWorkOrderAction(formData, { clearCarryover: false });
+  }
+
+  async function endDayAction(formData: FormData) {
+    "use server";
+
+    await completeWorkOrderAction(formData, { clearCarryover: true });
+  }
+
+  async function completeWorkOrderAction(formData: FormData, options: { clearCarryover: boolean }) {
+    const { clearCarryover } = options;
+
     const session = (await getServerSession(authOptions)) as SessionShape;
     await requireWorkOrdersSubmitOwn(session);
 
@@ -548,8 +526,10 @@ export default async function MaintenanceWorkOrdersPage() {
     if (!id) throw new Error("Missing work order id");
 
     const endingMileage = parseRequiredInt(formData.get("endingMileage"), "Ending mileage is required.");
+    const nextWorkOrderStartingMileage = clearCarryover ? null : endingMileage;
     const notes = String(formData.get("notes") ?? "");
     const areas = parseAreas(formData);
+    const checklistItemIds = parseChecklistItemIds(formData);
 
     requireNotesWhenOtherAreaSelected(areas, notes);
 
@@ -578,14 +558,25 @@ export default async function MaintenanceWorkOrdersPage() {
         });
       }
 
+      await syncWorkOrderChecklistSelections(tx as unknown as WorkOrderChecklistTx, {
+        workOrderId: id,
+        areas,
+        checklistItemIds,
+      });
+
       await tx.workOrderPing.create({
         data: {
           workOrderId: id,
           locationId: wo.locationId,
           actorUserId: me.id,
           event: WorkOrderPingEvent.STOPPED,
-          note: "Work order stopped.",
+          note: clearCarryover ? "Work day ended." : "Work order stopped.",
         },
+      });
+
+      await tx.user.update({
+        where: { id: me.id },
+        data: { nextWorkOrderStartingMileage },
       });
     });
 
@@ -616,6 +607,7 @@ export default async function MaintenanceWorkOrdersPage() {
     const startingMileage = parseOptionalInt(formData.get("startingMileage"));
     const endingMileage = parseOptionalInt(formData.get("endingMileage"));
     const areas = parseAreas(formData);
+    const checklistItemIds = parseChecklistItemIds(formData);
 
     requireNotesWhenOtherAreaSelected(areas, notes);
 
@@ -659,6 +651,12 @@ export default async function MaintenanceWorkOrdersPage() {
           data: areas.map((area) => ({ workOrderId: id, area })),
         });
       }
+
+      await syncWorkOrderChecklistSelections(tx as unknown as WorkOrderChecklistTx, {
+        workOrderId: id,
+        areas,
+        checklistItemIds,
+      });
 
       await tx.workOrderPing.create({
         data: {
@@ -723,7 +721,7 @@ export default async function MaintenanceWorkOrdersPage() {
 
           {!inProgress ? (
             <>
-              <h2 style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>Start Work Order</h2>
+              <h2 style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>{isFirstWorkOrderOfDay ? "Start Day" : "Start Work Order"}</h2>
 
               {!canCreate ? (
                 <div style={{ fontSize: 14, opacity: 0.85 }}>You don’t have permission to start a work order.</div>
@@ -747,10 +745,22 @@ export default async function MaintenanceWorkOrdersPage() {
                     </label>
 
                     <label style={label}>
-                      Starting Mileage (optional)
-                      <input name="startingMileage" type="number" placeholder="e.g. 12345" style={input} />
+                      Starting Mileage {suggestedStartingMileage === null ? "(optional)" : "(editable carryover)"}
+                      <input
+                        name="startingMileage"
+                        type="number"
+                        defaultValue={suggestedStartingMileage ?? ""}
+                        placeholder="e.g. 12345"
+                        style={input}
+                      />
                     </label>
                   </div>
+
+                  {suggestedStartingMileage !== null ? (
+                    <div style={{ fontSize: 13, opacity: 0.82 }}>
+                      Starting mileage was carried over from your previous work order and can be changed before starting.
+                    </div>
+                  ) : null}
 
                   <label style={label}>
                     Notes (optional, required if Other is selected)
@@ -758,21 +768,18 @@ export default async function MaintenanceWorkOrdersPage() {
                   </label>
 
                   <div>
-                    <div style={{ fontSize: 14, fontWeight: 900, opacity: 0.95 }}>Equipment Areas (optional)</div>
-                    <div style={gridWrap}>
-                      {EQUIPMENT_AREAS.map((area) => (
-                        <label key={`start-area-${area}`} style={gridItem}>
-                          <input type="checkbox" name="areas" value={area} style={checkboxStyle} />
-                          <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {formatAreaLabel(area)}
-                          </span>
-                        </label>
-                      ))}
-                    </div>
+                    <WorkOrderEquipmentSelector
+                      title="Equipment Areas (optional)"
+                      templatesByArea={checklistItemsByArea}
+                      checkboxStyle={checkboxStyle}
+                      gridWrapStyle={gridWrap}
+                      areaLabelStyle={gridItem}
+                      helperText="Select the equipment areas you expect to work on and, when available, check the detailed tasks under each area."
+                    />
                   </div>
 
                   <button type="submit" style={{ ...btnStartTime, width: 340 }}>
-                    Start (sets Start Time)
+                    {isFirstWorkOrderOfDay ? "Start Day" : "Start Work Order"}
                   </button>
                 </form>
               )}
@@ -820,26 +827,39 @@ export default async function MaintenanceWorkOrdersPage() {
                     />
                   </label>
 
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 900, opacity: 0.95 }}>Equipment Areas (check what you worked on)</div>
-                    <div style={gridWrap}>
-                      {EQUIPMENT_AREAS.map((area) => (
-                        <label key={`end-area-${area}`} style={gridItem}>
-                          <input type="checkbox" name="areas" value={area} defaultChecked={inProgressChecked.has(area)} style={checkboxStyle} />
-                          <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {formatAreaLabel(area)}
-                          </span>
-                        </label>
-                      ))}
-                    </div>
+                  <WorkOrderEquipmentSelector
+                    title="Equipment Areas (check what you worked on)"
+                    templatesByArea={checklistItemsByArea}
+                    selectedAreas={inProgressChecked}
+                    selectedChecklistItemIds={buildChecklistItemIdSet(checklistSelectionsByWorkOrder[inProgress.id] ?? [])}
+                    checkboxStyle={checkboxStyle}
+                    gridWrapStyle={gridWrap}
+                    areaLabelStyle={gridItem}
+                    helperText="Detailed checklist selections are saved with the work order only when the parent equipment area is checked."
+                  />
+
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                    <button type="submit" style={{ ...btnEndTime, width: 340 }}>
+                      End Work Order
+                    </button>
+
+                    <button
+                      type="submit"
+                      formAction={endDayAction}
+                      style={{
+                        ...btn,
+                        width: 220,
+                        background: "rgba(245, 158, 11, 0.18)",
+                        border: "1px solid rgba(245, 158, 11, 0.5)",
+                        boxShadow: "0 0 0 1px rgba(245, 158, 11, 0.12) inset",
+                      }}
+                    >
+                      End Day
+                    </button>
                   </div>
 
-                  <button type="submit" style={{ ...btnEndTime, width: 340 }}>
-                    End (sets End Time + Submits)
-                  </button>
-
                   <div style={{ fontSize: 14, opacity: 0.85 }}>
-                    This will set <b>end time</b>, save mileage/notes/areas, mark the work order <b>PENDING</b>, and return you to the Start screen.
+                    End Work Order carries the ending mileage into the next start form. End Day clears the next start mileage so the next button reads <b>Start Day</b>.
                   </div>
                 </form>
               )}
@@ -878,6 +898,7 @@ export default async function MaintenanceWorkOrdersPage() {
                   const areasText = wo.equipmentAreas?.length
                     ? wo.equipmentAreas.map((a) => formatAreaLabelWithLegacy(a.area as EquipmentAreaDb)).join(", ")
                     : "—";
+                  const checklistText = formatChecklistSelectionSummary(checklistSelectionsByWorkOrder[wo.id] ?? []);
 
                   const hasLegacy = wo.equipmentAreas?.some((a) => isLegacyArea(a.area as EquipmentAreaDb)) ?? false;
 
@@ -915,6 +936,7 @@ export default async function MaintenanceWorkOrdersPage() {
 
                       <td style={{ padding: "12px 10px", borderBottom: "1px solid rgba(128,128,128,0.18)", maxWidth: 560 }}>
                         {areasText}
+                        {checklistText ? <div style={{ fontSize: 12, opacity: 0.82, marginTop: 4 }}>{checklistText}</div> : null}
                         {hasLegacy ? <div style={{ fontSize: 13, opacity: 0.85 }}>(contains legacy values)</div> : null}
                       </td>
 
@@ -1005,19 +1027,15 @@ export default async function MaintenanceWorkOrdersPage() {
                                   <textarea name="notes" defaultValue={wo.notes ?? ""} style={{ ...textareaBase, minHeight: 90 }} />
                                 </label>
 
-                                <div>
-                                  <div style={{ fontSize: 14, fontWeight: 900, opacity: 0.95 }}>Equipment Areas</div>
-                                  <div style={gridWrap}>
-                                    {EQUIPMENT_AREAS.map((area) => (
-                                      <label key={`edit-draft-area-${wo.id}-${area}`} style={gridItem}>
-                                        <input type="checkbox" name="areas" value={area} defaultChecked={checked.has(area)} style={checkboxStyle} />
-                                        <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                          {formatAreaLabel(area)}
-                                        </span>
-                                      </label>
-                                    ))}
-                                  </div>
-                                </div>
+                                <WorkOrderEquipmentSelector
+                                  title="Equipment Areas"
+                                  templatesByArea={checklistItemsByArea}
+                                  selectedAreas={checked}
+                                  selectedChecklistItemIds={buildChecklistItemIdSet(checklistSelectionsByWorkOrder[wo.id] ?? [])}
+                                  checkboxStyle={checkboxStyle}
+                                  gridWrapStyle={gridWrap}
+                                  areaLabelStyle={gridItem}
+                                />
 
                                 <button type="submit" style={{ ...btnSaveEdit, width: 240 }}>
                                   Save Changes

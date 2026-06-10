@@ -15,6 +15,12 @@ import {
   type MaintenanceRequestStatusValue,
 } from "@/app/lib/maintenance-requests";
 import {
+  WORK_ORDER_EQUIPMENT_AREAS,
+  type WorkOrderEquipmentArea,
+  formatWorkOrderEquipmentAreaLabel,
+  parseWorkOrderEquipmentAreas,
+} from "@/app/lib/work-order-equipment";
+import {
   ADMIN_VIEW_MAINTENANCE_REQUESTS,
   RECEIVE_NOTIFICATION_MAINTENANCE_REQUESTS,
   VIEW_MAINTENANCE_REQUESTS,
@@ -30,40 +36,9 @@ type SessionShape = {
 
 type LocationOption = { id: string; name: string };
 
-type EquipmentArea =
-  | "DOUGH_ROLLER"
-  | "MAKETABLE"
-  | "DOUGH_COOLER"
-  | "MIXER"
-  | "OVEN"
-  | "WALK_IN"
-  | "FREEZER"
-  | "BUILDING_STRUCTURE"
-  | "LIGHTING"
-  | "PARKING_LOT"
-  | "OFFICE"
-  | "HVAC_GAME_ROOM"
-  | "HVAC_KITCHEN"
-  | "HVAC_DINING_ROOM"
-  | "OTHER";
+type EquipmentArea = Exclude<WorkOrderEquipmentArea, "PLUMBING"> | "PLUMBING";
 
-const EQUIPMENT_AREAS: EquipmentArea[] = [
-  "DOUGH_ROLLER",
-  "MAKETABLE",
-  "DOUGH_COOLER",
-  "MIXER",
-  "OVEN",
-  "WALK_IN",
-  "FREEZER",
-  "BUILDING_STRUCTURE",
-  "LIGHTING",
-  "PARKING_LOT",
-  "OFFICE",
-  "HVAC_GAME_ROOM",
-  "HVAC_KITCHEN",
-  "HVAC_DINING_ROOM",
-  "OTHER",
-];
+const EQUIPMENT_AREAS: readonly EquipmentArea[] = WORK_ORDER_EQUIPMENT_AREAS;
 
 type MeRow = {
   id: string;
@@ -142,42 +117,11 @@ function fmtDateTime(value: Date | null): string {
 }
 
 function formatAreaLabel(area: string): string {
-  const parts = area.split("_").filter(Boolean);
-  const out: string[] = [];
-  for (const p of parts) {
-    const up = p.toUpperCase();
-    if (up === "HVAC") {
-      out.push("HVAC");
-      continue;
-    }
-    if (up === "DOUGH") {
-      out.push("Dough");
-      continue;
-    }
-    out.push(p.charAt(0).toUpperCase() + p.slice(1).toLowerCase());
-  }
-  return out.join(" ");
+  return formatWorkOrderEquipmentAreaLabel(area);
 }
 
 function parseAreas(formData: FormData): EquipmentArea[] {
-  const raw = formData.getAll("areas");
-  const allowed = new Set<string>(EQUIPMENT_AREAS);
-
-  const out: EquipmentArea[] = [];
-  for (const v of raw) {
-    const s = String(v ?? "").trim();
-    if (!s || !allowed.has(s)) continue;
-    out.push(s as EquipmentArea);
-  }
-
-  const seen = new Set<EquipmentArea>();
-  const uniq: EquipmentArea[] = [];
-  for (const a of out) {
-    if (seen.has(a)) continue;
-    seen.add(a);
-    uniq.push(a);
-  }
-  return uniq;
+  return parseWorkOrderEquipmentAreas(formData) as EquipmentArea[];
 }
 
 function buildRequestTitle(areas: EquipmentArea[]): string {
