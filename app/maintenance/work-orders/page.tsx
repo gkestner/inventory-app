@@ -1,7 +1,7 @@
 // app/maintenance/work-orders/page.tsx
 import type { CSSProperties } from "react";
 import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
@@ -39,6 +39,41 @@ type SessionShape = {
     role?: Role | null;
   } | null;
 } | null;
+
+type SearchParams = {
+  err?: string;
+};
+
+function redirectToWorkOrders(err?: string): never {
+  const params = new URLSearchParams();
+  if (err) params.set("err", err);
+  const qs = params.toString();
+  redirect(qs ? `${CANONICAL_RETURN}?${qs}` : CANONICAL_RETURN);
+}
+
+function getCompleteWorkOrderErrorMessage(error: unknown, clearCarryover: boolean): string {
+  if (isSchemaOrDbNotReadyError(error)) {
+    return "Recent work order updates are still deploying. Try again in a minute.";
+  }
+
+  if (error instanceof Error) {
+    switch (error.message) {
+      case "Missing work order id":
+        return "Missing work order id.";
+      case "Ending mileage is required.":
+      case "Notes are required when Equipment Area 'Other' is selected.":
+        return error.message;
+      case "Work order not found.":
+        return "Work order not found.";
+      case "Work order is already ended.":
+        return "This work order was already ended. Refresh the page.";
+      default:
+        break;
+    }
+  }
+
+  return clearCarryover ? "Failed to end the day. Please try again." : "Failed to end the work order. Please try again.";
+}
 
 function requireSession(session: SessionShape) {
   if (!session) redirect("/login");
@@ -235,9 +270,12 @@ async function findWorkOrdersMe(email: string): Promise<WorkOrdersMeRow | null> 
   }
 }
 
-export default async function MaintenanceWorkOrdersPage() {
+export default async function MaintenanceWorkOrdersPage({ searchParams }: { searchParams?: Promise<SearchParams> }) {
   const session = (await getServerSession(authOptions)) as SessionShape;
   await requireWorkOrdersView(session);
+
+  const sp = (await searchParams) ?? {};
+  const err = String(sp.err ?? "").trim();
 
   const email = (session?.user?.email ?? "").toLowerCase().trim();
 
@@ -547,78 +585,84 @@ export default async function MaintenanceWorkOrdersPage() {
   async function completeWorkOrderAction(formData: FormData, options: { clearCarryover: boolean }) {
     const { clearCarryover } = options;
 
-    const session = (await getServerSession(authOptions)) as SessionShape;
-    await requireWorkOrdersSubmitOwn(session);
+    try {
+      const session = (await getServerSession(authOptions)) as SessionShape;
+      await requireWorkOrdersSubmitOwn(session);
 
-    const email = (session?.user?.email ?? "").toLowerCase().trim();
-    const me = await prisma.user.findUnique({ where: { email }, select: { id: true, active: true } });
-    if (!me || !me.active) redirect("/login");
+      const email = (session?.user?.email ?? "").toLowerCase().trim();
+      const me = await prisma.user.findUnique({ where: { email }, select: { id: true, active: true } });
+      if (!me || !me.active) redirect("/login");
 
-    const id = String(formData.get("id") ?? "").trim();
-    if (!id) throw new Error("Missing work order id");
+      const id = String(formData.get("id") ?? "").trim();
+      if (!id) throw new Error("Missing work order id");
 
-    const endingMileage = parseRequiredInt(formData.get("endingMileage"), "Ending mileage is required.");
-    const nextWorkOrderStartingMileage = clearCarryover ? null : endingMileage;
-    const notes = String(formData.get("notes") ?? "");
-    const areas = parseAreas(formData);
-    const checklistItemIds = parseChecklistItemIds(formData);
+      const endingMileage = parseRequiredInt(formData.get("endingMileage"), "Ending mileage is required.");
+      const nextWorkOrderStartingMileage = clearCarryover ? null : endingMileage;
+      const notes = String(formData.get("notes") ?? "");
+      const areas = parseAreas(formData);
+      const checklistItemIds = parseChecklistItemIds(formData);
 
-    requireNotesWhenOtherAreaSelected(areas, notes);
+      requireNotesWhenOtherAreaSelected(areas, notes);
 
-    await prisma.$transaction(async (tx) => {
-      const wo = await tx.workOrder.findUnique({
-        where: { id },
-        select: { id: true, locationId: true, createdByUserId: true, status: true, endTime: true },
-      });
-      if (!wo || wo.createdByUserId !== me.id) throw new Error("Work order not found.");
-      if (wo.status !== "DRAFT" || wo.endTime !== null) throw new Error("Work order is already ended.");
-
-      await tx.workOrder.update({
-        where: { id },
-        data: {
-          endTime: new Date(),
-          endingMileage,
-          notes,
-          status: "SUBMITTED",
-        },
-      });
-
-      await tx.workOrderEquipmentArea.deleteMany({ where: { workOrderId: id } });
-      if (areas.length > 0) {
-        await tx.workOrderEquipmentArea.createMany({
-          data: areas.map((area) => ({ workOrderId: id, area })),
+      await prisma.$transaction(async (tx) => {
+        const wo = await tx.workOrder.findUnique({
+          where: { id },
+          select: { id: true, locationId: true, createdByUserId: true, status: true, endTime: true },
         });
-      }
+        if (!wo || wo.createdByUserId !== me.id) throw new Error("Work order not found.");
+        if (wo.status !== "DRAFT" || wo.endTime !== null) throw new Error("Work order is already ended.");
 
-      await syncWorkOrderChecklistSelections(tx as unknown as WorkOrderChecklistTx, {
-        workOrderId: id,
-        areas,
-        checklistItemIds,
-      });
+        await tx.workOrder.update({
+          where: { id },
+          data: {
+            endTime: new Date(),
+            endingMileage,
+            notes,
+            status: "SUBMITTED",
+          },
+        });
 
-      await tx.workOrderPing.create({
-        data: {
+        await tx.workOrderEquipmentArea.deleteMany({ where: { workOrderId: id } });
+        if (areas.length > 0) {
+          await tx.workOrderEquipmentArea.createMany({
+            data: areas.map((area) => ({ workOrderId: id, area })),
+          });
+        }
+
+        await syncWorkOrderChecklistSelections(tx as unknown as WorkOrderChecklistTx, {
           workOrderId: id,
-          locationId: wo.locationId,
-          actorUserId: me.id,
-          event: WorkOrderPingEvent.STOPPED,
-          note: clearCarryover ? "Work day ended." : "Work order stopped.",
-        },
+          areas,
+          checklistItemIds,
+        });
+
+        await tx.workOrderPing.create({
+          data: {
+            workOrderId: id,
+            locationId: wo.locationId,
+            actorUserId: me.id,
+            event: WorkOrderPingEvent.STOPPED,
+            note: clearCarryover ? "Work day ended." : "Work order stopped.",
+          },
+        });
+
+        try {
+          await tx.user.update({
+            where: { id: me.id },
+            data: { nextWorkOrderStartingMileage },
+          });
+        } catch (error) {
+          if (!isSchemaOrDbNotReadyError(error)) throw error;
+        }
       });
 
-      try {
-        await tx.user.update({
-          where: { id: me.id },
-          data: { nextWorkOrderStartingMileage },
-        });
-      } catch (error) {
-        if (!isSchemaOrDbNotReadyError(error)) throw error;
-      }
-    });
-
-    revalidatePath("/work-orders");
-    revalidatePath("/maintenance/work-orders");
-    redirect(CANONICAL_RETURN);
+      revalidatePath("/work-orders");
+      revalidatePath("/maintenance/work-orders");
+      redirect(CANONICAL_RETURN);
+    } catch (error) {
+      unstable_rethrow(error);
+      console.error("completeWorkOrderAction failed:", error);
+      redirectToWorkOrders(getCompleteWorkOrderErrorMessage(error, clearCarryover));
+    }
   }
 
   async function updateWorkOrderFromListAction(formData: FormData) {
@@ -736,6 +780,12 @@ export default async function MaintenanceWorkOrdersPage() {
           {!canUpdateOwn ? (
             <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
               You don’t have permission to edit your work orders.
+            </div>
+          ) : null}
+
+          {err ? (
+            <div style={{ marginTop: 10, padding: 10, border: "1px solid rgba(220,60,60,0.35)", borderRadius: 10 }}>
+              {err}
             </div>
           ) : null}
         </div>
