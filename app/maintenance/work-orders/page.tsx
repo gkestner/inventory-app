@@ -75,6 +75,89 @@ function getCompleteWorkOrderErrorMessage(error: unknown, clearCarryover: boolea
   return clearCarryover ? "Failed to end the day. Please try again." : "Failed to end the work order. Please try again.";
 }
 
+async function runCompleteWorkOrderAction(formData: FormData, options: { clearCarryover: boolean }) {
+  const { clearCarryover } = options;
+
+  try {
+    const session = (await getServerSession(authOptions)) as SessionShape;
+    await requireWorkOrdersSubmitOwn(session);
+
+    const email = (session?.user?.email ?? "").toLowerCase().trim();
+    const me = await prisma.user.findUnique({ where: { email }, select: { id: true, active: true } });
+    if (!me || !me.active) redirect("/login");
+
+    const id = String(formData.get("id") ?? "").trim();
+    if (!id) throw new Error("Missing work order id");
+
+    const endingMileage = parseRequiredInt(formData.get("endingMileage"), "Ending mileage is required.");
+    const nextWorkOrderStartingMileage = clearCarryover ? null : endingMileage;
+    const notes = String(formData.get("notes") ?? "");
+    const areas = parseAreas(formData);
+    const checklistItemIds = parseChecklistItemIds(formData);
+
+    requireNotesWhenOtherAreaSelected(areas, notes);
+
+    await prisma.$transaction(async (tx) => {
+      const wo = await tx.workOrder.findUnique({
+        where: { id },
+        select: { id: true, locationId: true, createdByUserId: true, status: true, endTime: true },
+      });
+      if (!wo || wo.createdByUserId !== me.id) throw new Error("Work order not found.");
+      if (wo.status !== "DRAFT" || wo.endTime !== null) throw new Error("Work order is already ended.");
+
+      await tx.workOrder.update({
+        where: { id },
+        data: {
+          endTime: new Date(),
+          endingMileage,
+          notes,
+          status: "SUBMITTED",
+        },
+      });
+
+      await tx.workOrderEquipmentArea.deleteMany({ where: { workOrderId: id } });
+      if (areas.length > 0) {
+        await tx.workOrderEquipmentArea.createMany({
+          data: areas.map((area) => ({ workOrderId: id, area })),
+        });
+      }
+
+      await syncWorkOrderChecklistSelections(tx as unknown as WorkOrderChecklistTx, {
+        workOrderId: id,
+        areas,
+        checklistItemIds,
+      });
+
+      await tx.workOrderPing.create({
+        data: {
+          workOrderId: id,
+          locationId: wo.locationId,
+          actorUserId: me.id,
+          event: WorkOrderPingEvent.STOPPED,
+          note: clearCarryover ? "Work day ended." : "Work order stopped.",
+        },
+      });
+
+      try {
+        await tx.user.update({
+          where: { id: me.id },
+          data: { nextWorkOrderStartingMileage },
+        });
+      } catch (error) {
+        if (!isSchemaOrDbNotReadyError(error)) throw error;
+      }
+    });
+
+    revalidatePath("/work-orders");
+    revalidatePath("/maintenance/work-orders");
+    redirect(CANONICAL_RETURN);
+  } catch (error) {
+    unstable_rethrow(error);
+    console.error("completeWorkOrderAction failed:", error);
+    redirectToWorkOrders(getCompleteWorkOrderErrorMessage(error, clearCarryover));
+  }
+}
+
 function requireSession(session: SessionShape) {
   if (!session) redirect("/login");
   const email = session.user?.email ?? null;
@@ -573,96 +656,13 @@ export default async function MaintenanceWorkOrdersPage({ searchParams }: { sear
   async function endWorkOrderAction(formData: FormData) {
     "use server";
 
-    await completeWorkOrderAction(formData, { clearCarryover: false });
+    await runCompleteWorkOrderAction(formData, { clearCarryover: false });
   }
 
   async function endDayAction(formData: FormData) {
     "use server";
 
-    await completeWorkOrderAction(formData, { clearCarryover: true });
-  }
-
-  async function completeWorkOrderAction(formData: FormData, options: { clearCarryover: boolean }) {
-    const { clearCarryover } = options;
-
-    try {
-      const session = (await getServerSession(authOptions)) as SessionShape;
-      await requireWorkOrdersSubmitOwn(session);
-
-      const email = (session?.user?.email ?? "").toLowerCase().trim();
-      const me = await prisma.user.findUnique({ where: { email }, select: { id: true, active: true } });
-      if (!me || !me.active) redirect("/login");
-
-      const id = String(formData.get("id") ?? "").trim();
-      if (!id) throw new Error("Missing work order id");
-
-      const endingMileage = parseRequiredInt(formData.get("endingMileage"), "Ending mileage is required.");
-      const nextWorkOrderStartingMileage = clearCarryover ? null : endingMileage;
-      const notes = String(formData.get("notes") ?? "");
-      const areas = parseAreas(formData);
-      const checklistItemIds = parseChecklistItemIds(formData);
-
-      requireNotesWhenOtherAreaSelected(areas, notes);
-
-      await prisma.$transaction(async (tx) => {
-        const wo = await tx.workOrder.findUnique({
-          where: { id },
-          select: { id: true, locationId: true, createdByUserId: true, status: true, endTime: true },
-        });
-        if (!wo || wo.createdByUserId !== me.id) throw new Error("Work order not found.");
-        if (wo.status !== "DRAFT" || wo.endTime !== null) throw new Error("Work order is already ended.");
-
-        await tx.workOrder.update({
-          where: { id },
-          data: {
-            endTime: new Date(),
-            endingMileage,
-            notes,
-            status: "SUBMITTED",
-          },
-        });
-
-        await tx.workOrderEquipmentArea.deleteMany({ where: { workOrderId: id } });
-        if (areas.length > 0) {
-          await tx.workOrderEquipmentArea.createMany({
-            data: areas.map((area) => ({ workOrderId: id, area })),
-          });
-        }
-
-        await syncWorkOrderChecklistSelections(tx as unknown as WorkOrderChecklistTx, {
-          workOrderId: id,
-          areas,
-          checklistItemIds,
-        });
-
-        await tx.workOrderPing.create({
-          data: {
-            workOrderId: id,
-            locationId: wo.locationId,
-            actorUserId: me.id,
-            event: WorkOrderPingEvent.STOPPED,
-            note: clearCarryover ? "Work day ended." : "Work order stopped.",
-          },
-        });
-
-        try {
-          await tx.user.update({
-            where: { id: me.id },
-            data: { nextWorkOrderStartingMileage },
-          });
-        } catch (error) {
-          if (!isSchemaOrDbNotReadyError(error)) throw error;
-        }
-      });
-
-      revalidatePath("/work-orders");
-      revalidatePath("/maintenance/work-orders");
-      redirect(CANONICAL_RETURN);
-    } catch (error) {
-      unstable_rethrow(error);
-      console.error("completeWorkOrderAction failed:", error);
-      redirectToWorkOrders(getCompleteWorkOrderErrorMessage(error, clearCarryover));
-    }
+    await runCompleteWorkOrderAction(formData, { clearCarryover: true });
   }
 
   async function updateWorkOrderFromListAction(formData: FormData) {
