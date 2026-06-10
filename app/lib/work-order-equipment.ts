@@ -1,4 +1,5 @@
 import { prisma } from "@/app/lib/prisma";
+import { isSchemaOrDbNotReadyError } from "@/app/lib/prisma-schema-compat";
 
 export const WORK_ORDER_EQUIPMENT_AREAS = [
   "DOUGH_ROLLER",
@@ -132,17 +133,22 @@ export function formatWorkOrderEquipmentAreaLabelWithLegacy(area: WorkOrderEquip
 
 export async function listChecklistItems(args?: { includeInactive?: boolean }): Promise<EquipmentAreaChecklistItemRow[]> {
   const includeInactive = args?.includeInactive ?? false;
-  return db.equipmentAreaChecklistItem.findMany({
-    where: includeInactive ? undefined : { active: true },
-    orderBy: [{ area: "asc" }, { sortOrder: "asc" }, { label: "asc" }],
-    select: {
-      id: true,
-      area: true,
-      label: true,
-      sortOrder: true,
-      active: true,
-    },
-  } as unknown);
+  try {
+    return await db.equipmentAreaChecklistItem.findMany({
+      where: includeInactive ? undefined : { active: true },
+      orderBy: [{ area: "asc" }, { sortOrder: "asc" }, { label: "asc" }],
+      select: {
+        id: true,
+        area: true,
+        label: true,
+        sortOrder: true,
+        active: true,
+      },
+    } as unknown);
+  } catch (error) {
+    if (isSchemaOrDbNotReadyError(error)) return [];
+    throw error;
+  }
 }
 
 export function groupChecklistItemsByArea(
@@ -164,16 +170,21 @@ export function groupChecklistItemsByArea(
 export async function listChecklistSelectionsForWorkOrders(workOrderIds: string[]): Promise<WorkOrderChecklistSelectionRow[]> {
   if (workOrderIds.length === 0) return [];
 
-  return db.workOrderChecklistSelection.findMany({
-    where: { workOrderId: { in: workOrderIds } },
-    orderBy: [{ workOrderId: "asc" }, { area: "asc" }, { labelSnapshot: "asc" }],
-    select: {
-      workOrderId: true,
-      checklistItemId: true,
-      labelSnapshot: true,
-      area: true,
-    },
-  } as unknown);
+  try {
+    return await db.workOrderChecklistSelection.findMany({
+      where: { workOrderId: { in: workOrderIds } },
+      orderBy: [{ workOrderId: "asc" }, { area: "asc" }, { labelSnapshot: "asc" }],
+      select: {
+        workOrderId: true,
+        checklistItemId: true,
+        labelSnapshot: true,
+        area: true,
+      },
+    } as unknown);
+  } catch (error) {
+    if (isSchemaOrDbNotReadyError(error)) return [];
+    throw error;
+  }
 }
 
 export function groupChecklistSelectionsByWorkOrder(
@@ -212,35 +223,40 @@ export async function syncWorkOrderChecklistSelections(
   tx: WorkOrderChecklistTx,
   args: { workOrderId: string; areas: WorkOrderEquipmentArea[]; checklistItemIds: string[] }
 ) {
-  const itemIds = dedupeStrings(args.checklistItemIds);
-  const areaSet = new Set(args.areas);
-  const items = itemIds.length
-    ? await tx.equipmentAreaChecklistItem.findMany({
-        where: {
-          id: { in: itemIds },
-          active: true,
-        },
-        select: {
-          id: true,
-          area: true,
-          label: true,
-          sortOrder: true,
-          active: true,
-        },
-      } as unknown)
-    : [];
+  try {
+    const itemIds = dedupeStrings(args.checklistItemIds);
+    const areaSet = new Set(args.areas);
+    const items = itemIds.length
+      ? await tx.equipmentAreaChecklistItem.findMany({
+          where: {
+            id: { in: itemIds },
+            active: true,
+          },
+          select: {
+            id: true,
+            area: true,
+            label: true,
+            sortOrder: true,
+            active: true,
+          },
+        } as unknown)
+      : [];
 
-  const selected = items.filter((item) => areaSet.has(item.area));
+    const selected = items.filter((item) => areaSet.has(item.area));
 
-  await tx.workOrderChecklistSelection.deleteMany({ where: { workOrderId: args.workOrderId } } as unknown);
-  if (selected.length === 0) return;
+    await tx.workOrderChecklistSelection.deleteMany({ where: { workOrderId: args.workOrderId } } as unknown);
+    if (selected.length === 0) return;
 
-  await tx.workOrderChecklistSelection.createMany({
-    data: selected.map((item) => ({
-      workOrderId: args.workOrderId,
-      checklistItemId: item.id,
-      labelSnapshot: item.label,
-      area: item.area,
-    })),
-  } as unknown);
+    await tx.workOrderChecklistSelection.createMany({
+      data: selected.map((item) => ({
+        workOrderId: args.workOrderId,
+        checklistItemId: item.id,
+        labelSnapshot: item.label,
+        area: item.area,
+      })),
+    } as unknown);
+  } catch (error) {
+    if (isSchemaOrDbNotReadyError(error)) return;
+    throw error;
+  }
 }

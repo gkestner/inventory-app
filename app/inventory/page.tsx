@@ -11,6 +11,7 @@ import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { parseItemLabelNumberSearchTerm } from "@/app/lib/item-label-number";
 import { getInventoryDemandRecommendations } from "@/app/lib/inventory-demand";
 import { VIEW_INVENTORY } from "@/app/lib/permission-constants";
+import { isSchemaOrDbNotReadyError } from "@/app/lib/prisma-schema-compat";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -207,6 +208,20 @@ async function requireInventoryView(): Promise<InventorySession> {
   return session as InventorySession;
 }
 
+async function listInventoryComments(itemIds: string[], userId: string): Promise<InventoryCommentRow[]> {
+  if (itemIds.length === 0) return [];
+
+  try {
+    return await db.inventoryItemComment.findMany({
+      where: { userId, itemId: { in: itemIds } },
+      select: { itemId: true, comment: true, updatedAt: true },
+    } as unknown);
+  } catch (error) {
+    if (isSchemaOrDbNotReadyError(error)) return [];
+    throw error;
+  }
+}
+
 export default async function InventoryPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const session = await requireInventoryView();
   const email = String(session?.user?.email ?? "").trim().toLowerCase();
@@ -347,14 +362,18 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
 
     if (!itemId) redirect(returnTo);
 
-    if (!comment) {
-      await db.inventoryItemComment.deleteMany({ where: { itemId, userId: me.id } } as unknown);
-    } else {
-      await db.inventoryItemComment.upsert({
-        where: { itemId_userId: { itemId, userId: me.id } },
-        update: { comment },
-        create: { itemId, userId: me.id, comment },
-      } as unknown);
+    try {
+      if (!comment) {
+        await db.inventoryItemComment.deleteMany({ where: { itemId, userId: me.id } } as unknown);
+      } else {
+        await db.inventoryItemComment.upsert({
+          where: { itemId_userId: { itemId, userId: me.id } },
+          update: { comment },
+          create: { itemId, userId: me.id, comment },
+        } as unknown);
+      }
+    } catch (error) {
+      if (!isSchemaOrDbNotReadyError(error)) throw error;
     }
 
     revalidatePath("/inventory");
@@ -372,12 +391,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
           _sum: { quantity: true },
         } as unknown)
       : Promise.resolve([] as InventoryStatusAggregateRow[]),
-    pageItemIds.length > 0
-      ? db.inventoryItemComment.findMany({
-          where: { userId: me.id, itemId: { in: pageItemIds } },
-          select: { itemId: true, comment: true, updatedAt: true },
-        } as unknown)
-      : Promise.resolve([] as InventoryCommentRow[]),
+    listInventoryComments(pageItemIds, me.id),
   ]);
 
   const itemStatusMap = new Map<string, { ordered: number; arrived: number }>();

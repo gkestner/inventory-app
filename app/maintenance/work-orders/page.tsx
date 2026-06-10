@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
+import { isSchemaOrDbNotReadyError } from "@/app/lib/prisma-schema-compat";
 import { Permission, Role, WorkOrderPingEvent } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import WorkOrderEquipmentSelector from "@/app/components/WorkOrderEquipmentSelector";
@@ -102,6 +103,21 @@ type WorkOrderStatus = "DRAFT" | "SUBMITTED" | "FINALIZED";
 type EquipmentArea = SharedEquipmentArea;
 type EquipmentAreaDb = WorkOrderEquipmentAreaDb;
 
+type WorkOrdersMeRow = {
+  id: string;
+  active: boolean;
+  role: Role | null;
+  nextWorkOrderStartingMileage: number | null;
+  locationId: string | null;
+  location: { id: string; name: string; active: boolean; receiptEnabled: boolean } | null;
+  allowedLocations: Array<{
+    locationId: string;
+    isPrimary: boolean;
+    sortOrder: number;
+    location: { id: string; name: string; active: boolean; receiptEnabled: boolean } | null;
+  }>;
+};
+
 const EQUIPMENT_AREAS: readonly EquipmentArea[] = WORK_ORDER_EQUIPMENT_AREAS;
 
 function isLegacyArea(a: EquipmentAreaDb): boolean {
@@ -184,6 +200,41 @@ function statusLabel(s: WorkOrderStatus): string {
   return s;
 }
 
+async function findWorkOrdersMe(email: string): Promise<WorkOrdersMeRow | null> {
+  const baseSelect = {
+    id: true,
+    active: true,
+    role: true,
+    locationId: true,
+    location: { select: { id: true, name: true, active: true, receiptEnabled: true } },
+    allowedLocations: {
+      orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
+      select: {
+        locationId: true,
+        isPrimary: true,
+        sortOrder: true,
+        location: { select: { id: true, name: true, active: true, receiptEnabled: true } },
+      },
+    },
+  } as const;
+
+  try {
+    return (await prisma.user.findUnique({
+      where: { email },
+      select: {
+        ...baseSelect,
+        nextWorkOrderStartingMileage: true,
+      },
+    })) as WorkOrdersMeRow | null;
+  } catch (error) {
+    if (!isSchemaOrDbNotReadyError(error)) throw error;
+
+    const fallback = await prisma.user.findUnique({ where: { email }, select: baseSelect });
+    if (!fallback) return null;
+    return { ...fallback, nextWorkOrderStartingMileage: null };
+  }
+}
+
 export default async function MaintenanceWorkOrdersPage() {
   const session = (await getServerSession(authOptions)) as SessionShape;
   await requireWorkOrdersView(session);
@@ -198,26 +249,7 @@ export default async function MaintenanceWorkOrdersPage() {
   const canSubmitOwn = bypass || allowAll || hasAnyPermission(perms, [Permission.SUBMIT_OWN_WORK_ORDERS]);
   const canUpdateOwn = bypass || allowAll || hasAnyPermission(perms, [Permission.UPDATE_OWN_WORK_ORDERS]);
 
-  const me = await prisma.user.findUnique({
-    where: { email },
-    select: {
-      id: true,
-      active: true,
-      role: true,
-      nextWorkOrderStartingMileage: true,
-      locationId: true,
-      location: { select: { id: true, name: true, active: true, receiptEnabled: true } },
-      allowedLocations: {
-        orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
-        select: {
-          locationId: true,
-          isPrimary: true,
-          sortOrder: true,
-          location: { select: { id: true, name: true, active: true, receiptEnabled: true } },
-        },
-      },
-    },
-  });
+  const me = await findWorkOrdersMe(email);
 
   if (!me || !me.active) redirect("/login");
 
@@ -574,10 +606,14 @@ export default async function MaintenanceWorkOrdersPage() {
         },
       });
 
-      await tx.user.update({
-        where: { id: me.id },
-        data: { nextWorkOrderStartingMileage },
-      });
+      try {
+        await tx.user.update({
+          where: { id: me.id },
+          data: { nextWorkOrderStartingMileage },
+        });
+      } catch (error) {
+        if (!isSchemaOrDbNotReadyError(error)) throw error;
+      }
     });
 
     revalidatePath("/work-orders");
