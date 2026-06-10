@@ -8,6 +8,7 @@ import { Permission, Prisma, Role } from "@prisma/client";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import ChecklistItemEditor from "./ChecklistItemEditor";
 import {
   WORK_ORDER_EQUIPMENT_AREAS,
   formatWorkOrderEquipmentAreaLabel,
@@ -210,7 +211,6 @@ export default async function AdminWorkOrderChecklistsPage({ searchParams }: { s
   };
   const areaGrid: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 14 };
   const createRowGrid: CSSProperties = { display: "grid", gridTemplateColumns: "1.9fr auto", gap: 10, alignItems: "end" };
-  const rowGrid: CSSProperties = { display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: 10, alignItems: "end" };
 
   return (
     <main style={shell}>
@@ -225,6 +225,9 @@ export default async function AdminWorkOrderChecklistsPage({ searchParams }: { s
         </div>
         <div style={{ marginTop: 8, fontSize: 13, opacity: 0.74 }}>
           Delete permanently removes unused checklist items. If an item is already saved on a work order, use <b>Active</b> to hide it from future work orders instead.
+        </div>
+        <div style={{ marginTop: 8, fontSize: 13, opacity: 0.74 }}>
+          Edit the item name and tab out to save automatically. Active changes save immediately.
         </div>
         {ok ? <div style={{ marginTop: 10, padding: 10, border: "1px solid rgba(0,160,90,0.35)", borderRadius: 10 }}>{ok}</div> : null}
         {err ? <div style={{ marginTop: 10, padding: 10, border: "1px solid rgba(220,60,60,0.35)", borderRadius: 10 }}>{err}</div> : null}
@@ -251,25 +254,23 @@ export default async function AdminWorkOrderChecklistsPage({ searchParams }: { s
               </form>
 
               <div style={{ display: "grid", gap: 10 }}>
+                {rows.length > 0 ? (
+                  <div style={{ fontSize: 12, fontWeight: 900, opacity: 0.72, textTransform: "uppercase", letterSpacing: 0.3 }}>
+                    Checklist Items
+                  </div>
+                ) : null}
                 {rows.map((row: EquipmentAreaChecklistItemRow) => (
-                  <form key={row.id} action={updateChecklistItemAction} style={{ ...rowGrid, padding: 10, border: "1px solid rgba(128,128,128,0.18)", borderRadius: 12 }}>
-                    <input type="hidden" name="id" value={row.id} />
-                    <input type="hidden" name="area" value={area} />
-                    <label style={label}>
-                      Label
-                      <input name="label" defaultValue={row.label} style={input} required />
-                    </label>
-                    <div style={{ display: "grid", gap: 10 }}>
-                      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 800 }}>
-                        <input type="checkbox" name="active" defaultChecked={row.active} />
-                        Active
-                      </label>
-                      <div style={{ display: "grid", gap: 8 }}>
-                        <button type="submit" style={btn}>Save</button>
-                        <button type="submit" formAction={deleteChecklistItemAction} formNoValidate style={deleteBtn}>Delete</button>
-                      </div>
-                    </div>
-                  </form>
+                  <ChecklistItemEditor
+                    key={row.id}
+                    id={row.id}
+                    area={area}
+                    defaultLabel={row.label}
+                    defaultActive={row.active}
+                    updateAction={updateChecklistItemAction}
+                    deleteAction={deleteChecklistItemAction}
+                    inputStyle={input}
+                    deleteButtonStyle={deleteBtn}
+                  />
                 ))}
                 {rows.length === 0 ? <div style={{ fontSize: 13, opacity: 0.78 }}>No checklist items for this area yet.</div> : null}
               </div>
