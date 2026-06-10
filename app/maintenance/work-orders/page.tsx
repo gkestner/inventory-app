@@ -208,7 +208,7 @@ async function findWorkOrdersMe(email: string): Promise<WorkOrdersMeRow | null> 
     locationId: true,
     location: { select: { id: true, name: true, active: true, receiptEnabled: true } },
     allowedLocations: {
-      orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { location: { name: "asc" } }],
+      orderBy: [{ isPrimary: "desc" as const }, { sortOrder: "asc" as const }, { location: { name: "asc" as const } }],
       select: {
         locationId: true,
         isPrimary: true,
