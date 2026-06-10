@@ -136,7 +136,7 @@ export async function listChecklistItems(args?: { includeInactive?: boolean }): 
   try {
     return await db.equipmentAreaChecklistItem.findMany({
       where: includeInactive ? undefined : { active: true },
-      orderBy: [{ area: "asc" }, { sortOrder: "asc" }, { label: "asc" }],
+      orderBy: [{ area: "asc" }, { label: "asc" }],
       select: {
         id: true,
         area: true,

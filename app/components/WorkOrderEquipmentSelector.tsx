@@ -1,4 +1,6 @@
-import type { CSSProperties } from "react";
+"use client";
+
+import { useState, type CSSProperties } from "react";
 
 import {
   WORK_ORDER_EQUIPMENT_AREAS,
@@ -30,6 +32,15 @@ export default function WorkOrderEquipmentSelector({
 }: Props) {
   const selectedAreaSet = new Set(Array.from(selectedAreas ?? []));
   const selectedChecklistSet = new Set(Array.from(selectedChecklistItemIds ?? []));
+  const [openByArea, setOpenByArea] = useState<Record<WorkOrderEquipmentArea, boolean>>(() => {
+    const initial = {} as Record<WorkOrderEquipmentArea, boolean>;
+    for (const area of WORK_ORDER_EQUIPMENT_AREAS) {
+      const templates = templatesByArea[area] ?? [];
+      const checkedCount = templates.filter((item) => selectedChecklistSet.has(item.id)).length;
+      initial[area] = selectedAreaSet.has(area) || checkedCount > 0;
+    }
+    return initial;
+  });
 
   const wrapStyle: CSSProperties =
     gridWrapStyle ??
@@ -98,12 +109,33 @@ export default function WorkOrderEquipmentSelector({
           return (
             <div key={area} style={cardStyle}>
               <label style={labelStyle}>
-                <input type="checkbox" name="areas" value={area} defaultChecked={isSelected} style={checkboxStyle} />
+                <input
+                  type="checkbox"
+                  name="areas"
+                  value={area}
+                  defaultChecked={isSelected}
+                  style={checkboxStyle}
+                  onChange={(event) => {
+                    setOpenByArea((current) => ({
+                      ...current,
+                      [area]: event.currentTarget.checked,
+                    }));
+                  }}
+                />
                 <span>{formatWorkOrderEquipmentAreaLabel(area)}</span>
               </label>
 
               {templates.length > 0 ? (
-                <details style={detailsStyle} open={isSelected || checkedCount > 0}>
+                <details
+                  style={detailsStyle}
+                  open={openByArea[area]}
+                  onToggle={(event) => {
+                    setOpenByArea((current) => ({
+                      ...current,
+                      [area]: event.currentTarget.open,
+                    }));
+                  }}
+                >
                   <summary style={summaryStyle}>{checkedCount > 0 ? `Checklist (${checkedCount})` : "Checklist"}</summary>
                   <div style={checklistListStyle}>
                     {templates.map((item) => (
