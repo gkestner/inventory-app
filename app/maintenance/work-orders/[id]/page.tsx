@@ -2,7 +2,7 @@
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { getServerSession } from "next-auth";
-import { notFound, redirect } from "next/navigation";
+import { notFound, redirect, unstable_rethrow } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 
@@ -37,6 +37,33 @@ type SessionShape = {
     role?: Role | null;
   } | null;
 } | null;
+
+type SearchParams = {
+  err?: string;
+};
+
+function buildDetailRedirectPath(id: string, err?: string): string {
+  const params = new URLSearchParams();
+  if (err) params.set("err", err);
+  const qs = params.toString();
+  return qs ? `/maintenance/work-orders/${id}?${qs}` : `/maintenance/work-orders/${id}`;
+}
+
+function getDetailWorkOrderErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) {
+    switch (error.message) {
+      case "End time is required to submit.":
+      case "Ending mileage is required to submit.":
+      case "Invalid location selection.":
+      case "Invalid status":
+        return error.message;
+      default:
+        break;
+    }
+  }
+
+  return fallback;
+}
 
 function requireSession(session: SessionShape) {
   if (!session) redirect("/login");
@@ -229,11 +256,16 @@ function isWorkOrderStatus(v: string): v is WorkOrderStatus {
 
 export default async function MaintenanceWorkOrderDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<SearchParams>;
 }) {
   const session = (await getServerSession(authOptions)) as SessionShape;
   requireSession(session);
+
+  const sp = (await searchParams) ?? {};
+  const err = String(sp.err ?? "").trim();
 
   const email = (session?.user?.email ?? "").toLowerCase().trim();
   const isAdmin = session?.user?.role === Role.ADMIN;
@@ -434,39 +466,45 @@ export default async function MaintenanceWorkOrderDetailPage({
   async function endNowAction() {
     "use server";
 
-    const session = (await getServerSession(authOptions)) as SessionShape;
-    requireSession(session);
+    try {
+      const session = (await getServerSession(authOptions)) as SessionShape;
+      requireSession(session);
 
-    const email = (session?.user?.email ?? "").toLowerCase().trim();
-    const isAdmin = session?.user?.role === Role.ADMIN;
+      const email = (session?.user?.email ?? "").toLowerCase().trim();
+      const isAdmin = session?.user?.role === Role.ADMIN;
 
-    const me = await prisma.user.findUnique({ where: { email }, select: { id: true, active: true } });
-    if (!me || !me.active) redirect("/login");
+      const me = await prisma.user.findUnique({ where: { email }, select: { id: true, active: true } });
+      if (!me || !me.active) redirect("/login");
 
-    const wo = await prisma.workOrder.findUnique({ where: { id }, select: { createdByUserId: true, locationId: true } });
-    if (!wo) notFound();
-    if (!isAdmin && wo.createdByUserId !== me.id) redirect("/maintenance/work-orders");
+      const wo = await prisma.workOrder.findUnique({ where: { id }, select: { createdByUserId: true, locationId: true } });
+      if (!wo) notFound();
+      if (!isAdmin && wo.createdByUserId !== me.id) redirect("/maintenance/work-orders");
 
-    await prisma.$transaction(async (tx) => {
-      await tx.workOrder.update({
-        where: { id },
-        data: { endTime: new Date(), updatedByUserId: me.id },
+      await prisma.$transaction(async (tx) => {
+        await tx.workOrder.update({
+          where: { id },
+          data: { endTime: new Date(), updatedByUserId: me.id },
+        });
+
+        await tx.workOrderPing.create({
+          data: {
+            workOrderId: id,
+            locationId: wo.locationId,
+            actorUserId: me.id,
+            event: WorkOrderPingEvent.STOPPED,
+            note: "Work order stopped.",
+          },
+        });
       });
 
-      await tx.workOrderPing.create({
-        data: {
-          workOrderId: id,
-          locationId: wo.locationId,
-          actorUserId: me.id,
-          event: WorkOrderPingEvent.STOPPED,
-          note: "Work order stopped.",
-        },
-      });
-    });
-
-    revalidatePath(`/maintenance/work-orders/${id}`);
-    revalidatePath(`/maintenance/work-orders`);
-    redirect(`/maintenance/work-orders/${id}`);
+      revalidatePath(`/maintenance/work-orders/${id}`);
+      revalidatePath(`/maintenance/work-orders`);
+      redirect(`/maintenance/work-orders/${id}`);
+    } catch (error) {
+      unstable_rethrow(error);
+      console.error("endNowAction failed:", error);
+      redirect(buildDetailRedirectPath(id, getDetailWorkOrderErrorMessage(error, "Failed to end the work order. Please try again.")));
+    }
   }
 
   async function saveAction(formData: FormData) {
@@ -582,41 +620,47 @@ export default async function MaintenanceWorkOrderDetailPage({
   async function submitAction(formData: FormData) {
     "use server";
 
-    const session = (await getServerSession(authOptions)) as SessionShape;
-    requireSession(session);
+    try {
+      const session = (await getServerSession(authOptions)) as SessionShape;
+      requireSession(session);
 
-    const email = (session?.user?.email ?? "").toLowerCase().trim();
-    const isAdmin = session?.user?.role === Role.ADMIN;
+      const email = (session?.user?.email ?? "").toLowerCase().trim();
+      const isAdmin = session?.user?.role === Role.ADMIN;
 
-    const me = await prisma.user.findUnique({ where: { email }, select: { id: true, active: true } });
-    if (!me || !me.active) redirect("/login");
+      const me = await prisma.user.findUnique({ where: { email }, select: { id: true, active: true } });
+      if (!me || !me.active) redirect("/login");
 
-    const wo = await prisma.workOrder.findUnique({
-      where: { id },
-      select: { createdByUserId: true },
-    });
-    if (!wo) notFound();
-    if (!isAdmin && wo.createdByUserId !== me.id) redirect("/maintenance/work-orders");
+      const wo = await prisma.workOrder.findUnique({
+        where: { id },
+        select: { createdByUserId: true },
+      });
+      if (!wo) notFound();
+      if (!isAdmin && wo.createdByUserId !== me.id) redirect("/maintenance/work-orders");
 
-    const endTime = parseOptionalDateTimeLocal(formData.get("endTime"));
-    const endingMileage = parseOptionalInt(formData.get("endingMileage"));
-    if (!endTime) throw new Error("End time is required to submit.");
-    if (endingMileage === null) throw new Error("Ending mileage is required to submit.");
+      const endTime = parseOptionalDateTimeLocal(formData.get("endTime"));
+      const endingMileage = parseOptionalInt(formData.get("endingMileage"));
+      if (!endTime) throw new Error("End time is required to submit.");
+      if (endingMileage === null) throw new Error("Ending mileage is required to submit.");
 
-    await prisma.workOrder.update({
-      where: { id },
-      data: {
-        endTime,
-        endingMileage,
-        status: "SUBMITTED",
-        updatedByUserId: me.id,
-      },
-    });
+      await prisma.workOrder.update({
+        where: { id },
+        data: {
+          endTime,
+          endingMileage,
+          status: "SUBMITTED",
+          updatedByUserId: me.id,
+        },
+      });
 
-    revalidatePath(`/maintenance/work-orders/${id}`);
-    revalidatePath(`/maintenance/work-orders`);
-    revalidatePath(`/admin/work-orders`);
-    redirect(`/maintenance/work-orders/${id}`);
+      revalidatePath(`/maintenance/work-orders/${id}`);
+      revalidatePath(`/maintenance/work-orders`);
+      revalidatePath(`/admin/work-orders`);
+      redirect(`/maintenance/work-orders/${id}`);
+    } catch (error) {
+      unstable_rethrow(error);
+      console.error("submitAction failed:", error);
+      redirect(buildDetailRedirectPath(id, getDetailWorkOrderErrorMessage(error, "Failed to submit the work order. Please try again.")));
+    }
   }
 
   return (
@@ -630,6 +674,12 @@ export default async function MaintenanceWorkOrderDetailPage({
           <div style={{ fontSize: 14, opacity: 0.8 }}>id: {workOrder.id}</div>
           {workOrder.workOrderNumber ? <div style={{ fontSize: 14, opacity: 0.8 }}>WO#: {workOrder.workOrderNumber}</div> : null}
         </div>
+
+        {err ? (
+          <div style={{ ...card, marginTop: 14, border: "1px solid rgba(220,60,60,0.35)" }}>
+            {err}
+          </div>
+        ) : null}
 
         <div style={{ ...card, marginTop: 14 }}>
           <div style={{ display: "grid", gap: 10 }}>
