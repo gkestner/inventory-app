@@ -216,7 +216,7 @@ async function findWorkOrdersMe(email: string): Promise<WorkOrdersMeRow | null> 
         location: { select: { id: true, name: true, active: true, receiptEnabled: true } },
       },
     },
-  } as const;
+  };
 
   try {
     return (await prisma.user.findUnique({
