@@ -81,6 +81,10 @@ export default function WorkOrderEquipmentSelector({
     fontSize: 12,
     fontWeight: 900,
     opacity: 0.88,
+    border: "none",
+    background: "transparent",
+    padding: 0,
+    textAlign: "left",
   };
 
   const checklistListStyle: CSSProperties = {
@@ -105,6 +109,7 @@ export default function WorkOrderEquipmentSelector({
           const templates = templatesByArea[area] ?? [];
           const checkedCount = templates.filter((item) => selectedChecklistSet.has(item.id)).length;
           const isSelected = selectedAreaSet.has(area);
+          const isOpen = openByArea[area] ?? false;
 
           return (
             <div key={area} style={cardStyle}>
@@ -116,9 +121,10 @@ export default function WorkOrderEquipmentSelector({
                   defaultChecked={isSelected}
                   style={checkboxStyle}
                   onChange={(event) => {
+                    const checked = event.currentTarget.checked;
                     setOpenByArea((current) => ({
                       ...current,
-                      [area]: event.currentTarget.checked,
+                      [area]: checked,
                     }));
                   }}
                 />
@@ -126,32 +132,37 @@ export default function WorkOrderEquipmentSelector({
               </label>
 
               {templates.length > 0 ? (
-                <details
-                  style={detailsStyle}
-                  open={openByArea[area]}
-                  onToggle={(event) => {
-                    setOpenByArea((current) => ({
-                      ...current,
-                      [area]: event.currentTarget.open,
-                    }));
-                  }}
-                >
-                  <summary style={summaryStyle}>{checkedCount > 0 ? `Checklist (${checkedCount})` : "Checklist"}</summary>
-                  <div style={checklistListStyle}>
-                    {templates.map((item) => (
-                      <label key={item.id} style={checklistItemStyle}>
-                        <input
-                          type="checkbox"
-                          name="checklistItemIds"
-                          value={item.id}
-                          defaultChecked={selectedChecklistSet.has(item.id)}
-                          style={checkboxStyle}
-                        />
-                        <span>{item.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </details>
+                <div style={detailsStyle}>
+                  <button
+                    type="button"
+                    style={summaryStyle}
+                    aria-expanded={isOpen}
+                    onClick={() => {
+                      setOpenByArea((current) => ({
+                        ...current,
+                        [area]: !current[area],
+                      }));
+                    }}
+                  >
+                    {checkedCount > 0 ? `Checklist (${checkedCount})` : "Checklist"}
+                  </button>
+                  {isOpen ? (
+                    <div style={checklistListStyle}>
+                      {templates.map((item) => (
+                        <label key={item.id} style={checklistItemStyle}>
+                          <input
+                            type="checkbox"
+                            name="checklistItemIds"
+                            value={item.id}
+                            defaultChecked={selectedChecklistSet.has(item.id)}
+                            style={checkboxStyle}
+                          />
+                          <span>{item.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           );
