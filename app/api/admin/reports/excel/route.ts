@@ -793,9 +793,9 @@ async function permissionCoverage() {
   ];
   const users = await prisma.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, email: true, role: true, permissions: { select: { permission: true } } } });
   const rows = users.map((u) => {
-    const userPerms = new Set(u.permissions.map((p) => p.permission));
+    const userPerms = new Set(u.permissions.map((p) => String(p.permission)));
     const row: Row = { user: personLabel(u), email: u.email, role: u.role };
-    for (const [label, perm] of perms) row[label] = userPerms.has(perm) ? "Allowed" : "";
+    for (const [label, perm] of perms) row[label] = userPerms.has(String(perm)) ? "Allowed" : "";
     return row;
   });
   return exportWorkbook(`permission-coverage_${fileStamp()}`, "Permission Coverage", rows, [
