@@ -14,16 +14,15 @@ import { ensureFinalizedWorkOrderNumber, finalizePendingWorkOrders } from "@/app
 import AttachmentUploader from "./AttachmentUploader";
 import WorkOrderEquipmentSelector from "@/app/components/WorkOrderEquipmentSelector";
 import {
-  WORK_ORDER_EQUIPMENT_AREAS,
   type WorkOrderChecklistTx,
   type WorkOrderEquipmentArea,
   buildChecklistItemIdSet,
   formatChecklistSelectionSummary,
-  formatWorkOrderEquipmentAreaLabel,
   formatWorkOrderEquipmentAreaLabelWithLegacy,
   groupChecklistItemsByArea,
   isLegacyWorkOrderEquipmentArea,
   listChecklistItems,
+  listWorkOrderEquipmentCategories,
   listChecklistSelectionsForWorkOrders,
   parseChecklistItemIds,
   parseWorkOrderEquipmentAreas,
@@ -55,9 +54,6 @@ type EquipmentArea = WorkOrderEquipmentArea;
 type LegacyEquipmentArea = "FRONT_COUNTER" | "DRIVE_THRU" | "KITCHEN" | "ROOF" | "HVAC";
 type EquipmentAreaDb = EquipmentArea | LegacyEquipmentArea;
 
-const EQUIPMENT_AREAS: readonly EquipmentArea[] = WORK_ORDER_EQUIPMENT_AREAS;
-
-const LEGACY_AREAS: LegacyEquipmentArea[] = ["FRONT_COUNTER", "DRIVE_THRU", "KITCHEN", "ROOF", "HVAC"];
 const STATUSES: WorkOrderStatus[] = ["DRAFT", "SUBMITTED", "FINALIZED"];
 
 type LocationRow = { id: string; name: string };
@@ -96,6 +92,16 @@ type WorkOrderAttachmentRow = {
   url: string;
   createdAt: Date;
   addedByUser: { name: string | null; email: string } | null;
+};
+
+type WorkOrderAttachmentDelegate = {
+  findMany: (args: unknown) => Promise<WorkOrderAttachmentRow[]>;
+  create: (args: unknown) => Promise<unknown>;
+};
+
+type CompatWorkOrderDb = {
+  user: { findUnique: (args: unknown) => Promise<{ id: string } | null> };
+  workOrderAttachment?: Partial<WorkOrderAttachmentDelegate>;
 };
 
 /**
@@ -243,10 +249,6 @@ function fmtForDatetimeLocal(d: Date | null): string {
   return `${y}-${mo}-${da}T${h}:${mi}`;
 }
 
-function formatAreaLabel(area: string): string {
-  return formatWorkOrderEquipmentAreaLabel(area);
-}
-
 function formatAreaLabelWithLegacy(area: EquipmentAreaDb): string {
   return formatWorkOrderEquipmentAreaLabelWithLegacy(area);
 }
@@ -268,7 +270,7 @@ function formatBytes(v: number | null): string {
 async function getActorUserId(session: AdminSession): Promise<string | null> {
   const email = session?.user?.email?.trim().toLowerCase();
   if (!email) return null;
-  const actor = await (getCompatDb() as any).user.findUnique({ where: { email }, select: { id: true } });
+  const actor = await (getCompatDb() as CompatWorkOrderDb).user.findUnique({ where: { email }, select: { id: true } });
   return actor?.id ?? null;
 }
 
@@ -318,7 +320,7 @@ export default async function AdminWorkOrderDetailPage({
 
   if (!workOrder) notFound();
 
-  const compat = getCompatDb() as any;
+  const compat = getCompatDb() as CompatWorkOrderDb;
   const attachments: WorkOrderAttachmentRow[] = compat.workOrderAttachment?.findMany
     ? await compat.workOrderAttachment.findMany({
         where: { workOrderId: id },
@@ -355,30 +357,14 @@ export default async function AdminWorkOrderDetailPage({
     fontWeight: 900,
     cursor: "pointer",
   };
-  const gridWrap: CSSProperties = {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-    gap: 10,
-    marginTop: 8,
-  };
-  const gridLabel: CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    padding: "6px 8px",
-    border,
-    borderRadius: 10,
-    fontSize: 13,
-    background: soft,
-  };
-
   const selectedAreasDb = workOrder.equipmentAreas.map((a) => a.area);
   const hasLegacy = selectedAreasDb.some((a) => isLegacyArea(a));
-  const [checklistItems, checklistSelections] = await Promise.all([
+  const [equipmentCategories, checklistItems, checklistSelections] = await Promise.all([
+    listWorkOrderEquipmentCategories(),
     listChecklistItems(),
     listChecklistSelectionsForWorkOrders([id]),
   ]);
-  const checklistItemsByArea = groupChecklistItemsByArea(checklistItems);
+  const checklistItemsByArea = groupChecklistItemsByArea(checklistItems, equipmentCategories);
   const selectedChecklistItemIds = buildChecklistItemIdSet(checklistSelections);
   const checklistSummary = formatChecklistSelectionSummary(
     checklistSelections.map((row) => ({ area: row.area, labelSnapshot: row.labelSnapshot }))
@@ -640,7 +626,7 @@ export default async function AdminWorkOrderDetailPage({
       throw new Error("Attachment URL must start with https://, http://, or gs://.");
     }
 
-    const dbCompat = getCompatDb() as any;
+    const dbCompat = getCompatDb() as CompatWorkOrderDb;
     if (!dbCompat.workOrderAttachment?.create) {
       throw new Error("Work order attachments table not available. Run latest migrations.");
     }
@@ -815,6 +801,7 @@ export default async function AdminWorkOrderDetailPage({
             <div>
               <WorkOrderEquipmentSelector
                 title="Equipment Areas"
+                areaOptions={equipmentCategories}
                 templatesByArea={checklistItemsByArea}
                 selectedAreas={selectedAreasDb}
                 selectedChecklistItemIds={selectedChecklistItemIds}

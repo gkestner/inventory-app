@@ -631,7 +631,7 @@ model EquipmentTrackingLog {
 model EquipmentAreaChecklistItem {
   id String @id @default(cuid())
 
-  area EquipmentArea
+  area String
   label String
   sortOrder Int @default(0)
   active Boolean @default(true)
@@ -643,6 +643,18 @@ model EquipmentAreaChecklistItem {
 
   @@index([area, active, sortOrder])
   @@index([area, label])
+}
+
+model WorkOrderEquipmentCategory {
+  key String @id
+  label String
+  sortOrder Int @default(0)
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, sortOrder, label])
 }
 
 model CompanyVehicle {
@@ -1038,7 +1050,7 @@ model WorkOrderPing {
 
 model WorkOrderEquipmentArea {
   workOrderId String
-  area        EquipmentArea
+  area        String
 
   workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
 
@@ -1049,7 +1061,7 @@ model WorkOrderChecklistSelection {
   workOrderId String
   checklistItemId String
   labelSnapshot String
-  area EquipmentArea
+  area String
 
   workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
   checklistItem EquipmentAreaChecklistItem @relation(fields: [checklistItemId], references: [id], onDelete: Restrict)
@@ -1087,7 +1099,7 @@ model ReceiptEntry {
 
 model ReceiptEntryArea {
   receiptEntryId String
-  area           EquipmentArea
+  area           String
 
   receiptEntry ReceiptEntry @relation(fields: [receiptEntryId], references: [id], onDelete: Cascade)
 

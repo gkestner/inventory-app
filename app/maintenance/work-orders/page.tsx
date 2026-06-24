@@ -10,18 +10,17 @@ import { Permission, Role, WorkOrderPingEvent } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import WorkOrderEquipmentSelector from "@/app/components/WorkOrderEquipmentSelector";
 import {
-  WORK_ORDER_EQUIPMENT_AREAS,
   type WorkOrderChecklistTx,
   type WorkOrderEquipmentArea as SharedEquipmentArea,
   type WorkOrderEquipmentAreaDb,
   buildChecklistItemIdSet,
   formatChecklistSelectionSummary,
-  formatWorkOrderEquipmentAreaLabel,
   formatWorkOrderEquipmentAreaLabelWithLegacy,
   groupChecklistItemsByArea,
   groupChecklistSelectionsByWorkOrder,
   isLegacyWorkOrderEquipmentArea,
   listChecklistItems,
+  listWorkOrderEquipmentCategories,
   listChecklistSelectionsForWorkOrders,
   parseChecklistItemIds,
   parseWorkOrderEquipmentAreas,
@@ -165,13 +164,13 @@ function requireSession(session: SessionShape) {
 }
 
 // ✅ No role bypass: permissions control access now.
-function roleBypassesPermissions(_session: SessionShape): boolean {
+function roleBypassesPermissions(): boolean {
   return false;
 }
 
 async function requireWorkOrdersView(session: SessionShape) {
   requireSession(session);
-  if (roleBypassesPermissions(session)) return;
+  if (roleBypassesPermissions()) return;
 
   const perms = await loadUserPermissions(session);
   if (perms.allowAll) return;
@@ -182,7 +181,7 @@ async function requireWorkOrdersView(session: SessionShape) {
 
 async function requireWorkOrdersCreate(session: SessionShape) {
   requireSession(session);
-  if (roleBypassesPermissions(session)) return;
+  if (roleBypassesPermissions()) return;
 
   const perms = await loadUserPermissions(session);
   if (perms.allowAll) return;
@@ -193,7 +192,7 @@ async function requireWorkOrdersCreate(session: SessionShape) {
 
 async function requireWorkOrdersSubmitOwn(session: SessionShape) {
   requireSession(session);
-  if (roleBypassesPermissions(session)) return;
+  if (roleBypassesPermissions()) return;
 
   const perms = await loadUserPermissions(session);
   if (perms.allowAll) return;
@@ -208,7 +207,7 @@ async function requireWorkOrdersSubmitOwn(session: SessionShape) {
  */
 async function requireWorkOrdersUpdateOwn(session: SessionShape) {
   requireSession(session);
-  if (roleBypassesPermissions(session)) return;
+  if (roleBypassesPermissions()) return;
 
   const perms = await loadUserPermissions(session);
   if (perms.allowAll) return;
@@ -236,14 +235,8 @@ type WorkOrdersMeRow = {
   }>;
 };
 
-const EQUIPMENT_AREAS: readonly EquipmentArea[] = WORK_ORDER_EQUIPMENT_AREAS;
-
 function isLegacyArea(a: EquipmentAreaDb): boolean {
   return isLegacyWorkOrderEquipmentArea(a);
-}
-
-function isNonEmptyString(v: unknown): v is string {
-  return typeof v === "string" && v.trim().length > 0;
 }
 
 function parseAreas(formData: FormData): EquipmentArea[] {
@@ -303,10 +296,6 @@ function fmtLocal(d: Date | null): string {
   }).format(new Date(d));
 }
 
-function formatAreaLabel(area: string): string {
-  return formatWorkOrderEquipmentAreaLabel(area);
-}
-
 function formatAreaLabelWithLegacy(area: EquipmentAreaDb): string {
   return formatWorkOrderEquipmentAreaLabelWithLegacy(area);
 }
@@ -364,7 +353,7 @@ export default async function MaintenanceWorkOrdersPage({ searchParams }: { sear
 
   const perms = await loadUserPermissions(session);
   const allowAll = !!perms.allowAll;
-  const bypass = roleBypassesPermissions(session);
+  const bypass = roleBypassesPermissions();
 
   const canCreate = bypass || allowAll || hasAnyPermission(perms, [Permission.CREATE_WORK_ORDERS]);
   const canSubmitOwn = bypass || allowAll || hasAnyPermission(perms, [Permission.SUBMIT_OWN_WORK_ORDERS]);
@@ -433,11 +422,12 @@ export default async function MaintenanceWorkOrdersPage({ searchParams }: { sear
   });
 
   const workOrderIds = Array.from(new Set([...(inProgress ? [inProgress.id] : []), ...workOrders.map((wo) => wo.id)]));
-  const [checklistItems, checklistSelections] = await Promise.all([
+  const [equipmentCategories, checklistItems, checklistSelections] = await Promise.all([
+    listWorkOrderEquipmentCategories(),
     listChecklistItems(),
     listChecklistSelectionsForWorkOrders(workOrderIds),
   ]);
-  const checklistItemsByArea = groupChecklistItemsByArea(checklistItems);
+  const checklistItemsByArea = groupChecklistItemsByArea(checklistItems, equipmentCategories);
   const checklistSelectionsByWorkOrder = groupChecklistSelectionsByWorkOrder(checklistSelections);
 
   const CONTENT_WIDTH = 1100;
@@ -856,6 +846,7 @@ export default async function MaintenanceWorkOrdersPage({ searchParams }: { sear
                   <div>
                     <WorkOrderEquipmentSelector
                       title="Equipment Areas (optional)"
+                      areaOptions={equipmentCategories}
                       templatesByArea={checklistItemsByArea}
                       checkboxStyle={checkboxStyle}
                       gridWrapStyle={gridWrap}
@@ -915,6 +906,7 @@ export default async function MaintenanceWorkOrdersPage({ searchParams }: { sear
 
                   <WorkOrderEquipmentSelector
                     title="Equipment Areas (check what you worked on)"
+                    areaOptions={equipmentCategories}
                     templatesByArea={checklistItemsByArea}
                     selectedAreas={inProgressChecked}
                     selectedChecklistItemIds={buildChecklistItemIdSet(checklistSelectionsByWorkOrder[inProgress.id] ?? [])}
@@ -1115,6 +1107,7 @@ export default async function MaintenanceWorkOrdersPage({ searchParams }: { sear
 
                                 <WorkOrderEquipmentSelector
                                   title="Equipment Areas"
+                                  areaOptions={equipmentCategories}
                                   templatesByArea={checklistItemsByArea}
                                   selectedAreas={checked}
                                   selectedChecklistItemIds={buildChecklistItemIdSet(checklistSelectionsByWorkOrder[wo.id] ?? [])}

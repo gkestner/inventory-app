@@ -10,11 +10,14 @@ import { prisma } from "@/app/lib/prisma";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import ChecklistItemEditor from "./ChecklistItemEditor";
 import {
-  WORK_ORDER_EQUIPMENT_AREAS,
+  buildWorkOrderEquipmentCategoryKey,
   formatWorkOrderEquipmentAreaLabel,
   groupChecklistItemsByArea,
+  isWorkOrderEquipmentArea,
   listChecklistItems,
+  listWorkOrderEquipmentCategories,
   type EquipmentAreaChecklistItemRow,
+  type WorkOrderEquipmentCategoryRow,
   type WorkOrderEquipmentArea,
 } from "@/app/lib/work-order-equipment";
 
@@ -38,7 +41,12 @@ type ChecklistItemDelegate = {
   delete: (args: unknown) => Promise<unknown>;
 };
 
+type CategoryDelegate = {
+  create: (args: unknown) => Promise<unknown>;
+};
+
 const db = prisma as unknown as {
+  workOrderEquipmentCategory: CategoryDelegate;
   equipmentAreaChecklistItem: ChecklistItemDelegate;
 };
 
@@ -55,7 +63,7 @@ async function requireChecklistAdmin(session: SessionShape) {
 
 function toArea(raw: FormDataEntryValue | null): WorkOrderEquipmentArea {
   const value = String(raw ?? "").trim();
-  if (!(WORK_ORDER_EQUIPMENT_AREAS as readonly string[]).includes(value)) {
+  if (!isWorkOrderEquipmentArea(value)) {
     throw new Error("Invalid equipment area.");
   }
   return value as WorkOrderEquipmentArea;
@@ -84,6 +92,40 @@ function isRedirectLikeError(error: unknown): boolean {
 export default async function AdminWorkOrderChecklistsPage({ searchParams }: { searchParams?: Promise<SearchParams> }) {
   const session = (await getServerSession(authOptions)) as SessionShape;
   await requireChecklistAdmin(session);
+
+  async function createCategoryAction(formData: FormData) {
+    "use server";
+
+    const session = (await getServerSession(authOptions)) as SessionShape;
+    await requireChecklistAdmin(session);
+
+    try {
+      const label = normalizeLabel(formData.get("categoryLabel"));
+      const key = buildWorkOrderEquipmentCategoryKey(label);
+
+      await db.workOrderEquipmentCategory.create({
+        data: {
+          key,
+          label,
+          sortOrder: 0,
+          active: true,
+        },
+      } as unknown);
+
+      revalidatePath("/admin/work-orders/checklists");
+      revalidatePath("/maintenance/work-orders");
+      revalidatePath("/maintenance/work-orders/[id]");
+      revalidatePath("/admin/work-orders/[id]");
+      buildRedirect("Main category added.");
+    } catch (error) {
+      if (isRedirectLikeError(error)) throw error;
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        buildRedirect(undefined, "That main category already exists.");
+      }
+      const message = error instanceof Error ? error.message : "Failed to add main category.";
+      buildRedirect(undefined, message);
+    }
+  }
 
   async function createChecklistItemAction(formData: FormData) {
     "use server";
@@ -183,8 +225,11 @@ export default async function AdminWorkOrderChecklistsPage({ searchParams }: { s
   const ok = String(sp.ok ?? "").trim();
   const err = String(sp.err ?? "").trim();
 
-  const items = await listChecklistItems({ includeInactive: true });
-  const itemsByArea = groupChecklistItemsByArea(items);
+  const [categories, items] = await Promise.all([
+    listWorkOrderEquipmentCategories({ includeInactive: true }),
+    listChecklistItems({ includeInactive: true }),
+  ]);
+  const itemsByArea = groupChecklistItemsByArea(items, categories);
 
   const shell: CSSProperties = { padding: 20, display: "grid", gap: 14 };
   const card: CSSProperties = {
@@ -242,17 +287,31 @@ export default async function AdminWorkOrderChecklistsPage({ searchParams }: { s
         {err ? <div style={{ marginTop: 10, padding: 10, border: "1px solid rgba(220,60,60,0.35)", borderRadius: 10 }}>{err}</div> : null}
       </section>
 
+      <section style={card}>
+        <form action={createCategoryAction} style={{ display: "grid", gap: 10 }}>
+          <div style={{ fontSize: 16, fontWeight: 900 }}>New Main Category</div>
+          <div style={createRowGrid}>
+            <label style={label}>
+              Category Name
+              <input name="categoryLabel" placeholder="Example: Ice Machine" style={input} required />
+            </label>
+            <button type="submit" style={btn}>Add Category</button>
+          </div>
+        </form>
+      </section>
+
       <section style={areaGrid}>
-        {WORK_ORDER_EQUIPMENT_AREAS.map((area) => {
-          const rows = itemsByArea[area] ?? [];
+        {categories.map((category: WorkOrderEquipmentCategoryRow) => {
+          const rows = itemsByArea[category.key] ?? [];
           return (
-            <section key={area} style={card}>
+            <section key={category.key} style={card}>
               <h2 style={{ marginTop: 0, marginBottom: 12, fontSize: 18, fontWeight: 900 }}>
-                {formatWorkOrderEquipmentAreaLabel(area)}
+                {category.label || formatWorkOrderEquipmentAreaLabel(category.key)}
+                {!category.active ? <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.7 }}>(inactive)</span> : null}
               </h2>
 
               <form action={createChecklistItemAction} style={{ display: "grid", gap: 10, marginBottom: 14 }}>
-                <input type="hidden" name="area" value={area} />
+                <input type="hidden" name="area" value={category.key} />
                 <div style={createRowGrid}>
                   <label style={label}>
                     New Checklist Item
@@ -272,7 +331,7 @@ export default async function AdminWorkOrderChecklistsPage({ searchParams }: { s
                   <ChecklistItemEditor
                     key={row.id}
                     id={row.id}
-                    area={area}
+                    area={category.key}
                     defaultLabel={row.label}
                     defaultActive={row.active}
                     updateAction={updateChecklistItemAction}

@@ -25,9 +25,16 @@ export const WORK_ORDER_EQUIPMENT_AREAS = [
 
 export const WORK_ORDER_LEGACY_EQUIPMENT_AREAS = ["FRONT_COUNTER", "DRIVE_THRU", "KITCHEN", "ROOF", "HVAC"] as const;
 
-export type WorkOrderEquipmentArea = (typeof WORK_ORDER_EQUIPMENT_AREAS)[number];
+export type WorkOrderEquipmentArea = string;
 export type WorkOrderLegacyEquipmentArea = (typeof WORK_ORDER_LEGACY_EQUIPMENT_AREAS)[number];
 export type WorkOrderEquipmentAreaDb = WorkOrderEquipmentArea | WorkOrderLegacyEquipmentArea;
+
+export type WorkOrderEquipmentCategoryRow = {
+  key: string;
+  label: string;
+  sortOrder: number;
+  active: boolean;
+};
 
 export type EquipmentAreaChecklistItemRow = {
   id: string;
@@ -48,6 +55,10 @@ type ChecklistItemDelegate = {
   findMany: (args: unknown) => Promise<EquipmentAreaChecklistItemRow[]>;
 };
 
+type CategoryDelegate = {
+  findMany: (args: unknown) => Promise<WorkOrderEquipmentCategoryRow[]>;
+};
+
 type ChecklistSelectionDelegate = {
   findMany: (args: unknown) => Promise<WorkOrderChecklistSelectionRow[]>;
   deleteMany: (args: unknown) => Promise<unknown>;
@@ -55,6 +66,7 @@ type ChecklistSelectionDelegate = {
 };
 
 type ChecklistDb = {
+  workOrderEquipmentCategory?: CategoryDelegate;
   equipmentAreaChecklistItem: ChecklistItemDelegate;
   workOrderChecklistSelection: ChecklistSelectionDelegate;
 };
@@ -65,6 +77,15 @@ export type WorkOrderChecklistTx = {
 };
 
 const db = prisma as unknown as ChecklistDb;
+
+export const DEFAULT_WORK_ORDER_EQUIPMENT_CATEGORIES: WorkOrderEquipmentCategoryRow[] = WORK_ORDER_EQUIPMENT_AREAS.map(
+  (key, index) => ({
+    key,
+    label: formatWorkOrderEquipmentAreaLabel(key),
+    sortOrder: (index + 1) * 10,
+    active: true,
+  })
+);
 
 function dedupeStrings(values: string[]): string[] {
   const seen = new Set<string>();
@@ -78,7 +99,7 @@ function dedupeStrings(values: string[]): string[] {
 }
 
 export function isWorkOrderEquipmentArea(value: string): value is WorkOrderEquipmentArea {
-  return (WORK_ORDER_EQUIPMENT_AREAS as readonly string[]).includes(value);
+  return /^[A-Z0-9_]{2,80}$/.test(value);
 }
 
 export function isLegacyWorkOrderEquipmentArea(value: string): value is WorkOrderLegacyEquipmentArea {
@@ -109,6 +130,7 @@ export function parseChecklistItemIds(formData: FormData): string[] {
 }
 
 export function formatWorkOrderEquipmentAreaLabel(area: string): string {
+  if (area === "MAKETABLE") return "Make Table";
   const parts = area.split("_").filter(Boolean);
   const out: string[] = [];
   for (const part of parts) {
@@ -129,6 +151,45 @@ export function formatWorkOrderEquipmentAreaLabel(area: string): string {
 export function formatWorkOrderEquipmentAreaLabelWithLegacy(area: WorkOrderEquipmentAreaDb): string {
   const label = formatWorkOrderEquipmentAreaLabel(area);
   return isLegacyWorkOrderEquipmentArea(area) ? `${label} (legacy)` : label;
+}
+
+export function buildWorkOrderEquipmentCategoryKey(label: string): string {
+  const key = label
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_")
+    .toUpperCase();
+
+  if (!isWorkOrderEquipmentArea(key)) {
+    throw new Error("Category name must include at least two letters or numbers.");
+  }
+
+  return key;
+}
+
+export async function listWorkOrderEquipmentCategories(args?: {
+  includeInactive?: boolean;
+}): Promise<WorkOrderEquipmentCategoryRow[]> {
+  const includeInactive = args?.includeInactive ?? false;
+  try {
+    if (!db.workOrderEquipmentCategory) return DEFAULT_WORK_ORDER_EQUIPMENT_CATEGORIES;
+    const rows = await db.workOrderEquipmentCategory.findMany({
+      where: includeInactive ? undefined : { active: true },
+      orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
+      select: {
+        key: true,
+        label: true,
+        sortOrder: true,
+        active: true,
+      },
+    } as unknown);
+
+    return rows.length > 0 ? rows : DEFAULT_WORK_ORDER_EQUIPMENT_CATEGORIES;
+  } catch (error) {
+    if (isSchemaOrDbNotReadyError(error)) return DEFAULT_WORK_ORDER_EQUIPMENT_CATEGORIES;
+    throw error;
+  }
 }
 
 export async function listChecklistItems(args?: { includeInactive?: boolean }): Promise<EquipmentAreaChecklistItemRow[]> {
@@ -152,15 +213,17 @@ export async function listChecklistItems(args?: { includeInactive?: boolean }): 
 }
 
 export function groupChecklistItemsByArea(
-  rows: EquipmentAreaChecklistItemRow[]
-): Record<WorkOrderEquipmentArea, EquipmentAreaChecklistItemRow[]> {
-  const grouped = {} as Record<WorkOrderEquipmentArea, EquipmentAreaChecklistItemRow[]>;
-  for (const area of WORK_ORDER_EQUIPMENT_AREAS) {
-    grouped[area] = [];
+  rows: EquipmentAreaChecklistItemRow[],
+  categories: Array<{ key: string }> = DEFAULT_WORK_ORDER_EQUIPMENT_CATEGORIES
+): Record<string, EquipmentAreaChecklistItemRow[]> {
+  const grouped: Record<string, EquipmentAreaChecklistItemRow[]> = {};
+  for (const category of categories) {
+    grouped[category.key] = [];
   }
 
   for (const row of rows) {
     if (!isWorkOrderEquipmentArea(row.area)) continue;
+    if (!grouped[row.area]) grouped[row.area] = [];
     grouped[row.area].push(row);
   }
 

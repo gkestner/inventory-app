@@ -9,20 +9,19 @@ import { headers } from "next/headers";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { getCompatDb, getGcsConfig } from "@/app/lib/workflow-foundations";
-import { EquipmentArea, Role, WorkOrderPingEvent } from "@prisma/client";
+import { Role, WorkOrderPingEvent } from "@prisma/client";
 import AttachmentUploader from "./AttachmentUploader";
 import WorkOrderEquipmentSelector from "@/app/components/WorkOrderEquipmentSelector";
 import {
-  WORK_ORDER_EQUIPMENT_AREAS,
   type WorkOrderChecklistTx,
   type WorkOrderEquipmentArea,
   buildChecklistItemIdSet,
   formatChecklistSelectionSummary,
-  formatWorkOrderEquipmentAreaLabel,
   formatWorkOrderEquipmentAreaLabelWithLegacy,
   groupChecklistItemsByArea,
   isLegacyWorkOrderEquipmentArea,
   listChecklistItems,
+  listWorkOrderEquipmentCategories,
   listChecklistSelectionsForWorkOrders,
   parseChecklistItemIds,
   parseWorkOrderEquipmentAreas,
@@ -86,21 +85,22 @@ type WorkOrderAttachmentRow = {
   addedByUser: { name: string | null; email: string } | null;
 };
 
-const EQUIPMENT_AREAS: readonly WorkOrderEquipmentArea[] = WORK_ORDER_EQUIPMENT_AREAS;
-
-const LEGACY_AREAS: LegacyEquipmentArea[] = ["FRONT_COUNTER", "DRIVE_THRU", "KITCHEN", "ROOF", "HVAC"];
 const STATUSES: WorkOrderStatus[] = ["DRAFT", "SUBMITTED", "FINALIZED"];
+
+type EquipmentArea = WorkOrderEquipmentArea;
+
+type CompatWorkOrderDb = {
+  workOrderAttachment?: {
+    findMany?: (args: unknown) => Promise<WorkOrderAttachmentRow[]>;
+  };
+};
 
 function isLegacyArea(a: EquipmentArea): boolean {
   return isLegacyWorkOrderEquipmentArea(String(a));
 }
 
-function isNonEmptyString(v: unknown): v is string {
-  return typeof v === "string" && v.trim().length > 0;
-}
-
 function parseAreas(formData: FormData): EquipmentArea[] {
-  return parseWorkOrderEquipmentAreas(formData) as EquipmentArea[];
+  return parseWorkOrderEquipmentAreas(formData);
 }
 
 function parseOptionalInt(v: FormDataEntryValue | null): number | null {
@@ -210,10 +210,6 @@ function fmtForDatetimeLocal(d: Date | null): string {
   const h = get("hour");
   const mi = get("minute");
   return `${y}-${mo}-${da}T${h}:${mi}`;
-}
-
-function formatAreaLabel(area: string): string {
-  return formatWorkOrderEquipmentAreaLabel(area);
 }
 
 function formatAreaLabelWithLegacy(area: EquipmentArea): string {
@@ -338,18 +334,19 @@ export default async function MaintenanceWorkOrderDetailPage({
 
   const selectedAreasDb: EquipmentArea[] = workOrder.equipmentAreas.map((a) => a.area);
   const hasLegacy = selectedAreasDb.some((a) => isLegacyArea(a));
-  const [checklistItems, checklistSelections] = await Promise.all([
+  const [equipmentCategories, checklistItems, checklistSelections] = await Promise.all([
+    listWorkOrderEquipmentCategories(),
     listChecklistItems(),
     listChecklistSelectionsForWorkOrders([id]),
   ]);
-  const checklistItemsByArea = groupChecklistItemsByArea(checklistItems);
+  const checklistItemsByArea = groupChecklistItemsByArea(checklistItems, equipmentCategories);
   const selectedChecklistItemIds = buildChecklistItemIdSet(checklistSelections);
   const checklistSummary = formatChecklistSelectionSummary(
     checklistSelections.map((row) => ({ area: row.area, labelSnapshot: row.labelSnapshot }))
   );
   const gcs = getGcsConfig();
 
-  const compat = getCompatDb() as any;
+  const compat = getCompatDb() as CompatWorkOrderDb;
   const attachments: WorkOrderAttachmentRow[] = compat.workOrderAttachment?.findMany
     ? await compat.workOrderAttachment.findMany({
         where: { workOrderId: id },
@@ -820,6 +817,7 @@ export default async function MaintenanceWorkOrderDetailPage({
             <div>
               <WorkOrderEquipmentSelector
                 title="Equipment Areas"
+                areaOptions={equipmentCategories}
                 templatesByArea={checklistItemsByArea}
                 selectedAreas={selectedAreasDb.map((a) => String(a))}
                 selectedChecklistItemIds={selectedChecklistItemIds}

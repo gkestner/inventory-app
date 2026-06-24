@@ -3,15 +3,15 @@
 import { useState, type CSSProperties } from "react";
 
 import {
-  WORK_ORDER_EQUIPMENT_AREAS,
   type EquipmentAreaChecklistItemRow,
   type WorkOrderEquipmentArea,
-  formatWorkOrderEquipmentAreaLabel,
+  type WorkOrderEquipmentCategoryRow,
 } from "@/app/lib/work-order-equipment";
 
 type Props = {
   title: string;
-  templatesByArea: Record<WorkOrderEquipmentArea, EquipmentAreaChecklistItemRow[]>;
+  areaOptions: WorkOrderEquipmentCategoryRow[];
+  templatesByArea: Record<string, EquipmentAreaChecklistItemRow[]>;
   selectedAreas?: Iterable<string>;
   selectedChecklistItemIds?: Iterable<string>;
   helperText?: string;
@@ -22,6 +22,7 @@ type Props = {
 
 export default function WorkOrderEquipmentSelector({
   title,
+  areaOptions,
   templatesByArea,
   selectedAreas,
   selectedChecklistItemIds,
@@ -34,10 +35,10 @@ export default function WorkOrderEquipmentSelector({
   const selectedChecklistSet = new Set(Array.from(selectedChecklistItemIds ?? []));
   const [openByArea, setOpenByArea] = useState<Record<WorkOrderEquipmentArea, boolean>>(() => {
     const initial = {} as Record<WorkOrderEquipmentArea, boolean>;
-    for (const area of WORK_ORDER_EQUIPMENT_AREAS) {
-      const templates = templatesByArea[area] ?? [];
+    for (const area of areaOptions) {
+      const templates = templatesByArea[area.key] ?? [];
       const checkedCount = templates.filter((item) => selectedChecklistSet.has(item.id)).length;
-      initial[area] = selectedAreaSet.has(area) || checkedCount > 0;
+      initial[area.key] = selectedAreaSet.has(area.key) || checkedCount > 0;
     }
     return initial;
   });
@@ -105,30 +106,30 @@ export default function WorkOrderEquipmentSelector({
     <div>
       <div style={{ fontSize: 14, fontWeight: 900, opacity: 0.95 }}>{title}</div>
       <div style={wrapStyle}>
-        {WORK_ORDER_EQUIPMENT_AREAS.map((area) => {
-          const templates = templatesByArea[area] ?? [];
+        {areaOptions.map((area) => {
+          const templates = templatesByArea[area.key] ?? [];
           const checkedCount = templates.filter((item) => selectedChecklistSet.has(item.id)).length;
-          const isSelected = selectedAreaSet.has(area);
-          const isOpen = openByArea[area] ?? false;
+          const isSelected = selectedAreaSet.has(area.key);
+          const isOpen = openByArea[area.key] ?? false;
 
           return (
-            <div key={area} style={cardStyle}>
+            <div key={area.key} style={cardStyle}>
               <label style={labelStyle}>
                 <input
                   type="checkbox"
                   name="areas"
-                  value={area}
+                  value={area.key}
                   defaultChecked={isSelected}
                   style={checkboxStyle}
                   onChange={(event) => {
                     const checked = event.currentTarget.checked;
                     setOpenByArea((current) => ({
                       ...current,
-                      [area]: checked,
+                      [area.key]: checked,
                     }));
                   }}
                 />
-                <span>{formatWorkOrderEquipmentAreaLabel(area)}</span>
+                <span>{area.label}</span>
               </label>
 
               {templates.length > 0 ? (
@@ -140,7 +141,7 @@ export default function WorkOrderEquipmentSelector({
                     onClick={() => {
                       setOpenByArea((current) => ({
                         ...current,
-                        [area]: !current[area],
+                        [area.key]: !current[area.key],
                       }));
                     }}
                   >

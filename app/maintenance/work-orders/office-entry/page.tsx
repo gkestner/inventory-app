@@ -10,12 +10,11 @@ import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { CREATE_WORK_ORDERS_FOR_OTHERS } from "@/app/lib/permission-constants";
 import WorkOrderEquipmentSelector from "@/app/components/WorkOrderEquipmentSelector";
 import {
-  WORK_ORDER_EQUIPMENT_AREAS,
   type WorkOrderChecklistTx,
   type WorkOrderEquipmentArea,
-  formatWorkOrderEquipmentAreaLabel,
   groupChecklistItemsByArea,
   listChecklistItems,
+  listWorkOrderEquipmentCategories,
   parseChecklistItemIds,
   parseWorkOrderEquipmentAreas,
   syncWorkOrderChecklistSelections,
@@ -33,8 +32,6 @@ type SessionShape = {
 
 type WorkOrderStatus = "DRAFT" | "SUBMITTED";
 type EquipmentArea = WorkOrderEquipmentArea;
-
-const EQUIPMENT_AREAS: readonly EquipmentArea[] = WORK_ORDER_EQUIPMENT_AREAS;
 
 async function requireOfficeEntryAccess(session: SessionShape) {
   if (!session) redirect("/login");
@@ -68,10 +65,6 @@ function parseAreas(formData: FormData): EquipmentArea[] {
   return parseWorkOrderEquipmentAreas(formData);
 }
 
-function formatAreaLabel(area: string): string {
-  return formatWorkOrderEquipmentAreaLabel(area);
-}
-
 function fmtForDatetimeLocal(d: Date | null): string {
   if (!d) return "";
   const x = new Date(d);
@@ -99,7 +92,11 @@ function fmtLocal(d: Date | null): string {
 export default async function WorkOrderOfficeEntryPage() {
   const session = (await getServerSession(authOptions)) as SessionShape;
   await requireOfficeEntryAccess(session);
-  const checklistItemsByArea = groupChecklistItemsByArea(await listChecklistItems());
+  const [equipmentCategories, checklistItems] = await Promise.all([
+    listWorkOrderEquipmentCategories(),
+    listChecklistItems(),
+  ]);
+  const checklistItemsByArea = groupChecklistItemsByArea(checklistItems, equipmentCategories);
 
   async function createOfficeWorkOrderAction(formData: FormData) {
     "use server";
@@ -239,21 +236,6 @@ export default async function WorkOrderOfficeEntryPage() {
     fontWeight: 900,
     cursor: "pointer",
   };
-  const gridWrap: CSSProperties = {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))",
-    gap: 10,
-    marginTop: 10,
-  };
-  const gridItem: CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    padding: "8px 10px",
-    border: "1px solid rgba(128,128,128,0.25)",
-    borderRadius: 10,
-  };
-
   return (
     <main style={shell}>
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -343,6 +325,7 @@ export default async function WorkOrderOfficeEntryPage() {
           <div>
             <WorkOrderEquipmentSelector
               title="Equipment Areas (optional)"
+              areaOptions={equipmentCategories}
               templatesByArea={checklistItemsByArea}
               helperText="Office entry can assign both the high-level area and any detailed checklist items completed on the paper form."
             />
