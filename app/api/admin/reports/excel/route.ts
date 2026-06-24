@@ -561,6 +561,7 @@ async function maintenanceRequests(sp: URLSearchParams) {
     updatedAt: r.updatedAt,
     resolutionNotes: r.resolutionNotes,
   }));
+  const avgResolutionHours = computeAverageResolutionHours(rowsRaw.map((r) => ({ createdAt: r.createdAt, resolvedAt: r.resolvedAt })));
   return exportWorkbook(`maintenance-requests_${fileStamp()}`, "Maintenance Request Reports", rows, [
     { key: "id", header: "ID", width: 210 },
     { key: "status", header: "Status" },
@@ -575,7 +576,7 @@ async function maintenanceRequests(sp: URLSearchParams) {
     { key: "archivedAt", header: "Archived", kind: "datetime" },
     { key: "updatedAt", header: "Updated", kind: "datetime" },
     { key: "resolutionNotes", header: "Resolution Notes", width: 320 },
-  ], [["Search", q], ["Average Resolution Hours", computeAverageResolutionHours(rowsRaw.map((r) => ({ createdAt: r.createdAt, resolvedAt: r.resolvedAt }))).toFixed(2)]]);
+  ], [["Search", q], ["Average Resolution Hours", avgResolutionHours == null ? "" : avgResolutionHours.toFixed(2)]]);
 }
 
 async function slaBreaches(sp: URLSearchParams) {
