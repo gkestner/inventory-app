@@ -169,10 +169,10 @@ function techRequestedStatus(requesters: string | null | undefined): string {
 function needsOrderingStatusLabel(row: {
   reorderIgnored: boolean;
   priority: "blue" | "red" | "yellow";
-  techRequesters: string | null;
+  techRequestDetails: string | null;
 }): string {
   if (row.reorderIgnored) return "Ignored";
-  if (row.priority === "blue") return techRequestedStatus(row.techRequesters);
+  if (row.priority === "blue") return techRequestedStatus(row.techRequestDetails);
   if (row.priority === "red") return "Out";
   return "Below Min";
 }
@@ -315,7 +315,7 @@ export default async function NeedsOrderingReportPage({
     minQty: number;
     reorderIgnored: boolean;
     openTechRequests: number;
-    techRequesters: string | null;
+    techRequestDetails: string | null;
   };
 
   const like = `%${q}%`;
@@ -326,11 +326,16 @@ export default async function NeedsOrderingReportPage({
         COUNT(*)::int AS "openTechRequests",
         COALESCE(
           STRING_AGG(
-            DISTINCT NULLIF(BTRIM(COALESCE(ia."createdByName", u."name", u."email", '')), ''),
+            DISTINCT CONCAT(
+              COALESCE(NULLIF(BTRIM(COALESCE(ia."createdByName", u."name", u."email", '')), ''), 'Unknown'),
+              ' (',
+              TO_CHAR(ia."createdAt" AT TIME ZONE 'America/New_York', 'MM/DD/YYYY'),
+              ')'
+            ),
             ', '
           ),
           ''
-        ) AS "techRequesters"
+        ) AS "techRequestDetails"
       FROM "InventoryAlert" ia
       INNER JOIN "PartsCheckoutTicket" pct ON pct."id" = ia."checkoutId"
       LEFT JOIN "User" u ON u."id" = ia."createdByUserId"
@@ -358,7 +363,7 @@ export default async function NeedsOrderingReportPage({
       i."minQty",
       i."reorderIgnored",
       COALESCE(t."openTechRequests", 0) AS "openTechRequests",
-      COALESCE(t."techRequesters", '') AS "techRequesters"
+      COALESCE(t."techRequestDetails", '') AS "techRequestDetails"
     FROM "Item" i
     LEFT JOIN tech_req t ON t."itemId" = i."id"
     LEFT JOIN active_order_history aoh ON aoh."itemId" = i."id"
