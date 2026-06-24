@@ -161,6 +161,22 @@ function decimalToNumber(v: Prisma.Decimal | null | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function techRequestedStatus(requesters: string | null | undefined): string {
+  const names = String(requesters ?? "").trim();
+  return names ? `Tech Requested: ${names}` : "Tech Requested";
+}
+
+function needsOrderingStatusLabel(row: {
+  reorderIgnored: boolean;
+  priority: "blue" | "red" | "yellow";
+  techRequesters: string | null;
+}): string {
+  if (row.reorderIgnored) return "Ignored";
+  if (row.priority === "blue") return techRequestedStatus(row.techRequesters);
+  if (row.priority === "red") return "Out";
+  return "Below Min";
+}
+
 export default async function NeedsOrderingReportPage({
   searchParams,
 }: {
@@ -299,14 +315,25 @@ export default async function NeedsOrderingReportPage({
     minQty: number;
     reorderIgnored: boolean;
     openTechRequests: number;
+    techRequesters: string | null;
   };
 
   const like = `%${q}%`;
   const rows = await prisma.$queryRaw<NeedsOrderingRow[]>(Prisma.sql`
     WITH tech_req AS (
-      SELECT ia."itemId", COUNT(*)::int AS "openTechRequests"
+      SELECT
+        ia."itemId",
+        COUNT(*)::int AS "openTechRequests",
+        COALESCE(
+          STRING_AGG(
+            DISTINCT NULLIF(BTRIM(COALESCE(ia."createdByName", u."name", u."email", '')), ''),
+            ', '
+          ),
+          ''
+        ) AS "techRequesters"
       FROM "InventoryAlert" ia
       INNER JOIN "PartsCheckoutTicket" pct ON pct."id" = ia."checkoutId"
+      LEFT JOIN "User" u ON u."id" = ia."createdByUserId"
       WHERE ia."type" = 'TECH_REQUEST_ORDER'::"InventoryAlertType"
         AND ia."resolvedAt" IS NULL
         AND pct."needToOrderMore" = true
@@ -330,7 +357,8 @@ export default async function NeedsOrderingReportPage({
       i."orderedQty",
       i."minQty",
       i."reorderIgnored",
-      COALESCE(t."openTechRequests", 0) AS "openTechRequests"
+      COALESCE(t."openTechRequests", 0) AS "openTechRequests",
+      COALESCE(t."techRequesters", '') AS "techRequesters"
     FROM "Item" i
     LEFT JOIN tech_req t ON t."itemId" = i."id"
     LEFT JOIN active_order_history aoh ON aoh."itemId" = i."id"
@@ -366,13 +394,7 @@ export default async function NeedsOrderingReportPage({
           ? "red"
           : "yellow"
         : "blue";
-      const statusText = item.reorderIgnored
-        ? "ignored"
-        : priority === "blue"
-          ? "tech requested"
-          : priority === "red"
-            ? "out"
-            : "below min";
+      const statusText = needsOrderingStatusLabel({ ...item, priority });
       return { ...item, available, shortBy, hasTechRequest, priority, statusText };
     })
     .filter((item) => item.shortBy > 0 || item.hasTechRequest)
@@ -532,8 +554,8 @@ export default async function NeedsOrderingReportPage({
         </div>
 
         <div style={{ marginTop: 8, opacity: 0.85, lineHeight: 1.5 }}>
-          Items where <code>onHand + ordered &lt; min</code> are listed here. Items flagged from checkout as "Need to order
-          more" are also included and highlighted in magenta when they are not already short. Use Ignore to hide
+          Items where <code>onHand + ordered &lt; min</code> are listed here. Items flagged from checkout as &quot;Need to order
+          more&quot; are also included and highlighted in magenta when they are not already short. Use Ignore to hide
           non-actionable rows.
         </div>
 
@@ -910,13 +932,7 @@ export default async function NeedsOrderingReportPage({
                               <td style={{ padding: 10 }}>{row.minQty}</td>
                               <td style={{ padding: 10, fontWeight: 900 }}>{row.shortBy}</td>
                               <td style={{ padding: 10 }}>
-                                {row.reorderIgnored
-                                  ? "Ignored"
-                                  : row.priority === "blue"
-                                    ? "Tech Requested"
-                                    : row.priority === "red"
-                                      ? "Out"
-                                      : "Below Min"}
+                                {row.statusText}
                               </td>
                               <td style={{ padding: 10 }}>
                                 {canEdit ? (
@@ -1115,13 +1131,7 @@ export default async function NeedsOrderingReportPage({
                   <td style={{ padding: 10 }}>{row.minQty}</td>
                   <td style={{ padding: 10, fontWeight: 900 }}>{row.shortBy}</td>
                   <td style={{ padding: 10 }}>
-                    {row.reorderIgnored
-                      ? "Ignored"
-                      : row.priority === "blue"
-                        ? "Tech Requested"
-                        : row.priority === "red"
-                          ? "Out"
-                          : "Below Min"}
+                    {row.statusText}
                   </td>
                   <td style={{ padding: 10 }}>
                     {canEdit ? (
