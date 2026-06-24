@@ -200,7 +200,7 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
     data: { status: InvoiceStatus.ISSUED, issuedAt: now },
   });
 
-  const templateStamp = "print-batch v2026-06-24b";
+  const templateStamp = "print-batch v2026-06-24c";
 
   // Screen styling (print overrides via CSS)
   const sheet: CSSProperties = {
@@ -322,24 +322,38 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
             background: #fff !important;
           }
 
-          body * {
-            visibility: hidden !important;
+          body > :not(.app-content-shell),
+          .site-nav-shell,
+          .admin-layout-sidebar,
+          .admin-layout-topbar,
+          .no-print {
+            display: none !important;
           }
 
-          #print-root,
-          #print-root * {
-            visibility: visible !important;
+          .app-content-shell,
+          .admin-layout-grid,
+          .admin-layout-main,
+          .admin-layout-content {
+            display: block !important;
+            width: auto !important;
+            min-height: 0 !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            overflow: visible !important;
+            background: #fff !important;
           }
 
           #print-root {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-          }
-
-          .no-print {
-            display: none !important;
+            display: block !important;
+            position: static !important;
+            inset: auto !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
           }
 
           .sheet {
