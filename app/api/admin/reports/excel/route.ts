@@ -600,7 +600,7 @@ async function slaBreaches(sp: URLSearchParams) {
       if (!responseBreached && !closeBreached) return null;
       return { id: r.id, breachType: responseBreached ? "RESPONSE" : "CLOSE", ageHours, status: r.status, location: r.location.name, assigned: personLabel(r.assignedMaintenanceUser, "Unassigned"), title: r.title, requestedBy: personLabel(r.requestedByUser), createdAt: r.createdAt, resolvedAt: r.resolvedAt, archivedAt: r.archivedAt };
     })
-    .filter((row): row is Row => Boolean(row));
+    .filter((row): row is NonNullable<typeof row> => Boolean(row));
   return exportWorkbook(`sla-breaches_${fileStamp()}`, "SLA Breaches", rows, [
     { key: "id", header: "ID", width: 210 },
     { key: "breachType", header: "Breach Type" },
