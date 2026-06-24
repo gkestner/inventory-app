@@ -405,7 +405,7 @@ async function minQtyDifferences(sp: URLSearchParams) {
       const haystack = Object.values(row).join(" ").toLowerCase();
       return query.split(/\s+/).every((token) => haystack.includes(token)) ? row : null;
     })
-    .filter((row): row is Row => Boolean(row));
+    .filter((row): row is NonNullable<typeof row> => Boolean(row));
   return exportWorkbook(`min-qty-differences_${fileStamp()}`, "Min Qty Differences", rows, [
     { key: "sku", header: "SKU" },
     { key: "partNumber", header: "Part Number" },
