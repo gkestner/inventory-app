@@ -30,9 +30,16 @@ export default function ChecklistItemEditor({
   useEffect(() => {
     if (saveState !== "saving" || isPending) return;
 
-    setSaveState("saved");
-    const timeoutId = window.setTimeout(() => setSaveState("idle"), 900);
-    return () => window.clearTimeout(timeoutId);
+    let idleTimeoutId: number | undefined;
+    const savedTimeoutId = window.setTimeout(() => {
+      setSaveState("saved");
+      idleTimeoutId = window.setTimeout(() => setSaveState("idle"), 900);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(savedTimeoutId);
+      if (idleTimeoutId !== undefined) window.clearTimeout(idleTimeoutId);
+    };
   }, [isPending, saveState]);
 
   function submitUpdate() {

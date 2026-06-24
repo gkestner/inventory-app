@@ -3,8 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/lib/auth";
 import { prisma } from "@/app/lib/prisma";
-import { Prisma, Role, InvoiceVendor, Permission } from "@prisma/client";
+import { Prisma, Role, InvoiceVendor, InvoiceStatus, PartsCheckoutStatus, Permission } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { evaluatePartsPriceFormula, evaluateTaxFormula, loadVendorPricingAndTaxConfig } from "@/app/admin/invoices/actions";
 
 type Body = {
   itemId: string;
@@ -70,6 +71,20 @@ function toInt(v: unknown): number | null {
   if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v);
   if (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v))) return Math.trunc(Number(v));
   return null;
+}
+
+function round2(n: number) {
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100) / 100;
+}
+
+function toCents(n: number) {
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100);
+}
+
+function fromCents(c: number) {
+  return (c || 0) / 100;
 }
 
 function normalizeVendor(v: unknown): InvoiceVendor | null {
@@ -209,7 +224,7 @@ export async function POST(req: NextRequest) {
         }),
         tx.location.findUnique({
           where: { id: storeId },
-          select: { id: true, name: true, active: true },
+          select: { id: true, name: true, active: true, locationNumber: true },
         }),
       ]);
 
@@ -336,6 +351,10 @@ export async function POST(req: NextRequest) {
         normalizeVendor((item as unknown as { vendor?: unknown }).vendor) ??
         inferVendorFromItemLabelishFields(item) ??
         InvoiceVendor.SUCCESS_PLUS;
+      const storeNumber = String(store.locationNumber ?? "").trim();
+      if (!storeNumber) {
+        throw new Error(`Missing store number for location "${store.name}".`);
+      }
 
       const ticket = await tx.partsCheckoutTicket.create({
         data: {
@@ -358,7 +377,119 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      // 6) Alerts
+      // 6) Create/update the pending invoice immediately so Accounting sees the checkout right away.
+      const cfg = await loadVendorPricingAndTaxConfig(inferredVendor);
+      const cost = Math.max(0, Number(item.cost ?? 0));
+      const unitPrice = round2(
+        await evaluatePartsPriceFormula(cfg.partsPriceFormula, {
+          cost,
+          partsUpchargePct: cfg.partsUpchargePct,
+        })
+      );
+      const lineSubtotal = round2(unitPrice * qty);
+      const lineTax = item.taxable
+        ? round2(
+            await evaluateTaxFormula(cfg.taxFormula, {
+              lineSubtotal,
+              taxRatePct: cfg.taxRatePct,
+              quantity: qty,
+              unitPrice,
+            })
+          )
+        : 0;
+      const lineTotal = round2(lineSubtotal + lineTax);
+
+      let invoice = await tx.invoice.findFirst({
+        where: {
+          storeId: store.id,
+          vendor: inferredVendor,
+          status: InvoiceStatus.DRAFT,
+        },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          periodStart: true,
+          periodEnd: true,
+        },
+      });
+
+      if (!invoice) {
+        invoice = await tx.invoice.create({
+          data: {
+            vendor: inferredVendor,
+            vendorNumber: "N/A",
+            billedTo: `${storeNumber} ${store.name}`,
+            storeId: store.id,
+            storeName: store.name,
+            storeNumber,
+            periodStart: ticket.createdAt,
+            periodEnd: ticket.createdAt,
+            invoiceDate: new Date(),
+            status: InvoiceStatus.DRAFT,
+            subtotal: 0,
+            taxTotal: 0,
+            total: 0,
+            createdByUserId: createdByUser.id,
+          },
+          select: {
+            id: true,
+            periodStart: true,
+            periodEnd: true,
+          },
+        });
+      }
+
+      await tx.invoiceLine.create({
+        data: {
+          invoiceId: invoice.id,
+          checkoutId: ticket.id,
+          submittedAt: ticket.createdAt,
+          sku: item.sku,
+          partNumber: item.partNumber,
+          name: item.name,
+          quantity: qty,
+          unitPrice,
+          taxable: item.taxable,
+          lineSubtotal,
+          lineTax,
+          lineTotal,
+        },
+      });
+
+      const invoiceLines = await tx.invoiceLine.findMany({
+        where: { invoiceId: invoice.id },
+        select: { lineSubtotal: true, lineTax: true },
+      });
+      const subtotal = fromCents(invoiceLines.reduce((acc, line) => acc + toCents(Number(line.lineSubtotal ?? 0)), 0));
+      const taxTotal = fromCents(invoiceLines.reduce((acc, line) => acc + toCents(Number(line.lineTax ?? 0)), 0));
+      const total = fromCents(toCents(subtotal) + toCents(taxTotal));
+      const periodStart = invoice.periodStart <= ticket.createdAt ? invoice.periodStart : ticket.createdAt;
+      const periodEnd = invoice.periodEnd >= ticket.createdAt ? invoice.periodEnd : ticket.createdAt;
+
+      await tx.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          subtotal,
+          taxTotal,
+          total,
+          periodStart,
+          periodEnd,
+          billedTo: `${storeNumber} ${store.name}`,
+          storeName: store.name,
+          storeNumber,
+        },
+      });
+
+      await tx.partsCheckoutTicket.update({
+        where: { id: ticket.id },
+        data: {
+          status: PartsCheckoutStatus.INVOICED,
+          invoiceId: invoice.id,
+          invoicedAt: new Date(),
+        },
+      });
+
+      // 7) Alerts
       const alertsToCreate: Prisma.InventoryAlertCreateManyInput[] = [];
 
       if (onHandAfter < 0) {
@@ -421,6 +552,7 @@ export async function POST(req: NextRequest) {
 
       return {
         ticket,
+        invoiceId: invoice.id,
         item: updatedItem,
         signals: {
           negativeOnHand: onHandAfter < 0,

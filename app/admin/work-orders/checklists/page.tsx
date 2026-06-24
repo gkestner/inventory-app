@@ -75,6 +75,12 @@ function buildRedirect(ok?: string, err?: string): never {
   redirect(qs ? `/admin/work-orders/checklists?${qs}` : "/admin/work-orders/checklists");
 }
 
+function isRedirectLikeError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const digest = (error as { digest?: unknown }).digest;
+  return typeof digest === "string" && digest.startsWith("NEXT_REDIRECT");
+}
+
 export default async function AdminWorkOrderChecklistsPage({ searchParams }: { searchParams?: Promise<SearchParams> }) {
   const session = (await getServerSession(authOptions)) as SessionShape;
   await requireChecklistAdmin(session);
@@ -104,6 +110,7 @@ export default async function AdminWorkOrderChecklistsPage({ searchParams }: { s
       revalidatePath("/admin/work-orders/[id]");
       buildRedirect("Checklist item added.");
     } catch (error) {
+      if (isRedirectLikeError(error)) throw error;
       const message = error instanceof Error ? error.message : "Failed to add checklist item.";
       buildRedirect(undefined, message);
     }
@@ -138,6 +145,7 @@ export default async function AdminWorkOrderChecklistsPage({ searchParams }: { s
       revalidatePath("/admin/work-orders/[id]");
       buildRedirect("Checklist item saved.");
     } catch (error) {
+      if (isRedirectLikeError(error)) throw error;
       const message = error instanceof Error ? error.message : "Failed to save checklist item.";
       buildRedirect(undefined, message);
     }
@@ -161,6 +169,7 @@ export default async function AdminWorkOrderChecklistsPage({ searchParams }: { s
       revalidatePath("/admin/work-orders/[id]");
       buildRedirect("Checklist item deleted.");
     } catch (error) {
+      if (isRedirectLikeError(error)) throw error;
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
         buildRedirect(undefined, "Delete blocked: this checklist item is already used on saved work orders. Turn off Active to hide it from future work orders.");
       }

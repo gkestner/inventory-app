@@ -412,7 +412,7 @@ export default async function MaintenanceCheckoutPage({
             fontWeight: 700,
           }}
         >
-          ✅ Checkout submitted.
+          ✅ Checkout submitted. Inventory was updated and a pending invoice was created.
         </div>
       ) : null}
 
