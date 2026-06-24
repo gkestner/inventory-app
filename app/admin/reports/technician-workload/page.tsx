@@ -69,7 +69,7 @@ export default async function TechnicianWorkloadReportPage({
 
   const sp = (await searchParams) ?? {};
   const days = Math.min(365, parseNum(sp.days, 30));
-  const exportHref = `/api/admin/reports/technician-workload/export?days=${encodeURIComponent(String(days))}`;
+  const exportHref = `/api/admin/reports/excel?report=technician-workload&days=${encodeURIComponent(String(days))}`;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   const [requestRows, workOrderRows] = await Promise.all([
@@ -146,7 +146,7 @@ export default async function TechnicianWorkloadReportPage({
               Back to Reports
             </Link>
             <Link href={exportHref} style={{ textDecoration: "none", fontWeight: 800 }}>
-              Export CSV
+              Export Excel
             </Link>
           </div>
           <p style={{ margin: "8px 0 0", color: "var(--muted)" }}>

@@ -50,6 +50,9 @@ export default async function ScannerCountUntouchedReportPage() {
             <Link href="/maintenance/scanner-count" style={{ textDecoration: "none", fontWeight: 800 }}>
               Open Scanner Count
             </Link>
+            <Link href="/api/admin/reports/excel?report=scanner-count-untouched" style={{ textDecoration: "none", fontWeight: 800 }}>
+              Export Excel
+            </Link>
           </div>
           <p style={{ margin: "8px 0 0", color: "var(--muted)", lineHeight: 1.5 }}>
             Review which parts you have not looked up or updated from the scanner count workflow, then reset the tracking window when you want to start the next pass.

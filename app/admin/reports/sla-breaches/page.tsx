@@ -72,7 +72,7 @@ export default async function SlaBreachesReportPage({
   const days = Math.min(365, parseNum(sp.days, 30));
   const responseHours = parseNum(sp.responseHours, 4);
   const closeHours = parseNum(sp.closeHours, 48);
-  const exportHref = `/api/admin/reports/sla-breaches/export?days=${encodeURIComponent(String(days))}&responseHours=${encodeURIComponent(
+  const exportHref = `/api/admin/reports/excel?report=sla-breaches&days=${encodeURIComponent(String(days))}&responseHours=${encodeURIComponent(
     String(responseHours)
   )}&closeHours=${encodeURIComponent(String(closeHours))}`;
 
@@ -133,7 +133,7 @@ export default async function SlaBreachesReportPage({
               Back to Reports
             </Link>
             <Link href={exportHref} style={{ textDecoration: "none", fontWeight: 800 }}>
-              Export CSV
+              Export Excel
             </Link>
           </div>
           <p style={{ margin: "8px 0 0", color: "var(--muted)", lineHeight: 1.45 }}>

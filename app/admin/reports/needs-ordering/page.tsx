@@ -209,6 +209,11 @@ export default async function NeedsOrderingReportPage({
   const shortByFilter = String(sp.shortBy ?? "").trim();
   const techReqFilter = String(sp.techReq ?? "").trim();
   const ignoredFilter = String(sp.ignored ?? "").trim().toLowerCase();
+  const exportHref = `/api/admin/reports/excel${qs({
+    report: "needs-ordering",
+    q: q || undefined,
+    includeIgnored: includeIgnored ? "1" : undefined,
+  })}`;
 
   async function setIgnoredAction(formData: FormData) {
     "use server";
@@ -555,6 +560,20 @@ export default async function NeedsOrderingReportPage({
             }}
           >
             ← Report Hub
+          </Link>
+          <Link
+            href={exportHref}
+            style={{
+              padding: "10px 14px",
+              borderRadius: 12,
+              border: "1px solid rgba(128,128,128,0.25)",
+              background: "var(--background)",
+              color: "var(--foreground)",
+              textDecoration: "none",
+              fontWeight: 900,
+            }}
+          >
+            Export Excel
           </Link>
         </div>
 

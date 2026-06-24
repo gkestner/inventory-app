@@ -377,6 +377,12 @@ export default async function AdminItemCostHistoryReportPage({ searchParams }: {
     return qs ? `/admin/reports/item-cost-history?${qs}` : "/admin/reports/item-cost-history";
   }
 
+  const exportHref = `/api/admin/reports/excel?report=item-cost-history&itemId=${encodeURIComponent(itemId)}&supplier=${encodeURIComponent(
+    supplier
+  )}&method=${encodeURIComponent(method)}&months=${encodeURIComponent(String(months))}&asOf=${encodeURIComponent(
+    asOfStr || new Date(asOf).toISOString().slice(0, 10)
+  )}`;
+
   return (
     <main style={{ padding: 16 }}>
       <div style={{ padding: 16, maxWidth: 1400, margin: "0 auto", color: fg }}>
@@ -412,6 +418,20 @@ export default async function AdminItemCostHistoryReportPage({ searchParams }: {
             }}
           >
             Order History →
+          </Link>
+          <Link
+            href={exportHref}
+            style={{
+              padding: "10px 14px",
+              borderRadius: 12,
+              border,
+              background: surface,
+              color: fg,
+              textDecoration: "none",
+              fontWeight: 900,
+            }}
+          >
+            Export Excel
           </Link>
         </div>
 

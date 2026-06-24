@@ -53,6 +53,9 @@ export default async function WorkOrderCostReportPage({ searchParams }: { search
 
   const hourlyRate = parseNum(sp.hourlyRate, 28);
   const mileageRate = parseNum(sp.mileageRate, 0.67);
+  const exportHref = `/api/admin/reports/excel?report=work-order-costs&from=${encodeURIComponent(String(sp.from ?? ""))}&to=${encodeURIComponent(
+    String(sp.to ?? "")
+  )}&hourlyRate=${encodeURIComponent(String(hourlyRate))}&mileageRate=${encodeURIComponent(String(mileageRate))}`;
 
   const where: any = {
     status: { in: ["SUBMITTED", "FINALIZED"] },
@@ -211,6 +214,9 @@ export default async function WorkOrderCostReportPage({ searchParams }: { search
           <h1 style={{ margin: 0, fontSize: 26, fontWeight: 900 }}>Work Order Labor + Cost Rollups</h1>
           <Link href="/admin/reports" style={{ textDecoration: "none", fontWeight: 800 }}>
             Back to Reports
+          </Link>
+          <Link href={exportHref} style={{ textDecoration: "none", fontWeight: 800 }}>
+            Export Excel
           </Link>
         </div>
 

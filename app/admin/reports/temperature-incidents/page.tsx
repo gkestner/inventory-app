@@ -62,7 +62,7 @@ export default async function TemperatureIncidentsReportPage({
 
   const sp = (await searchParams) ?? {};
   const days = Math.min(365, parseNum(sp.days, 14));
-  const exportHref = `/api/admin/reports/temperature-incidents/export?days=${encodeURIComponent(String(days))}`;
+  const exportHref = `/api/admin/reports/excel?report=temperature-incidents&days=${encodeURIComponent(String(days))}`;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   const rows = await db.mocreoTemperatureReading.findMany({
@@ -112,7 +112,7 @@ export default async function TemperatureIncidentsReportPage({
               Back to Reports
             </Link>
             <Link href={exportHref} style={{ textDecoration: "none", fontWeight: 800 }}>
-              Export CSV
+              Export Excel
             </Link>
           </div>
           <p style={{ margin: "8px 0 0", color: "var(--muted)" }}>

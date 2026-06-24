@@ -144,6 +144,13 @@ export default async function MaintenanceRequestReportsPage({
   const dateField = normalizeDateField(sp.dateField);
   const from = parseDateStart(sp.from);
   const to = parseDateEnd(sp.to);
+  const exportHref = `/api/admin/reports/excel?report=maintenance-requests&q=${encodeURIComponent(q)}&status=${encodeURIComponent(
+    status
+  )}&locationId=${encodeURIComponent(locationId)}&requestedByUserId=${encodeURIComponent(requestedByUserId)}&assignedTo=${encodeURIComponent(
+    assignedTo
+  )}&resolvedByUserId=${encodeURIComponent(resolvedByUserId)}&dateField=${encodeURIComponent(dateField)}&from=${encodeURIComponent(
+    String(sp.from ?? "")
+  )}&to=${encodeURIComponent(String(sp.to ?? ""))}`;
 
   const dateFilter = from || to ? { [dateField]: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {};
   const assignedFilter =
@@ -253,6 +260,9 @@ export default async function MaintenanceRequestReportsPage({
             </Link>
             <Link href="/admin/maintenance-requests" style={{ textDecoration: "none", fontWeight: 800 }}>
               {"Queue ->"}
+            </Link>
+            <Link href={exportHref} style={{ textDecoration: "none", fontWeight: 800 }}>
+              Export Excel
             </Link>
           </div>
           <p style={{ margin: "8px 0 0", color: "var(--muted)", lineHeight: 1.45 }}>

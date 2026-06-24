@@ -61,7 +61,7 @@ export default async function FleetTcoReportPage({
 
   const sp = (await searchParams) ?? {};
   const days = Math.min(730, parseNum(sp.days, 180));
-  const exportHref = `/api/admin/reports/fleet-tco/export?days=${encodeURIComponent(String(days))}`;
+  const exportHref = `/api/admin/reports/excel?report=fleet-tco&days=${encodeURIComponent(String(days))}`;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   const vehicles = await db.companyVehicle.findMany({
@@ -122,7 +122,7 @@ export default async function FleetTcoReportPage({
               Back to Reports
             </Link>
             <Link href={exportHref} style={{ textDecoration: "none", fontWeight: 800 }}>
-              Export CSV
+              Export Excel
             </Link>
           </div>
           <p style={{ margin: "8px 0 0", color: "var(--muted)" }}>

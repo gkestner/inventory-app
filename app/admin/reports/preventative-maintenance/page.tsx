@@ -107,6 +107,7 @@ export default async function PreventativeMaintenanceReportPage({
 
   const resolved = (await searchParams) ?? {};
   const year = normalizePmYear(resolved.year);
+  const exportHref = `/api/admin/reports/excel?report=preventative-maintenance&year=${encodeURIComponent(String(year))}`;
   const start = new Date(Date.UTC(year, 0, 1, 0, 0, 0));
   const end = new Date(Date.UTC(year + 1, 0, 1, 0, 0, 0));
 
@@ -203,6 +204,9 @@ export default async function PreventativeMaintenanceReportPage({
           </Link>
           <Link href="/admin/reports" style={btn}>
             Reports Hub
+          </Link>
+          <Link href={exportHref} style={btn}>
+            Export Excel
           </Link>
         </div>
       </section>

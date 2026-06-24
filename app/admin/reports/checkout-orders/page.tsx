@@ -103,6 +103,13 @@ export default async function CheckoutOrdersReportPage({
   const quantity = parsePositiveInt(sp.quantity);
   const from = parseDateStart(sp.from);
   const to = parseDateEnd(sp.to);
+  const exportHref = `/api/admin/reports/excel?report=checkout-orders&q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}&storeId=${encodeURIComponent(
+    storeId
+  )}&itemId=${encodeURIComponent(itemId)}&createdByUserId=${encodeURIComponent(createdByUserId)}&needToOrderMore=${encodeURIComponent(
+    needToOrderMore
+  )}&quantity=${encodeURIComponent(quantity == null ? "" : String(quantity))}&from=${encodeURIComponent(String(sp.from ?? ""))}&to=${encodeURIComponent(
+    String(sp.to ?? "")
+  )}`;
 
   const where: Prisma.PartsCheckoutTicketWhereInput = {
     ...(status === "all" ? {} : { status }),
@@ -195,6 +202,20 @@ export default async function CheckoutOrdersReportPage({
             }}
           >
             ← Report Hub
+          </Link>
+          <Link
+            href={exportHref}
+            style={{
+              padding: "10px 14px",
+              borderRadius: 12,
+              border,
+              background: "var(--background)",
+              color: "var(--foreground)",
+              textDecoration: "none",
+              fontWeight: 900,
+            }}
+          >
+            Export Excel
           </Link>
         </div>
 

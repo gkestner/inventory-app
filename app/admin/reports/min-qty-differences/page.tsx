@@ -96,6 +96,7 @@ export default async function MinQtyDifferencesReportPage({
   const query = String(sp.q ?? "").trim();
   const okMsg = String(sp.ok ?? "").trim();
   const errorMsg = String(sp.error ?? "").trim();
+  const exportHref = `/api/admin/reports/excel${qs({ report: "min-qty-differences", q: query || undefined })}`;
 
   async function applySuggestedMinAction(formData: FormData) {
     "use server";
@@ -274,6 +275,20 @@ export default async function MinQtyDifferencesReportPage({
               }}
             >
               ← Report Hub
+            </Link>
+            <Link
+              href={exportHref}
+              style={{
+                padding: "10px 14px",
+                borderRadius: 12,
+                border,
+                background: panelBg,
+                color: "var(--foreground)",
+                textDecoration: "none",
+                fontWeight: 900,
+              }}
+            >
+              Export Excel
             </Link>
           </div>
 

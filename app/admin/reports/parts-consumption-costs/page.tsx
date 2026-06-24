@@ -63,7 +63,7 @@ export default async function PartsConsumptionCostsReportPage({
   const from = parseDateStart(sp.from) ?? defaultFrom;
   const to = parseDateEnd(sp.to) ?? now;
   const includeVoided = boolParam(sp.includeVoided);
-  const exportHref = `/api/admin/reports/parts-consumption-costs/export?from=${encodeURIComponent(
+  const exportHref = `/api/admin/reports/excel?report=parts-consumption-costs&from=${encodeURIComponent(
     from.toISOString().slice(0, 10)
   )}&to=${encodeURIComponent(to.toISOString().slice(0, 10))}&includeVoided=${includeVoided ? "1" : "0"}`;
 
@@ -133,7 +133,7 @@ export default async function PartsConsumptionCostsReportPage({
               Back to Reports
             </Link>
             <Link href={exportHref} style={{ textDecoration: "none", fontWeight: 800 }}>
-              Export CSV
+              Export Excel
             </Link>
           </div>
           <p style={{ margin: "8px 0 0", color: "var(--muted)" }}>
