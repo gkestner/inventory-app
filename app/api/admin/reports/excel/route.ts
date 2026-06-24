@@ -781,7 +781,7 @@ async function fleetTco(sp: URLSearchParams) {
 }
 
 async function permissionCoverage() {
-  const perms = [
+  const perms: Array<[string, Permission]> = [
     ["SLA Breaches", ADMIN_VIEW_REPORT_SLA_BREACHES],
     ["Technician Workload", ADMIN_VIEW_REPORT_TECHNICIAN_WORKLOAD],
     ["Temperature Incidents", ADMIN_VIEW_REPORT_TEMPERATURE_INCIDENTS],
