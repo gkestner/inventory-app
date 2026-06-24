@@ -791,11 +791,11 @@ async function permissionCoverage() {
     ["Permission Coverage", ADMIN_VIEW_REPORT_PERMISSION_COVERAGE],
     ["Notification Effectiveness", ADMIN_VIEW_REPORT_NOTIFICATION_EFFECTIVENESS],
   ];
-  const users = await prisma.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, email: true, role: true, permissions: { select: { permission: true, allowed: true } } } });
+  const users = await prisma.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, email: true, role: true, permissions: { select: { permission: true } } } });
   const rows = users.map((u) => {
-    const userPerms = new Map(u.permissions.map((p) => [p.permission, p.allowed]));
+    const userPerms = new Set(u.permissions.map((p) => p.permission));
     const row: Row = { user: personLabel(u), email: u.email, role: u.role };
-    for (const [label, perm] of perms) row[label] = userPerms.get(perm) ? "Allowed" : "";
+    for (const [label, perm] of perms) row[label] = userPerms.has(perm) ? "Allowed" : "";
     return row;
   });
   return exportWorkbook(`permission-coverage_${fileStamp()}`, "Permission Coverage", rows, [
