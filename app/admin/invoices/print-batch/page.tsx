@@ -200,7 +200,7 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
     data: { status: InvoiceStatus.ISSUED, issuedAt: now },
   });
 
-  const templateStamp = "print-batch v2026-06-24a";
+  const templateStamp = "print-batch v2026-06-24b";
 
   // Screen styling (print overrides via CSS)
   const sheet: CSSProperties = {
@@ -308,7 +308,7 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
       />
 
       <style>{`
-        @page { size: letter landscape; margin: 0; }
+        @page { size: letter landscape; margin: 0.25in; }
 
         html, body {
           margin: 0;
@@ -343,14 +343,13 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
           }
 
           .sheet {
-            width: 11in !important;
-            max-width: 11in !important;
-            height: 8.5in !important;
-            max-height: 8.5in !important;
+            width: 100% !important;
+            max-width: none !important;
+            min-height: 0 !important;
             box-sizing: border-box !important;
             margin: 0 !important;
-            padding: 0.25in !important;
-            overflow: hidden !important;
+            padding: 0 !important;
+            overflow: visible !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
           }
@@ -361,7 +360,7 @@ export default async function PrintInvoiceBatchPage({ searchParams }: { searchPa
           }
 
           .sheetInner {
-            zoom: 0.66;
+            zoom: 1;
           }
 
           table, tr, td, th { page-break-inside: avoid !important; break-inside: avoid !important; }
