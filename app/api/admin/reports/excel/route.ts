@@ -34,7 +34,7 @@ type SessionShape = {
   user?: { id?: string | null; email?: string | null } | null;
 } | null;
 
-const REPORT_PERMISSIONS: Record<string, string[]> = {
+const REPORT_PERMISSIONS: Record<string, Permission[]> = {
   "checkout-orders": [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS],
   "needs-ordering": [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS],
   "min-qty-differences": [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS],
