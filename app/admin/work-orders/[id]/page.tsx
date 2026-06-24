@@ -100,7 +100,6 @@ type WorkOrderAttachmentDelegate = {
 };
 
 type CompatWorkOrderDb = {
-  user: { findUnique: (args: unknown) => Promise<{ id: string } | null> };
   workOrderAttachment?: Partial<WorkOrderAttachmentDelegate>;
 };
 
@@ -270,7 +269,7 @@ function formatBytes(v: number | null): string {
 async function getActorUserId(session: AdminSession): Promise<string | null> {
   const email = session?.user?.email?.trim().toLowerCase();
   if (!email) return null;
-  const actor = await (getCompatDb() as CompatWorkOrderDb).user.findUnique({ where: { email }, select: { id: true } });
+  const actor = await prisma.user.findUnique({ where: { email }, select: { id: true } });
   return actor?.id ?? null;
 }
 
