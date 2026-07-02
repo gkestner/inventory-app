@@ -5,7 +5,7 @@ import { Permission } from "@prisma/client";
 import { authOptions } from "@/app/lib/auth";
 import {
   getInventoryDemandRecommendations,
-  recalculateItemMinQuantitiesFrom30DayUsage,
+  recalculateItemMinQuantitiesFromFullHistory,
 } from "@/app/lib/inventory-demand";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
@@ -49,7 +49,7 @@ async function run(req: NextRequest) {
   );
 
   if (apply) {
-    const result = await recalculateItemMinQuantitiesFrom30DayUsage({ includeInactive });
+    const result = await recalculateItemMinQuantitiesFromFullHistory({ includeInactive });
     return NextResponse.json({
       ok: true,
       mode: "apply",

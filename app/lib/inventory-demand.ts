@@ -310,7 +310,7 @@ export async function getInventoryDemandRecommendations(
   });
 }
 
-export async function recalculateItemMinQuantitiesFrom30DayUsage(
+export async function recalculateItemMinQuantitiesFromFullHistory(
   args: RecommendationArgs = {}
 ): Promise<RecalculateMinQtyResult> {
   const recommendations = await getInventoryDemandRecommendations(args);

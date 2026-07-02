@@ -716,7 +716,7 @@ export default async function AdminItemsPage({
             <option value="price">Price</option>
             <option value="taxable">Taxable</option>
             <option value="active">Active</option>
-            <option value="suggestedMinQty30Day">Suggested Min (30d)</option>
+            <option value="suggestedMinQty30Day">Suggested Min (History)</option>
             <option value="suggestedReorderQty30Day">Suggested Reorder</option>
           </select>
         </label>

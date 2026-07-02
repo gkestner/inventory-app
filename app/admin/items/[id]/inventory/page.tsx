@@ -10,7 +10,7 @@ import { Prisma } from "@prisma/client";
 import PrintHotkeys from "@/app/admin/items/PrintHotkeys";
 import {
   getInventoryDemandRecommendations,
-  recalculateItemMinQuantitiesFrom30DayUsage,
+  recalculateItemMinQuantitiesFromFullHistory,
 } from "@/app/lib/inventory-demand";
 export const dynamic = "force-dynamic";
 
@@ -267,15 +267,15 @@ export default async function ItemInventoryPage({
       if (!session) throw new Error("Unauthorized");
       if (!(await canAccessAdmin(session))) throw new Error("Forbidden");
 
-      const result = await recalculateItemMinQuantitiesFrom30DayUsage({ itemIds: [id], includeInactive: true });
+      const result = await recalculateItemMinQuantitiesFromFullHistory({ itemIds: [id], includeInactive: true });
 
       revalidatePath(`/admin/items/${id}/inventory`);
       revalidatePath(`/admin/items`);
 
       const message =
         result.updatedCount > 0
-          ? `Suggested minimum copied to min qty for ${result.updatedCount} item.`
-          : "This item already matches the suggested 30-day minimum.";
+          ? `Full-history suggested minimum copied to min qty for ${result.updatedCount} item.`
+          : "This item already matches the full-history suggested minimum.";
 
       redirect(`/admin/items/${id}/inventory?ok=${enc(message)}`);
     } catch (e: unknown) {
@@ -293,15 +293,15 @@ export default async function ItemInventoryPage({
       if (!session) throw new Error("Unauthorized");
       if (!(await canAccessAdmin(session))) throw new Error("Forbidden");
 
-      const result = await recalculateItemMinQuantitiesFrom30DayUsage({ includeInactive: true });
+      const result = await recalculateItemMinQuantitiesFromFullHistory({ includeInactive: true });
 
       revalidatePath(`/admin/items/${id}/inventory`);
       revalidatePath(`/admin/items`);
 
       const message =
         result.updatedCount > 0
-          ? `Suggested minimum copied to min qty for ${result.updatedCount} item${result.updatedCount === 1 ? "" : "s"}.`
-          : "All items already match the suggested 30-day minimum.";
+          ? `Full-history suggested minimum copied to min qty for ${result.updatedCount} item${result.updatedCount === 1 ? "" : "s"}.`
+          : "All items already match the full-history suggested minimum.";
 
       redirect(`/admin/items/${id}/inventory?ok=${enc(message)}`);
     } catch (e: unknown) {
@@ -345,7 +345,7 @@ export default async function ItemInventoryPage({
                 cursor: "pointer",
               }}
             >
-              Copy Suggested Min Qty to All Items
+              Copy Full-History Suggested Min Qty to All Items
             </button>
           </form>
         </div>
@@ -456,12 +456,12 @@ export default async function ItemInventoryPage({
                   cursor: "pointer",
                 }}
               >
-                Copy Suggested Min Qty to This Item
+                Copy Full-History Suggested Min Qty to This Item
               </button>
             </form>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 8 }}>
-            <div style={{ opacity: 0.8 }}>Suggested minimum quantity (30d)</div>
+            <div style={{ opacity: 0.8 }}>Suggested minimum quantity (history)</div>
             <div>
               <b>{recommendation.suggestedMinQty30Day}</b>
             </div>

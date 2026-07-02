@@ -1170,7 +1170,7 @@ export default function ItemsTableClient({
             fontWeight: 800,
           }}
         >
-          {mismatchCount} visible item{mismatchCount === 1 ? "" : "s"} have a min qty different from the suggested 30-day minimum.
+          {mismatchCount} visible item{mismatchCount === 1 ? "" : "s"} have a min qty different from the full-history suggested minimum.
         </div>
       ) : null}
 
@@ -1454,7 +1454,7 @@ export default function ItemsTableClient({
                 "Name",
                 "Category",
                 "On Hand",
-                "Suggested Min (30d)",
+                "Suggested Min (History)",
                 "Cost",
                 "Price",
                 "Taxable",
@@ -2267,7 +2267,7 @@ export default function ItemsTableClient({
                               <strong>Keep on hand:</strong> {detailText.keep}
                             </span>
                             <span>
-                              <strong>Suggested Min (30d):</strong> {detailText.suggestedMin}
+                              <strong>Suggested Min (History):</strong> {detailText.suggestedMin}
                             </span>
                             <span>
                               <strong>Suggested Reorder:</strong> {detailText.suggestedReorder}
@@ -2318,7 +2318,7 @@ export default function ItemsTableClient({
                               <strong>Keep on hand:</strong> {detailText.keep}
                             </span>
                             <span>
-                              <strong>Suggested Min (30d):</strong> {detailText.suggestedMin}
+                              <strong>Suggested Min (History):</strong> {detailText.suggestedMin}
                             </span>
                             <span>
                               <strong>Suggested Reorder:</strong> {detailText.suggestedReorder}

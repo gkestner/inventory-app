@@ -597,7 +597,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
               <option value="category">Category</option>
               <option value="taxable">Taxable</option>
               <option value="active">Active</option>
-              <option value="suggestedMinQty30Day">Suggested Min (30d)</option>
+              <option value="suggestedMinQty30Day">Suggested Min (History)</option>
               <option value="suggestedReorderQty30Day">Suggested Reorder</option>
             </select>
           </label>
@@ -641,7 +641,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  {["SKU", "Part #", "Vendor", "Name", "Category", "In Stock", "Ordered", "Arrived", "Min", "Suggested Min (30d)", "Active", "My Comment", "Updated"].map((h) => (
+                  {["SKU", "Part #", "Vendor", "Name", "Category", "In Stock", "Ordered", "Arrived", "Min", "Suggested Min (History)", "Active", "My Comment", "Updated"].map((h) => (
                     <th key={h} style={{ textAlign: "left", padding: 10, borderBottom: border, whiteSpace: "nowrap", fontSize: 13 }}>{h}</th>
                   ))}
                 </tr>

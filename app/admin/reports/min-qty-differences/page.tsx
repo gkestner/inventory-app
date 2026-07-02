@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
 import { authOptions } from "@/app/lib/auth";
-import { getInventoryDemandRecommendations, recalculateItemMinQuantitiesFrom30DayUsage } from "@/app/lib/inventory-demand";
+import { getInventoryDemandRecommendations, recalculateItemMinQuantitiesFromFullHistory } from "@/app/lib/inventory-demand";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { prisma } from "@/app/lib/prisma";
 import { InvoiceVendor, Permission, Role } from "@prisma/client";
@@ -25,10 +25,6 @@ type SearchParams = {
   ok?: string;
   error?: string;
 };
-
-function enc(value: string) {
-  return encodeURIComponent(value);
-}
 
 function qs(params: Record<string, string | undefined>) {
   const search = new URLSearchParams();
@@ -110,7 +106,7 @@ export default async function MinQtyDifferencesReportPage({
       if (!canEdit) throw new Error("Forbidden");
       if (!itemId) throw new Error("Missing item id.");
 
-      const result = await recalculateItemMinQuantitiesFrom30DayUsage({ itemIds: [itemId] });
+      const result = await recalculateItemMinQuantitiesFromFullHistory({ itemIds: [itemId] });
 
       revalidatePath("/admin/reports/min-qty-differences");
       revalidatePath("/admin/items");
@@ -119,7 +115,7 @@ export default async function MinQtyDifferencesReportPage({
       const message =
         result.updatedCount > 0
           ? "Suggested min qty copied to min qty."
-          : "This item already matches the suggested min qty.";
+          : "This item already matches the full-history suggested min qty.";
 
       redirect(
         `/admin/reports/min-qty-differences${qs({
@@ -158,7 +154,7 @@ export default async function MinQtyDifferencesReportPage({
       if (!canEdit) throw new Error("Forbidden");
       if (itemIds.length === 0) throw new Error("No items in the current report to update.");
 
-      const result = await recalculateItemMinQuantitiesFrom30DayUsage({ itemIds });
+      const result = await recalculateItemMinQuantitiesFromFullHistory({ itemIds });
 
       revalidatePath("/admin/reports/min-qty-differences");
       revalidatePath("/admin/items");
@@ -168,8 +164,8 @@ export default async function MinQtyDifferencesReportPage({
 
       const message =
         result.updatedCount > 0
-          ? `Copied suggested min qty for ${result.updatedCount} item${result.updatedCount === 1 ? "" : "s"}.`
-          : "All items in this report already match the suggested min qty.";
+          ? `Copied full-history suggested min qty for ${result.updatedCount} item${result.updatedCount === 1 ? "" : "s"}.`
+          : "All items in this report already match the full-history suggested min qty.";
 
       redirect(
         `/admin/reports/min-qty-differences${qs({
@@ -293,7 +289,7 @@ export default async function MinQtyDifferencesReportPage({
           </div>
 
           <p style={{ margin: "10px 0 0", color: "var(--muted)", maxWidth: 880, lineHeight: 1.5 }}>
-            Active items where the current minimum quantity does not match the suggested 30-day minimum.
+            Active items where the current minimum quantity does not match the full-history suggested minimum.
           </p>
 
           <form method="get" style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -415,7 +411,7 @@ export default async function MinQtyDifferencesReportPage({
                   cursor: "pointer",
                 }}
               >
-                Copy Suggested Min Qty for All Report Items
+                Copy Full-History Suggested Min Qty for All Report Items
               </button>
             </form>
           </section>
@@ -424,7 +420,7 @@ export default async function MinQtyDifferencesReportPage({
         <section style={{ marginTop: 14, border, borderRadius: 16, background: cardBg, boxShadow: "var(--shadow)", overflow: "hidden" }}>
           {rows.length === 0 ? (
             <div style={{ padding: 18, lineHeight: 1.5, opacity: 0.88 }}>
-              {query ? "No items match your search." : "All active items already match the suggested 30-day minimum."}
+              {query ? "No items match your search." : "All active items already match the full-history suggested minimum."}
             </div>
           ) : (
             <div style={{ overflowX: "auto" }}>
@@ -438,7 +434,7 @@ export default async function MinQtyDifferencesReportPage({
                       ["Vendor", "auto"],
                       ["On Hand", 90],
                       ["Min Qty", 90],
-                      ["Suggested Min Qty", 140],
+                      ["Suggested Min Qty (History)", 180],
                       ["Web Link", 110],
                       ["Action", 220],
                     ].map(([labelText, width]) => (
@@ -535,7 +531,7 @@ export default async function MinQtyDifferencesReportPage({
                                   whiteSpace: "nowrap",
                                 }}
                               >
-                                Copy Suggested Min Qty
+                                Copy Full-History Suggested Min Qty
                               </button>
                             </form>
                           ) : (
