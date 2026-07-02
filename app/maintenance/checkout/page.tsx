@@ -19,6 +19,12 @@ type SearchParams = {
   ok?: string;
   okReturn?: string;
   err?: string;
+  itemId?: string;
+  storeId?: string;
+  quantity?: string;
+  createdByUserId?: string;
+  needToOrderMore?: string;
+  note?: string;
 };
 
 type UserOption = {
@@ -119,8 +125,15 @@ export default async function MaintenanceCheckoutPage({
   const ok = sp.ok === "1";
   const okReturn = sp.okReturn === "1";
   const err = typeof sp.err === "string" && sp.err.trim() ? sp.err.trim() : null;
-
   const sessionUserId = getSessionUserId(session);
+  const checkoutDraft = {
+    itemId: typeof sp.itemId === "string" ? sp.itemId.trim() : "",
+    storeId: typeof sp.storeId === "string" ? sp.storeId.trim() : "",
+    quantity: typeof sp.quantity === "string" && sp.quantity.trim() ? sp.quantity.trim() : "1",
+    createdByUserId: typeof sp.createdByUserId === "string" && sp.createdByUserId.trim() ? sp.createdByUserId.trim() : (sessionUserId ?? ""),
+    needToOrderMore: sp.needToOrderMore === "1",
+    note: typeof sp.note === "string" ? sp.note : "",
+  };
 
   // Resolve allowed store locations for non-admin users.
   // Admin (allowAll) can see all active locations.
@@ -401,6 +414,7 @@ export default async function MaintenanceCheckoutPage({
 
       {ok ? (
         <div
+          id="checkout-success-message"
           style={{
             marginBottom: 12,
             padding: 14,
@@ -418,6 +432,7 @@ export default async function MaintenanceCheckoutPage({
 
       {okReturn ? (
         <div
+          id="checkout-return-success-message"
           style={{
             marginBottom: 12,
             padding: 14,
@@ -446,8 +461,24 @@ export default async function MaintenanceCheckoutPage({
             fontWeight: 700,
           }}
         >
-          Checkout failed: {err}
+          <div>Checkout failed: {err}</div>
+          <div style={{ marginTop: 6, fontSize: 15, fontWeight: 600, lineHeight: 1.35 }}>
+            Review the checkout below, make any edits, and submit again. Use Clear Form to start over.
+          </div>
         </div>
+      ) : null}
+
+      {ok || okReturn ? (
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(() => {
+  window.setTimeout(() => {
+    document.getElementById("checkout-success-message")?.remove();
+    document.getElementById("checkout-return-success-message")?.remove();
+  }, 5000);
+})();`,
+          }}
+        />
       ) : null}
 
       {loadErr ? (
@@ -497,6 +528,7 @@ export default async function MaintenanceCheckoutPage({
             <ItemPicker
               name="itemId"
               items={items}
+              defaultId={checkoutDraft.itemId}
               placeholder="Search ID, SKU, part #, name, category, manufacturer…"
               enableGlobalScannerCapture
               inputStyle={pickerInputStyle}
@@ -511,7 +543,7 @@ export default async function MaintenanceCheckoutPage({
         <div style={twoCol}>
           <label style={labelStyle}>
             <span style={{ fontWeight: 800, fontSize: 22 }}>Store (Location)</span>
-            <select name="storeId" required style={fieldStyle} disabled={!perms.allowAll && locations.length === 0}>
+            <select name="storeId" required defaultValue={checkoutDraft.storeId} style={fieldStyle} disabled={!perms.allowAll && locations.length === 0}>
               <option value="">Select a store…</option>
               {locations.map((l) => (
                 <option key={l.id} value={l.id}>
@@ -523,13 +555,13 @@ export default async function MaintenanceCheckoutPage({
 
           <label style={labelStyle}>
             <span style={{ fontWeight: 800, fontSize: 22 }}>Quantity taken</span>
-            <input name="quantity" type="number" min={1} step={1} required defaultValue={1} style={fieldStyle} />
+            <input name="quantity" type="number" min={1} step={1} required defaultValue={checkoutDraft.quantity} style={fieldStyle} />
           </label>
         </div>
 
         <label style={labelStyle}>
           <span style={{ fontWeight: 800, fontSize: 22 }}>Created by</span>
-          <select id="checkout-created-by" name="createdByUserId" required defaultValue={sessionUserId ?? ""} style={fieldStyle}>
+          <select id="checkout-created-by" name="createdByUserId" required defaultValue={checkoutDraft.createdByUserId} style={fieldStyle}>
             <option value="">Select user…</option>
             {users.map((u) => (
               <option
@@ -589,13 +621,13 @@ export default async function MaintenanceCheckoutPage({
         />
 
         <label style={{ display: "flex", gap: 14, alignItems: "center", fontSize: 20, fontWeight: 700, lineHeight: 1.4 }}>
-          <input type="checkbox" name="needToOrderMore" style={{ width: 22, height: 22 }} />
+          <input type="checkbox" name="needToOrderMore" defaultChecked={checkoutDraft.needToOrderMore} style={{ width: 22, height: 22 }} />
           <span>Need to order more</span>
         </label>
 
         <label style={labelStyle}>
           <span style={{ fontWeight: 800, fontSize: 22 }}>Note (optional)</span>
-          <input name="note" placeholder="Optional note…" style={fieldStyle} />
+          <input name="note" placeholder="Optional note…" defaultValue={checkoutDraft.note} style={fieldStyle} />
         </label>
 
         <button

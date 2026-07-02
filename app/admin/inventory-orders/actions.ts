@@ -20,6 +20,8 @@ import {
   type LiveOrderNotificationStage,
 } from "@/app/lib/live-order-notifications";
 
+const BUSINESS_TIME_ZONE = "America/New_York";
+
 type AdminSession = {
   user?: {
     id?: string | null;
@@ -81,6 +83,62 @@ function withQuery(basePath: string, next: Record<string, string | undefined>) {
   return qs ? `${u.pathname}?${qs}` : u.pathname;
 }
 
+function stringFormValue(formData: FormData, key: string): string | undefined {
+  const raw = formData.get(key);
+  if (raw === null) return undefined;
+  const value = String(raw).trim();
+  return value ? value.slice(0, 500) : undefined;
+}
+
+function createOrderFormStateQuery(formData: FormData): Record<string, string | undefined> {
+  const fields = [
+    "itemId",
+    "qty",
+    "supplierName",
+    "supplierPartNumber",
+    "unitPrice",
+    "orderedAt",
+    "newSku",
+    "newLoc",
+    "newShelf",
+    "newBin",
+    "newName",
+    "newPartNumber",
+    "newVendor",
+    "newCategory",
+    "newManufacturer",
+    "newOrderFrom",
+    "newWebUrl",
+    "shippingCost",
+    "taxCost",
+    "forUserId",
+    "forStoreId",
+    "note",
+  ] as const;
+
+  const hasNewItemDraft = Boolean(
+    formData.get("isNewItem") ||
+      stringFormValue(formData, "newSku") ||
+      stringFormValue(formData, "newLoc") ||
+      stringFormValue(formData, "newShelf") ||
+      stringFormValue(formData, "newBin") ||
+      stringFormValue(formData, "newName") ||
+      stringFormValue(formData, "newPartNumber"),
+  );
+
+  const out: Record<string, string | undefined> = {
+    createOrderOpen: "1",
+    newItemOpen: hasNewItemDraft ? "1" : undefined,
+    isNewItem: formData.get("isNewItem") ? "1" : undefined,
+  };
+
+  for (const field of fields) {
+    out[`draft_${field}`] = stringFormValue(formData, field);
+  }
+
+  return out;
+}
+
 function revalidateTouchedItemPaths(itemId: string | null | undefined) {
   if (!itemId) return;
   revalidatePath(`/admin/items/${itemId}`);
@@ -127,8 +185,56 @@ function parseOptionalDateTimeLocal(v: FormDataEntryValue | null): Date | null {
   if (v === null) return null;
   const s = String(v).trim();
   if (!s) return null;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
+
+  const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2})$/.exec(s);
+  if (!m) return null;
+
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const hour = Number(m[4]);
+  const minute = Number(m[5]);
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute)
+  ) {
+    return null;
+  }
+
+  const naiveUTC = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const guess = new Date(naiveUTC);
+  const offsetMin = tzOffsetMinutes(guess, BUSINESS_TIME_ZONE);
+  const out = new Date(naiveUTC - offsetMin * 60000);
+  return Number.isNaN(out.getTime()) ? null : out;
+}
+
+function tzOffsetMinutes(at: Date, timeZone: string): number {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const parts = dtf.formatToParts(at);
+  const get = (type: string) => {
+    const p = parts.find((x) => x.type === type)?.value;
+    return p ? Number(p) : NaN;
+  };
+  const y = get("year");
+  const mo = get("month");
+  const da = get("day");
+  const h = get("hour");
+  const mi = get("minute");
+  const se = get("second");
+  const asUTC = Date.UTC(y, mo - 1, da, h, mi, se);
+  return Math.round((asUTC - at.getTime()) / 60000);
 }
 
 function parseBool(v: FormDataEntryValue | null): boolean {
@@ -586,7 +692,7 @@ export async function createOrderAction(formData: FormData) {
     const msg = e instanceof Error ? e.message : "Failed to create order.";
     const h = await headers();
     const back = safeReturnToPathFromReferer(h.get("referer"));
-    redirect(withQuery(back, { error: msg }));
+    redirect(withQuery(back, { error: msg, ...createOrderFormStateQuery(formData) }));
   }
 }
 

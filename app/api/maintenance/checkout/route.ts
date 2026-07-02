@@ -31,6 +31,21 @@ function checkoutRedirect(req: NextRequest, params: Record<string, string>) {
   return NextResponse.redirect(url, { status: 303 });
 }
 
+function checkoutFormState(body: Partial<Body>): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (isNonEmptyString(body.itemId)) out.itemId = body.itemId.trim();
+  if (isNonEmptyString(body.storeId)) out.storeId = body.storeId.trim();
+  if (isNonEmptyString(body.createdByUserId)) out.createdByUserId = body.createdByUserId.trim();
+  if (body.quantity !== undefined && body.quantity !== null) out.quantity = String(body.quantity);
+  if (body.needToOrderMore) out.needToOrderMore = "1";
+  if (isNonEmptyString(body.note)) out.note = body.note.trim().slice(0, 500);
+  return out;
+}
+
+function checkoutErrorRedirect(req: NextRequest, body: Partial<Body>, message: string) {
+  return checkoutRedirect(req, { err: message, ...checkoutFormState(body) });
+}
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
@@ -184,9 +199,9 @@ export async function POST(req: NextRequest) {
   const storeId = isNonEmptyString(body.storeId) ? body.storeId.trim() : "";
   const qty = toInt(body.quantity);
 
-  if (!itemId) return isFormPost ? checkoutRedirect(req, { err: "Missing itemId" }) : new Response("Missing itemId", { status: 400 });
-  if (!storeId) return isFormPost ? checkoutRedirect(req, { err: "Missing storeId" }) : new Response("Missing storeId", { status: 400 });
-  if (qty === null || qty <= 0) return isFormPost ? checkoutRedirect(req, { err: "Invalid quantity" }) : new Response("Invalid quantity", { status: 400 });
+  if (!itemId) return isFormPost ? checkoutErrorRedirect(req, body, "Missing itemId") : new Response("Missing itemId", { status: 400 });
+  if (!storeId) return isFormPost ? checkoutErrorRedirect(req, body, "Missing storeId") : new Response("Missing storeId", { status: 400 });
+  if (qty === null || qty <= 0) return isFormPost ? checkoutErrorRedirect(req, body, "Invalid quantity") : new Response("Invalid quantity", { status: 400 });
 
   const needToOrderMore = Boolean(body.needToOrderMore);
   const note = typeof body.note === "string" ? body.note.trim() : null;
@@ -570,7 +585,7 @@ export async function POST(req: NextRequest) {
         : "Checkout failed";
 
     if (isFormPost) {
-      return checkoutRedirect(req, { err: msg || "Checkout failed" });
+      return checkoutErrorRedirect(req, body, msg || "Checkout failed");
     }
 
     if (msg === "Item not found" || msg === "Store not found") {

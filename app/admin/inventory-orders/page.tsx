@@ -29,6 +29,8 @@ import {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+const BUSINESS_TIME_ZONE = "America/New_York";
+
 type AdminSession = {
   user?: {
     id?: string | null;
@@ -99,6 +101,31 @@ type SearchParams = {
   error?: string;
   configOk?: string;
   configError?: string;
+  createOrderOpen?: string;
+  newItemOpen?: string;
+  isNewItem?: string;
+  draft_itemId?: string;
+  draft_qty?: string;
+  draft_supplierName?: string;
+  draft_supplierPartNumber?: string;
+  draft_unitPrice?: string;
+  draft_orderedAt?: string;
+  draft_newSku?: string;
+  draft_newLoc?: string;
+  draft_newShelf?: string;
+  draft_newBin?: string;
+  draft_newName?: string;
+  draft_newPartNumber?: string;
+  draft_newVendor?: string;
+  draft_newCategory?: string;
+  draft_newManufacturer?: string;
+  draft_newOrderFrom?: string;
+  draft_newWebUrl?: string;
+  draft_shippingCost?: string;
+  draft_taxCost?: string;
+  draft_forUserId?: string;
+  draft_forStoreId?: string;
+  draft_note?: string;
 };
 
 function clamp(n: number, min: number, max: number) {
@@ -147,23 +174,100 @@ function parseOptionalDateTimeLocal(v: FormDataEntryValue | null): Date | null {
   if (v === null) return null;
   const s = String(v).trim();
   if (!s) return null;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
+
+  const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2})$/.exec(s);
+  if (!m) return null;
+
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const hour = Number(m[4]);
+  const minute = Number(m[5]);
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute)
+  ) {
+    return null;
+  }
+
+  const naiveUTC = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const guess = new Date(naiveUTC);
+  const offsetMin = tzOffsetMinutes(guess, BUSINESS_TIME_ZONE);
+  const out = new Date(naiveUTC - offsetMin * 60000);
+  return Number.isNaN(out.getTime()) ? null : out;
+}
+
+function tzOffsetMinutes(at: Date, timeZone: string): number {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const parts = dtf.formatToParts(at);
+  const get = (type: string) => {
+    const p = parts.find((x) => x.type === type)?.value;
+    return p ? Number(p) : NaN;
+  };
+  const y = get("year");
+  const mo = get("month");
+  const da = get("day");
+  const h = get("hour");
+  const mi = get("minute");
+  const se = get("second");
+  const asUTC = Date.UTC(y, mo - 1, da, h, mi, se);
+  return Math.round((asUTC - at.getTime()) / 60000);
 }
 
 function fmtLocal(d: Date | null): string {
   if (!d) return "—";
-  return new Date(d).toLocaleString();
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date(d));
 }
 
 function fmtDateOnly(d: Date | null): string {
   if (!d) return "—";
-  return new Date(d).toLocaleDateString();
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).format(new Date(d));
 }
 
 function fmtForDatetimeLocal(d: Date | null): string {
   if (!d) return "";
-  return new Date(d).toISOString().slice(0, 16);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: BUSINESS_TIME_ZONE,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(new Date(d));
+
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  const y = get("year");
+  const mo = get("month");
+  const da = get("day");
+  const h = get("hour");
+  const mi = get("minute");
+  return `${y}-${mo}-${da}T${h}:${mi}`;
 }
 
 function money(n: number): string {
@@ -528,6 +632,20 @@ export default async function AdminInventoryOrdersPage({
   const errMsg = (sp.error ?? "").trim();
   const configOkMsg = (sp.configOk ?? "").trim() === "1";
   const configErrMsg = (sp.configError ?? "").trim();
+  const createOrderOpen = (sp.createOrderOpen ?? "").trim() === "1";
+  const newItemOpen = (sp.newItemOpen ?? "").trim() === "1";
+  const draft = (key: keyof SearchParams, fallback = "") => String(sp[key] ?? fallback);
+  const draftNewVendor = draft("draft_newVendor", "SUCCESS_PLUS") === "AMERICAN_PLUS" ? "AMERICAN_PLUS" : "SUCCESS_PLUS";
+  const draftIsNewItem =
+    (sp.isNewItem ?? "").trim() === "1" ||
+    Boolean(
+      draft("draft_newSku") ||
+        draft("draft_newLoc") ||
+        draft("draft_newShelf") ||
+        draft("draft_newBin") ||
+        draft("draft_newName") ||
+        draft("draft_newPartNumber"),
+    );
 
   const controlLabel: CSSProperties = { display: "grid", gap: 6, fontSize: 12, opacity: 0.9, fontWeight: 900 };
   const controlBase: CSSProperties = {
@@ -724,7 +842,7 @@ export default async function AdminInventoryOrdersPage({
       const { session: s } = await requireOrderHistoryEdit();
 
       const isNewItem = parseBool(formData.get("isNewItem"));
-      let pickedItemId = nonEmptyString(formData.get("itemId"));
+      const pickedItemId = nonEmptyString(formData.get("itemId"));
 
       const newSku = nonEmptyString(formData.get("newSku"));
       const newName = nonEmptyString(formData.get("newName"));
@@ -1327,7 +1445,7 @@ export default async function AdminInventoryOrdersPage({
           </div>
         ) : null}
 
-        <details style={{ marginTop: 12 }}>
+        <details open={createOrderOpen} style={{ marginTop: 12 }}>
           <summary
             style={{
               cursor: "pointer",
@@ -1432,7 +1550,12 @@ export default async function AdminInventoryOrdersPage({
                 <label style={{ display: "grid", gap: 6, fontSize: 12, opacity: 0.9, fontWeight: 900, ...flexItem(420, 3) }}>
                   Item (select existing)
                   <div style={{ marginTop: 2 }}>
-                    <ItemPicker name="itemId" items={pickerItems} placeholder="Search item #, ID, SKU, part #, name, category, manufacturer…" />
+                    <ItemPicker
+                      name="itemId"
+                      items={pickerItems}
+                      defaultId={draft("draft_itemId")}
+                      placeholder="Search item #, ID, SKU, part #, name, category, manufacturer…"
+                    />
                   </div>
                   <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>
                     If you’re creating a brand-new item, use the “New item” section below instead.
@@ -1441,72 +1564,72 @@ export default async function AdminInventoryOrdersPage({
 
                 <label style={{ ...controlLabel, ...flexItem(110, 0) }}>
                   Qty
-                  <input name="qty" type="number" min={1} step={1} defaultValue={1} required style={controlBase} />
+                  <input name="qty" type="number" min={1} step={1} defaultValue={draft("draft_qty", "1")} required style={controlBase} />
                 </label>
 
                 <label style={{ ...controlLabel, ...flexItem(200, 1) }}>
                   Supplier (optional)
-                  <input name="supplierName" placeholder="Supplier…" style={controlBase} />
+                  <input name="supplierName" placeholder="Supplier…" defaultValue={draft("draft_supplierName")} style={controlBase} />
                 </label>
 
                 <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
                   Supplier Part # (optional)
-                  <input name="supplierPartNumber" placeholder="Supplier part #…" style={controlBase} />
+                  <input name="supplierPartNumber" placeholder="Supplier part #…" defaultValue={draft("draft_supplierPartNumber")} style={controlBase} />
                 </label>
 
                 <label style={{ ...controlLabel, ...flexItem(170, 0) }}>
                   Unit price (required)
-                  <input name="unitPrice" placeholder="0.00" inputMode="decimal" required style={controlBase} />
+                  <input name="unitPrice" placeholder="0.00" inputMode="decimal" defaultValue={draft("draft_unitPrice")} required style={controlBase} />
                 </label>
 
                 <label style={{ ...controlLabel, ...flexItem(220, 0) }}>
                   Ordered at
-                  <input name="orderedAt" type="datetime-local" defaultValue={fmtForDatetimeLocal(new Date())} style={controlBase} />
+                  <input name="orderedAt" type="datetime-local" defaultValue={draft("draft_orderedAt", fmtForDatetimeLocal(new Date()))} style={controlBase} />
                 </label>
               </div>
 
-              <details style={{ marginTop: 6, border, borderRadius: 12, padding: 10, background: soft }}>
+              <details open={newItemOpen} style={{ marginTop: 6, border, borderRadius: 12, padding: 10, background: soft }}>
                 <summary style={{ cursor: "pointer", fontWeight: 900 }}>New item (creates Item automatically if SKU doesn’t exist)</summary>
                 <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
                   <label style={{ display: "flex", gap: 10, alignItems: "center", fontWeight: 900 }}>
-                    <input type="checkbox" name="isNewItem" />
+                    <input type="checkbox" name="isNewItem" defaultChecked={draftIsNewItem} />
                     Create a new item from these fields (instead of selecting)
                   </label>
 
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                     <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
                       SKU (optional override)
-                      <input name="newSku" placeholder="SKU…" style={controlBase} />
+                      <input name="newSku" placeholder="SKU…" defaultValue={draft("draft_newSku")} style={controlBase} />
                     </label>
 
                     <label style={{ ...controlLabel, ...flexItem(120, 0) }}>
                       Loc
-                      <input name="newLoc" placeholder="03" inputMode="numeric" style={controlBase} />
+                      <input name="newLoc" placeholder="03" inputMode="numeric" defaultValue={draft("draft_newLoc")} style={controlBase} />
                     </label>
 
                     <label style={{ ...controlLabel, ...flexItem(120, 0) }}>
                       Shelf
-                      <input name="newShelf" placeholder="18" inputMode="numeric" style={controlBase} />
+                      <input name="newShelf" placeholder="18" inputMode="numeric" defaultValue={draft("draft_newShelf")} style={controlBase} />
                     </label>
 
                     <label style={{ ...controlLabel, ...flexItem(120, 0) }}>
                       Bin
-                      <input name="newBin" placeholder="02" inputMode="numeric" style={controlBase} />
+                      <input name="newBin" placeholder="02" inputMode="numeric" defaultValue={draft("draft_newBin")} style={controlBase} />
                     </label>
 
                     <label style={{ ...controlLabel, ...flexItem(360, 2) }}>
                       Name (required for new)
-                      <input name="newName" placeholder="Item name…" style={controlBase} />
+                      <input name="newName" placeholder="Item name…" defaultValue={draft("draft_newName")} style={controlBase} />
                     </label>
 
                     <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
                       Part #
-                      <input name="newPartNumber" placeholder="Part number…" style={controlBase} />
+                      <input name="newPartNumber" placeholder="Part number…" defaultValue={draft("draft_newPartNumber")} style={controlBase} />
                     </label>
 
                     <label style={{ ...controlLabel, ...flexItem(220, 0) }}>
                       Vendor
-                      <select name="newVendor" defaultValue="SUCCESS_PLUS" style={controlBase}>
+                      <select name="newVendor" defaultValue={draftNewVendor} style={controlBase}>
                         <option value="SUCCESS_PLUS">SUCCESS_PLUS</option>
                         <option value="AMERICAN_PLUS">AMERICAN_PLUS</option>
                       </select>
@@ -1516,22 +1639,22 @@ export default async function AdminInventoryOrdersPage({
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                     <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
                       Category
-                      <input name="newCategory" placeholder="Category…" style={controlBase} />
+                      <input name="newCategory" placeholder="Category…" defaultValue={draft("draft_newCategory")} style={controlBase} />
                     </label>
 
                     <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
                       Manufacturer
-                      <input name="newManufacturer" placeholder="Manufacturer…" style={controlBase} />
+                      <input name="newManufacturer" placeholder="Manufacturer…" defaultValue={draft("draft_newManufacturer")} style={controlBase} />
                     </label>
 
                     <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
                       Order From
-                      <input name="newOrderFrom" placeholder="Order from…" style={controlBase} />
+                      <input name="newOrderFrom" placeholder="Order from…" defaultValue={draft("draft_newOrderFrom")} style={controlBase} />
                     </label>
 
                     <label style={{ ...controlLabel, ...flexItem(360, 2) }}>
                       Web URL
-                      <input name="newWebUrl" placeholder="https://…" style={controlBase} />
+                      <input name="newWebUrl" placeholder="https://…" defaultValue={draft("draft_newWebUrl")} style={controlBase} />
                     </label>
                   </div>
                 </div>
@@ -1540,17 +1663,17 @@ export default async function AdminInventoryOrdersPage({
               <div style={wrapRow}>
                 <label style={{ ...controlLabel, ...flexItem(170, 0) }}>
                   Shipping (optional)
-                  <input name="shippingCost" placeholder="0.00" inputMode="decimal" style={controlBase} />
+                  <input name="shippingCost" placeholder="0.00" inputMode="decimal" defaultValue={draft("draft_shippingCost")} style={controlBase} />
                 </label>
 
                 <label style={{ ...controlLabel, ...flexItem(150, 0) }}>
                   Tax (optional)
-                  <input name="taxCost" placeholder="0.00" inputMode="decimal" style={controlBase} />
+                  <input name="taxCost" placeholder="0.00" inputMode="decimal" defaultValue={draft("draft_taxCost")} style={controlBase} />
                 </label>
 
                 <label style={{ ...controlLabel, ...flexItem(240, 1) }}>
                   For tech (optional)
-                  <select name="forUserId" defaultValue="" style={controlBase}>
+                  <select name="forUserId" defaultValue={draft("draft_forUserId")} style={controlBase}>
                     <option value="">—</option>
                     {users.map((u) => (
                       <option key={u.id} value={u.id}>
@@ -1562,7 +1685,7 @@ export default async function AdminInventoryOrdersPage({
 
                 <label style={{ ...controlLabel, ...flexItem(240, 1) }}>
                   For store (optional)
-                  <select name="forStoreId" defaultValue="" style={controlBase}>
+                  <select name="forStoreId" defaultValue={draft("draft_forStoreId")} style={controlBase}>
                     <option value="">—</option>
                     {locations.map((l) => (
                       <option key={l.id} value={l.id}>
@@ -1574,7 +1697,7 @@ export default async function AdminInventoryOrdersPage({
 
                 <label style={{ ...controlLabel, ...flexItem(420, 3) }}>
                   Note (optional)
-                  <input name="note" placeholder="Optional note…" style={controlBase} />
+                  <input name="note" placeholder="Optional note…" defaultValue={draft("draft_note")} style={controlBase} />
                 </label>
 
                 <div style={{ ...flexItem(280, 1), alignSelf: "end" }}>
