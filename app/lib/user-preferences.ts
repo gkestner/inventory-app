@@ -18,6 +18,10 @@ export type AdminSidebarPreferences = {
   items: AdminSidebarItemPreference[];
 };
 
+export type ReportHubPreferences = {
+  sectionOrder: Record<string, string[]>;
+};
+
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   theme: "system",
   density: "comfortable",
@@ -147,6 +151,37 @@ export function setAdminSidebarPreferences(raw: unknown, prefs: AdminSidebarPref
         ? { type: "preset", key: item.key }
         : { type: "custom", label: item.label, href: item.href },
     ),
+  };
+  return root;
+}
+
+function normalizeReportHubSectionOrder(raw: unknown): Record<string, string[]> {
+  const obj = asRecord(raw);
+  const out: Record<string, string[]> = {};
+
+  for (const [sectionKey, value] of Object.entries(obj)) {
+    const key = String(sectionKey ?? "").trim();
+    if (!key || !Array.isArray(value)) continue;
+    out[key] = value.map((item) => String(item ?? "").trim()).filter(Boolean);
+  }
+
+  return out;
+}
+
+export function parseReportHubPreferences(raw: unknown): ReportHubPreferences | null {
+  const root = asRecord(raw);
+  if (!hasOwn(root, "reportHub")) return null;
+
+  const reportHub = asRecord(root.reportHub);
+  return {
+    sectionOrder: normalizeReportHubSectionOrder(reportHub.sectionOrder),
+  };
+}
+
+export function setReportHubPreferences(raw: unknown, prefs: ReportHubPreferences): Record<string, unknown> {
+  const root = asRecord(raw);
+  root.reportHub = {
+    sectionOrder: normalizeReportHubSectionOrder(prefs.sectionOrder),
   };
   return root;
 }

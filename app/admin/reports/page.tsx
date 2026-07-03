@@ -6,6 +6,9 @@ import { redirect } from "next/navigation";
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { Permission, Role } from "@prisma/client";
+import { prisma } from "@/app/lib/prisma";
+import { parseReportHubPreferences } from "@/app/lib/user-preferences";
+import ReportsHubClient, { type ReportHubSection } from "./ReportsHubClient";
 import {
   ADMIN_VIEW_REPORT_FLEET_TCO,
   ADMIN_VIEW_REPORT_NOTIFICATION_EFFECTIVENESS,
@@ -101,25 +104,261 @@ export default async function AdminReportsIndexPage({
   const canNotificationEffectivenessReport =
     perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_REPORT_NOTIFICATION_EFFECTIVENESS]);
 
+  const session = (await getServerSession(authOptions)) as AdminSession;
+  const userId = String(session?.user?.id ?? "").trim();
+  const email = String(session?.user?.email ?? "").trim().toLowerCase();
+  const sidebarUser = userId
+    ? await prisma.user.findUnique({ where: { id: userId }, select: { uiPreferences: true } })
+    : email
+      ? await prisma.user.findUnique({ where: { email }, select: { uiPreferences: true } })
+      : null;
+  const reportHubPrefs = parseReportHubPreferences(sidebarUser?.uiPreferences) ?? { sectionOrder: {} };
+
+  const sections: ReportHubSection[] = [
+    {
+      key: "inventory",
+      title: "Inventory & Ordering",
+      items: [
+        ...(canItemsReports && matchesQuery(query, "checkout orders tickets")
+          ? [
+              {
+                key: "checkout-orders",
+                title: "Checkout Orders",
+                description: "Full searchable report of maintenance checkout tickets with all checkout fields and detailed drilldown.",
+                href: "/admin/reports/checkout-orders",
+              },
+            ]
+          : []),
+        ...(canItemsReports && matchesQuery(query, "items not checked out stale unused no checkout slow moving")
+          ? [
+              {
+                key: "items-not-checked-out",
+                title: "Items Not Checked Out",
+                description: "Find active parts with no checkout activity in a selected 12-month window, including all-time last checkout age.",
+                href: "/admin/reports/items-not-checked-out",
+              },
+            ]
+          : []),
+        ...(canItemsReports && matchesQuery(query, "items needing order reorder queue")
+          ? [
+              {
+                key: "needs-ordering",
+                title: "Items Needing Order",
+                description: "Live reorder queue for active items below minimum with Ignore/Unignore controls.",
+                href: "/admin/reports/needs-ordering",
+              },
+            ]
+          : []),
+        ...(canItemsReports && matchesQuery(query, "min qty suggested minimum differences mismatch")
+          ? [
+              {
+                key: "min-qty-differences",
+                title: "Min Qty Differences",
+                description: "Review items where current min qty differs from the full-history suggested minimum and copy the suggestion row by row.",
+                href: "/admin/reports/min-qty-differences",
+              },
+            ]
+          : []),
+        ...(canItemsReports && matchesQuery(query, "item cost history pricing")
+          ? [
+              {
+                key: "item-cost-history",
+                title: "Item Cost History",
+                description: "Compare current item cost against prior points in time or selected averaging windows.",
+                href: "/admin/reports/item-cost-history",
+              },
+            ]
+          : []),
+        ...(canItemsReports && matchesQuery(query, "scanner count untouched unscanned looked up not scanned")
+          ? [
+              {
+                key: "scanner-count-untouched",
+                title: "Scanner Count Untouched Parts",
+                description: "Parts you have not looked up or updated from scanner count since the last reset, with reset control for the next pass.",
+                href: "/admin/reports/scanner-count-untouched",
+              },
+            ]
+          : []),
+        ...(canItemsReports && matchesQuery(query, "order history inventory orders")
+          ? [
+              {
+                key: "order-history",
+                title: "Order History",
+                description: "Chronological order sheet with phase states, supplier totals, and destination context.",
+                href: "/admin/inventory-orders",
+              },
+            ]
+          : []),
+        ...(canItemsReports && matchesQuery(query, "orders received processing inventory receiving")
+          ? [
+              {
+                key: "inventory-receiving",
+                title: "Orders Received / Processing",
+                description: "Receiving-focused view for ARRIVED orders with add-to-inventory workflow.",
+                href: "/admin/inventory-receiving",
+              },
+            ]
+          : []),
+        ...((canPartsConsumptionReport || canItemsReports) && matchesQuery(query, "parts consumption cost checkout spend")
+          ? [
+              {
+                key: "parts-consumption-costs",
+                title: "Parts Consumption + Cost",
+                description: "Checkout quantity and spend analysis by store and item over a selected date range.",
+                href: "/admin/reports/parts-consumption-costs",
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      key: "maintenance",
+      title: "Maintenance Operations",
+      items: [
+        ...(canWorkOrderReports && matchesQuery(query, "work order cost rollup labor mileage")
+          ? [
+              {
+                key: "work-order-costs",
+                title: "Work Order Cost Rollup",
+                description: "Summarized labor and mileage cost by work order for budget and reconciliation.",
+                href: "/admin/reports/work-order-costs",
+              },
+            ]
+          : []),
+        ...(canRequestReports && matchesQuery(query, "maintenance request reports assignment closeout")
+          ? [
+              {
+                key: "maintenance-requests",
+                title: "Maintenance Request Reports",
+                description: "Volume, assignment load, closeout pace, and maintenance request audit events.",
+                href: "/admin/reports/maintenance-requests",
+              },
+            ]
+          : []),
+        ...(canSlaBreachReport && matchesQuery(query, "sla breach response close")
+          ? [
+              {
+                key: "sla-breaches",
+                title: "SLA Breach Monitor",
+                description: "Overdue and slow-close requests compared to response and close-hour targets.",
+                href: "/admin/reports/sla-breaches",
+              },
+            ]
+          : []),
+        ...((canTechnicianWorkloadReport || canRequestReports || canWorkOrderReports) && matchesQuery(query, "technician workload throughput open closed")
+          ? [
+              {
+                key: "technician-workload",
+                title: "Technician Workload",
+                description: "Open load and close-throughput by technician across requests and work orders.",
+                href: "/admin/reports/technician-workload",
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      key: "pm",
+      title: "Preventative Maintenance & Compliance",
+      items: [
+        ...(canPmReports && matchesQuery(query, "pm audit activity preventative maintenance")
+          ? [
+              {
+                key: "preventative-maintenance",
+                title: "PM Audit & Activity",
+                description: "History of PM row updates, actors, timestamps, and changed fields.",
+                href: "/admin/reports/preventative-maintenance",
+              },
+            ]
+          : []),
+        ...((canPmComplianceReport || canPmReports) && matchesQuery(query, "pm compliance scorecard")
+          ? [
+              {
+                key: "pm-compliance",
+                title: "PM Compliance Scorecard",
+                description: "Completion coverage by location and year based on PM fill-rate and activity.",
+                href: "/admin/reports/pm-compliance",
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      key: "temperature-fleet",
+      title: "Temperature & Fleet",
+      items: [
+        ...((canTemperatureIncidentsReport || canTemperatureReports) && matchesQuery(query, "temperature incident timeline mocreo hub device")
+          ? [
+              {
+                key: "temperature-incidents",
+                title: "Temperature Incident Timeline",
+                description: "Hub/device alert timeline with high/low incident counts and abnormal readings.",
+                href: "/admin/reports/temperature-incidents",
+              },
+            ]
+          : []),
+        ...((canFleetTcoReport || canFleetReports) && matchesQuery(query, "fleet tco vehicles cost per mile")
+          ? [
+              {
+                key: "fleet-tco",
+                title: "Fleet TCO",
+                description: "Vehicle service spend, mileage deltas, and cost-per-mile trends by unit.",
+                href: "/admin/reports/fleet-tco",
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      key: "security",
+      title: "Security & Administration",
+      items: [
+        ...((canPermissionCoverageReport || canSecurityReports) && matchesQuery(query, "permission coverage access matrix role title")
+          ? [
+              {
+                key: "permission-coverage",
+                title: "Permission Coverage",
+                description: "User access matrix with direct grants and role/title permission coverage.",
+                href: "/admin/reports/permission-coverage",
+              },
+            ]
+          : []),
+        ...((canNotificationEffectivenessReport || canSecurityReports) && matchesQuery(query, "notification effectiveness delivery read time")
+          ? [
+              {
+                key: "notification-effectiveness",
+                title: "Notification Effectiveness",
+                description: "Delivery/read trends by notification type for routing optimization.",
+                href: "/admin/reports/notification-effectiveness",
+              },
+            ]
+          : []),
+        ...(canSecurityReports && matchesQuery(query, "audit trail activity stream")
+          ? [
+              {
+                key: "audit",
+                title: "Audit Trail",
+                description: "Searchable activity stream for administrative and workflow traceability.",
+                href: "/admin/audit",
+              },
+            ]
+          : []),
+        ...(canSecurityReports && matchesQuery(query, "permission diagnostics")
+          ? [
+              {
+                key: "permission-diagnostics",
+                title: "Permission Diagnostics",
+                description: "Validate effective coverage and find missing grants quickly.",
+                href: "/admin/permission-diagnostics",
+              },
+            ]
+          : []),
+      ],
+    },
+  ];
+
   const border = "1px solid var(--border)";
-  const surface = "var(--surface)";
   const fg = "var(--foreground)";
-
-  const cardStyle: React.CSSProperties = {
-    border,
-    borderRadius: 16,
-    padding: 14,
-    background: surface,
-    color: fg,
-    textDecoration: "none",
-    display: "grid",
-    gap: 8,
-    minHeight: 110,
-    boxShadow: "var(--shadow)",
-  };
-
-  const titleStyle: React.CSSProperties = { fontWeight: 900, fontSize: 16, margin: 0 };
-  const descStyle: React.CSSProperties = { opacity: 0.85, lineHeight: 1.45, margin: 0, fontSize: 13 };
 
   return (
     <main>
@@ -225,190 +464,7 @@ export default async function AdminReportsIndexPage({
         </form>
         </section>
 
-        <section style={{ marginTop: 14 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 900, margin: "0 0 8px" }}>Inventory & Ordering</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
-            {canItemsReports && matchesQuery(query, "checkout orders tickets") ? (
-              <Link href="/admin/reports/checkout-orders" style={cardStyle}>
-                <h2 style={titleStyle}>Checkout Orders</h2>
-                <p style={descStyle}>Full searchable report of maintenance checkout tickets with all checkout fields and detailed drilldown.</p>
-                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-              </Link>
-            ) : null}
-
-            {canItemsReports && matchesQuery(query, "items needing order reorder queue") ? (
-              <Link href="/admin/reports/needs-ordering" style={cardStyle}>
-                <h2 style={titleStyle}>Items Needing Order</h2>
-                <p style={descStyle}>Live reorder queue for active items below minimum with Ignore/Unignore controls.</p>
-                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-              </Link>
-            ) : null}
-
-            {canItemsReports && matchesQuery(query, "min qty suggested minimum differences mismatch") ? (
-              <Link href="/admin/reports/min-qty-differences" style={cardStyle}>
-                <h2 style={titleStyle}>Min Qty Differences</h2>
-                <p style={descStyle}>Review items where current min qty differs from the full-history suggested minimum and copy the suggestion row by row.</p>
-                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-              </Link>
-            ) : null}
-
-            {canItemsReports && matchesQuery(query, "item cost history pricing") ? (
-              <Link href="/admin/reports/item-cost-history" style={cardStyle}>
-                <h2 style={titleStyle}>Item Cost History</h2>
-                <p style={descStyle}>Compare current item cost against prior points in time or selected averaging windows.</p>
-                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-              </Link>
-            ) : null}
-
-            {canItemsReports && matchesQuery(query, "scanner count untouched unscanned looked up not scanned") ? (
-              <Link href="/admin/reports/scanner-count-untouched" style={cardStyle}>
-                <h2 style={titleStyle}>Scanner Count Untouched Parts</h2>
-                <p style={descStyle}>Parts you have not looked up or updated from scanner count since the last reset, with reset control for the next pass.</p>
-                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-              </Link>
-            ) : null}
-
-            {canItemsReports && matchesQuery(query, "order history inventory orders") ? (
-              <Link href="/admin/inventory-orders" style={cardStyle}>
-                <h2 style={titleStyle}>Order History</h2>
-                <p style={descStyle}>Chronological order sheet with phase states, supplier totals, and destination context.</p>
-                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-              </Link>
-            ) : null}
-
-            {canItemsReports && matchesQuery(query, "orders received processing inventory receiving") ? (
-              <Link href="/admin/inventory-receiving" style={cardStyle}>
-                <h2 style={titleStyle}>Orders Received / Processing</h2>
-                <p style={descStyle}>Receiving-focused view for ARRIVED orders with add-to-inventory workflow.</p>
-                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-              </Link>
-            ) : null}
-
-            {(canPartsConsumptionReport || canItemsReports) && matchesQuery(query, "parts consumption cost checkout spend") ? (
-              <Link href="/admin/reports/parts-consumption-costs" style={cardStyle}>
-                <h2 style={titleStyle}>Parts Consumption + Cost</h2>
-                <p style={descStyle}>Checkout quantity and spend analysis by store and item over a selected date range.</p>
-                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-              </Link>
-            ) : null}
-          </div>
-        </section>
-
-        <section style={{ marginTop: 14 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 900, margin: "0 0 8px" }}>Maintenance Operations</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
-            {canWorkOrderReports && matchesQuery(query, "work order cost rollup labor mileage") ? (
-              <Link href="/admin/reports/work-order-costs" style={cardStyle}>
-                <h2 style={titleStyle}>Work Order Cost Rollup</h2>
-                <p style={descStyle}>Summarized labor and mileage cost by work order for budget and reconciliation.</p>
-                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-              </Link>
-            ) : null}
-
-            {canRequestReports && matchesQuery(query, "maintenance request reports assignment closeout") ? (
-              <Link href="/admin/reports/maintenance-requests" style={cardStyle}>
-                <h2 style={titleStyle}>Maintenance Request Reports</h2>
-                <p style={descStyle}>Volume, assignment load, closeout pace, and maintenance request audit events.</p>
-                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-              </Link>
-            ) : null}
-
-            {canSlaBreachReport && matchesQuery(query, "sla breach response close") ? (
-              <Link href="/admin/reports/sla-breaches" style={cardStyle}>
-                <h2 style={titleStyle}>SLA Breach Monitor</h2>
-                <p style={descStyle}>Overdue and slow-close requests compared to response and close-hour targets.</p>
-                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-              </Link>
-            ) : null}
-
-            {(canTechnicianWorkloadReport || canRequestReports || canWorkOrderReports) && matchesQuery(query, "technician workload throughput open closed") ? (
-              <Link href="/admin/reports/technician-workload" style={cardStyle}>
-                <h2 style={titleStyle}>Technician Workload</h2>
-                <p style={descStyle}>Open load and close-throughput by technician across requests and work orders.</p>
-                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-              </Link>
-            ) : null}
-          </div>
-        </section>
-
-        <section style={{ marginTop: 14 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 900, margin: "0 0 8px" }}>Preventative Maintenance & Compliance</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
-            {canPmReports && matchesQuery(query, "pm audit activity preventative maintenance") ? (
-              <Link href="/admin/reports/preventative-maintenance" style={cardStyle}>
-                <h2 style={titleStyle}>PM Audit & Activity</h2>
-                <p style={descStyle}>History of PM row updates, actors, timestamps, and changed fields.</p>
-                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-              </Link>
-            ) : null}
-
-            {(canPmComplianceReport || canPmReports) && matchesQuery(query, "pm compliance scorecard") ? (
-              <Link href="/admin/reports/pm-compliance" style={cardStyle}>
-                <h2 style={titleStyle}>PM Compliance Scorecard</h2>
-                <p style={descStyle}>Completion coverage by location and year based on PM fill-rate and activity.</p>
-                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-              </Link>
-            ) : null}
-          </div>
-        </section>
-
-        <section style={{ marginTop: 14 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 900, margin: "0 0 8px" }}>Temperature & Fleet</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
-            {(canTemperatureIncidentsReport || canTemperatureReports) && matchesQuery(query, "temperature incident timeline mocreo hub device") ? (
-              <Link href="/admin/reports/temperature-incidents" style={cardStyle}>
-                <h2 style={titleStyle}>Temperature Incident Timeline</h2>
-                <p style={descStyle}>Hub/device alert timeline with high/low incident counts and abnormal readings.</p>
-                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-              </Link>
-            ) : null}
-
-            {(canFleetTcoReport || canFleetReports) && matchesQuery(query, "fleet tco vehicles cost per mile") ? (
-              <Link href="/admin/reports/fleet-tco" style={cardStyle}>
-                <h2 style={titleStyle}>Fleet TCO</h2>
-                <p style={descStyle}>Vehicle service spend, mileage deltas, and cost-per-mile trends by unit.</p>
-                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-              </Link>
-            ) : null}
-          </div>
-        </section>
-
-        <section style={{ marginTop: 14 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 900, margin: "0 0 8px" }}>Security & Administration</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
-            {(canPermissionCoverageReport || canSecurityReports) && matchesQuery(query, "permission coverage access matrix role title") ? (
-              <Link href="/admin/reports/permission-coverage" style={cardStyle}>
-                <h2 style={titleStyle}>Permission Coverage</h2>
-                <p style={descStyle}>User access matrix with direct grants and role/title permission coverage.</p>
-                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-              </Link>
-            ) : null}
-
-            {(canNotificationEffectivenessReport || canSecurityReports) && matchesQuery(query, "notification effectiveness delivery read time") ? (
-              <Link href="/admin/reports/notification-effectiveness" style={cardStyle}>
-                <h2 style={titleStyle}>Notification Effectiveness</h2>
-                <p style={descStyle}>Delivery/read trends by notification type for routing optimization.</p>
-                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-              </Link>
-            ) : null}
-
-            {canSecurityReports && matchesQuery(query, "audit trail activity stream") ? (
-              <Link href="/admin/audit" style={cardStyle}>
-                <h2 style={titleStyle}>Audit Trail</h2>
-                <p style={descStyle}>Searchable activity stream for administrative and workflow traceability.</p>
-                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-              </Link>
-            ) : null}
-
-            {canSecurityReports && matchesQuery(query, "permission diagnostics") ? (
-              <Link href="/admin/permission-diagnostics" style={cardStyle}>
-                <h2 style={titleStyle}>Permission Diagnostics</h2>
-                <p style={descStyle}>Validate effective coverage and find missing grants quickly.</p>
-                <div style={{ fontWeight: 900, opacity: 0.9 }}>Open →</div>
-              </Link>
-            ) : null}
-          </div>
-        </section>
+        <ReportsHubClient sections={sections} initialSectionOrder={reportHubPrefs.sectionOrder} />
 
         <div style={{ marginTop: 12, fontSize: 12, opacity: 0.8, lineHeight: 1.5 }}>
           Tip: bookmark <code>/admin/reports</code> as your reporting hub.

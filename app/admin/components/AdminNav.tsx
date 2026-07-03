@@ -236,7 +236,7 @@ export default async function AdminNav() {
 
   const showAccounting = canAdminInvoices;
   const showInventory = canAdminItems || canAdminOrderHistory || canAdminInventoryAlerts || canQuickCountEditor || canScannerCount;
-  const showAdmin = canAdminUsers || canAdminLocations || canAdminWorkOrderChecklists;
+  const showAdmin = canAdminUsers || canAdminLocations || canAdminWorkOrderChecklists || canAdminReports;
   const showOperations = canCheckout || canRoomDiagrams;
   const showWorkOrders = canAdminWorkOrders || canUserWorkOrders || canAdminMaintenanceTickets || canMaintenanceRequests || canAdminTravelLogs;
   const showFacilities =
@@ -423,6 +423,11 @@ export default async function AdminNav() {
             <details data-admin-dropdown style={detailsStyle}>
               <summary style={summaryStyle}>Admin</summary>
               <div style={menuStyle}>
+                {canAdminReports ? (
+                  <Link href="/admin/reports/create" style={menuItemStyle}>
+                    Create Report
+                  </Link>
+                ) : null}
                 {canAdminLocations ? (
                   <Link href="/admin/locations" style={menuItemStyle}>
                     Locations

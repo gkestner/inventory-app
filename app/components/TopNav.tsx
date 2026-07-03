@@ -6,7 +6,18 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/lib/auth";
 import { Permission } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import { CREATE_WORK_ORDERS_FOR_OTHERS, VIEW_INVENTORY } from "@/app/lib/permission-constants";
+import {
+  ADMIN_VIEW_REPORT_FLEET_TCO,
+  ADMIN_VIEW_REPORT_NOTIFICATION_EFFECTIVENESS,
+  ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS,
+  ADMIN_VIEW_REPORT_PERMISSION_COVERAGE,
+  ADMIN_VIEW_REPORT_PM_COMPLIANCE,
+  ADMIN_VIEW_REPORT_SLA_BREACHES,
+  ADMIN_VIEW_REPORT_TECHNICIAN_WORKLOAD,
+  ADMIN_VIEW_REPORT_TEMPERATURE_INCIDENTS,
+  CREATE_WORK_ORDERS_FOR_OTHERS,
+  VIEW_INVENTORY,
+} from "@/app/lib/permission-constants";
 import LogoutSlot from "@/app/components/LogoutSlot";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +59,14 @@ export default async function TopNav() {
       Permission.ADMIN_VIEW_LOCATIONS,
       Permission.ADMIN_VIEW_WORK_ORDERS,
       Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
+      ADMIN_VIEW_REPORT_SLA_BREACHES,
+      ADMIN_VIEW_REPORT_TECHNICIAN_WORKLOAD,
+      ADMIN_VIEW_REPORT_TEMPERATURE_INCIDENTS,
+      ADMIN_VIEW_REPORT_PM_COMPLIANCE,
+      ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS,
+      ADMIN_VIEW_REPORT_FLEET_TCO,
+      ADMIN_VIEW_REPORT_PERMISSION_COVERAGE,
+      ADMIN_VIEW_REPORT_NOTIFICATION_EFFECTIVENESS,
     ]);
 
   return (

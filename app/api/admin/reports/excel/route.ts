@@ -36,6 +36,7 @@ type SessionShape = {
 
 const REPORT_PERMISSIONS: Record<string, Permission[]> = {
   "checkout-orders": [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS],
+  "items-not-checked-out": [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS],
   "needs-ordering": [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS],
   "min-qty-differences": [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS],
   "item-cost-history": [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS],
@@ -266,6 +267,150 @@ async function checkoutOrders(sp: URLSearchParams) {
     ],
     [["Search", q], ["Status", status]],
     { lineCost: rows.reduce((sum, row) => sum + Number(row.lineCost ?? 0), 0) }
+  );
+}
+
+async function itemsNotCheckedOut(sp: URLSearchParams) {
+  const q = String(sp.get("q") ?? "").trim();
+  const now = new Date();
+  const defaultFrom = new Date(now);
+  defaultFrom.setMonth(defaultFrom.getMonth() - 12);
+  defaultFrom.setHours(0, 0, 0, 0);
+  const defaultTo = new Date(now);
+  defaultTo.setHours(23, 59, 59, 999);
+  const from = parseDateStart(sp.get("from")) ?? defaultFrom;
+  const to = parseDateEnd(sp.get("to")) ?? defaultTo;
+  const active = String(sp.get("active") ?? "active").trim().toLowerCase() === "all" ? "all" : "active";
+  const like = `%${q}%`;
+
+  type NotCheckedOutRow = {
+    id: string;
+    sku: string;
+    partNumber: string | null;
+    name: string;
+    manufacturer: string | null;
+    cost: Prisma.Decimal | null;
+    webUrl: string | null;
+    onHandQty: number;
+    lastCheckoutAt: Date | null;
+    lastCheckoutQty: number | null;
+    lastCheckoutStore: string | null;
+    checkoutQtyInPeriod: number;
+  };
+
+  const rowsRaw = await prisma.$queryRaw<NotCheckedOutRow[]>(Prisma.sql`
+    WITH valid_checkouts AS (
+      SELECT
+        pct."itemId",
+        pct."createdAt",
+        pct."quantity",
+        pct."storeName",
+        ROW_NUMBER() OVER (PARTITION BY pct."itemId" ORDER BY pct."createdAt" DESC, pct."id" DESC) AS rn
+      FROM "PartsCheckoutTicket" pct
+      WHERE pct."status" <> 'VOIDED'::"PartsCheckoutStatus"
+    ),
+    period_checkouts AS (
+      SELECT
+        vc."itemId",
+        COALESCE(SUM(vc."quantity"), 0)::int AS "checkoutQtyInPeriod"
+      FROM valid_checkouts vc
+      WHERE vc."createdAt" >= ${from}
+        AND vc."createdAt" <= ${to}
+      GROUP BY vc."itemId"
+    ),
+    latest_checkout AS (
+      SELECT
+        vc."itemId",
+        vc."createdAt" AS "lastCheckoutAt",
+        vc."quantity" AS "lastCheckoutQty",
+        vc."storeName" AS "lastCheckoutStore"
+      FROM valid_checkouts vc
+      WHERE vc.rn = 1
+    )
+    SELECT
+      i."id",
+      i."sku",
+      i."partNumber",
+      i."name",
+      i."manufacturer",
+      i."cost",
+      i."webUrl",
+      i."onHandQty",
+      lc."lastCheckoutAt",
+      lc."lastCheckoutQty",
+      lc."lastCheckoutStore",
+      COALESCE(pc."checkoutQtyInPeriod", 0)::int AS "checkoutQtyInPeriod"
+    FROM "Item" i
+    LEFT JOIN latest_checkout lc ON lc."itemId" = i."id"
+    LEFT JOIN period_checkouts pc ON pc."itemId" = i."id"
+    WHERE ${active === "active" ? Prisma.sql`i."active" = true` : Prisma.sql`TRUE`}
+      AND COALESCE(pc."checkoutQtyInPeriod", 0) = 0
+      AND ${
+        q
+          ? Prisma.sql`(
+              i."sku" ILIKE ${like}
+              OR i."name" ILIKE ${like}
+              OR COALESCE(i."partNumber", '') ILIKE ${like}
+              OR COALESCE(i."manufacturer", '') ILIKE ${like}
+              OR COALESCE(i."orderFrom", '') ILIKE ${like}
+            )`
+          : Prisma.sql`TRUE`
+      }
+    ORDER BY i."sku" ASC
+  `);
+
+  const rows = rowsRaw
+    .map((r) => {
+      const daysSinceLastCheckout = r.lastCheckoutAt
+        ? Math.max(0, Math.floor((now.getTime() - r.lastCheckoutAt.getTime()) / (24 * 60 * 60 * 1000)))
+        : null;
+      const cost = toNumber(r.cost);
+      return {
+        sku: r.sku,
+        partNumber: r.partNumber,
+        item: r.name,
+        manufacturer: r.manufacturer,
+        cost,
+        onHand: r.onHandQty,
+        onHandValue: cost * r.onHandQty,
+        lastCheckoutAt: r.lastCheckoutAt,
+        daysSinceLastCheckout,
+        lastCheckoutQty: r.lastCheckoutQty,
+        lastCheckoutStore: r.lastCheckoutStore,
+        checkoutQtyInPeriod: r.checkoutQtyInPeriod,
+        webUrl: r.webUrl,
+        itemId: r.id,
+      };
+    })
+    .sort((a, b) => {
+      const aDays = a.daysSinceLastCheckout ?? Number.MAX_SAFE_INTEGER;
+      const bDays = b.daysSinceLastCheckout ?? Number.MAX_SAFE_INTEGER;
+      if (bDays !== aDays) return bDays - aDays;
+      return a.sku.localeCompare(b.sku, undefined, { sensitivity: "base" });
+    });
+
+  return exportWorkbook(
+    `items-not-checked-out_${fileStamp()}`,
+    "Items Not Checked Out",
+    rows,
+    [
+      { key: "sku", header: "SKU" },
+      { key: "partNumber", header: "Part Number" },
+      { key: "item", header: "Item", width: 260 },
+      { key: "manufacturer", header: "Manufacturer", width: 180 },
+      { key: "cost", header: "Cost", kind: "currency" },
+      { key: "onHand", header: "On Hand", kind: "number" },
+      { key: "onHandValue", header: "On-Hand Value", kind: "currency" },
+      { key: "lastCheckoutAt", header: "Last Checkout", kind: "datetime" },
+      { key: "daysSinceLastCheckout", header: "Days Since Last Checkout", kind: "number" },
+      { key: "lastCheckoutQty", header: "Last Checkout Qty", kind: "number" },
+      { key: "lastCheckoutStore", header: "Last Checkout Store", width: 180 },
+      { key: "checkoutQtyInPeriod", header: "Checkout Qty In Period", kind: "number" },
+      { key: "webUrl", header: "Part Link", width: 260 },
+      { key: "itemId", header: "Item ID", width: 210 },
+    ],
+    [["Search", q], ["From", from], ["To", to], ["Active Filter", active]],
+    { onHandValue: rows.reduce((sum, row) => sum + Number(row.onHandValue ?? 0), 0) }
   );
 }
 
@@ -917,6 +1062,8 @@ export async function GET(req: NextRequest) {
   switch (report) {
     case "checkout-orders":
       return checkoutOrders(url.searchParams);
+    case "items-not-checked-out":
+      return itemsNotCheckedOut(url.searchParams);
     case "needs-ordering":
       return needsOrdering(url.searchParams);
     case "min-qty-differences":
