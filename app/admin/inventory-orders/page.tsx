@@ -13,13 +13,14 @@ import { Permission, Role, InventoryOrderStatus, Prisma } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { Decimal } from "@prisma/client/runtime/library";
 
-import ItemPicker from "./ItemPicker";
+import MultiItemOrderLines from "./MultiItemOrderLines";
 import NewItemAutoCheck from "./NewItemAutoCheck";
 import OrderTotalPreview from "./OrderTotalPreview";
 import SearchFilters from "./SearchFilters";
 import { DEFAULT_APP_CONFIG, loadAppConfig, ORDER_HISTORY_PER_PAGE_OPTIONS, saveAppConfig } from "@/app/lib/app-config";
 import {
   addToInventoryAction as addToInventoryServerAction,
+  cancelOrderAction as cancelOrderServerAction,
   createOrderAction as createOrderServerAction,
   deleteOrderAction as deleteOrderServerAction,
   markArrivedAction as markArrivedServerAction,
@@ -82,7 +83,7 @@ async function resolveSessionUserId(session: AdminSession): Promise<string> {
 }
 
 type InventoryOrderPhase = InventoryOrderStatus;
-const PHASES: InventoryOrderPhase[] = ["ORDERED", "ARRIVED", "ADDED_TO_INVENTORY"];
+const PHASES: InventoryOrderPhase[] = ["ORDERED", "ARRIVED", "ADDED_TO_INVENTORY", "CANCELLED"];
 
 type SearchParams = {
   q?: string;
@@ -369,6 +370,7 @@ function buildOrderSearchWhere(qRaw: string): Prisma.InventoryOrderWhereInput {
 function phaseLabel(s: InventoryOrderPhase): string {
   if (s === "ORDERED") return "ORDERED";
   if (s === "ARRIVED") return "ARRIVED";
+  if (s === "CANCELLED") return "CANCELLED";
   return "ADDED TO INVENTORY";
 }
 
@@ -376,13 +378,16 @@ function rowPhaseStyle(phase: InventoryOrderPhase): CSSProperties {
   const orderedBg = "var(--order-ordered-bg, rgba(255, 193, 7, 0.10))";
   const arrivedBg = "var(--order-arrived-bg, rgba(33, 150, 243, 0.10))";
   const addedBg = "var(--order-added-bg, rgba(76, 175, 80, 0.12))";
+  const cancelledBg = "rgba(244,67,54,0.10)";
 
   const orderedBar = "var(--order-ordered-bar, rgba(255, 193, 7, 0.55))";
   const arrivedBar = "var(--order-arrived-bar, rgba(33, 150, 243, 0.55))";
   const addedBar = "var(--order-added-bar, rgba(76, 175, 80, 0.60))";
+  const cancelledBar = "rgba(244,67,54,0.65)";
 
   if (phase === "ORDERED") return { background: orderedBg, borderLeft: `6px solid ${orderedBar}` };
   if (phase === "ARRIVED") return { background: arrivedBg, borderLeft: `6px solid ${arrivedBar}` };
+  if (phase === "CANCELLED") return { background: cancelledBg, borderLeft: `6px solid ${cancelledBar}` };
   return { background: addedBg, borderLeft: `6px solid ${addedBar}` };
 }
 
@@ -532,6 +537,11 @@ export default async function AdminInventoryOrdersPage({
   async function addToInventoryFormAction(formData: FormData) {
     "use server";
     await addToInventoryServerAction(formData);
+  }
+
+  async function cancelOrderFormAction(formData: FormData) {
+    "use server";
+    await cancelOrderServerAction(formData);
   }
 
   async function saveOrderDetailsFormAction(formData: FormData) {
@@ -1548,38 +1558,25 @@ export default async function AdminInventoryOrdersPage({
               <NewItemAutoCheck formId="create-order-form" />
               <div style={wrapRow}>
                 <label style={{ display: "grid", gap: 6, fontSize: 12, opacity: 0.9, fontWeight: 900, ...flexItem(420, 3) }}>
-                  Item (select existing)
+                  Items (select one or more existing)
                   <div style={{ marginTop: 2 }}>
-                    <ItemPicker
-                      name="itemId"
+                    <MultiItemOrderLines
                       items={pickerItems}
-                      defaultId={draft("draft_itemId")}
-                      placeholder="Search item #, ID, SKU, part #, name, category, manufacturer…"
+                      defaultItemId={draft("draft_itemId")}
+                      defaultQty={draft("draft_qty", "1")}
+                      defaultSupplierPartNumber={draft("draft_supplierPartNumber")}
+                      defaultUnitPrice={draft("draft_unitPrice")}
+                      controlBase={controlBase}
                     />
                   </div>
                   <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>
-                    If you’re creating a brand-new item, use the “New item” section below instead.
+                    Each item is saved as its own order row so Live Orders and Order History stay item-by-item. If you are creating a brand-new item, use the New item section below instead.
                   </div>
-                </label>
-
-                <label style={{ ...controlLabel, ...flexItem(110, 0) }}>
-                  Qty
-                  <input name="qty" type="number" min={1} step={1} defaultValue={draft("draft_qty", "1")} required style={controlBase} />
                 </label>
 
                 <label style={{ ...controlLabel, ...flexItem(200, 1) }}>
                   Supplier (optional)
                   <input name="supplierName" placeholder="Supplier…" defaultValue={draft("draft_supplierName")} style={controlBase} />
-                </label>
-
-                <label style={{ ...controlLabel, ...flexItem(220, 1) }}>
-                  Supplier Part # (optional)
-                  <input name="supplierPartNumber" placeholder="Supplier part #…" defaultValue={draft("draft_supplierPartNumber")} style={controlBase} />
-                </label>
-
-                <label style={{ ...controlLabel, ...flexItem(170, 0) }}>
-                  Unit price (required)
-                  <input name="unitPrice" placeholder="0.00" inputMode="decimal" defaultValue={draft("draft_unitPrice")} required style={controlBase} />
                 </label>
 
                 <label style={{ ...controlLabel, ...flexItem(220, 0) }}>
@@ -1872,6 +1869,7 @@ export default async function AdminInventoryOrdersPage({
 
             const canArrive = o.status === "ORDERED";
             const canAdd = o.status === "ARRIVED";
+            const canCancel = o.status !== "CANCELLED";
             const phaseText = phaseLabel(o.status as InventoryOrderPhase);
 
             return (
@@ -1920,6 +1918,8 @@ export default async function AdminInventoryOrdersPage({
                       <Field label="For Store">{o.forStore?.name ?? "—"}</Field>
                       <Field label="Arrived">{fmtLocal(o.arrivedAt)}</Field>
                       <Field label="Added">{fmtLocal(o.addedToInventoryAt)}</Field>
+                      <Field label="Cancelled">{fmtLocal(o.cancelledAt)}</Field>
+                      <Field label="Cancel Reason">{o.cancelReason ?? "N/A"}</Field>
                     </div>
                   </div>
 
@@ -1950,6 +1950,40 @@ export default async function AdminInventoryOrdersPage({
                   >
                     Print Label
                   </Link>
+
+                  {canCancel ? (
+                    <details className="orderDetails" style={{ border: border, borderRadius: 12, padding: 10, background: soft }}>
+                      <summary>Cancel</summary>
+                      <form
+                        action={cancelOrderFormAction}
+                        style={{
+                          marginTop: 10,
+                          padding: 10,
+                          border,
+                          borderRadius: 12,
+                          background: surface,
+                          display: "grid",
+                          gap: 10,
+                          minWidth: 280,
+                        }}
+                      >
+                        <input type="hidden" name="id" value={o.id} />
+                        <label style={controlLabel}>
+                          Reason cancelled
+                          <textarea
+                            name="cancelReason"
+                            required
+                            placeholder="Why was this order cancelled?"
+                            rows={3}
+                            style={{ ...controlBase, resize: "vertical", lineHeight: 1.35 }}
+                          />
+                        </label>
+                        <button type="submit" style={btn}>
+                          Cancel Order
+                        </button>
+                      </form>
+                    </details>
+                  ) : null}
 
                   <details className="orderDetails" style={{ border: border, borderRadius: 12, padding: 10, background: soft }}>
                     <summary>Edit</summary>

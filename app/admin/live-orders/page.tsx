@@ -164,7 +164,7 @@ export default async function LiveOrdersPage() {
   const orders = await prisma.inventoryOrder.findMany({
     where: {
       OR: [
-        { status: { not: "ADDED_TO_INVENTORY" } },
+        { status: { in: ["ORDERED", "ARRIVED"] } },
         {
           status: "ADDED_TO_INVENTORY",
           OR: [

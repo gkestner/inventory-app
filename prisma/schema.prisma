@@ -329,6 +329,7 @@ enum InventoryOrderStatus {
   ORDERED
   ARRIVED
   ADDED_TO_INVENTORY
+  CANCELLED
 }
 
 model Location {
@@ -1158,6 +1159,8 @@ model InventoryOrder {
   orderedAt          DateTime  @default(now())
   arrivedAt          DateTime?
   addedToInventoryAt DateTime?
+  cancelledAt        DateTime?
+  cancelReason       String?
 
   forStoreId String?
   forStore   Location? @relation("InventoryOrderForStore", fields: [forStoreId], references: [id], onDelete: SetNull)

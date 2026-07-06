@@ -360,6 +360,7 @@ function buildSystemAuditLine(args: {
     | "EDIT_ORDER"
     | "MARK_ARRIVED"
     | "ADD_TO_INVENTORY"
+    | "CANCEL_ORDER"
     | "DELETE_ORDER"
     | "SYNC_ITEM_FROM_LATEST_ORDER"
     | "CREATE_ITEM_FROM_ORDER";
@@ -426,7 +427,7 @@ function buildLiveOrderNotificationPayload(args: {
 
 async function syncItemCostAndOrderFromFromLatestOrder(tx: Prisma.TransactionClient, itemId: string) {
   const latest = await tx.inventoryOrder.findFirst({
-    where: { itemId },
+    where: { itemId, status: { not: "CANCELLED" } },
     orderBy: { orderedAt: "desc" },
     select: {
       id: true,
@@ -515,11 +516,7 @@ export async function createOrderAction(formData: FormData) {
     const hasNewItemSignals = Boolean(newSkuRaw || newName || newPartNumber || newLoc || newShelf || newBin);
     const isNewItem = requestedNewItem || (!itemId && hasNewItemSignals);
 
-    const qty = parseRequiredInt(formData.get("qty"));
     const supplierName = normalizeSupplierNameInput(formData.get("supplierName"));
-    const supplierPartNumber = String(formData.get("supplierPartNumber") ?? "").trim();
-
-    const unitPriceStr = parseRequiredMoneyString(formData.get("unitPrice"));
     const shippingCostStr = parseOptionalMoneyString(formData.get("shippingCost"));
     const taxCostStr = parseOptionalMoneyString(formData.get("taxCost"));
 
@@ -529,17 +526,42 @@ export async function createOrderAction(formData: FormData) {
     const orderedAt = parseOptionalDateTimeLocal(formData.get("orderedAt")) ?? new Date();
     const note = String(formData.get("note") ?? "").trim();
 
+    const lineItemIds = isNewItem ? [] : formData.getAll("itemId").map((v) => String(v).trim());
+    const lineQtys = formData.getAll("qty");
+    const lineSupplierPartNumbers = formData.getAll("supplierPartNumber");
+    const lineUnitPrices = formData.getAll("unitPrice");
+    const existingItemLines = lineItemIds
+      .map((lineItemId, index) => ({
+        itemId: lineItemId,
+        qty: parseRequiredInt(lineQtys[index] ?? null),
+        supplierPartNumber: String(lineSupplierPartNumbers[index] ?? "").trim(),
+        unitPriceStr: parseRequiredMoneyString(lineUnitPrices[index] ?? null),
+      }))
+      .filter((line) => line.itemId || Number.isFinite(line.qty) || line.unitPriceStr || line.supplierPartNumber);
+
+    const qty = isNewItem ? parseRequiredInt(formData.get("qty")) : 0;
+    const supplierPartNumber = isNewItem ? String(formData.get("supplierPartNumber") ?? "").trim() : "";
+    const unitPriceStr = isNewItem ? parseRequiredMoneyString(formData.get("unitPrice")) : "";
+
     if (isNewItem) {
       if (!newSku && (!newLoc || !newShelf || !newBin)) {
         throw new Error("Loc, Shelf, and Bin are required when SKU is blank.");
       }
       if (!newName) throw new Error("New item name is required");
     } else {
-      if (!itemId) throw new Error("Missing item. Pick an item from the dropdown (or check New item).");
+      if (existingItemLines.length === 0) throw new Error("Missing item. Pick at least one item from the dropdown (or check New item).");
     }
 
-    if (!Number.isFinite(qty) || qty <= 0) throw new Error("Invalid quantity");
-    if (!unitPriceStr) throw new Error("Unit price is required");
+    if (isNewItem) {
+      if (!Number.isFinite(qty) || qty <= 0) throw new Error("Invalid quantity");
+      if (!unitPriceStr) throw new Error("Unit price is required");
+    } else {
+      for (const [index, line] of existingItemLines.entries()) {
+        if (!line.itemId) throw new Error(`Missing item on line ${index + 1}.`);
+        if (!Number.isFinite(line.qty) || line.qty <= 0) throw new Error(`Invalid quantity on line ${index + 1}.`);
+        if (!line.unitPriceStr) throw new Error(`Unit price is required on line ${index + 1}.`);
+      }
+    }
 
     const createdByUserId = await resolveSessionUserId(session);
     if (!createdByUserId) throw new Error("Missing session user id");
@@ -608,76 +630,101 @@ export async function createOrderAction(formData: FormData) {
         }
       }
 
-      const item = await tx.item.findUnique({
-        where: { id: itemId },
-        select: { id: true, sku: true, cost: true, orderFrom: true, orderedQty: true },
-      });
-      if (!item) throw new Error("Item not found");
-
-      const prevCostStr = item.cost ? new Decimal(item.cost).toFixed(2) : null;
-      const landedUnitCost = computeLandedUnitCost({
-        unitPrice: unitPriceStr,
-        shippingCost: shippingCostStr,
-        taxCost: taxCostStr,
-        quantity: qty,
-      });
-      const newCostStr = landedUnitCost.toFixed(2);
-
-      const prevOrderFrom = item.orderFrom ?? null;
-      const newOrderFromFinal = canonicalSupplierName ? canonicalSupplierName : prevOrderFrom;
-
-      const prevOrderedQty = item.orderedQty ?? 0;
-      const newOrderedQty = prevOrderedQty + qty;
-
-      const auditLine = buildSystemAuditLine({
-        action: isNewItem ? "CREATE_ITEM_FROM_ORDER" : "CREATE_ORDER",
-        itemSku: item.sku,
-        prevCost: prevCostStr,
-        newCost: newCostStr,
-        prevOrderFrom,
-        newOrderFrom: newOrderFromFinal,
-        prevOrderedQty,
-        newOrderedQty,
-        note: isNewItem
-          ? "item created (or reused by sku) + item.cost updated"
-          : canonicalSupplierName
-            ? "item.cost + item.orderFrom updated"
-            : "item.cost updated",
+      const baseLines = isNewItem ? [{ itemId, qty, supplierPartNumber, unitPriceStr }] : existingItemLines;
+      const subtotal = baseLines.reduce(
+        (sum, line) => sum.add(new Decimal(line.unitPriceStr).mul(line.qty)),
+        new Decimal(0),
+      );
+      const totalShipping = shippingCostStr ? new Decimal(shippingCostStr) : new Decimal(0);
+      const totalTax = taxCostStr ? new Decimal(taxCostStr) : new Decimal(0);
+      let allocatedShipping = new Decimal(0);
+      let allocatedTax = new Decimal(0);
+      const lines = baseLines.map((line, index) => {
+        const isLast = index === baseLines.length - 1;
+        const lineSubtotal = new Decimal(line.unitPriceStr).mul(line.qty);
+        const ratio = subtotal.gt(0) ? lineSubtotal.div(subtotal) : new Decimal(0);
+        const shipping = isLast ? totalShipping.sub(allocatedShipping) : new Decimal(totalShipping.mul(ratio).toFixed(2));
+        const tax = isLast ? totalTax.sub(allocatedTax) : new Decimal(totalTax.mul(ratio).toFixed(2));
+        allocatedShipping = allocatedShipping.add(shipping);
+        allocatedTax = allocatedTax.add(tax);
+        return {
+          ...line,
+          shippingCostStr: shipping.gt(0) ? shipping.toFixed(2) : null,
+          taxCostStr: tax.gt(0) ? tax.toFixed(2) : null,
+        };
       });
 
-      const created = await tx.inventoryOrder.create({
-        data: {
-          status: "ORDERED",
-          itemId,
-          quantity: qty,
-          unitPrice: new Decimal(unitPriceStr),
-          shippingCost: shippingCostStr ? new Decimal(shippingCostStr) : null,
-          taxCost: taxCostStr ? new Decimal(taxCostStr) : null,
-          orderedAt,
-          supplierName: canonicalSupplierName || null,
-          supplierPartNumber: supplierPartNumber || null,
-          forStoreId: forStoreId || null,
-          forUserId: forUserId || null,
-          createdByUserId,
-          note: note ? `${note}\n${auditLine}` : auditLine,
-        },
-      });
+      for (const line of lines) {
+        const item = await tx.item.findUnique({
+          where: { id: line.itemId },
+          select: { id: true, sku: true, cost: true, orderFrom: true, orderedQty: true },
+        });
+        if (!item) throw new Error("Item not found");
 
-      await tx.item.update({
-        where: { id: itemId },
-        data: {
-          orderedQty: { increment: qty },
-          cost: landedUnitCost,
-          orderFrom: canonicalSupplierName ? canonicalSupplierName : undefined,
-        },
-      });
+        const prevCostStr = item.cost ? new Decimal(item.cost).toFixed(2) : null;
+        const landedUnitCost = computeLandedUnitCost({
+          unitPrice: line.unitPriceStr,
+          shippingCost: line.shippingCostStr,
+          taxCost: line.taxCostStr,
+          quantity: line.qty,
+        });
+        const newCostStr = landedUnitCost.toFixed(2);
 
-      // If for any reason orderedAt is not the latest, keep item cost/orderFrom in sync with the latest order row.
-      if (created.orderedAt.getTime() !== orderedAt.getTime()) {
-        await syncItemCostAndOrderFromFromLatestOrder(tx, itemId);
+        const prevOrderFrom = item.orderFrom ?? null;
+        const newOrderFromFinal = canonicalSupplierName ? canonicalSupplierName : prevOrderFrom;
+
+        const prevOrderedQty = item.orderedQty ?? 0;
+        const newOrderedQty = prevOrderedQty + line.qty;
+
+        const auditLine = buildSystemAuditLine({
+          action: isNewItem ? "CREATE_ITEM_FROM_ORDER" : "CREATE_ORDER",
+          itemSku: item.sku,
+          prevCost: prevCostStr,
+          newCost: newCostStr,
+          prevOrderFrom,
+          newOrderFrom: newOrderFromFinal,
+          prevOrderedQty,
+          newOrderedQty,
+          note: isNewItem
+            ? "item created (or reused by sku) + item.cost updated"
+            : canonicalSupplierName
+              ? "item.cost + item.orderFrom updated"
+              : "item.cost updated",
+        });
+
+        const created = await tx.inventoryOrder.create({
+          data: {
+            status: "ORDERED",
+            itemId: line.itemId,
+            quantity: line.qty,
+            unitPrice: new Decimal(line.unitPriceStr),
+            shippingCost: line.shippingCostStr ? new Decimal(line.shippingCostStr) : null,
+            taxCost: line.taxCostStr ? new Decimal(line.taxCostStr) : null,
+            orderedAt,
+            supplierName: canonicalSupplierName || null,
+            supplierPartNumber: line.supplierPartNumber || null,
+            forStoreId: forStoreId || null,
+            forUserId: forUserId || null,
+            createdByUserId,
+            note: note ? `${note}\n${auditLine}` : auditLine,
+          },
+        });
+
+        await tx.item.update({
+          where: { id: line.itemId },
+          data: {
+            orderedQty: { increment: line.qty },
+            cost: landedUnitCost,
+            orderFrom: canonicalSupplierName ? canonicalSupplierName : undefined,
+          },
+        });
+
+        if (created.orderedAt.getTime() !== orderedAt.getTime()) {
+          await syncItemCostAndOrderFromFromLatestOrder(tx, line.itemId);
+        }
+
+        touchedItemId = line.itemId;
       }
-
-      touchedItemId = itemId;
     });
 
     revalidatePath("/admin/inventory-orders");
@@ -693,6 +740,96 @@ export async function createOrderAction(formData: FormData) {
     const h = await headers();
     const back = safeReturnToPathFromReferer(h.get("referer"));
     redirect(withQuery(back, { error: msg, ...createOrderFormStateQuery(formData) }));
+  }
+}
+
+/** CANCEL */
+export async function cancelOrderAction(formData: FormData) {
+  try {
+    await requireOrderHistoryEdit();
+
+    const id = String(formData.get("id") ?? "").trim();
+    if (!id) throw new Error("Missing order id");
+
+    const reason = String(formData.get("cancelReason") ?? "").trim();
+    if (!reason) throw new Error("Cancellation reason is required.");
+
+    let touchedItemId: string | null = null;
+
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.inventoryOrder.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          status: true,
+          itemId: true,
+          quantity: true,
+          note: true,
+          item: { select: { sku: true } },
+        },
+      });
+      if (!existing) throw new Error("Order not found");
+      if (existing.status === "CANCELLED") return;
+
+      const item = await tx.item.findUnique({
+        where: { id: existing.itemId },
+        select: { id: true, orderedQty: true, onHandQty: true },
+      });
+      if (!item) throw new Error("Item not found");
+
+      if (existing.status === "ADDED_TO_INVENTORY") {
+        if ((item.onHandQty ?? 0) < existing.quantity) {
+          throw new Error(`Cannot cancel: Item.onHandQty (${item.onHandQty}) is less than order qty (${existing.quantity}).`);
+        }
+        await tx.item.update({
+          where: { id: existing.itemId },
+          data: { onHandQty: { decrement: existing.quantity } },
+        });
+      } else {
+        if ((item.orderedQty ?? 0) < existing.quantity) {
+          throw new Error(`Cannot cancel: Item.orderedQty (${item.orderedQty}) is less than order qty (${existing.quantity}).`);
+        }
+        await tx.item.update({
+          where: { id: existing.itemId },
+          data: { orderedQty: { decrement: existing.quantity } },
+        });
+      }
+
+      const auditLine = buildSystemAuditLine({
+        action: "CANCEL_ORDER",
+        itemSku: existing.item?.sku ?? null,
+        note: `order=${id}; reason=${reason}`,
+      });
+
+      await tx.inventoryOrder.update({
+        where: { id },
+        data: {
+          status: "CANCELLED",
+          cancelledAt: new Date(),
+          cancelReason: reason,
+          note: existing.note ? `${existing.note}\n${auditLine}` : auditLine,
+        },
+      });
+
+      await syncItemCostAndOrderFromFromLatestOrder(tx, existing.itemId);
+      touchedItemId = existing.itemId;
+    });
+
+    revalidatePath("/admin/inventory-orders");
+    revalidatePath("/admin/items");
+    revalidateTouchedItemPaths(touchedItemId);
+    revalidatePath("/admin/live-orders");
+    revalidatePath("/employee/live-orders");
+
+    const h = await headers();
+    const back = safeReturnToPathFromReferer(h.get("referer"));
+    redirect(withQuery(back, { ok: "1" }));
+  } catch (e) {
+    if (isRedirectLikeError(e)) throw e;
+    const msg = e instanceof Error ? e.message : "Failed to cancel order.";
+    const h = await headers();
+    const back = safeReturnToPathFromReferer(h.get("referer"));
+    redirect(withQuery(back, { error: msg }));
   }
 }
 
@@ -747,6 +884,7 @@ export async function saveOrderDetailsAction(formData: FormData) {
         },
       });
       if (!existing) throw new Error("Order not found");
+      if (existing.status === "CANCELLED") throw new Error("Cancelled orders cannot be edited.");
 
       const item = await tx.item.findUnique({
         where: { id: existing.itemId },
@@ -859,7 +997,7 @@ export async function markArrivedAction(formData: FormData) {
         select: { id: true, status: true, itemId: true, note: true, item: { select: { sku: true, name: true } } },
       });
       if (!existing) throw new Error("Order not found");
-      if (existing.status === "ARRIVED" || existing.status === "ADDED_TO_INVENTORY") return null;
+      if (existing.status !== "ORDERED") return null;
 
       const waitlistUsers = await tx.user.findMany({
         where: { active: true },
@@ -1082,7 +1220,9 @@ export async function deleteOrderAction(formData: FormData) {
       if (!item) throw new Error("Item not found");
 
       // Reverse inventory effect based on phase, but never allow negative results.
-      if (existing.status === "ADDED_TO_INVENTORY") {
+      if (existing.status === "CANCELLED") {
+        // Cancelled rows have already had their inventory effect reversed.
+      } else if (existing.status === "ADDED_TO_INVENTORY") {
         if ((item.onHandQty ?? 0) < existing.quantity) {
           throw new Error(`Cannot delete: Item.onHandQty (${item.onHandQty}) is less than order qty (${existing.quantity}).`);
         }

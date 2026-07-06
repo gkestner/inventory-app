@@ -33,16 +33,22 @@ function formatMoney(value: number): string {
 }
 
 function readTotals(form: HTMLFormElement): Totals {
-  const qtyField = form.elements.namedItem("qty") as HTMLInputElement | null;
-  const unitField = form.elements.namedItem("unitPrice") as HTMLInputElement | null;
   const shippingField = form.elements.namedItem("shippingCost") as HTMLInputElement | null;
   const taxField = form.elements.namedItem("taxCost") as HTMLInputElement | null;
 
-  const qty = Math.max(0, Math.trunc(parseNumber(qtyField?.value)));
-  const unitPrice = parseNumber(unitField?.value);
+  const qtyFields = Array.from(form.querySelectorAll<HTMLInputElement>('input[name="qty"]'));
+  const unitFields = Array.from(form.querySelectorAll<HTMLInputElement>('input[name="unitPrice"]'));
+  const lineTotals = qtyFields.map((qtyField, index) => {
+    const qty = Math.max(0, Math.trunc(parseNumber(qtyField.value)));
+    const unitPrice = parseNumber(unitFields[index]?.value);
+    return { qty, total: qty * unitPrice };
+  });
+
+  const qty = lineTotals.reduce((sum, line) => sum + line.qty, 0);
+  const subtotal = lineTotals.reduce((sum, line) => sum + line.total, 0);
+  const unitPrice = qty > 0 ? subtotal / qty : 0;
   const shippingCost = parseNumber(shippingField?.value);
   const taxCost = parseNumber(taxField?.value);
-  const subtotal = qty * unitPrice;
   const total = subtotal + shippingCost + taxCost;
 
   return { qty, unitPrice, shippingCost, taxCost, subtotal, total };
@@ -88,7 +94,8 @@ export default function OrderTotalPreview({ formId }: Props) {
     >
       <div style={{ fontSize: 12, opacity: 0.72, fontWeight: 900, letterSpacing: "0.02em" }}>ORDER TOTAL CHECK</div>
       <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.4 }}>
-        ({totals.qty} × {formatMoney(totals.unitPrice)}) + {formatMoney(totals.shippingCost)} shipping + {formatMoney(totals.taxCost)} tax
+        {totals.qty} total units, {formatMoney(totals.subtotal)} item subtotal + {formatMoney(totals.shippingCost)} shipping +{" "}
+        {formatMoney(totals.taxCost)} tax
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, fontSize: 13 }}>
         <span style={{ opacity: 0.78 }}>Subtotal</span>
