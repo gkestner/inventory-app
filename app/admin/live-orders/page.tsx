@@ -87,11 +87,11 @@ function fmtDate(d: Date | null | undefined) {
 }
 
 function getLiveBoardRemovalDate(
-  order: { status: string; addedToInventoryAt: Date | null; orderedAt: Date },
+  order: { status: string; addedToInventoryAt: Date | null; cancelledAt?: Date | null; orderedAt: Date },
   retentionDays: number,
 ): Date | null {
-  if (order.status !== "ADDED_TO_INVENTORY") return null;
-  const anchor = order.addedToInventoryAt ?? order.orderedAt;
+  if (order.status !== "ADDED_TO_INVENTORY" && order.status !== "CANCELLED") return null;
+  const anchor = order.status === "CANCELLED" ? order.cancelledAt ?? order.orderedAt : order.addedToInventoryAt ?? order.orderedAt;
   return new Date(anchor.getTime() + retentionDays * 24 * 60 * 60 * 1000);
 }
 
@@ -112,10 +112,12 @@ function rowPhaseStyle(phase: string): CSSProperties {
   const orderedBg = "var(--order-ordered-bg, rgba(255, 193, 7, 0.20))";
   const arrivedBg = "var(--order-arrived-bg, rgba(33, 150, 243, 0.20))";
   const addedBg = "var(--order-added-bg, rgba(76, 175, 80, 0.24))";
+  const cancelledBg = "rgba(244,67,54,0.16)";
 
   const orderedBar = "var(--order-ordered-bar, rgba(255, 193, 7, 0.92))";
   const arrivedBar = "var(--order-arrived-bar, rgba(33, 150, 243, 0.92))";
   const addedBar = "var(--order-added-bar, rgba(76, 175, 80, 0.95))";
+  const cancelledBar = "rgba(244,67,54,0.92)";
 
   if (phase === "ORDERED") {
     return { background: orderedBg, borderLeft: `8px solid ${orderedBar}`, boxShadow: `inset 0 0 0 1px ${orderedBar}` };
@@ -123,12 +125,16 @@ function rowPhaseStyle(phase: string): CSSProperties {
   if (phase === "ARRIVED") {
     return { background: arrivedBg, borderLeft: `8px solid ${arrivedBar}`, boxShadow: `inset 0 0 0 1px ${arrivedBar}` };
   }
+  if (phase === "CANCELLED") {
+    return { background: cancelledBg, borderLeft: `8px solid ${cancelledBar}`, boxShadow: `inset 0 0 0 1px ${cancelledBar}` };
+  }
   return { background: addedBg, borderLeft: `8px solid ${addedBar}`, boxShadow: `inset 0 0 0 1px ${addedBar}` };
 }
 
 function phaseTextStyle(phase: string): CSSProperties {
   if (phase === "ORDERED") return { color: "var(--order-ordered-bar, rgba(255, 193, 7, 0.98))" };
   if (phase === "ARRIVED") return { color: "var(--order-arrived-bar, rgba(33, 150, 243, 0.98))" };
+  if (phase === "CANCELLED") return { color: "rgba(244,67,54,0.98)" };
   return { color: "var(--order-added-bar, rgba(76, 175, 80, 0.98))" };
 }
 
@@ -171,6 +177,16 @@ export default async function LiveOrdersPage() {
             { addedToInventoryAt: { gte: retentionCutoff } },
             {
               addedToInventoryAt: null,
+              orderedAt: { gte: retentionCutoff },
+            },
+          ],
+        },
+        {
+          status: "CANCELLED",
+          OR: [
+            { cancelledAt: { gte: retentionCutoff } },
+            {
+              cancelledAt: null,
               orderedAt: { gte: retentionCutoff },
             },
           ],
@@ -364,6 +380,7 @@ export default async function LiveOrdersPage() {
             <tr>
               <th style={th}>Ordered</th>
               <th style={th}>Status</th>
+              <th style={th}>Cancel Reason</th>
               <th style={th}>Item</th>
               <th style={th}>Qty</th>
               <th style={th}>Store</th>
@@ -389,6 +406,9 @@ export default async function LiveOrdersPage() {
                   <td style={td}>{fmtDateTime(o.orderedAt)}</td>
                   <td style={td}>
                     <span style={{ ...mono, ...phaseTextStyle(o.status), fontWeight: 900 }}>{o.status}</span>
+                  </td>
+                  <td style={{ ...td, maxWidth: 260, overflowWrap: "anywhere" }}>
+                    {o.status === "CANCELLED" ? o.cancelReason || <span style={{ opacity: 0.65 }}>No reason entered</span> : <span style={{ opacity: 0.65 }}>N/A</span>}
                   </td>
                   <td style={td}>
                     <div style={{ display: "flex", flexDirection: "column", minHeight: 42 }}>
@@ -441,7 +461,7 @@ export default async function LiveOrdersPage() {
 
             {orders.length === 0 ? (
               <tr>
-                <td style={{ ...td, padding: 16 }} colSpan={13}>
+                <td style={{ ...td, padding: 16 }} colSpan={14}>
                   No orders found.
                 </td>
               </tr>

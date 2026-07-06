@@ -83,10 +83,12 @@ function rowPhaseStyle(phase: string): CSSProperties {
   const orderedBg = "var(--order-ordered-bg, rgba(255, 193, 7, 0.20))";
   const arrivedBg = "var(--order-arrived-bg, rgba(33, 150, 243, 0.20))";
   const addedBg = "var(--order-added-bg, rgba(76, 175, 80, 0.24))";
+  const cancelledBg = "rgba(244,67,54,0.16)";
 
   const orderedBar = "var(--order-ordered-bar, rgba(255, 193, 7, 0.92))";
   const arrivedBar = "var(--order-arrived-bar, rgba(33, 150, 243, 0.92))";
   const addedBar = "var(--order-added-bar, rgba(76, 175, 80, 0.95))";
+  const cancelledBar = "rgba(244,67,54,0.92)";
 
   if (phase === "ORDERED") {
     return { background: orderedBg, borderLeft: `8px solid ${orderedBar}`, boxShadow: `inset 0 0 0 1px ${orderedBar}` };
@@ -94,27 +96,32 @@ function rowPhaseStyle(phase: string): CSSProperties {
   if (phase === "ARRIVED") {
     return { background: arrivedBg, borderLeft: `8px solid ${arrivedBar}`, boxShadow: `inset 0 0 0 1px ${arrivedBar}` };
   }
+  if (phase === "CANCELLED") {
+    return { background: cancelledBg, borderLeft: `8px solid ${cancelledBar}`, boxShadow: `inset 0 0 0 1px ${cancelledBar}` };
+  }
   return { background: addedBg, borderLeft: `8px solid ${addedBar}`, boxShadow: `inset 0 0 0 1px ${addedBar}` };
 }
 
 function phaseTextStyle(phase: string): CSSProperties {
   if (phase === "ORDERED") return { color: "var(--order-ordered-bar, rgba(255, 193, 7, 0.98))" };
   if (phase === "ARRIVED") return { color: "var(--order-arrived-bar, rgba(33, 150, 243, 0.98))" };
+  if (phase === "CANCELLED") return { color: "rgba(244,67,54,0.98)" };
   return { color: "var(--order-added-bar, rgba(76, 175, 80, 0.98))" };
 }
 
 function phaseLabel(s: string): string {
   if (s === "ORDERED") return "ORDERED";
   if (s === "ARRIVED") return "ARRIVED";
+  if (s === "CANCELLED") return "CANCELLED";
   return "ADDED TO INVENTORY";
 }
 
 function getLiveBoardRemovalDate(
-  order: { status: string; addedToInventoryAt: Date | null; orderedAt: Date },
+  order: { status: string; addedToInventoryAt: Date | null; cancelledAt?: Date | null; orderedAt: Date },
   retentionDays: number,
 ): Date | null {
-  if (order.status !== "ADDED_TO_INVENTORY") return null;
-  const anchor = order.addedToInventoryAt ?? order.orderedAt;
+  if (order.status !== "ADDED_TO_INVENTORY" && order.status !== "CANCELLED") return null;
+  const anchor = order.status === "CANCELLED" ? order.cancelledAt ?? order.orderedAt : order.addedToInventoryAt ?? order.orderedAt;
   return new Date(anchor.getTime() + retentionDays * 24 * 60 * 60 * 1000);
 }
 
@@ -175,6 +182,16 @@ export default async function EmployeeLiveOrdersPage() {
             },
           ],
         },
+        {
+          status: "CANCELLED",
+          OR: [
+            { cancelledAt: { gte: retentionCutoff } },
+            {
+              cancelledAt: null,
+              orderedAt: { gte: retentionCutoff },
+            },
+          ],
+        },
       ],
     },
     orderBy: { orderedAt: "desc" },
@@ -184,6 +201,8 @@ export default async function EmployeeLiveOrdersPage() {
       status: true,
       orderedAt: true,
       addedToInventoryAt: true,
+      cancelledAt: true,
+      cancelReason: true,
       quantity: true,
       item: { select: { sku: true, name: true } },
     },
@@ -281,7 +300,7 @@ export default async function EmployeeLiveOrdersPage() {
           </thead>
           <tbody>
             {orders.map((o) => {
-              const canSubscribe = o.status !== "ADDED_TO_INVENTORY";
+              const canSubscribe = o.status !== "ADDED_TO_INVENTORY" && o.status !== "CANCELLED";
               const currentUserWaiting = isUserWaitingForLiveOrder(
                 waitlistUsers.find((user) => user.id === currentUserId)?.uiPreferences,
                 o.id,
@@ -295,6 +314,11 @@ export default async function EmployeeLiveOrdersPage() {
                     <div style={{ display: "flex", flexDirection: "column", minHeight: 42, gap: 4 }}>
                       <div style={{ fontWeight: 900 }}>{o.item?.name ?? "—"}</div>
                       <div style={{ ...mono, opacity: 0.8 }}>{o.item?.sku ?? "—"}</div>
+                      {o.status === "CANCELLED" ? (
+                        <div style={{ fontSize: 12, fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>
+                          Cancel reason: {o.cancelReason || "No reason entered"}
+                        </div>
+                      ) : null}
                       <div className="live-orders-interactive" style={{ fontSize: 11, opacity: 0.78, lineHeight: 1.35 }}>
                         {waiters.length > 0 ? `Waiting: ${waiters.map((waiter) => waiter.name).join(", ")}` : "No one is waiting for notifications yet."}
                       </div>
@@ -329,7 +353,7 @@ export default async function EmployeeLiveOrdersPage() {
                         </button>
                       </form>
                     ) : (
-                      <span style={{ opacity: 0.72, fontWeight: 900 }}>Already in stock</span>
+                      <span style={{ opacity: 0.72, fontWeight: 900 }}>{o.status === "CANCELLED" ? "Cancelled" : "Already in stock"}</span>
                     )}
                   </td>
                 </tr>
