@@ -1934,8 +1934,12 @@ export default async function AdminInventoryOrdersPage({
                   ) : null}
 
                   {canAdd ? (
-                    <form action={addToInventoryFormAction}>
+                    <form action={addToInventoryFormAction} style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
                       <input type="hidden" name="id" value={o.id} />
+                      <label style={{ ...controlLabel, width: 130 }}>
+                        Qty received
+                        <input name="receivedQty" type="number" min={1} max={o.quantity} step={1} defaultValue={o.quantity} required style={controlBase} />
+                      </label>
                       <button type="submit" style={btnPrimary}>
                         Add to Inventory
                       </button>

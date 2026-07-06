@@ -1095,6 +1095,7 @@ export async function addToInventoryAction(formData: FormData) {
 
     const id = String(formData.get("id") ?? "").trim();
     if (!id) throw new Error("Missing order id");
+    const requestedReceivedQty = parseOptionalInt(formData.get("receivedQty"));
 
     let touchedItemId: string | null = null;
 
@@ -1106,7 +1107,19 @@ export async function addToInventoryAction(formData: FormData) {
           status: true,
           itemId: true,
           quantity: true,
+          hiddenFromUserLiveBoard: true,
+          vendor: true,
+          unitPrice: true,
+          shippingCost: true,
+          taxCost: true,
+          orderedAt: true,
+          arrivedAt: true,
           addedToInventoryAt: true,
+          supplierName: true,
+          supplierPartNumber: true,
+          forStoreId: true,
+          forUserId: true,
+          createdByUserId: true,
           note: true,
           item: { select: { sku: true, name: true } },
         },
@@ -1116,6 +1129,13 @@ export async function addToInventoryAction(formData: FormData) {
       if (existing.status !== "ARRIVED") {
         throw new Error("Order must be marked as arrived before adding to inventory.");
       }
+
+      const receivedQty = requestedReceivedQty ?? existing.quantity;
+      if (!Number.isFinite(receivedQty) || receivedQty <= 0) throw new Error("Invalid received quantity.");
+      if (receivedQty > existing.quantity) {
+        throw new Error(`Received quantity (${receivedQty}) cannot be greater than order qty (${existing.quantity}).`);
+      }
+      const remainingQty = existing.quantity - receivedQty;
 
       const waitlistUsers = await tx.user.findMany({
         where: { active: true },
@@ -1130,14 +1150,28 @@ export async function addToInventoryAction(formData: FormData) {
       if (!item) throw new Error("Item not found");
 
       // GUARDRAIL: do not allow orderedQty to go negative from this workflow.
-      if ((item.orderedQty ?? 0) < existing.quantity) {
-        throw new Error(`Cannot add to inventory: Item.orderedQty (${item.orderedQty}) is less than order qty (${existing.quantity}).`);
+      if ((item.orderedQty ?? 0) < receivedQty) {
+        throw new Error(`Cannot add to inventory: Item.orderedQty (${item.orderedQty}) is less than received qty (${receivedQty}).`);
       }
 
       const prevOrderedQty = item.orderedQty ?? 0;
-      const newOrderedQty = prevOrderedQty - existing.quantity;
+      const newOrderedQty = prevOrderedQty - receivedQty;
       const prevOnHand = item.onHandQty ?? 0;
-      const newOnHand = prevOnHand + existing.quantity;
+      const newOnHand = prevOnHand + receivedQty;
+
+      const splitCost = (value: Decimal | null): { received: Decimal | null; remaining: Decimal | null } => {
+        if (!value) return { received: null, remaining: null };
+        if (remainingQty <= 0) return { received: new Decimal(value), remaining: null };
+        const total = new Decimal(value);
+        const received = new Decimal(total.mul(receivedQty).div(existing.quantity).toFixed(2));
+        const remaining = total.sub(received);
+        return {
+          received: received.gt(0) ? received : null,
+          remaining: remaining.gt(0) ? remaining : null,
+        };
+      };
+      const shippingSplit = splitCost(existing.shippingCost);
+      const taxSplit = splitCost(existing.taxCost);
 
       const auditLine = buildSystemAuditLine({
         action: "ADD_TO_INVENTORY",
@@ -1146,22 +1180,57 @@ export async function addToInventoryAction(formData: FormData) {
         prevOnHandQty: prevOnHand,
         newOnHandQty: newOnHand,
         itemSku: existing.item?.sku ?? null,
-        note: `order=${id}`,
+        note: remainingQty > 0 ? `order=${id}; received=${receivedQty}; remaining=${remainingQty}` : `order=${id}`,
       });
+
+      let remainingOrderId: string | null = null;
+      if (remainingQty > 0) {
+        const remainingAuditLine = buildSystemAuditLine({
+          action: "CREATE_ORDER",
+          itemSku: existing.item?.sku ?? null,
+          note: `remaining qty split from order=${id}`,
+        });
+        const remainingOrder = await tx.inventoryOrder.create({
+          data: {
+            status: "ORDERED",
+            hiddenFromUserLiveBoard: existing.hiddenFromUserLiveBoard,
+            vendor: existing.vendor,
+            itemId: existing.itemId,
+            quantity: remainingQty,
+            supplierName: existing.supplierName,
+            supplierPartNumber: existing.supplierPartNumber,
+            unitPrice: existing.unitPrice,
+            shippingCost: shippingSplit.remaining,
+            taxCost: taxSplit.remaining,
+            orderedAt: existing.orderedAt,
+            arrivedAt: null,
+            addedToInventoryAt: null,
+            forStoreId: existing.forStoreId,
+            forUserId: existing.forUserId,
+            createdByUserId: existing.createdByUserId,
+            note: existing.note ? `${existing.note}\n${remainingAuditLine}` : remainingAuditLine,
+          },
+          select: { id: true },
+        });
+        remainingOrderId = remainingOrder.id;
+      }
 
       await tx.item.update({
         where: { id: existing.itemId },
         data: {
-          orderedQty: { decrement: existing.quantity },
-          onHandQty: { increment: existing.quantity },
+          orderedQty: { decrement: receivedQty },
+          onHandQty: { increment: receivedQty },
         },
       });
 
       await tx.inventoryOrder.update({
         where: { id },
         data: {
+          quantity: receivedQty,
           status: "ADDED_TO_INVENTORY",
           addedToInventoryAt: existing.addedToInventoryAt ?? new Date(),
+          shippingCost: shippingSplit.received,
+          taxCost: taxSplit.received,
           note: existing.note ? `${existing.note}\n${auditLine}` : auditLine,
         },
       });
@@ -1170,11 +1239,21 @@ export async function addToInventoryAction(formData: FormData) {
         await tx.user.update({
           where: { id: waiter.id },
           data: {
-            uiPreferences: setLiveOrderNotificationPreference(
-              waitlistUsers.find((user) => user.id === waiter.id)?.uiPreferences,
-              existing.id,
-              false,
-            ),
+            uiPreferences: remainingOrderId
+              ? setLiveOrderNotificationPreference(
+                  setLiveOrderNotificationPreference(
+                    waitlistUsers.find((user) => user.id === waiter.id)?.uiPreferences,
+                    existing.id,
+                    false,
+                  ),
+                  remainingOrderId,
+                  true,
+                )
+              : setLiveOrderNotificationPreference(
+                  waitlistUsers.find((user) => user.id === waiter.id)?.uiPreferences,
+                  existing.id,
+                  false,
+                ),
           },
         });
       }
