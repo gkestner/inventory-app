@@ -2002,8 +2002,7 @@ export default async function AdminInventoryOrdersPage({
                       <input type="hidden" name="id" value={o.id} />
 
                       <div style={{ fontSize: 12, opacity: 0.85, lineHeight: 1.5 }}>
-                        Item is not changeable (keeps inventory adjustments safe). Quantity edits are applied to{" "}
-                        <b>{o.status === "ADDED_TO_INVENTORY" ? "on-hand" : "ordered"}</b>.
+                        Item is not changeable. Status and quantity edits automatically move counts between <b>ordered</b> and <b>on-hand</b>.
                         <br />
                         After saving, the system will sync <b>Item.cost</b> + <b>Item.orderFrom</b> from the latest order for that item.
                       </div>
@@ -2012,6 +2011,15 @@ export default async function AdminInventoryOrdersPage({
                         <label style={controlLabel}>
                           Ordered at
                           <input name="orderedAt" type="datetime-local" defaultValue={fmtForDatetimeLocal(o.orderedAt)} style={controlBase} />
+                        </label>
+
+                        <label style={controlLabel}>
+                          Status
+                          <select name="status" defaultValue={o.status} style={controlBase}>
+                            <option value="ORDERED">ORDERED</option>
+                            <option value="ARRIVED">ARRIVED</option>
+                            <option value="ADDED_TO_INVENTORY">ADDED TO INVENTORY</option>
+                          </select>
                         </label>
 
                         <label style={controlLabel}>

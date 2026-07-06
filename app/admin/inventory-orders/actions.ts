@@ -21,6 +21,8 @@ import {
 } from "@/app/lib/live-order-notifications";
 
 const BUSINESS_TIME_ZONE = "America/New_York";
+const EDITABLE_ORDER_STATUSES = ["ORDERED", "ARRIVED", "ADDED_TO_INVENTORY"] as const;
+type EditableOrderStatus = (typeof EDITABLE_ORDER_STATUSES)[number];
 
 type AdminSession = {
   user?: {
@@ -291,6 +293,20 @@ async function resolveCanonicalSupplierName(tx: Prisma.TransactionClient, rawSup
 
 function nonEmptyString(v: FormDataEntryValue | null): string {
   return String(v ?? "").trim();
+}
+
+function parseEditableOrderStatus(v: FormDataEntryValue | null, fallback: EditableOrderStatus): EditableOrderStatus {
+  const raw = String(v ?? "").trim().toUpperCase();
+  if ((EDITABLE_ORDER_STATUSES as readonly string[]).includes(raw)) return raw as EditableOrderStatus;
+  return fallback;
+}
+
+function orderedQtyEffect(status: string, quantity: number): number {
+  return status === "ORDERED" || status === "ARRIVED" ? quantity : 0;
+}
+
+function onHandQtyEffect(status: string, quantity: number): number {
+  return status === "ADDED_TO_INVENTORY" ? quantity : 0;
 }
 
 function parseTwoDigitSkuPart(raw: FormDataEntryValue | null, label: string): string {
@@ -730,6 +746,8 @@ export async function createOrderAction(formData: FormData) {
     revalidatePath("/admin/inventory-orders");
     revalidatePath("/admin/items");
     revalidateTouchedItemPaths(touchedItemId);
+    revalidatePath("/admin/live-orders");
+    revalidatePath("/employee/live-orders");
 
     const h = await headers();
     const back = safeReturnToPathFromReferer(h.get("referer"));
@@ -880,6 +898,7 @@ export async function saveOrderDetailsAction(formData: FormData) {
           supplierPartNumber: true,
           shippingCost: true,
           taxCost: true,
+          arrivedAt: true,
           addedToInventoryAt: true,
         },
       });
@@ -892,29 +911,28 @@ export async function saveOrderDetailsAction(formData: FormData) {
       });
       if (!item) throw new Error("Item not found");
 
-      const delta = qty - existing.quantity;
+      const currentStatus = existing.status as EditableOrderStatus;
+      const nextStatus = parseEditableOrderStatus(formData.get("status"), currentStatus);
+      const orderedQtyDelta = orderedQtyEffect(nextStatus, qty) - orderedQtyEffect(currentStatus, existing.quantity);
+      const onHandQtyDelta = onHandQtyEffect(nextStatus, qty) - onHandQtyEffect(currentStatus, existing.quantity);
 
-      // Keep inventory consistent when changing qty:
-      // - ORDERED / ARRIVED => adjust Item.orderedQty by delta
-      // - ADDED_TO_INVENTORY => adjust Item.onHandQty by delta
-      if (delta !== 0) {
-        if (existing.status === "ADDED_TO_INVENTORY") {
-          if (delta < 0 && (item.onHandQty ?? 0) + delta < 0) {
-            throw new Error(`Cannot change qty: Item.onHandQty (${item.onHandQty}) would go negative by applying delta (${delta}).`);
-          }
-          await tx.item.update({
-            where: { id: existing.itemId },
-            data: { onHandQty: { increment: delta } },
-          });
-        } else {
-          if (delta < 0 && (item.orderedQty ?? 0) + delta < 0) {
-            throw new Error(`Cannot change qty: Item.orderedQty (${item.orderedQty}) would go negative by applying delta (${delta}).`);
-          }
-          await tx.item.update({
-            where: { id: existing.itemId },
-            data: { orderedQty: { increment: delta } },
-          });
+      if (orderedQtyDelta !== 0 || onHandQtyDelta !== 0) {
+        const nextOrderedQty = (item.orderedQty ?? 0) + orderedQtyDelta;
+        const nextOnHandQty = (item.onHandQty ?? 0) + onHandQtyDelta;
+        if (nextOrderedQty < 0) {
+          throw new Error(`Cannot save: Item.orderedQty (${item.orderedQty}) would go negative by applying delta (${orderedQtyDelta}).`);
         }
+        if (nextOnHandQty < 0) {
+          throw new Error(`Cannot save: Item.onHandQty (${item.onHandQty}) would go negative by applying delta (${onHandQtyDelta}).`);
+        }
+
+        await tx.item.update({
+          where: { id: existing.itemId },
+          data: {
+            orderedQty: { increment: orderedQtyDelta },
+            onHandQty: { increment: onHandQtyDelta },
+          },
+        });
       }
 
       const prevCostStr = item.cost ? new Decimal(item.cost).toFixed(2) : null;
@@ -936,7 +954,11 @@ export async function saveOrderDetailsAction(formData: FormData) {
         newCost: newCostStr,
         prevOrderFrom,
         newOrderFrom,
-        note: `order=${id}`,
+        prevOrderedQty: item.orderedQty ?? 0,
+        newOrderedQty: (item.orderedQty ?? 0) + orderedQtyDelta,
+        prevOnHandQty: item.onHandQty ?? 0,
+        newOnHandQty: (item.onHandQty ?? 0) + onHandQtyDelta,
+        note: `order=${id}; status:${currentStatus}->${nextStatus}`,
       });
 
       const mergedNote = userNote
@@ -952,6 +974,11 @@ export async function saveOrderDetailsAction(formData: FormData) {
           unitPrice: new Decimal(unitPriceStr),
           shippingCost: shippingCostStr ? new Decimal(shippingCostStr) : null,
           taxCost: taxCostStr ? new Decimal(taxCostStr) : null,
+          status: nextStatus,
+          arrivedAt: nextStatus === "ORDERED" ? null : nextStatus === "ARRIVED" || nextStatus === "ADDED_TO_INVENTORY" ? existing.arrivedAt ?? new Date() : undefined,
+          addedToInventoryAt: nextStatus === "ADDED_TO_INVENTORY" ? existing.addedToInventoryAt ?? new Date() : null,
+          cancelledAt: null,
+          cancelReason: null,
           supplierName: canonicalSupplierName || null,
           supplierPartNumber: supplierPartNumber || null,
           orderedAt: orderedAt ?? undefined,
@@ -970,6 +997,8 @@ export async function saveOrderDetailsAction(formData: FormData) {
     revalidatePath("/admin/inventory-orders");
     revalidatePath("/admin/items");
     revalidateTouchedItemPaths(touchedItemId);
+    revalidatePath("/admin/live-orders");
+    revalidatePath("/employee/live-orders");
 
     const h = await headers();
     const back = safeReturnToPathFromReferer(h.get("referer"));
