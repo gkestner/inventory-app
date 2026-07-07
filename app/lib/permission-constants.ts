@@ -16,6 +16,8 @@ export const VIEW_RECEIPTS = "VIEW_RECEIPTS" as Permission;
 export const CREATE_RECEIPTS = "CREATE_RECEIPTS" as Permission;
 
 // Admin feature permissions
+export const ADMIN_VIEW_SUPPLIERS = "ADMIN_VIEW_SUPPLIERS" as Permission;
+export const ADMIN_EDIT_SUPPLIERS = "ADMIN_EDIT_SUPPLIERS" as Permission;
 export const ADMIN_VIEW_PREVENTATIVE_MAINTENANCE = "ADMIN_VIEW_PREVENTATIVE_MAINTENANCE" as Permission;
 export const ADMIN_VIEW_EQUIPMENT_TRACKING = "ADMIN_VIEW_EQUIPMENT_TRACKING" as Permission;
 export const ADMIN_VIEW_COMPANY_VEHICLES = "ADMIN_VIEW_COMPANY_VEHICLES" as Permission;

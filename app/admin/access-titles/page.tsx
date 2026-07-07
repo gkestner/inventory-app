@@ -15,9 +15,11 @@ import {
   ADMIN_VIEW_REPORT_TECHNICIAN_WORKLOAD,
   ADMIN_VIEW_REPORT_TEMPERATURE_INCIDENTS,
   ADMIN_VIEW_COMPANY_VEHICLES,
+  ADMIN_EDIT_SUPPLIERS,
   ADMIN_VIEW_EQUIPMENT_TRACKING,
   ADMIN_VIEW_MAINTENANCE_REQUESTS,
   ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
+  ADMIN_VIEW_SUPPLIERS,
   ADMIN_VIEW_TEMPERATURE_DASHBOARD,
   CREATE_COMPANY_VEHICLE_INFO,
   CREATE_RECEIPTS,
@@ -217,6 +219,9 @@ const PERMS: PermMeta[] = [
     label: "Edit Items (also enables resolving Inventory Alerts)",
   },
   { perm: Permission.ADMIN_IMPORT_EXPORT_ITEMS, module: "Admin", group: "Items", label: "Import / Export Items" },
+
+  { perm: ADMIN_VIEW_SUPPLIERS, module: "Admin", group: "Tools", label: "View Suppliers" },
+  { perm: ADMIN_EDIT_SUPPLIERS, module: "Admin", group: "Tools", label: "Edit Suppliers" },
 
   { perm: Permission.ADMIN_VIEW_USERS, module: "Admin", group: "Users", label: "View Users" },
   { perm: Permission.ADMIN_EDIT_USERS, module: "Admin", group: "Users", label: "Edit Users" },

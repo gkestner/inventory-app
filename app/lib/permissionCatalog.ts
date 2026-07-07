@@ -10,9 +10,11 @@ import {
   ADMIN_VIEW_REPORT_TECHNICIAN_WORKLOAD,
   ADMIN_VIEW_REPORT_TEMPERATURE_INCIDENTS,
   ADMIN_VIEW_COMPANY_VEHICLES,
+  ADMIN_EDIT_SUPPLIERS,
   ADMIN_VIEW_EQUIPMENT_TRACKING,
   ADMIN_VIEW_MAINTENANCE_REQUESTS,
   ADMIN_VIEW_PREVENTATIVE_MAINTENANCE,
+  ADMIN_VIEW_SUPPLIERS,
   ADMIN_VIEW_TEMPERATURE_DASHBOARD,
   CREATE_COMPANY_VEHICLE_INFO,
   CREATE_RECEIPTS,
@@ -143,6 +145,10 @@ export const PERMISSION_CATALOG: PermissionCatalogEntry[] = [
     label: "Edit Items (also enables resolving Inventory Alerts)",
   },
   { permission: Permission.ADMIN_IMPORT_EXPORT_ITEMS, module: "Admin", path: ["Items"], label: "Import / Export Items" },
+
+  // ===== Admin / Tools =====
+  { permission: ADMIN_VIEW_SUPPLIERS, module: "Admin", path: ["Tools"], label: "View Suppliers" },
+  { permission: ADMIN_EDIT_SUPPLIERS, module: "Admin", path: ["Tools"], label: "Edit Suppliers" },
 
   // ===== Admin / Users =====
   { permission: Permission.ADMIN_VIEW_USERS, module: "Admin", path: ["Users"], label: "View Users" },

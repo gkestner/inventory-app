@@ -25,6 +25,8 @@ import {
   ADMIN_VIEW_REPORT_TECHNICIAN_WORKLOAD,
   ADMIN_VIEW_REPORT_TEMPERATURE_INCIDENTS,
   ADMIN_VIEW_TEMPERATURE_DASHBOARD,
+  ADMIN_EDIT_SUPPLIERS,
+  ADMIN_VIEW_SUPPLIERS,
   CREATE_COMPANY_VEHICLE_INFO,
   EDIT_COMPANY_VEHICLE_INFO,
 } from "@/app/lib/permission-constants";
@@ -53,6 +55,7 @@ async function requireAdmin() {
     hasAnyPermission(perms, [
       Permission.ADMIN_VIEW_ITEMS,
       Permission.ADMIN_VIEW_USERS,
+      ADMIN_VIEW_SUPPLIERS,
       Permission.ADMIN_VIEW_LOCATIONS,
       Permission.ADMIN_VIEW_WORK_ORDERS,
       Permission.ADMIN_VIEW_MAINTENANCE_TICKETS,
@@ -115,6 +118,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   const canAlerts = canOrders;
 
   const canUsers = allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_USERS, Permission.ADMIN_EDIT_USERS]);
+  const canSuppliers = allowAll || hasAnyPermission(perms, [ADMIN_VIEW_SUPPLIERS, ADMIN_EDIT_SUPPLIERS]);
 
   // Reuse Users permission for Roles/Permission Titles management
   const canRoles = canUsers;
@@ -283,6 +287,9 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   }
   if (canUsers) {
     availableSidebarItems.push({ key: "users", label: "Users", href: "/admin/users", tag: "Security", group: "Administration" });
+  }
+  if (canSuppliers) {
+    availableSidebarItems.push({ key: "suppliers", label: "Suppliers", href: "/admin/suppliers", tag: "Tools", group: "Administration" });
   }
   if (canLocations) {
     availableSidebarItems.push({ key: "locations", label: "Locations", href: "/admin/locations", tag: "Setup", group: "Administration" });

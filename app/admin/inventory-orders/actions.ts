@@ -12,6 +12,7 @@ import { Permission, Role } from "@prisma/client";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
+import { ensureSupplierForName, findSupplierByNormalizedKey, normalizeSupplierKey } from "@/app/lib/suppliers";
 import { createNotificationForUsers } from "@/app/lib/workflow-foundations";
 import {
   getLiveOrderNotificationStageLabel,
@@ -255,6 +256,12 @@ async function resolveCanonicalSupplierName(tx: Prisma.TransactionClient, rawSup
   const normalized = rawSupplierName.trim().replace(/\s+/g, " ");
   if (!normalized) return "";
 
+  const supplierKey = normalizeSupplierKey(normalized);
+  const savedSupplier = await findSupplierByNormalizedKey(tx, supplierKey);
+  if (savedSupplier?.name?.trim()) {
+    return savedSupplier.name.trim().replace(/\s+/g, " ");
+  }
+
   const existingOrder = await tx.inventoryOrder.findFirst({
     where: {
       supplierName: {
@@ -289,6 +296,14 @@ async function resolveCanonicalSupplierName(tx: Prisma.TransactionClient, rawSup
   }
 
   return normalized;
+}
+
+async function ensureCanonicalSupplier(tx: Prisma.TransactionClient, rawSupplierName: string): Promise<string> {
+  const canonicalName = await resolveCanonicalSupplierName(tx, rawSupplierName);
+  if (!canonicalName) return "";
+
+  const supplier = await ensureSupplierForName(tx, canonicalName);
+  return supplier?.name ?? canonicalName;
 }
 
 function nonEmptyString(v: FormDataEntryValue | null): string {
@@ -585,7 +600,7 @@ export async function createOrderAction(formData: FormData) {
     let touchedItemId: string | null = null;
 
     await prisma.$transaction(async (tx) => {
-      const canonicalSupplierName = await resolveCanonicalSupplierName(tx, supplierName);
+      const canonicalSupplierName = await ensureCanonicalSupplier(tx, supplierName);
 
       // If this order is for a brand-new item (SKU not in list), create it first (or reuse if it exists).
       if (isNewItem) {
@@ -880,7 +895,7 @@ export async function saveOrderDetailsAction(formData: FormData) {
     let touchedItemId: string | null = null;
 
     await prisma.$transaction(async (tx) => {
-      const canonicalSupplierName = await resolveCanonicalSupplierName(tx, supplierName);
+      const canonicalSupplierName = await ensureCanonicalSupplier(tx, supplierName);
 
       const existing = await tx.inventoryOrder.findUnique({
         where: { id },

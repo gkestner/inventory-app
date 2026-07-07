@@ -54,6 +54,9 @@ enum Permission {
   ADMIN_VIEW_USERS
   ADMIN_EDIT_USERS
 
+  ADMIN_VIEW_SUPPLIERS
+  ADMIN_EDIT_SUPPLIERS
+
   ADMIN_VIEW_LOCATIONS
   ADMIN_EDIT_LOCATIONS
 
@@ -1189,6 +1192,45 @@ model InventoryOrder {
 
   // Helpful for filtering quickly
   @@index([hiddenFromUserLiveBoard, orderedAt])
+}
+
+model Supplier {
+  id String @id @default(cuid())
+
+  name          String
+  normalizedKey String @unique
+
+  paymentMethod String?
+  terms         String?
+  accountNumber String?
+  phone         String?
+  extension     String?
+  email         String?
+  partsSummary  String?
+  notes         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  aliases SupplierAlias[]
+
+  @@index([name])
+  @@index([updatedAt])
+}
+
+model SupplierAlias {
+  id String @id @default(cuid())
+
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  name          String
+  normalizedKey String @unique
+
+  createdAt DateTime @default(now())
+
+  @@index([supplierId])
+  @@index([name])
 }
 
 model Item {

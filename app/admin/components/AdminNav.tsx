@@ -21,6 +21,8 @@ import {
   ADMIN_VIEW_REPORT_TECHNICIAN_WORKLOAD,
   ADMIN_VIEW_REPORT_TEMPERATURE_INCIDENTS,
   ADMIN_VIEW_TEMPERATURE_DASHBOARD,
+  ADMIN_EDIT_SUPPLIERS,
+  ADMIN_VIEW_SUPPLIERS,
   CREATE_COMPANY_VEHICLE_INFO,
   CREATE_WORK_ORDERS_FOR_OTHERS,
   EDIT_COMPANY_VEHICLE_INFO,
@@ -152,6 +154,7 @@ export default async function AdminNav() {
     Permission.ADMIN_VIEW_USERS,
     Permission.ADMIN_EDIT_USERS,
   ]);
+  const canAdminSuppliers = isAdmin || hasAnyPermission(perms, [ADMIN_VIEW_SUPPLIERS, ADMIN_EDIT_SUPPLIERS]);
 
   const canAdminLocations = isAdmin || hasAnyPermission(perms, [
     Permission.ADMIN_VIEW_LOCATIONS,
@@ -245,7 +248,7 @@ export default async function AdminNav() {
     canCompanyVehicles ||
     canTemperatureDashboard ||
     canAdminWorkOrders;
-  const showAdminTools = canAdminUsers;
+  const showAdminTools = canAdminUsers || canAdminSuppliers;
 
   return (
     <div className="site-nav-shell" style={shell} data-admin-nav-root>
@@ -546,12 +549,21 @@ export default async function AdminNav() {
             <details data-admin-dropdown style={detailsStyle}>
               <summary style={summaryStyle}>Tools</summary>
               <div style={menuStyle}>
-                <Link href="/admin/audit" style={menuItemStyle}>
-                  Audit Trail
-                </Link>
-                <Link href="/admin/permission-diagnostics" style={menuItemStyle}>
-                  Permission Diagnostics
-                </Link>
+                {canAdminUsers ? (
+                  <Link href="/admin/audit" style={menuItemStyle}>
+                    Audit Trail
+                  </Link>
+                ) : null}
+                {canAdminUsers ? (
+                  <Link href="/admin/permission-diagnostics" style={menuItemStyle}>
+                    Permission Diagnostics
+                  </Link>
+                ) : null}
+                {canAdminSuppliers ? (
+                  <Link href="/admin/suppliers" style={menuItemStyle}>
+                    Suppliers
+                  </Link>
+                ) : null}
               </div>
             </details>
           ) : null}
