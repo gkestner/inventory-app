@@ -630,6 +630,15 @@ export default async function MaintenanceTicketsPage({ searchParams }: { searchP
     },
   });
 
+  const statusGroups = await prisma.partsCheckoutTicket.groupBy({
+    by: ["status"],
+    _count: { _all: true },
+  });
+  const ticketCountByStatus = new Map(statusGroups.map((row) => [row.status, row._count._all]));
+  const openTicketCount = ticketCountByStatus.get(PartsCheckoutStatus.OPEN) ?? 0;
+  const invoicedTicketCount = ticketCountByStatus.get(PartsCheckoutStatus.INVOICED) ?? 0;
+  const voidedTicketCount = ticketCountByStatus.get(PartsCheckoutStatus.VOIDED) ?? 0;
+
   const [stores, users, itemsForEdit] = await Promise.all([
     prisma.location.findMany({
       where: { active: true, receiptEnabled: true },
@@ -683,11 +692,6 @@ export default async function MaintenanceTicketsPage({ searchParams }: { searchP
 
   return (
     <div style={{ padding: 16 }}>
-      {/* DEBUG BANNER: if you don’t see this, you are not running this file */}
-      <div style={{ padding: 8, border: "2px solid currentColor", borderRadius: 10, marginBottom: 12 }}>
-        USING NEW maintenance-tickets/page.tsx (invoice link enabled)
-      </div>
-
       <h1 style={{ fontSize: 20, fontWeight: 800, marginBottom: 6 }}>Maintenance Tickets (Parts Checkout)</h1>
       {okEdit ? (
         <div
@@ -788,6 +792,18 @@ export default async function MaintenanceTicketsPage({ searchParams }: { searchP
       </form>
 
       <div style={{ opacity: 0.8, marginBottom: 10 }}>Showing {tickets.length} (max 100)</div>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, fontSize: 13 }}>
+        <a href="/admin/maintenance-tickets?status=OPEN" style={controlStyle}>
+          Open: {openTicketCount}
+        </a>
+        <a href="/admin/maintenance-tickets?status=INVOICED" style={controlStyle}>
+          Invoiced: {invoicedTicketCount}
+        </a>
+        <a href="/admin/maintenance-tickets?status=VOIDED" style={controlStyle}>
+          Voided / returned: {voidedTicketCount}
+        </a>
+      </div>
 
       {tickets.map((t) => {
         const invoiceHref = `/admin/maintenance-tickets/${t.id}/invoice`;
@@ -931,7 +947,7 @@ export default async function MaintenanceTicketsPage({ searchParams }: { searchP
 
                     {t.status === "INVOICED" ? (
                       <div style={{ fontSize: 12, opacity: 0.8 }}>
-                        Invoiced ticket mode: quantity, tech, note, and "Need to order more" can be edited. Item and store are locked to preserve invoice linkage.
+                        Invoiced ticket mode: quantity, tech, note, and &quot;Need to order more&quot; can be edited. Item and store are locked to preserve invoice linkage.
                       </div>
                     ) : null}
 
@@ -968,7 +984,21 @@ export default async function MaintenanceTicketsPage({ searchParams }: { searchP
         );
       })}
 
-      {tickets.length === 0 ? <div style={{ opacity: 0.8 }}>No tickets match your filters.</div> : null}
+      {tickets.length === 0 ? (
+        <div style={{ opacity: 0.8 }}>
+          {status === PartsCheckoutStatus.OPEN && !q ? (
+            <>
+              No open tickets. Tickets disappear from this view after they are attached to an invoice. You currently have{" "}
+              <a href="/admin/maintenance-tickets?status=INVOICED" style={{ textDecoration: "underline", fontWeight: 800 }}>
+                {invoicedTicketCount} invoiced ticket{invoicedTicketCount === 1 ? "" : "s"}
+              </a>
+              .
+            </>
+          ) : (
+            "No tickets match your filters."
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
