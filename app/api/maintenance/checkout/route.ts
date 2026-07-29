@@ -330,6 +330,7 @@ export async function POST(req: NextRequest) {
         data: {
           onHandQty: onHandAfter,
           usedQty: usedAfter,
+          ...(needToOrderMore ? { reorderIgnored: false } : {}),
         },
         select: {
           id: true,

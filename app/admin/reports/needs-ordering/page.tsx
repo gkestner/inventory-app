@@ -511,7 +511,9 @@ export default async function NeedsOrderingReportPage({
   const redCount = needsOrdering.filter((x) => x.priority === "red").length;
   const yellowCount = needsOrdering.filter((x) => x.priority === "yellow").length;
   const blueCount = needsOrdering.filter((x) => x.priority === "blue").length;
-  const orderMoreItems = needsOrdering.filter((x) => x.hasTechRequest && x.shortBy === 0);
+  const orderMoreItems = needsOrdering.filter(
+    (x) => !x.reorderIgnored && x.hasTechRequest && x.shortBy === 0
+  );
 
   const supplierGroups = Array.from(
     needsOrdering.reduce((map, row) => {
