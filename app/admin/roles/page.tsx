@@ -4,10 +4,11 @@ import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { Permission } from "@prisma/client";
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
-import { canAccessAdmin } from "@/app/lib/admin-access";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -19,7 +20,8 @@ type AdminSession = {
 async function requireAdmin() {
   const session = (await getServerSession(authOptions)) as AdminSession;
   if (!session) redirect("/login");
-  if (!(await canAccessAdmin(session))) redirect("/");
+  const perms = await loadUserPermissions(session);
+  if (!perms.allowAll && !hasAnyPermission(perms, [Permission.ADMIN_EDIT_USERS])) redirect("/");
 }
 
 function nonEmpty(v: FormDataEntryValue | null): string {

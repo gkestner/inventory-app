@@ -3,13 +3,20 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
-import { Role } from "@prisma/client";
+import { Prisma, Role } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { prisma } from "@/app/lib/prisma";
 import { ADMIN_EDIT_SUPPLIERS, ADMIN_VIEW_SUPPLIERS } from "@/app/lib/permission-constants";
-import { cleanSupplierDisplayName, normalizeSupplierKey } from "@/app/lib/suppliers";
+import {
+  filterSupplierDirectory,
+  loadSupplierDirectory,
+  parseSupplierDirection,
+  parseSupplierSort,
+  sortSupplierDirectory,
+} from "@/app/lib/supplier-directory";
+import { cleanSupplierDisplayName, findSupplierByNormalizedKey, normalizeSupplierKey } from "@/app/lib/suppliers";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -24,27 +31,10 @@ type AdminSession = {
 
 type SearchParams = {
   q?: string;
+  sort?: string;
+  dir?: string;
   ok?: string;
   error?: string;
-};
-
-type SupplierBucket = {
-  key: string;
-  displayName: string;
-  supplierId: string | null;
-  paymentMethod: string | null;
-  terms: string | null;
-  accountNumber: string | null;
-  phone: string | null;
-  extension: string | null;
-  email: string | null;
-  partsSummary: string | null;
-  notes: string | null;
-  aliases: Set<string>;
-  partLabels: Set<string>;
-  orderCount: number;
-  latestOrderAt: Date | null;
-  hasProfile: boolean;
 };
 
 async function requireSupplierAccess() {
@@ -86,17 +76,37 @@ function splitAliases(value: string | null): string[] {
   return out;
 }
 
+class SupplierNameConflictError extends Error {}
+class SupplierNotFoundError extends Error {}
+
+function supplierSaveErrorMessage(error: unknown): string {
+  if (error instanceof SupplierNameConflictError) {
+    return "A supplier or alternate name already uses that name.";
+  }
+  if (error instanceof SupplierNotFoundError) {
+    return "That supplier no longer exists. Refresh the page and try again.";
+  }
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === "P2002") {
+      return "A supplier or alternate name already uses that name.";
+    }
+    if (error.code === "P2025") {
+      return "That supplier no longer exists. Refresh the page and try again.";
+    }
+  }
+
+  return "Supplier could not be saved. Please try again.";
+}
+
 async function saveSupplierAction(formData: FormData) {
   "use server";
 
-  let redirectTo = "/admin/suppliers?ok=1";
+  const { perms } = await requireSupplierAccess();
+  if (!perms.allowAll && !hasAnyPermission(perms, [ADMIN_EDIT_SUPPLIERS])) {
+    redirect("/admin/suppliers?error=You%20do%20not%20have%20permission%20to%20edit%20suppliers.");
+  }
 
   try {
-    const { perms } = await requireSupplierAccess();
-    if (!perms.allowAll && !hasAnyPermission(perms, [ADMIN_EDIT_SUPPLIERS])) {
-      throw new Error("You do not have permission to edit suppliers.");
-    }
-
     const id = formString(formData, "id", 100);
     const name = formString(formData, "name", 160);
     if (!name) throw new Error("Supplier name is required.");
@@ -117,7 +127,13 @@ async function saveSupplierAction(formData: FormData) {
     await prisma.$transaction(async (tx) => {
       const existing = id
         ? await tx.supplier.findUnique({ where: { id }, select: { id: true } })
-        : await tx.supplier.findUnique({ where: { normalizedKey }, select: { id: true } });
+        : null;
+      if (id && !existing) throw new SupplierNotFoundError();
+
+      const nameOwner = await findSupplierByNormalizedKey(tx, normalizedKey);
+      if (nameOwner && nameOwner.id !== existing?.id) {
+        throw new SupplierNameConflictError();
+      }
 
       const supplier = existing
         ? await tx.supplier.update({
@@ -157,6 +173,11 @@ async function saveSupplierAction(formData: FormData) {
         const aliasKey = normalizeSupplierKey(aliasName);
         if (!aliasKey) continue;
 
+        const aliasOwner = await findSupplierByNormalizedKey(tx, aliasKey);
+        if (aliasOwner && aliasOwner.id !== supplier.id) {
+          throw new SupplierNameConflictError();
+        }
+
         await tx.supplierAlias.upsert({
           where: { normalizedKey: aliasKey },
           update: { supplierId: supplier.id, name: aliasName },
@@ -169,47 +190,15 @@ async function saveSupplierAction(formData: FormData) {
     revalidatePath("/admin/inventory-orders");
     revalidatePath("/admin/items");
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Supplier save failed.";
-    redirectTo = `/admin/suppliers?error=${encodeURIComponent(message)}`;
+    const prismaCode = error instanceof Prisma.PrismaClientKnownRequestError ? error.code : undefined;
+    console.error("[admin/suppliers] Supplier save failed", {
+      prismaCode,
+      error,
+    });
+    redirect(`/admin/suppliers?error=${encodeURIComponent(supplierSaveErrorMessage(error))}`);
   }
 
-  redirect(redirectTo);
-}
-
-function addNameToBucket(buckets: Map<string, SupplierBucket>, rawName: string | null | undefined): SupplierBucket | null {
-  const displayName = cleanSupplierDisplayName(rawName);
-  const key = normalizeSupplierKey(displayName);
-  if (!displayName || !key) return null;
-
-  let bucket = buckets.get(key);
-  if (!bucket) {
-    bucket = {
-      key,
-      displayName,
-      supplierId: null,
-      paymentMethod: null,
-      terms: null,
-      accountNumber: null,
-      phone: null,
-      extension: null,
-      email: null,
-      partsSummary: null,
-      notes: null,
-      aliases: new Set<string>(),
-      partLabels: new Set<string>(),
-      orderCount: 0,
-      latestOrderAt: null,
-      hasProfile: false,
-    };
-    buckets.set(key, bucket);
-  }
-
-  bucket.aliases.add(displayName);
-  return bucket;
-}
-
-function partLabel(item: { sku: string; partNumber: string | null; name: string }): string {
-  return `${item.sku}${item.partNumber ? ` - ${item.partNumber}` : ""} - ${item.name}`;
+  redirect("/admin/suppliers?ok=1");
 }
 
 function fmtDate(d: Date | null): string {
@@ -226,98 +215,31 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
   const { perms } = await requireSupplierAccess();
   const canEditSuppliers = perms.allowAll || hasAnyPermission(perms, [ADMIN_EDIT_SUPPLIERS]);
   const sp = (await searchParams) ?? {};
-  const query = String(sp.q ?? "").trim().toLowerCase();
+  const query = String(sp.q ?? "").trim();
+  const sort = parseSupplierSort(sp.sort);
+  const direction = parseSupplierDirection(sp.dir);
+  const suppliers = sortSupplierDirectory(filterSupplierDirectory(await loadSupplierDirectory(prisma), query), sort, direction);
 
-  const [profiles, orderRows, itemRows] = await Promise.all([
-    prisma.supplier.findMany({
-      include: { aliases: { orderBy: { name: "asc" } } },
-      orderBy: { name: "asc" },
-    }),
-    prisma.inventoryOrder.findMany({
-      where: {
-        supplierName: { not: null },
-      },
-      select: {
-        supplierName: true,
-        orderedAt: true,
-        item: { select: { sku: true, partNumber: true, name: true } },
-      },
-      orderBy: { orderedAt: "desc" },
-    }),
-    prisma.item.findMany({
-      where: {
-        orderFrom: { not: null },
-      },
-      select: {
-        orderFrom: true,
-        sku: true,
-        partNumber: true,
-        name: true,
-      },
-      orderBy: { name: "asc" },
-    }),
-  ]);
+  const buildHref = (next: Record<string, string | undefined>) => {
+    const params = new URLSearchParams();
+    const q = next.q ?? query;
+    const sortValue = next.sort ?? sort;
+    const dirValue = next.dir ?? direction;
+    if (q) params.set("q", q);
+    if (sortValue !== "name") params.set("sort", sortValue);
+    if (dirValue !== "asc") params.set("dir", dirValue);
+    const qs = params.toString();
+    return qs ? `/admin/suppliers?${qs}` : "/admin/suppliers";
+  };
 
-  const buckets = new Map<string, SupplierBucket>();
-
-  for (const supplier of profiles) {
-    const bucket = addNameToBucket(buckets, supplier.name);
-    if (!bucket) continue;
-
-    bucket.displayName = supplier.name;
-    bucket.supplierId = supplier.id;
-    bucket.paymentMethod = supplier.paymentMethod;
-    bucket.terms = supplier.terms;
-    bucket.accountNumber = supplier.accountNumber;
-    bucket.phone = supplier.phone;
-    bucket.extension = supplier.extension;
-    bucket.email = supplier.email;
-    bucket.partsSummary = supplier.partsSummary;
-    bucket.notes = supplier.notes;
-    bucket.hasProfile = true;
-
-    for (const alias of supplier.aliases) {
-      bucket.aliases.add(alias.name);
-    }
-  }
-
-  for (const order of orderRows) {
-    const bucket = addNameToBucket(buckets, order.supplierName);
-    if (!bucket) continue;
-    bucket.orderCount += 1;
-    if (!bucket.latestOrderAt || order.orderedAt > bucket.latestOrderAt) bucket.latestOrderAt = order.orderedAt;
-    if (order.item) bucket.partLabels.add(partLabel(order.item));
-  }
-
-  for (const item of itemRows) {
-    const bucket = addNameToBucket(buckets, item.orderFrom);
-    if (!bucket) continue;
-    bucket.partLabels.add(partLabel(item));
-  }
-
-  const suppliers = Array.from(buckets.values())
-    .filter((supplier) => {
-      if (!query) return true;
-      const haystack = [
-        supplier.displayName,
-        ...supplier.aliases,
-        supplier.paymentMethod,
-        supplier.accountNumber,
-        supplier.phone,
-        supplier.email,
-        supplier.partsSummary,
-        supplier.notes,
-        ...supplier.partLabels,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(query);
-    })
-    .sort((a, b) => {
-      if (a.hasProfile !== b.hasProfile) return a.hasProfile ? -1 : 1;
-      return a.displayName.localeCompare(b.displayName);
-    });
+  const exportHref = (() => {
+    const params = new URLSearchParams();
+    if (query) params.set("q", query);
+    if (sort !== "name") params.set("sort", sort);
+    if (direction !== "asc") params.set("dir", direction);
+    const qs = params.toString();
+    return qs ? `/admin/suppliers/export?${qs}` : "/admin/suppliers/export";
+  })();
 
   const border = "1px solid var(--border)";
   const surface = "var(--surface)";
@@ -370,8 +292,10 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
         ) : null}
 
         {canEditSuppliers ? (
-          <section style={{ border, borderRadius: 10, background: surface, padding: 14 }}>
-            <h2 style={{ margin: 0, fontSize: 18 }}>Add Supplier</h2>
+          <details style={{ border, borderRadius: 10, background: surface, padding: 14 }}>
+            <summary style={{ cursor: "pointer", listStyle: "none" }}>
+              <h2 style={{ margin: 0, fontSize: 18, display: "inline" }}>Add Supplier</h2>
+            </summary>
             <form action={saveSupplierAction} style={{ marginTop: 12, display: "grid", gap: 12 }}>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
                 <label style={label}>
@@ -423,35 +347,72 @@ export default async function SuppliersPage({ searchParams }: { searchParams: Pr
               </label>
               <button type="submit" style={button}>Save Supplier</button>
             </form>
-          </section>
+          </details>
         ) : null}
 
         <form method="get" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <input name="q" defaultValue={sp.q ?? ""} placeholder="Search suppliers, parts, account, email..." style={{ flex: "1 1 280px" }} />
+          <label style={{ ...label, minWidth: 180 }}>
+            Sort by
+            <select name="sort" defaultValue={sort} style={input}>
+              <option value="name">Supplier name</option>
+              <option value="profile">Profile status</option>
+              <option value="orders">Order count</option>
+              <option value="latest">Latest order</option>
+              <option value="payment">Payment type</option>
+              <option value="terms">Terms</option>
+            </select>
+          </label>
+          <label style={{ ...label, minWidth: 140 }}>
+            Direction
+            <select name="dir" defaultValue={direction} style={input}>
+              <option value="asc">Ascending</option>
+              <option value="desc">Descending</option>
+            </select>
+          </label>
           <button type="submit" style={{ ...button, background: soft, color: "var(--foreground)" }}>Search</button>
           <Link href="/admin/suppliers" style={{ textDecoration: "none", border, borderRadius: 10, padding: "10px 12px", fontWeight: 900 }}>
             Clear
           </Link>
+          <Link href={exportHref} style={{ textDecoration: "none", border, borderRadius: 10, padding: "10px 12px", fontWeight: 900 }}>
+            Export CSV
+          </Link>
         </form>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", fontSize: 12, color: "var(--muted)" }}>
+          <span>{suppliers.length} suppliers</span>
+          <Link href={buildHref({ sort: "name", dir: "asc" })} style={{ color: "inherit" }}>Name</Link>
+          <Link href={buildHref({ sort: "orders", dir: "desc" })} style={{ color: "inherit" }}>Most orders</Link>
+          <Link href={buildHref({ sort: "latest", dir: "desc" })} style={{ color: "inherit" }}>Latest order</Link>
+          <Link href={buildHref({ sort: "profile", dir: "asc" })} style={{ color: "inherit" }}>Profiles first</Link>
+        </div>
 
         <section style={{ display: "grid", gap: 12 }}>
           {suppliers.map((supplier) => {
-            const aliasText = Array.from(supplier.aliases).sort((a, b) => a.localeCompare(b));
-            const partText = Array.from(supplier.partLabels).sort((a, b) => a.localeCompare(b));
+            const aliasText = supplier.aliases;
+            const partText = supplier.partLabels;
 
             return (
               <details key={supplier.key} style={{ border, borderRadius: 10, background: surface, overflow: "hidden" }}>
-                <summary style={{ padding: 12, cursor: "pointer", listStyle: "none" }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 130px 130px", gap: 10, alignItems: "center" }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 18, fontWeight: 950, overflowWrap: "anywhere" }}>{supplier.displayName}</div>
-                      <div style={{ marginTop: 3, color: "var(--muted)", fontSize: 12, overflowWrap: "anywhere" }}>
+                <summary
+                  style={{
+                    padding: 12,
+                    cursor: "pointer",
+                    listStyle: "none",
+                    display: "grid",
+                    gridTemplateColumns: "minmax(0, 1fr) 130px 130px",
+                    gap: 10,
+                    alignItems: "center",
+                  }}
+                >
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ display: "block", fontSize: 18, fontWeight: 950, overflowWrap: "anywhere" }}>{supplier.displayName}</span>
+                      <span style={{ display: "block", marginTop: 3, color: "var(--muted)", fontSize: 12, overflowWrap: "anywhere" }}>
                         {supplier.hasProfile ? "Profile saved" : "From order history"} | Aliases: {aliasText.slice(0, 4).join(", ") || "-"}
-                      </div>
-                    </div>
-                    <div style={{ fontWeight: 900 }}>{supplier.orderCount} orders</div>
-                    <div style={{ fontSize: 12, color: "var(--muted)" }}>Latest: {fmtDate(supplier.latestOrderAt)}</div>
-                  </div>
+                      </span>
+                    </span>
+                    <span style={{ fontWeight: 900 }}>{supplier.orderCount} orders</span>
+                    <span style={{ fontSize: 12, color: "var(--muted)" }}>Latest: {fmtDate(supplier.latestOrderAt)}</span>
                 </summary>
 
                 <div style={{ borderTop: border, padding: 12, display: "grid", gap: 12, background: soft }}>

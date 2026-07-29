@@ -3,7 +3,6 @@
 import { upload } from "@vercel/blob/client";
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { PDFDocument } from "pdf-lib";
 
 type Props = {
   userId: string;
@@ -18,6 +17,20 @@ type FileWithDate = {
   locationId: string;
 };
 
+type PdfDocumentLike = {
+  getPageCount(): number;
+  copyPages(source: PdfDocumentLike, indices: number[]): Promise<unknown[]>;
+  addPage(page: unknown): void;
+  save(): Promise<Uint8Array>;
+};
+
+type PdfLibBundle = {
+  PDFDocument: {
+    load(bytes: ArrayBuffer): Promise<PdfDocumentLike>;
+    create(): Promise<PdfDocumentLike>;
+  };
+};
+
 function isPdf(file: File): boolean {
   return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
 }
@@ -29,6 +42,7 @@ function baseName(fileName: string): string {
 }
 
 async function splitPdfToPages(file: File): Promise<File[]> {
+  const { PDFDocument } = (await import("pdf-lib/dist/pdf-lib.esm.js")) as PdfLibBundle;
   const bytes = await file.arrayBuffer();
   const source = await PDFDocument.load(bytes);
   const pageCount = source.getPageCount();

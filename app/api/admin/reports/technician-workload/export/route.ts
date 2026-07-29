@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
   ]);
 
   const bucket = new Map<string, { reqOpen: number; reqClosed: number; woOpen: number; woClosed: number }>();
-  function useBucket(name: string) {
+  function getBucket(name: string) {
     const existing = bucket.get(name);
     if (existing) return existing;
     const created = { reqOpen: 0, reqClosed: 0, woOpen: 0, woClosed: 0 };
@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
 
   for (const r of requestRows) {
     const tech = (r.assignedMaintenanceUser?.name ?? "").trim() || (r.assignedMaintenanceUser?.email ?? "").trim() || "Unassigned";
-    const b = useBucket(tech);
+    const b = getBucket(tech);
     const closed = !!(r.resolvedAt || r.archivedAt || r.status !== "OPEN");
     if (closed) b.reqClosed += 1;
     else b.reqOpen += 1;
@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
 
   for (const r of workOrderRows) {
     const tech = (r.createdByUser?.name ?? "").trim() || (r.createdByUser?.email ?? "").trim() || "Unknown";
-    const b = useBucket(tech);
+    const b = getBucket(tech);
     const closed = r.status === "SUBMITTED" || r.status === "FINALIZED";
     if (closed) b.woClosed += 1;
     else b.woOpen += 1;

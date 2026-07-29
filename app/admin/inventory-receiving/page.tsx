@@ -109,8 +109,9 @@ const ROW_INCLUDE = {
 
 type Row = Prisma.InventoryOrderGetPayload<{ include: typeof ROW_INCLUDE }>;
 
-export default async function AdminInventoryReceivingPage({ searchParams }: { searchParams: SearchParams }) {
+export default async function AdminInventoryReceivingPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireReceivingView();
+  const sp = await searchParams;
 
   // If Prisma Client isn't regenerated yet, avoid crashing.
   const anyPrisma = prisma as unknown as { inventoryOrder?: unknown };
@@ -157,12 +158,12 @@ export default async function AdminInventoryReceivingPage({ searchParams }: { se
     );
   }
 
-  const q = String(searchParams.q ?? "").trim();
-  const itemId = String(searchParams.itemId ?? "").trim();
-  const supplier = String(searchParams.supplier ?? "").trim();
-  const forStoreId = String(searchParams.forStoreId ?? "").trim();
-  const forUserId = String(searchParams.forUserId ?? "").trim();
-  const showCompleted = String(searchParams.showCompleted ?? "").trim() === "1";
+  const q = String(sp.q ?? "").trim();
+  const itemId = String(sp.itemId ?? "").trim();
+  const supplier = String(sp.supplier ?? "").trim();
+  const forStoreId = String(sp.forStoreId ?? "").trim();
+  const forUserId = String(sp.forUserId ?? "").trim();
+  const showCompleted = String(sp.showCompleted ?? "").trim() === "1";
 
   const border = "1px solid rgba(128,128,128,0.25)";
   const surface = "var(--background)";

@@ -10,6 +10,17 @@ export const dynamic = "force-dynamic";
 
 type SearchParams = { module?: string; q?: string };
 
+type AuditRow = {
+  id: string;
+  createdAt: Date | string;
+  module: string;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  message: string | null;
+  actorUser: { name: string; email: string } | null;
+};
+
 type SessionShape = {
   user?: {
     email?: string | null;
@@ -29,14 +40,14 @@ export default async function AuditPage({ searchParams }: { searchParams?: Promi
   await requireAuditView();
 
   const sp = (await searchParams) ?? {};
-  const module = String(sp.module ?? "").trim();
+  const moduleFilter = String(sp.module ?? "").trim();
   const q = String(sp.q ?? "").trim();
 
   const db = getCompatDb();
-  const rows = db.auditLog?.findMany
+  const rows: AuditRow[] = db.auditLog?.findMany
     ? await db.auditLog.findMany({
         where: {
-          ...(module ? { module } : {}),
+          ...(moduleFilter ? { module: moduleFilter } : {}),
           ...(q
             ? {
                 OR: [
@@ -53,7 +64,7 @@ export default async function AuditPage({ searchParams }: { searchParams?: Promi
         include: {
           actorUser: { select: { name: true, email: true } },
         },
-      })
+      }) as AuditRow[]
     : [];
 
   return (
@@ -62,7 +73,7 @@ export default async function AuditPage({ searchParams }: { searchParams?: Promi
         <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900 }}>Audit Trail</h1>
 
         <form method="get" style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 12, background: "var(--surface)", display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <input name="module" placeholder="module" defaultValue={module} style={{ minWidth: 180 }} />
+          <input name="module" placeholder="module" defaultValue={moduleFilter} style={{ minWidth: 180 }} />
           <input name="q" placeholder="search" defaultValue={q} style={{ minWidth: 220 }} />
           <button type="submit" style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border)", fontWeight: 800 }}>Apply</button>
         </form>
@@ -77,7 +88,7 @@ export default async function AuditPage({ searchParams }: { searchParams?: Promi
               </tr>
             </thead>
             <tbody>
-              {rows.map((r: any) => (
+              {rows.map((r) => (
                 <tr key={r.id}>
                   <td style={{ padding: 10, borderBottom: "1px solid var(--border)" }}>{new Date(r.createdAt).toLocaleString()}</td>
                   <td style={{ padding: 10, borderBottom: "1px solid var(--border)" }}>{r.module}</td>

@@ -4,6 +4,7 @@ import { JetBrains_Mono, Sora } from "next/font/google";
 import { cookies, headers } from "next/headers";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { PHASE_PRODUCTION_BUILD } from "next/constants";
+import packageJson from "@/package.json";
 import "./globals.css";
 
 import AdminNav from "@/app/admin/components/AdminNav";
@@ -51,6 +52,39 @@ type PreviewRole = "ADMIN" | "USER";
 
 const DEMO_MODE_COOKIE = "admin_demo_mode";
 
+function AppVersionBadge() {
+  const commitSha = String(process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GITHUB_SHA ?? "").trim();
+  const shortCommit = commitSha ? commitSha.slice(0, 7) : "local";
+  const label = `v${packageJson.version} · ${shortCommit}`;
+
+  return (
+    <div
+      aria-label={`Application version ${label}`}
+      title={commitSha || "Local development build"}
+      style={{
+        position: "fixed",
+        right: "calc(8px + env(safe-area-inset-right))",
+        bottom: "calc(8px + env(safe-area-inset-bottom))",
+        zIndex: 100,
+        border: "1px solid rgba(128,128,128,0.28)",
+        borderRadius: 999,
+        background: "color-mix(in srgb, var(--background) 88%, transparent)",
+        color: "var(--foreground)",
+        padding: "4px 8px",
+        fontFamily: "var(--font-jetbrains-mono), monospace",
+        fontSize: 10,
+        fontWeight: 800,
+        lineHeight: 1,
+        opacity: 0.72,
+        pointerEvents: "none",
+        boxShadow: "0 2px 10px rgba(0,0,0,0.12)",
+      }}
+    >
+      {label}
+    </div>
+  );
+}
+
 function parsePreviewCookie(v: string | undefined | null, isAdmin: boolean): PreviewRole | null {
   if (!isAdmin) return null;
   const s = (v ?? "").trim().toLowerCase();
@@ -87,7 +121,10 @@ export default async function RootLayout({
   if (process.env.NEXT_PHASE === PHASE_PRODUCTION_BUILD) {
     return (
       <html lang="en">
-        <body className={`${soraSans.variable} ${jetbrainsMono.variable} app-body antialiased`}>{children}</body>
+        <body className={`${soraSans.variable} ${jetbrainsMono.variable} app-body antialiased`}>
+          {children}
+          <AppVersionBadge />
+        </body>
       </html>
     );
   }
@@ -173,8 +210,7 @@ export default async function RootLayout({
         import("@/app/lib/permissions"),
       ]);
 
-      const { hasAnyPermission, loadUserPermissions } = permsMod;
-      const { Permission } = await import("@prisma/client");
+      const { loadUserPermissions } = permsMod;
 
       const s = await getServerSession(authOptions);
       const p = await loadUserPermissions(s);
@@ -455,6 +491,7 @@ export default async function RootLayout({
         <NotificationSoundClient />
 
         <div className="app-content-shell">{children}</div>
+        <AppVersionBadge />
       </body>
     </html>
   );

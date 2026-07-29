@@ -19,6 +19,8 @@
 
 # production
 /build
+/exports
+/inventory-app-local-transfer-*
 
 # misc
 .DS_Store

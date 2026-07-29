@@ -114,10 +114,10 @@ async function requireAdmin() {
 export default async function AdminMaintenanceRequestsPage({
   searchParams,
 }: {
-  searchParams?: RawSearchParams | Promise<RawSearchParams>;
+  searchParams?: Promise<RawSearchParams>;
 }) {
-  const session = await requireAdmin();
-  const sp = await Promise.resolve(searchParams);
+  await requireAdmin();
+  const sp = (await searchParams) ?? {};
   const archived = firstParam(sp?.archived) === "1";
   const resent = firstParam(sp?.resent) === "1";
   const updated = firstParam(sp?.updated) === "1";

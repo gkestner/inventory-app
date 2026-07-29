@@ -1930,7 +1930,7 @@ export default async function TemperatureDashboardPage({
 
                     <div style={{ marginTop: 10 }}>
                       <div style={{ marginBottom: 6, fontSize: 12, opacity: 0.8 }}>
-                        Connection status is based on webhook "last seen" timestamps.
+                        Connection status is based on webhook &quot;last seen&quot; timestamps.
                       </div>
                       <div style={{ marginBottom: 6, fontSize: 12, opacity: 0.8 }}>
                         Live sensor table (auto-refresh) with 24h trend sparkline per sensor.

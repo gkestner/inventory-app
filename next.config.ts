@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 
+const appRoot = process.cwd();
+
 const nextConfig: NextConfig = {
   serverExternalPackages: ["playwright-core", "@sparticuz/chromium"],
+  outputFileTracingRoot: appRoot,
   outputFileTracingIncludes: {
     "/api/admin/price-lookup": ["./node_modules/@sparticuz/chromium/bin/**"],
     "/api/admin/price-lookup/vendor-credentials/test": ["./node_modules/@sparticuz/chromium/bin/**"],

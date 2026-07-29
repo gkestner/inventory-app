@@ -273,10 +273,10 @@ type LocationViewRow = {
   receiptEnabled: boolean;
 };
 
-export default async function AdminLocationsPage({ searchParams }: { searchParams?: SearchParams }) {
+export default async function AdminLocationsPage({ searchParams }: { searchParams?: Promise<SearchParams> }) {
   await requireAdmin();
 
-  const sp = searchParams ?? {};
+  const sp = (await searchParams) ?? {};
   const q = norm(sp.q);
   const okMsg = norm(sp.ok);
   const errMsg = norm(sp.err);
@@ -1264,7 +1264,7 @@ export default async function AdminLocationsPage({ searchParams }: { searchParam
       </div>
 
       <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-        Receipt mode toggle: "Make Receipt-Only" hides that location from non-receipt pages (checkout, work orders,
+        Receipt mode toggle: &quot;Make Receipt-Only&quot; hides that location from non-receipt pages (checkout, work orders,
         etc.) while keeping it available on Receipt Entry.
       </div>
     </div>

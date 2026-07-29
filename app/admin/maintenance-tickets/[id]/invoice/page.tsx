@@ -23,9 +23,7 @@ async function requireAdmin(): Promise<AdminSession> {
   return session;
 }
 
-type InvoiceParams =
-  | Promise<{ id: string }>
-  | { id: string };
+type InvoiceParams = Promise<{ id: string }>;
 
 function money(v: unknown): string {
   return v == null ? "—" : String(v);
@@ -34,12 +32,11 @@ function money(v: unknown): string {
 export default async function InvoicePage({
   params,
 }: {
-  // Support both shapes: some of your pages use Promise-wrapped props
   params: InvoiceParams;
 }) {
   await requireAdmin();
 
-  const p = (await params) as { id?: string };
+  const p = await params;
   const ticketId = String(p?.id || "");
 
   if (!ticketId) {

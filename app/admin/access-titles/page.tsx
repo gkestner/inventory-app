@@ -40,7 +40,7 @@ import {
 
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
-import { canAccessAdmin } from "@/app/lib/admin-access";
+import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -56,7 +56,8 @@ type AdminSession = {
 async function requireAdmin() {
   const session = (await getServerSession(authOptions)) as AdminSession;
   if (!session) redirect("/login");
-  if (!(await canAccessAdmin(session))) redirect("/");
+  const perms = await loadUserPermissions(session);
+  if (!perms.allowAll && !hasAnyPermission(perms, [Permission.ADMIN_EDIT_USERS])) redirect("/");
   return session;
 }
 
@@ -321,7 +322,7 @@ async function createTitleAction(formData: FormData) {
       name,
       active: true,
       description: description || null,
-    } as any,
+    },
   });
 
   revalidatePath("/admin/access-titles");
@@ -345,7 +346,7 @@ async function saveTitleDetailsAction(formData: FormData) {
       name,
       active,
       description: description || null,
-    } as any,
+    },
   });
 
   revalidatePath("/admin/access-titles");
@@ -480,12 +481,11 @@ async function clearAllInScopeAction(formData: FormData) {
 export default async function AccessTitlesPage({
   searchParams,
 }: {
-  // Next.js 16: searchParams can be a Promise
-  searchParams?: RawSearchParams | Promise<RawSearchParams>;
+  searchParams?: Promise<RawSearchParams>;
 }) {
   await requireAdmin();
 
-  const sp = await Promise.resolve(searchParams);
+  const sp = (await searchParams) ?? {};
 
   const titleIdFromUrl = firstParam(sp?.titleId);
   const moduleFromUrl = firstParam(sp?.module);
@@ -577,7 +577,7 @@ export default async function AccessTitlesPage({
           </form>
 
           <details>
-            <summary style={{ ...btn("ghost"), listStyle: "none" as any }}>▶ Create new title</summary>
+            <summary style={{ ...btn("ghost"), listStyle: "none" }}>▶ Create new title</summary>
             <div style={{ marginTop: 10, ...card(), padding: 12 }}>
               <form action={createTitleAction} style={{ display: "grid", gap: 10, width: 420, maxWidth: "100%" }}>
                 <div>
@@ -613,17 +613,17 @@ export default async function AccessTitlesPage({
 
                 <div>
                   <div style={label()}>Name</div>
-                  <input name="name" defaultValue={(selectedTitle as any).name ?? ""} style={input()} />
+                  <input name="name" defaultValue={selectedTitle.name ?? ""} style={input()} />
                 </div>
 
                 <div>
                   <div style={label()}>Description</div>
-                  <input name="description" defaultValue={(selectedTitle as any).description ?? ""} style={input()} />
+                  <input name="description" defaultValue={selectedTitle.description ?? ""} style={input()} />
                 </div>
 
                 <div>
                   <div style={label()}>Active</div>
-                  <select name="active" defaultValue={(selectedTitle as any).active ? "1" : "0"} style={selectInput()}>
+                  <select name="active" defaultValue={selectedTitle.active ? "1" : "0"} style={selectInput()}>
                     <option value="1" style={optionStyle()}>
                       Active
                     </option>

@@ -494,10 +494,10 @@ type InvoiceRow = {
   _count: { lines: number };
 };
 
-export default async function AdminInvoicesPage({ searchParams }: { searchParams?: SearchParams }) {
+export default async function AdminInvoicesPage({ searchParams }: { searchParams?: Promise<SearchParams> }) {
   const { session } = await requireInvoicesView();
 
-  const sp: SearchParams = searchParams ?? {};
+  const sp: SearchParams = (await searchParams) ?? {};
 
   const d = getDelegates();
   const invoiceModelReady = typeof d.invoice?.findMany === "function" && typeof d.invoice?.count === "function";

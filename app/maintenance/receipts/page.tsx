@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import Link from "next/link";
 import { randomUUID } from "crypto";
 import { del, put } from "@vercel/blob";
 import { getServerSession } from "next-auth";
@@ -971,9 +972,9 @@ export default async function MaintenanceReceiptPage({
             </label>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button type="submit" style={btn}>Apply</button>
-              <a href="/maintenance/receipts" style={{ ...btn, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+              <Link href="/maintenance/receipts" style={{ ...btn, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
                 Clear
-              </a>
+              </Link>
             </div>
           </div>
           <div style={{ fontSize: 12, color: "var(--muted)" }}>

@@ -82,9 +82,15 @@ function clearFailedAttemptsInMemory(key: string): void {
   forgotResetAttempts.delete(key);
 }
 
+type ResetRateLimitStore = {
+  findUnique: (args: unknown) => Promise<unknown>;
+  create: (args: unknown) => Promise<unknown>;
+  update: (args: unknown) => Promise<unknown>;
+  deleteMany: (args: unknown) => Promise<unknown>;
+};
+
 function resetRateLimitStore() {
-  return (prisma as unknown as { passwordResetRateLimit?: { findUnique: Function; create: Function; update: Function; deleteMany: Function } }).
-    passwordResetRateLimit;
+  return (prisma as unknown as { passwordResetRateLimit?: ResetRateLimitStore }).passwordResetRateLimit;
 }
 
 async function getRetrySecondsIfBlocked(key: string, nowMs: number): Promise<number | null> {

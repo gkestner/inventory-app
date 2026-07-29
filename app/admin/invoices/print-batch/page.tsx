@@ -134,11 +134,14 @@ function compareInvoicesForPrint(
   return left.createdAt.getTime() - right.createdAt.getTime();
 }
 
-export default async function PrintInvoiceBatchPage({ searchParams }: { searchParams: { ids?: string; autoExport?: string } }) {
+type SearchParams = { ids?: string; autoExport?: string };
+
+export default async function PrintInvoiceBatchPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireInvoicesView();
 
-  const ids = parseIds(searchParams.ids);
-  const autoExport = String(searchParams.autoExport ?? "").trim() === "1";
+  const sp = await searchParams;
+  const ids = parseIds(sp.ids);
+  const autoExport = String(sp.autoExport ?? "").trim() === "1";
   const exportUrl = ids.length > 0 ? `/admin/invoices/passport-export?ids=${encodeURIComponent(ids.join(","))}` : "";
 
   const invoices =

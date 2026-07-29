@@ -152,7 +152,7 @@ function TreeNode({
     );
   }
 
-  const leafPerms = useMemo(() => uniqStrings(collectLeafPerms(node)), [node]);
+  const leafPerms = uniqStrings(collectLeafPerms(node));
   const allSelected = leafPerms.length > 0 && leafPerms.every((p) => selected.has(p));
   const someSelected = leafPerms.some((p) => selected.has(p));
 

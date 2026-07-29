@@ -120,8 +120,8 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   const canUsers = allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_USERS, Permission.ADMIN_EDIT_USERS]);
   const canSuppliers = allowAll || hasAnyPermission(perms, [ADMIN_VIEW_SUPPLIERS, ADMIN_EDIT_SUPPLIERS]);
 
-  // Reuse Users permission for Roles/Permission Titles management
-  const canRoles = canUsers;
+  // Role and Permission Title management can change effective access, so require edit permission.
+  const canRoles = allowAll || hasAnyPermission(perms, [Permission.ADMIN_EDIT_USERS]);
 
   const canLocations =
     allowAll || hasAnyPermission(perms, [Permission.ADMIN_VIEW_LOCATIONS, Permission.ADMIN_EDIT_LOCATIONS]);

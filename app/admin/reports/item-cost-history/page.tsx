@@ -101,8 +101,6 @@ function addMonths(d: Date, deltaMonths: number) {
 // Types for the dynamic inventoryOrder model access (no `any`)
 // ------------------
 
-type InventoryOrderStatusLike = "ORDERED" | "ARRIVED" | "ADDED_TO_INVENTORY";
-
 type InventoryOrderFindManyRow = {
   itemId: string;
   unitPrice: unknown;
@@ -152,10 +150,10 @@ function getInventoryOrderModel(p: unknown): InventoryOrderModel | null {
   return io as InventoryOrderModel;
 }
 
-export default async function AdminItemCostHistoryReportPage({ searchParams }: { searchParams: SearchParams }) {
+export default async function AdminItemCostHistoryReportPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireReportView();
 
-  const sp: SearchParams = (searchParams instanceof Promise ? await searchParams : searchParams) ?? {};
+  const sp: SearchParams = (await searchParams) ?? {};
 
   const inventoryOrder = getInventoryOrderModel(prisma);
   if (!inventoryOrder) {

@@ -24,6 +24,8 @@ type SearchParams = {
   createdByUserId?: string;
   from?: string;
   to?: string;
+  importOk?: string;
+  importErr?: string;
 };
 
 function normalizeStatus(v: string | undefined): PartsCheckoutStatus | "all" {
@@ -144,6 +146,7 @@ export default async function MaintenanceCheckoutHistoryPage({
 
   const stores = await loadAllowedStores(session, perms.allowAll);
   const allowedStoreIds = stores.map((store) => store.id);
+  const canImportCheckoutHistory = perms.allowAll || hasAnyPermission(perms, [Permission.CREATE_CHECKOUT]);
 
   const users = await prisma.user.findMany({
     where: { active: true },
@@ -206,6 +209,29 @@ export default async function MaintenanceCheckoutHistoryPage({
     },
   });
 
+  const importJobs = await prisma.importJob.findMany({
+    where: { type: "checkout_history" },
+    orderBy: { createdAt: "desc" },
+    take: 10,
+    select: {
+      id: true,
+      createdAt: true,
+      total: true,
+      created: true,
+      failed: true,
+      errors: {
+        orderBy: { rowNumber: "asc" },
+        take: 5,
+        select: {
+          id: true,
+          rowNumber: true,
+          sku: true,
+          message: true,
+        },
+      },
+    },
+  });
+
   const border = "1px solid rgba(128,128,128,0.25)";
   const card: CSSProperties = {
     border,
@@ -239,6 +265,123 @@ export default async function MaintenanceCheckoutHistoryPage({
         <div style={{ opacity: 0.8, marginTop: 8 }}>
           Search recent checkout, invoiced, and return records. Non-admin users only see stores assigned to their account.
         </div>
+
+        {sp.importOk ? (
+          <div
+            style={{
+              marginTop: 14,
+              padding: 12,
+              borderRadius: 10,
+              border: "1px solid rgba(34,197,94,0.35)",
+              background: "rgba(34,197,94,0.12)",
+              color: "var(--foreground)",
+              fontWeight: 800,
+            }}
+          >
+            {sp.importOk}
+          </div>
+        ) : null}
+
+        {sp.importErr ? (
+          <div
+            style={{
+              marginTop: 14,
+              padding: 12,
+              borderRadius: 10,
+              border: "1px solid rgba(239,68,68,0.35)",
+              background: "rgba(239,68,68,0.12)",
+              color: "var(--foreground)",
+              fontWeight: 800,
+            }}
+          >
+            Import failed: {sp.importErr}
+          </div>
+        ) : null}
+
+        {canImportCheckoutHistory ? (
+          <section style={{ ...card, marginTop: 14, padding: 16, display: "grid", gap: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
+              <div>
+                <h2 style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>Import Checkout History</h2>
+                <div style={{ opacity: 0.8, marginTop: 6 }}>
+                  Upload a CSV to add historical checkout rows. Imported rows are tagged in notes and do not adjust inventory or create invoices.
+                </div>
+              </div>
+              <div style={{ fontSize: 12, opacity: 0.78, maxWidth: 560, lineHeight: 1.5 }}>
+                Required columns: <b>SKU</b>, <b>Quantity</b>, and <b>Store</b> or <b>Store Number</b>. Optional columns:
+                Checkout Date, Created By, Status, Need To Order More, Notes.
+              </div>
+            </div>
+
+            <form
+              action="/api/maintenance/checkout/import"
+              method="post"
+              encType="multipart/form-data"
+              style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}
+            >
+              <input
+                name="file"
+                type="file"
+                accept=".csv,text/csv"
+                required
+                style={{ padding: "10px 12px", borderRadius: 10, border, background: "var(--background)", color: "var(--foreground)" }}
+              />
+              <button
+                type="submit"
+                style={{ padding: "10px 12px", borderRadius: 10, border, fontWeight: 900, background: "var(--foreground)", color: "var(--background)" }}
+              >
+                Import CSV
+              </button>
+            </form>
+
+            <div style={{ overflowX: "auto", borderTop: border, paddingTop: 12 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    {["Imported", "Job", "Rows", "Created", "Failed", "Recent Errors"].map((heading) => (
+                      <th key={heading} style={{ textAlign: "left", padding: 8, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
+                        {heading}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {importJobs.map((job) => (
+                    <tr key={job.id} style={{ borderBottom: border }}>
+                      <td style={{ padding: 8, whiteSpace: "nowrap", verticalAlign: "top" }}>{fmtDateTime(job.createdAt)}</td>
+                      <td style={{ padding: 8, whiteSpace: "nowrap", verticalAlign: "top", fontSize: 12, opacity: 0.8 }}>{job.id}</td>
+                      <td style={{ padding: 8, whiteSpace: "nowrap", verticalAlign: "top" }}>{job.total}</td>
+                      <td style={{ padding: 8, whiteSpace: "nowrap", verticalAlign: "top" }}>{job.created}</td>
+                      <td style={{ padding: 8, whiteSpace: "nowrap", verticalAlign: "top" }}>{job.failed}</td>
+                      <td style={{ padding: 8, minWidth: 280, verticalAlign: "top" }}>
+                        {job.errors.length ? (
+                          <div style={{ display: "grid", gap: 4 }}>
+                            {job.errors.map((error) => (
+                              <div key={error.id} style={{ fontSize: 12 }}>
+                                Row {error.rowNumber}
+                                {error.sku ? ` (${error.sku})` : ""}: {error.message}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span style={{ opacity: 0.7 }}>-</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+
+                  {importJobs.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} style={{ padding: 10, opacity: 0.8 }}>
+                        No checkout history imports yet.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
 
         <form method="get" style={{ ...card, marginTop: 14, padding: 16, display: "grid", gap: 10 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 10 }}>

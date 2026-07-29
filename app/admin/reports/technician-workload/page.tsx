@@ -106,7 +106,7 @@ export default async function TechnicianWorkloadReportPage({
     }
   >();
 
-  function useBucket(name: string) {
+  function getBucket(name: string) {
     const existing = bucket.get(name);
     if (existing) return existing;
     const created = { name, requestOpen: 0, requestClosed: 0, workOrderOpen: 0, workOrderClosed: 0 };
@@ -116,7 +116,7 @@ export default async function TechnicianWorkloadReportPage({
 
   for (const r of requestRows) {
     const tech = (r.assignedMaintenanceUser?.name ?? "").trim() || (r.assignedMaintenanceUser?.email ?? "").trim() || "Unassigned";
-    const b = useBucket(tech);
+    const b = getBucket(tech);
     const closed = !!(r.resolvedAt || r.archivedAt || r.status !== "OPEN");
     if (closed) b.requestClosed += 1;
     else b.requestOpen += 1;
@@ -124,7 +124,7 @@ export default async function TechnicianWorkloadReportPage({
 
   for (const r of workOrderRows) {
     const tech = (r.createdByUser?.name ?? "").trim() || (r.createdByUser?.email ?? "").trim() || "Unknown";
-    const b = useBucket(tech);
+    const b = getBucket(tech);
     const closed = r.status === "SUBMITTED" || r.status === "FINALIZED";
     if (closed) b.workOrderClosed += 1;
     else b.workOrderOpen += 1;
