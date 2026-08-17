@@ -268,8 +268,8 @@ type ItemRow = {
   orderedQty?: number;
   usedQty?: number;
   minQty?: number;
-  suggestedMinQty30Day?: number;
-  suggestedReorderQty30Day?: number;
+  suggestedMinQty90Day?: number;
+  suggestedReorderQty90Day?: number;
   usage30Day?: number;
   avgDailyUsage30Day?: number;
   compareMinQty?: boolean;
@@ -647,7 +647,7 @@ export default function ItemsTableClient({
   const mismatchCount = useMemo(
     () =>
       viewRows.reduce(
-        (count, row) => count + ((row.compareMinQty ?? true) && (row.minQty ?? 0) !== (row.suggestedMinQty30Day ?? 0) ? 1 : 0),
+        (count, row) => count + ((row.compareMinQty ?? true) && (row.minQty ?? 0) !== (row.suggestedMinQty90Day ?? 0) ? 1 : 0),
         0
       ),
     [viewRows]
@@ -1034,8 +1034,8 @@ export default function ItemsTableClient({
           typeof updated.minQty === "number"
             ? updated.minQty
             : rows.find((r) => r.id === id)?.minQty,
-        suggestedMinQty30Day: rows.find((r) => r.id === id)?.suggestedMinQty30Day,
-        suggestedReorderQty30Day: rows.find((r) => r.id === id)?.suggestedReorderQty30Day,
+        suggestedMinQty90Day: rows.find((r) => r.id === id)?.suggestedMinQty90Day,
+        suggestedReorderQty90Day: rows.find((r) => r.id === id)?.suggestedReorderQty90Day,
         usage30Day: rows.find((r) => r.id === id)?.usage30Day,
         avgDailyUsage30Day: rows.find((r) => r.id === id)?.avgDailyUsage30Day,
 
@@ -1146,7 +1146,7 @@ export default function ItemsTableClient({
   const keep = (row: ItemRow) => (typeof row.minQty === "number" ? row.minQty : null);
   const onHand = (row: ItemRow) => (typeof row.onHandQty === "number" ? row.onHandQty : null);
   const suggestedMin = (row: ItemRow) =>
-    typeof row.suggestedMinQty30Day === "number" ? row.suggestedMinQty30Day : null;
+    typeof row.suggestedMinQty90Day === "number" ? row.suggestedMinQty90Day : null;
 
   // Column count (keep in sync with <thead> and colSpan below)
   const COLS = 13;
@@ -1170,7 +1170,7 @@ export default function ItemsTableClient({
             fontWeight: 800,
           }}
         >
-          {mismatchCount} visible item{mismatchCount === 1 ? "" : "s"} have a min qty different from the full-history suggested minimum.
+          {mismatchCount} visible item{mismatchCount === 1 ? "" : "s"} have a min qty different from the three-month suggested minimum.
         </div>
       ) : null}
 
@@ -1454,7 +1454,7 @@ export default function ItemsTableClient({
                 "Name",
                 "Category",
                 "On Hand",
-                "Suggested Min (History)",
+                "Suggested Min (Next 3 Months)",
                 "Cost",
                 "Price",
                 "Taxable",
@@ -1504,7 +1504,7 @@ export default function ItemsTableClient({
                 keep: keep(row) ?? "—",
                 suggestedMin: suggested ?? "—",
                 suggestedReorder:
-                  typeof row.suggestedReorderQty30Day === "number" ? row.suggestedReorderQty30Day : "—",
+                  typeof row.suggestedReorderQty90Day === "number" ? row.suggestedReorderQty90Day : "—",
                 usage30: typeof row.usage30Day === "number" ? row.usage30Day : "—",
                 avgDaily30:
                   typeof row.avgDailyUsage30Day === "number" ? row.avgDailyUsage30Day.toFixed(2) : "—",
@@ -2267,7 +2267,7 @@ export default function ItemsTableClient({
                               <strong>Keep on hand:</strong> {detailText.keep}
                             </span>
                             <span>
-                              <strong>Suggested Min (History):</strong> {detailText.suggestedMin}
+                              <strong>Suggested Min (Next 3 Months):</strong> {detailText.suggestedMin}
                             </span>
                             <span>
                               <strong>Suggested Reorder:</strong> {detailText.suggestedReorder}
@@ -2318,7 +2318,7 @@ export default function ItemsTableClient({
                               <strong>Keep on hand:</strong> {detailText.keep}
                             </span>
                             <span>
-                              <strong>Suggested Min (History):</strong> {detailText.suggestedMin}
+                              <strong>Suggested Min (Next 3 Months):</strong> {detailText.suggestedMin}
                             </span>
                             <span>
                               <strong>Suggested Reorder:</strong> {detailText.suggestedReorder}

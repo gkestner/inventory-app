@@ -115,7 +115,7 @@ export default async function MinQtyDifferencesReportPage({
       const message =
         result.updatedCount > 0
           ? "Suggested min qty copied to min qty."
-          : "This item already matches the full-history suggested min qty.";
+          : "This item already matches the three-month suggested min qty.";
 
       redirect(
         `/admin/reports/min-qty-differences${qs({
@@ -164,8 +164,8 @@ export default async function MinQtyDifferencesReportPage({
 
       const message =
         result.updatedCount > 0
-          ? `Copied full-history suggested min qty for ${result.updatedCount} item${result.updatedCount === 1 ? "" : "s"}.`
-          : "All items in this report already match the full-history suggested min qty.";
+          ? `Copied three-month suggested min qty for ${result.updatedCount} item${result.updatedCount === 1 ? "" : "s"}.`
+          : "All items in this report already match the three-month suggested min qty.";
 
       redirect(
         `/admin/reports/min-qty-differences${qs({
@@ -211,7 +211,7 @@ export default async function MinQtyDifferencesReportPage({
       const recommendation = recommendationMap.get(item.id);
       if (!recommendation) return null;
       if (!recommendation.compareMinQty) return null;
-      if (item.minQty === recommendation.suggestedMinQty30Day) return null;
+      if (item.minQty === recommendation.suggestedMinQty90Day) return null;
 
       const displayVendor = vendorLabel(item.vendor);
       return {
@@ -224,8 +224,8 @@ export default async function MinQtyDifferencesReportPage({
         webUrl: item.webUrl,
         onHandQty: item.onHandQty,
         minQty: item.minQty,
-        suggestedMinQty: recommendation.suggestedMinQty30Day,
-        delta: recommendation.suggestedMinQty30Day - item.minQty,
+        suggestedMinQty: recommendation.suggestedMinQty90Day,
+        delta: recommendation.suggestedMinQty90Day - item.minQty,
       };
     })
     .filter((row): row is NonNullable<typeof row> => Boolean(row))
@@ -289,7 +289,7 @@ export default async function MinQtyDifferencesReportPage({
           </div>
 
           <p style={{ margin: "10px 0 0", color: "var(--muted)", maxWidth: 880, lineHeight: 1.5 }}>
-            Active items where the current minimum quantity does not match the full-history suggested minimum.
+            Active items where the current minimum quantity does not match the suggested stock for the next 3 months, based on full usage history.
           </p>
 
           <form method="get" style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -411,7 +411,7 @@ export default async function MinQtyDifferencesReportPage({
                   cursor: "pointer",
                 }}
               >
-                Copy Full-History Suggested Min Qty for All Report Items
+                Copy 3-Month Suggested Min Qty for All Report Items
               </button>
             </form>
           </section>
@@ -420,7 +420,7 @@ export default async function MinQtyDifferencesReportPage({
         <section style={{ marginTop: 14, border, borderRadius: 16, background: cardBg, boxShadow: "var(--shadow)", overflow: "hidden" }}>
           {rows.length === 0 ? (
             <div style={{ padding: 18, lineHeight: 1.5, opacity: 0.88 }}>
-              {query ? "No items match your search." : "All active items already match the full-history suggested minimum."}
+              {query ? "No items match your search." : "All active items already match the three-month suggested minimum."}
             </div>
           ) : (
             <div style={{ overflowX: "auto" }}>
@@ -434,7 +434,7 @@ export default async function MinQtyDifferencesReportPage({
                       ["Vendor", "auto"],
                       ["On Hand", 90],
                       ["Min Qty", 90],
-                      ["Suggested Min Qty (History)", 180],
+                      ["Suggested Min Qty (Next 3 Months)", 210],
                       ["Web Link", 110],
                       ["Action", 220],
                     ].map(([labelText, width]) => (
@@ -531,7 +531,7 @@ export default async function MinQtyDifferencesReportPage({
                                   whiteSpace: "nowrap",
                                 }}
                               >
-                                Copy Full-History Suggested Min Qty
+                                Copy 3-Month Suggested Min Qty
                               </button>
                             </form>
                           ) : (

@@ -69,8 +69,8 @@ type SortKey =
   | "price"
   | "taxable"
   | "active"
-  | "suggestedMinQty30Day"
-  | "suggestedReorderQty30Day";
+  | "suggestedMinQty90Day"
+  | "suggestedReorderQty90Day";
 
 type RecommendationFilter = "all" | "different" | "same" | "needsReorder";
 
@@ -98,8 +98,8 @@ function parseSortKey(v: string | undefined): SortKey {
     case "price":
     case "taxable":
     case "active":
-    case "suggestedMinQty30Day":
-    case "suggestedReorderQty30Day":
+    case "suggestedMinQty90Day":
+    case "suggestedReorderQty90Day":
       return v as SortKey;
     default:
       return "updatedAt";
@@ -267,11 +267,11 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
   const filteredItems = allItems.filter((item) => {
     const recommendation = recommendationMap.get(item.id);
     const compareMinQty = recommendation?.compareMinQty ?? true;
-    const suggestedMinQty30Day = recommendation?.suggestedMinQty30Day ?? 0;
-    const suggestedReorderQty30Day = recommendation?.suggestedReorderQty30Day ?? 0;
-    if (recommendationFilter === "different") return compareMinQty && item.minQty !== suggestedMinQty30Day;
-    if (recommendationFilter === "same") return compareMinQty && item.minQty === suggestedMinQty30Day;
-    if (recommendationFilter === "needsReorder") return suggestedReorderQty30Day > 0;
+    const suggestedMinQty90Day = recommendation?.suggestedMinQty90Day ?? 0;
+    const suggestedReorderQty90Day = recommendation?.suggestedReorderQty90Day ?? 0;
+    if (recommendationFilter === "different") return compareMinQty && item.minQty !== suggestedMinQty90Day;
+    if (recommendationFilter === "same") return compareMinQty && item.minQty === suggestedMinQty90Day;
+    if (recommendationFilter === "needsReorder") return suggestedReorderQty90Day > 0;
     return true;
   });
 
@@ -297,10 +297,10 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
           return left.taxable;
         case "active":
           return left.active;
-        case "suggestedMinQty30Day":
-          return leftRecommendation?.suggestedMinQty30Day ?? 0;
-        case "suggestedReorderQty30Day":
-          return leftRecommendation?.suggestedReorderQty30Day ?? 0;
+        case "suggestedMinQty90Day":
+          return leftRecommendation?.suggestedMinQty90Day ?? 0;
+        case "suggestedReorderQty90Day":
+          return leftRecommendation?.suggestedReorderQty90Day ?? 0;
         case "updatedAt":
         default:
           return left.updatedAt;
@@ -325,10 +325,10 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
           return right.taxable;
         case "active":
           return right.active;
-        case "suggestedMinQty30Day":
-          return rightRecommendation?.suggestedMinQty30Day ?? 0;
-        case "suggestedReorderQty30Day":
-          return rightRecommendation?.suggestedReorderQty30Day ?? 0;
+        case "suggestedMinQty90Day":
+          return rightRecommendation?.suggestedMinQty90Day ?? 0;
+        case "suggestedReorderQty90Day":
+          return rightRecommendation?.suggestedReorderQty90Day ?? 0;
         case "updatedAt":
         default:
           return right.updatedAt;
@@ -597,8 +597,8 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
               <option value="category">Category</option>
               <option value="taxable">Taxable</option>
               <option value="active">Active</option>
-              <option value="suggestedMinQty30Day">Suggested Min (History)</option>
-              <option value="suggestedReorderQty30Day">Suggested Reorder</option>
+              <option value="suggestedMinQty90Day">Suggested Min (Next 3 Months)</option>
+              <option value="suggestedReorderQty90Day">Suggested Reorder (Next 3 Months)</option>
             </select>
           </label>
           <label style={label}>
@@ -641,7 +641,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  {["SKU", "Part #", "Vendor", "Name", "Category", "In Stock", "Ordered", "Arrived", "Min", "Suggested Min (History)", "Active", "My Comment", "Updated"].map((h) => (
+                  {["SKU", "Part #", "Vendor", "Name", "Category", "In Stock", "Ordered", "Arrived", "Min", "Suggested Min (Next 3 Months)", "Active", "My Comment", "Updated"].map((h) => (
                     <th key={h} style={{ textAlign: "left", padding: 10, borderBottom: border, whiteSpace: "nowrap", fontSize: 13 }}>{h}</th>
                   ))}
                 </tr>
@@ -662,7 +662,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                       <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{statusCounts.ordered.toLocaleString()}</td>
                       <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{statusCounts.arrived.toLocaleString()}</td>
                       <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{item.minQty.toLocaleString()}</td>
-                      <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{(recommendation?.suggestedMinQty30Day ?? 0).toLocaleString()}</td>
+                      <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{(recommendation?.suggestedMinQty90Day ?? 0).toLocaleString()}</td>
                       <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{item.active ? "Yes" : "No"}</td>
                       <td style={{ padding: 10, borderBottom: border, minWidth: 280 }}>
                         {renderCommentForm(item.id, comment)}
@@ -723,7 +723,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                       ["Ordered", statusCounts.ordered.toLocaleString()],
                       ["Arrived", statusCounts.arrived.toLocaleString()],
                       ["Min", item.minQty.toLocaleString()],
-                      ["Suggested Min", (recommendation?.suggestedMinQty30Day ?? 0).toLocaleString()],
+                      ["Suggested Min (Next 3 Months)", (recommendation?.suggestedMinQty90Day ?? 0).toLocaleString()],
                     ].map(([title, value]) => (
                       <div key={`${item.id}-${title}`} style={tabletMetricCard}>
                         <div style={{ fontSize: 11, fontWeight: 900, opacity: 0.7, textTransform: "uppercase", letterSpacing: 0.2 }}>{title}</div>

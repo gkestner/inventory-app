@@ -533,7 +533,7 @@ async function minQtyDifferences(sp: URLSearchParams) {
   const rows = items
     .map((item) => {
       const rec = map.get(item.id);
-      if (!rec?.compareMinQty || item.minQty === rec.suggestedMinQty30Day) return null;
+      if (!rec?.compareMinQty || item.minQty === rec.suggestedMinQty90Day) return null;
       const row = {
         sku: item.sku,
         partNumber: item.partNumber,
@@ -542,8 +542,8 @@ async function minQtyDifferences(sp: URLSearchParams) {
         supplier: item.orderFrom,
         onHand: item.onHandQty,
         currentMin: item.minQty,
-        suggestedMin: rec.suggestedMinQty30Day,
-        delta: rec.suggestedMinQty30Day - item.minQty,
+        suggestedMin: rec.suggestedMinQty90Day,
+        delta: rec.suggestedMinQty90Day - item.minQty,
         webUrl: item.webUrl,
       };
       if (!query) return row;
@@ -559,7 +559,7 @@ async function minQtyDifferences(sp: URLSearchParams) {
     { key: "supplier", header: "Supplier" },
     { key: "onHand", header: "On Hand", kind: "number" },
     { key: "currentMin", header: "Current Min", kind: "number" },
-    { key: "suggestedMin", header: "Suggested Min", kind: "number" },
+    { key: "suggestedMin", header: "Suggested Min (Next 3 Months)", kind: "number" },
     { key: "delta", header: "Delta", kind: "number" },
     { key: "webUrl", header: "Web URL", width: 260 },
   ], [["Search", query]]);

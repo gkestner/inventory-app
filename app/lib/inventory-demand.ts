@@ -42,8 +42,8 @@ export type InventoryDemandRecommendation = {
   checkoutQty30Day: number;
   returnQty30Day: number;
   avgDailyUsage30Day: number;
-  suggestedMinQty30Day: number;
-  suggestedReorderQty30Day: number;
+  suggestedMinQty90Day: number;
+  suggestedReorderQty90Day: number;
   estimatedLeadTimeDays: number | null;
   daysOfCover: number | null;
   lastCheckoutAt: string | null;
@@ -62,7 +62,7 @@ export type RecalculateMinQtyResult = {
     sku: string;
     name: string;
     previousMinQty: number;
-    suggestedMinQty30Day: number;
+    suggestedMinQty90Day: number;
   }>;
 };
 
@@ -100,6 +100,7 @@ function clamp01(value: number): number {
 
 const RAMP_DOWN_MULTIPLIER = 1.5;
 const RAMP_DOWN_MIN_STOCK_UNITS = 20;
+const SUGGESTED_MIN_FORECAST_DAYS = 90;
 const DEFAULT_MAX_REDUCTION_PER_30_DAYS = DEFAULT_APP_CONFIG.minQtyRampDownMaxReductionPer30DaysPct / 100;
 
 function buildRecommendationMap(items: ItemInventorySnapshot[]) {
@@ -255,33 +256,36 @@ export async function getInventoryDemandRecommendations(
     const availableQty = item.onHandQty + item.orderedQty;
     const avgDailyUsage30Day = usage30 / 30;
     const avgDailyUsageLifetime = usageLifetime / historyDays;
-    const baseSuggestedMinQty30Day = Math.max(0, Math.ceil(avgDailyUsageLifetime * 30));
+    const baseSuggestedMinQty90Day = Math.max(
+      0,
+      Math.ceil(avgDailyUsageLifetime * SUGGESTED_MIN_FORECAST_DAYS)
+    );
 
     // If history is still short and current stock is high, phase down large min-qty drops over the first year.
     // This reduces abrupt reductions that could cause parts to run out while history is still maturing.
-    const hasLargeOnHand = availableQty >= Math.max(RAMP_DOWN_MIN_STOCK_UNITS, Math.ceil(baseSuggestedMinQty30Day * RAMP_DOWN_MULTIPLIER));
-    const shouldRampDown = !hasOneYearHistory && hasLargeOnHand && item.minQty > baseSuggestedMinQty30Day;
+    const hasLargeOnHand = availableQty >= Math.max(RAMP_DOWN_MIN_STOCK_UNITS, Math.ceil(baseSuggestedMinQty90Day * RAMP_DOWN_MULTIPLIER));
+    const shouldRampDown = !hasOneYearHistory && hasLargeOnHand && item.minQty > baseSuggestedMinQty90Day;
     const rampedMinQtyRaw = shouldRampDown
-      ? Math.ceil(item.minQty - (item.minQty - baseSuggestedMinQty30Day) * conservativeHistoryProgress)
-      : baseSuggestedMinQty30Day;
+      ? Math.ceil(item.minQty - (item.minQty - baseSuggestedMinQty90Day) * conservativeHistoryProgress)
+      : baseSuggestedMinQty90Day;
 
     // Additional hard safety cap: min qty can only decline by 10% per 30 days of history.
     const maxAllowedReductionFraction = clamp01(elapsed30DayPeriods * maxReductionPer30Days);
     const minAllowedByRateCap = Math.max(
-      baseSuggestedMinQty30Day,
+      baseSuggestedMinQty90Day,
       Math.ceil(item.minQty * (1 - maxAllowedReductionFraction))
     );
 
     const rampedMinQty = shouldRampDown ? Math.max(rampedMinQtyRaw, minAllowedByRateCap) : rampedMinQtyRaw;
 
-    const suggestedMinQty30Day = Math.max(baseSuggestedMinQty30Day, rampedMinQty);
-    const suggestedReorderQty30Day = Math.max(0, suggestedMinQty30Day - availableQty);
+    const suggestedMinQty90Day = Math.max(baseSuggestedMinQty90Day, rampedMinQty);
+    const suggestedReorderQty90Day = Math.max(0, suggestedMinQty90Day - availableQty);
     const estimatedLeadTimeDays =
       bucket.leadTimes.length > 0
         ? roundTo(bucket.leadTimes.reduce((sum, days) => sum + days, 0) / bucket.leadTimes.length, 1)
         : null;
     const daysOfCover = avgDailyUsage30Day > 0 ? roundTo(availableQty / avgDailyUsage30Day, 1) : null;
-    const compareMinQty = suggestedMinQty30Day > 0 || hasOneYearHistory;
+    const compareMinQty = suggestedMinQty90Day > 0 || hasOneYearHistory;
 
     return {
       itemId: item.id,
@@ -298,8 +302,8 @@ export async function getInventoryDemandRecommendations(
       checkoutQty30Day: bucket.checkout30,
       returnQty30Day: bucket.returns30,
       avgDailyUsage30Day: roundTo(avgDailyUsage30Day, 2),
-      suggestedMinQty30Day,
-      suggestedReorderQty30Day,
+      suggestedMinQty90Day,
+      suggestedReorderQty90Day,
       estimatedLeadTimeDays,
       daysOfCover,
       lastCheckoutAt: bucket.lastCheckoutAt ? bucket.lastCheckoutAt.toISOString() : null,
@@ -316,13 +320,13 @@ export async function recalculateItemMinQuantitiesFromFullHistory(
   const recommendations = await getInventoryDemandRecommendations(args);
   const changes = recommendations
     .filter((entry) => entry.compareMinQty)
-    .filter((entry) => entry.currentMinQty !== entry.suggestedMinQty30Day)
+    .filter((entry) => entry.currentMinQty !== entry.suggestedMinQty90Day)
     .map((entry) => ({
       itemId: entry.itemId,
       sku: entry.sku,
       name: entry.name,
       previousMinQty: entry.currentMinQty,
-      suggestedMinQty30Day: entry.suggestedMinQty30Day,
+      suggestedMinQty90Day: entry.suggestedMinQty90Day,
     }));
 
   if (changes.length > 0) {
@@ -387,7 +391,7 @@ export async function recalculateItemMinQuantitiesFromFullHistory(
 
         await tx.item.update({
           where: { id: current.id },
-          data: { minQty: change.suggestedMinQty30Day },
+          data: { minQty: change.suggestedMinQty90Day },
         });
       }
     });

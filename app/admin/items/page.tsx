@@ -40,8 +40,8 @@ type SortKey =
   | "price"
   | "taxable"
   | "active"
-  | "suggestedMinQty30Day"
-  | "suggestedReorderQty30Day";
+  | "suggestedMinQty90Day"
+  | "suggestedReorderQty90Day";
 
 type RecommendationFilter = "all" | "different" | "same" | "needsReorder";
 
@@ -75,8 +75,8 @@ function parseSortKey(v: string | undefined): SortKey {
     case "price":
     case "taxable":
     case "active":
-    case "suggestedMinQty30Day":
-    case "suggestedReorderQty30Day":
+    case "suggestedMinQty90Day":
+    case "suggestedReorderQty90Day":
       return v as SortKey;
     default:
       return "updatedAt";
@@ -520,12 +520,12 @@ export default async function AdminItemsPage({
   const filteredItems = allItems.filter((item) => {
     const recommendation = recommendationMap.get(item.id);
     const compareMinQty = recommendation?.compareMinQty ?? true;
-    const suggestedMinQty30Day = recommendation?.suggestedMinQty30Day ?? 0;
-    const suggestedReorderQty30Day = recommendation?.suggestedReorderQty30Day ?? 0;
+    const suggestedMinQty90Day = recommendation?.suggestedMinQty90Day ?? 0;
+    const suggestedReorderQty90Day = recommendation?.suggestedReorderQty90Day ?? 0;
 
-    if (recommendationFilter === "different") return compareMinQty && item.minQty !== suggestedMinQty30Day;
-    if (recommendationFilter === "same") return compareMinQty && item.minQty === suggestedMinQty30Day;
-    if (recommendationFilter === "needsReorder") return suggestedReorderQty30Day > 0;
+    if (recommendationFilter === "different") return compareMinQty && item.minQty !== suggestedMinQty90Day;
+    if (recommendationFilter === "same") return compareMinQty && item.minQty === suggestedMinQty90Day;
+    if (recommendationFilter === "needsReorder") return suggestedReorderQty90Day > 0;
     return true;
   });
 
@@ -553,10 +553,10 @@ export default async function AdminItemsPage({
           return left.taxable;
         case "active":
           return left.active;
-        case "suggestedMinQty30Day":
-          return leftRecommendation?.suggestedMinQty30Day ?? 0;
-        case "suggestedReorderQty30Day":
-          return leftRecommendation?.suggestedReorderQty30Day ?? 0;
+        case "suggestedMinQty90Day":
+          return leftRecommendation?.suggestedMinQty90Day ?? 0;
+        case "suggestedReorderQty90Day":
+          return leftRecommendation?.suggestedReorderQty90Day ?? 0;
         case "updatedAt":
         default:
           return left.updatedAt;
@@ -583,10 +583,10 @@ export default async function AdminItemsPage({
           return right.taxable;
         case "active":
           return right.active;
-        case "suggestedMinQty30Day":
-          return rightRecommendation?.suggestedMinQty30Day ?? 0;
-        case "suggestedReorderQty30Day":
-          return rightRecommendation?.suggestedReorderQty30Day ?? 0;
+        case "suggestedMinQty90Day":
+          return rightRecommendation?.suggestedMinQty90Day ?? 0;
+        case "suggestedReorderQty90Day":
+          return rightRecommendation?.suggestedReorderQty90Day ?? 0;
         case "updatedAt":
         default:
           return right.updatedAt;
@@ -608,8 +608,8 @@ export default async function AdminItemsPage({
     price: r.price ? String(r.price) : null,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
-    suggestedMinQty30Day: recommendationMap.get(r.id)?.suggestedMinQty30Day ?? 0,
-    suggestedReorderQty30Day: recommendationMap.get(r.id)?.suggestedReorderQty30Day ?? 0,
+    suggestedMinQty90Day: recommendationMap.get(r.id)?.suggestedMinQty90Day ?? 0,
+    suggestedReorderQty90Day: recommendationMap.get(r.id)?.suggestedReorderQty90Day ?? 0,
     usage30Day: recommendationMap.get(r.id)?.usage30Day ?? 0,
     avgDailyUsage30Day: recommendationMap.get(r.id)?.avgDailyUsage30Day ?? 0,
     compareMinQty: recommendationMap.get(r.id)?.compareMinQty ?? true,
@@ -716,8 +716,8 @@ export default async function AdminItemsPage({
             <option value="price">Price</option>
             <option value="taxable">Taxable</option>
             <option value="active">Active</option>
-            <option value="suggestedMinQty30Day">Suggested Min (History)</option>
-            <option value="suggestedReorderQty30Day">Suggested Reorder</option>
+            <option value="suggestedMinQty90Day">Suggested Min (Next 3 Months)</option>
+            <option value="suggestedReorderQty90Day">Suggested Reorder (Next 3 Months)</option>
           </select>
         </label>
 
