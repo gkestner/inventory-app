@@ -1259,6 +1259,7 @@ model Item {
   orderedQty Int @default(0)
   usedQty    Int @default(0)
   minQty     Int @default(0)
+  suggestedMinQtyOverride Int?
   reorderIgnored Boolean @default(false)
 
   createdAt DateTime @default(now())

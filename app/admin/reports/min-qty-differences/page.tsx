@@ -185,6 +185,58 @@ export default async function MinQtyDifferencesReportPage({
     }
   }
 
+  async function updateSuggestedMinAction(formData: FormData) {
+    "use server";
+
+    const qBack = String(formData.get("q") ?? "").trim();
+    const itemId = String(formData.get("itemId") ?? "").trim();
+
+    try {
+      const { perms } = await requireReportView();
+      const canEdit = perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_EDIT_ITEMS]);
+      if (!canEdit) throw new Error("Forbidden");
+      if (!itemId) throw new Error("Missing item id.");
+
+      const useAutomatic = String(formData.get("mode") ?? "") === "automatic";
+      let suggestedMinQtyOverride: number | null = null;
+
+      if (!useAutomatic) {
+        const rawValue = String(formData.get("suggestedMinQty") ?? "").trim();
+        const parsedValue = Number(rawValue);
+        if (!rawValue || !Number.isInteger(parsedValue) || parsedValue < 0 || parsedValue > 2_147_483_647) {
+          throw new Error("Suggested min qty must be a whole number greater than or equal to 0.");
+        }
+        suggestedMinQtyOverride = parsedValue;
+      }
+
+      await prisma.item.update({
+        where: { id: itemId },
+        data: { suggestedMinQtyOverride },
+      });
+
+      revalidatePath("/admin/reports/min-qty-differences");
+      revalidatePath("/admin/items");
+      revalidatePath("/inventory");
+      revalidatePath(`/admin/items/${itemId}/inventory`);
+
+      redirect(
+        `/admin/reports/min-qty-differences${qs({
+          q: qBack || undefined,
+          ok: useAutomatic ? "Suggested min qty returned to automatic calculation." : "Suggested min qty override saved.",
+        })}`
+      );
+    } catch (error: unknown) {
+      if (isNextRedirectError(error)) throw error;
+      const message = error instanceof Error ? error.message : "Failed to update suggested min qty.";
+      redirect(
+        `/admin/reports/min-qty-differences${qs({
+          q: qBack || undefined,
+          error: message,
+        })}`
+      );
+    }
+  }
+
   const items = await prisma.item.findMany({
     where: { active: true },
     select: {
@@ -225,6 +277,8 @@ export default async function MinQtyDifferencesReportPage({
         onHandQty: item.onHandQty,
         minQty: item.minQty,
         suggestedMinQty: recommendation.suggestedMinQty90Day,
+        calculatedSuggestedMinQty: recommendation.calculatedSuggestedMinQty90Day,
+        isSuggestedMinQtyOverridden: recommendation.isSuggestedMinQtyOverridden,
         delta: recommendation.suggestedMinQty90Day - item.minQty,
       };
     })
@@ -480,7 +534,78 @@ export default async function MinQtyDifferencesReportPage({
                         </td>
                         <td style={{ padding: 10, verticalAlign: "top" }}>{row.onHandQty}</td>
                         <td style={{ padding: 10, verticalAlign: "top" }}>{row.minQty}</td>
-                        <td style={{ padding: 10, verticalAlign: "top", fontWeight: 900 }}>{row.suggestedMinQty}</td>
+                        <td style={{ padding: 10, verticalAlign: "top" }}>
+                          {canEdit ? (
+                            <form action={updateSuggestedMinAction} style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                              <input type="hidden" name="itemId" value={row.id} />
+                              <input type="hidden" name="q" value={query} />
+                              <input
+                                type="number"
+                                name="suggestedMinQty"
+                                min={0}
+                                max={2_147_483_647}
+                                step={1}
+                                required
+                                defaultValue={row.suggestedMinQty}
+                                aria-label={`Suggested min qty for ${row.name}`}
+                                style={{
+                                  width: 82,
+                                  padding: "8px 9px",
+                                  borderRadius: 9,
+                                  border,
+                                  background: panelBg,
+                                  color: "var(--foreground)",
+                                  fontWeight: 900,
+                                }}
+                              />
+                              <button
+                                type="submit"
+                                style={{
+                                  padding: "8px 10px",
+                                  borderRadius: 9,
+                                  border,
+                                  background: panelBg,
+                                  color: "var(--foreground)",
+                                  fontWeight: 900,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Save
+                              </button>
+                              {row.isSuggestedMinQtyOverridden ? (
+                                <button
+                                  type="submit"
+                                  name="mode"
+                                  value="automatic"
+                                  formNoValidate
+                                  style={{
+                                    padding: "8px 10px",
+                                    borderRadius: 9,
+                                    border,
+                                    background: "transparent",
+                                    color: "var(--foreground)",
+                                    fontWeight: 800,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  Use Auto
+                                </button>
+                              ) : null}
+                              <span style={{ flexBasis: "100%", fontSize: 11, opacity: 0.7 }}>
+                                {row.isSuggestedMinQtyOverridden
+                                  ? `Manual override · Automatic: ${row.calculatedSuggestedMinQty}`
+                                  : "Automatic calculation"}
+                              </span>
+                            </form>
+                          ) : (
+                            <>
+                              <strong>{row.suggestedMinQty}</strong>
+                              {row.isSuggestedMinQtyOverridden ? (
+                                <div style={{ marginTop: 4, fontSize: 11, opacity: 0.7 }}>Manual override</div>
+                              ) : null}
+                            </>
+                          )}
+                        </td>
                         <td style={{ padding: 10, verticalAlign: "top" }}>
                           {itemUrl ? (
                             <a

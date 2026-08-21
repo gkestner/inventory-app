@@ -10,6 +10,7 @@ type ItemInventorySnapshot = {
   onHandQty: number;
   orderedQty: number;
   minQty: number;
+  suggestedMinQtyOverride: number | null;
 };
 
 type CheckoutTicketSnapshot = {
@@ -42,7 +43,9 @@ export type InventoryDemandRecommendation = {
   checkoutQty30Day: number;
   returnQty30Day: number;
   avgDailyUsage30Day: number;
+  calculatedSuggestedMinQty90Day: number;
   suggestedMinQty90Day: number;
+  isSuggestedMinQtyOverridden: boolean;
   suggestedReorderQty90Day: number;
   estimatedLeadTimeDays: number | null;
   daysOfCover: number | null;
@@ -165,6 +168,7 @@ export async function getInventoryDemandRecommendations(
       onHandQty: true,
       orderedQty: true,
       minQty: true,
+      suggestedMinQtyOverride: true,
     },
     orderBy: { name: "asc" },
   });
@@ -282,14 +286,16 @@ export async function getInventoryDemandRecommendations(
 
     const rampedMinQty = shouldRampDown ? Math.max(rampedMinQtyRaw, minAllowedByRateCap) : rampedMinQtyRaw;
 
-    const suggestedMinQty90Day = Math.max(baseSuggestedMinQty90Day, rampedMinQty);
+    const calculatedSuggestedMinQty90Day = Math.max(baseSuggestedMinQty90Day, rampedMinQty);
+    const isSuggestedMinQtyOverridden = item.suggestedMinQtyOverride !== null;
+    const suggestedMinQty90Day = item.suggestedMinQtyOverride ?? calculatedSuggestedMinQty90Day;
     const suggestedReorderQty90Day = Math.max(0, suggestedMinQty90Day - availableQty);
     const estimatedLeadTimeDays =
       bucket.leadTimes.length > 0
         ? roundTo(bucket.leadTimes.reduce((sum, days) => sum + days, 0) / bucket.leadTimes.length, 1)
         : null;
     const daysOfCover = avgDailyUsage30Day > 0 ? roundTo(availableQty / avgDailyUsage30Day, 1) : null;
-    const compareMinQty = suggestedMinQty90Day > 0 || hasOneYearHistory;
+    const compareMinQty = isSuggestedMinQtyOverridden || suggestedMinQty90Day > 0 || hasOneYearHistory;
 
     return {
       itemId: item.id,
@@ -306,7 +312,9 @@ export async function getInventoryDemandRecommendations(
       checkoutQty30Day: bucket.checkout30,
       returnQty30Day: bucket.returns30,
       avgDailyUsage30Day: roundTo(avgDailyUsage30Day, 2),
+      calculatedSuggestedMinQty90Day,
       suggestedMinQty90Day,
+      isSuggestedMinQtyOverridden,
       suggestedReorderQty90Day,
       estimatedLeadTimeDays,
       daysOfCover,

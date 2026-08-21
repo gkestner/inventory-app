@@ -285,6 +285,51 @@ export default async function ItemInventoryPage({
     }
   }
 
+  async function updateSuggestedMinOverrideAction(formData: FormData) {
+    "use server";
+
+    try {
+      const session = await getServerSession(authOptions);
+      if (!session) throw new Error("Unauthorized");
+      if (!(await canAccessAdmin(session))) throw new Error("Forbidden");
+
+      const itemId = String(formData.get("itemId") ?? "").trim();
+      if (!itemId) throw new Error("Missing itemId");
+      if (itemId !== id) throw new Error("Invalid itemId");
+
+      const useAutomatic = String(formData.get("mode") ?? "") === "automatic";
+      const rawValue = String(formData.get("suggestedMinQty") ?? "").trim();
+      const parsedValue = Number(rawValue);
+      const suggestedMinQtyOverride = useAutomatic ? null : parsedValue;
+
+      if (
+        !useAutomatic &&
+        (!rawValue || !Number.isInteger(parsedValue) || parsedValue < 0 || parsedValue > 2_147_483_647)
+      ) {
+        throw new Error("Suggested min qty must be a whole number greater than or equal to 0.");
+      }
+
+      await prisma.item.update({
+        where: { id: itemId },
+        data: { suggestedMinQtyOverride },
+      });
+
+      revalidatePath(`/admin/items/${itemId}/inventory`);
+      revalidatePath("/admin/items");
+      revalidatePath("/inventory");
+      revalidatePath("/admin/reports/min-qty-differences");
+
+      const message = useAutomatic
+        ? "Suggested min qty returned to automatic calculation."
+        : "Suggested min qty override saved.";
+      redirect(`/admin/items/${itemId}/inventory?ok=${enc(message)}`);
+    } catch (e: unknown) {
+      if (isNextRedirectError(e)) throw e;
+      const message = e instanceof Error ? e.message : "Failed to update suggested min qty.";
+      redirect(`/admin/items/${id}/inventory?error=${enc(message)}`);
+    }
+  }
+
   async function applySuggestedMinToAllItemsAction() {
     "use server";
 
@@ -440,8 +485,70 @@ export default async function ItemInventoryPage({
         >
           <div style={{ fontWeight: 900, marginBottom: 8 }}>Usage Analytics</div>
           <div style={{ fontSize: 13, opacity: 0.82, marginBottom: 10 }}>
-            Suggested minimum quantity is the recommended stock for the next 3 months based on full net usage history for this item.
+            Suggested minimum quantity is the recommended stock for the next 3 months based on full net usage history for this item. You can save a manual override or return to the automatic calculation at any time.
           </div>
+          <form
+            action={updateSuggestedMinOverrideAction}
+            style={{ marginBottom: 12, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}
+          >
+            <input type="hidden" name="itemId" value={item.id} />
+            <label style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 800 }}>
+              <span>Suggested Min Qty</span>
+              <input
+                type="number"
+                name="suggestedMinQty"
+                min={0}
+                max={2_147_483_647}
+                step={1}
+                required
+                defaultValue={recommendation.suggestedMinQty90Day}
+                style={{
+                  width: 100,
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px solid var(--border, rgba(0,0,0,0.2))",
+                  background: "var(--background)",
+                  color: "inherit",
+                  fontWeight: 900,
+                }}
+              />
+            </label>
+            <button
+              type="submit"
+              style={{
+                padding: "8px 12px",
+                borderRadius: 10,
+                border: "1px solid var(--border, rgba(0,0,0,0.2))",
+                background: "var(--card, transparent)",
+                color: "inherit",
+                fontWeight: 900,
+                cursor: "pointer",
+              }}
+            >
+              Save Suggested Min
+            </button>
+            {recommendation.isSuggestedMinQtyOverridden ? (
+              <button
+                type="submit"
+                name="mode"
+                value="automatic"
+                formNoValidate
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 10,
+                  border: "1px solid var(--border, rgba(0,0,0,0.2))",
+                  background: "transparent",
+                  color: "inherit",
+                  fontWeight: 800,
+                  cursor: "pointer",
+                }}
+              >
+                Use Automatic ({recommendation.calculatedSuggestedMinQty90Day})
+              </button>
+            ) : (
+              <span style={{ fontSize: 12, opacity: 0.72 }}>Currently automatic</span>
+            )}
+          </form>
           <div style={{ marginBottom: 12 }}>
             <form action={applySuggestedMinToItemAction}>
               <button
@@ -464,6 +571,11 @@ export default async function ItemInventoryPage({
             <div style={{ opacity: 0.8 }}>Suggested minimum quantity (next 3 months)</div>
             <div>
               <b>{recommendation.suggestedMinQty90Day}</b>
+              {recommendation.isSuggestedMinQtyOverridden ? (
+                <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.72 }}>
+                  Manual override (automatic: {recommendation.calculatedSuggestedMinQty90Day})
+                </span>
+              ) : null}
             </div>
 
             <div style={{ opacity: 0.8 }}>Suggested reorder quantity (next 3 months)</div>
