@@ -255,7 +255,11 @@ export async function getInventoryDemandRecommendations(
     const elapsed30DayPeriods = historyDays / 30;
     const availableQty = item.onHandQty + item.orderedQty;
     const avgDailyUsage30Day = usage30 / 30;
-    const avgDailyUsageLifetime = usageLifetime / historyDays;
+    // Do not annualize a few hours or days of activity into an extreme 90-day forecast.
+    // During the first forecast window, use the observed usage as the recommendation;
+    // once 90 days have elapsed, project the actual lifetime daily rate forward.
+    const demandHistoryDays = Math.max(historyDays, SUGGESTED_MIN_FORECAST_DAYS);
+    const avgDailyUsageLifetime = usageLifetime / demandHistoryDays;
     const baseSuggestedMinQty90Day = Math.max(
       0,
       Math.ceil(avgDailyUsageLifetime * SUGGESTED_MIN_FORECAST_DAYS)
