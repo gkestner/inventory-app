@@ -1,5 +1,5 @@
 import { prisma } from "@/app/lib/prisma";
-import { DEFAULT_APP_CONFIG, loadAppConfig } from "@/app/lib/app-config";
+import { DEFAULT_APP_CONFIG, formatMinQtyForecastWindow, loadAppConfig } from "@/app/lib/app-config";
 
 type ItemInventorySnapshot = {
   id: string;
@@ -43,6 +43,8 @@ export type InventoryDemandRecommendation = {
   checkoutQty30Day: number;
   returnQty30Day: number;
   avgDailyUsage30Day: number;
+  forecastMonths: number;
+  forecastLabel: string;
   calculatedSuggestedMinQty90Day: number;
   suggestedMinQty90Day: number;
   isSuggestedMinQtyOverridden: boolean;
@@ -103,7 +105,7 @@ function clamp01(value: number): number {
 
 const RAMP_DOWN_MULTIPLIER = 1.5;
 const RAMP_DOWN_MIN_STOCK_UNITS = 20;
-const SUGGESTED_MIN_FORECAST_DAYS = 90;
+const MIN_DEMAND_HISTORY_DAYS = 90;
 const DEFAULT_MAX_REDUCTION_PER_30_DAYS = DEFAULT_APP_CONFIG.minQtyRampDownMaxReductionPer30DaysPct / 100;
 
 function buildRecommendationMap(items: ItemInventorySnapshot[]) {
@@ -147,6 +149,9 @@ export async function getInventoryDemandRecommendations(
   const maxReductionPer30Days = Number.isFinite(configuredMaxReductionPer30Days)
     ? configuredMaxReductionPer30Days
     : DEFAULT_MAX_REDUCTION_PER_30_DAYS;
+  const forecastMonths = appConfig.minQtyForecastMonths;
+  const forecastDays = forecastMonths * 30;
+  const forecastLabel = formatMinQtyForecastWindow(forecastMonths);
   const start30 = subDays(now, 30);
   const start60 = subDays(now, 60);
   const start90 = subDays(now, 90);
@@ -259,14 +264,15 @@ export async function getInventoryDemandRecommendations(
     const elapsed30DayPeriods = historyDays / 30;
     const availableQty = item.onHandQty + item.orderedQty;
     const avgDailyUsage30Day = usage30 / 30;
-    // Do not annualize a few hours or days of activity into an extreme 90-day forecast.
-    // During the first forecast window, use the observed usage as the recommendation;
-    // once 90 days have elapsed, project the actual lifetime daily rate forward.
-    const demandHistoryDays = Math.max(historyDays, SUGGESTED_MIN_FORECAST_DAYS);
+    // Do not turn a few hours or days of activity into an extreme daily rate.
+    // Use at least 90 days as the rate denominator, while never recommending less
+    // than the item's observed lifetime usage during that startup period.
+    const demandHistoryDays = Math.max(historyDays, MIN_DEMAND_HISTORY_DAYS);
     const avgDailyUsageLifetime = usageLifetime / demandHistoryDays;
+    const startupObservedUsageFloor = historyDays < MIN_DEMAND_HISTORY_DAYS ? usageLifetime : 0;
     const baseSuggestedMinQty90Day = Math.max(
-      0,
-      Math.ceil(avgDailyUsageLifetime * SUGGESTED_MIN_FORECAST_DAYS)
+      startupObservedUsageFloor,
+      Math.ceil(avgDailyUsageLifetime * forecastDays)
     );
 
     // If history is still short and current stock is high, phase down large min-qty drops over the first year.
@@ -312,6 +318,8 @@ export async function getInventoryDemandRecommendations(
       checkoutQty30Day: bucket.checkout30,
       returnQty30Day: bucket.returns30,
       avgDailyUsage30Day: roundTo(avgDailyUsage30Day, 2),
+      forecastMonths,
+      forecastLabel,
       calculatedSuggestedMinQty90Day,
       suggestedMinQty90Day,
       isSuggestedMinQtyOverridden,

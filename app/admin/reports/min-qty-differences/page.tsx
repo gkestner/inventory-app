@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
 import { authOptions } from "@/app/lib/auth";
+import { formatMinQtyForecastWindow, loadAppConfig, saveAppConfig } from "@/app/lib/app-config";
 import { getInventoryDemandRecommendations, recalculateItemMinQuantitiesFromFullHistory } from "@/app/lib/inventory-demand";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { prisma } from "@/app/lib/prisma";
@@ -93,6 +94,8 @@ export default async function MinQtyDifferencesReportPage({
   const okMsg = String(sp.ok ?? "").trim();
   const errorMsg = String(sp.error ?? "").trim();
   const exportHref = `/api/admin/reports/excel${qs({ report: "min-qty-differences", q: query || undefined })}`;
+  const { config: appConfig } = await loadAppConfig();
+  const forecastLabel = formatMinQtyForecastWindow(appConfig.minQtyForecastMonths);
 
   async function applySuggestedMinAction(formData: FormData) {
     "use server";
@@ -114,8 +117,8 @@ export default async function MinQtyDifferencesReportPage({
 
       const message =
         result.updatedCount > 0
-          ? "Suggested min qty copied to min qty."
-          : "This item already matches the three-month suggested min qty.";
+          ? `${result.recommendations[0]?.forecastLabel ?? forecastLabel} suggested min qty copied to min qty.`
+          : `This item already matches the ${result.recommendations[0]?.forecastLabel ?? forecastLabel} suggested min qty.`;
 
       redirect(
         `/admin/reports/min-qty-differences${qs({
@@ -164,8 +167,8 @@ export default async function MinQtyDifferencesReportPage({
 
       const message =
         result.updatedCount > 0
-          ? `Copied three-month suggested min qty for ${result.updatedCount} item${result.updatedCount === 1 ? "" : "s"}.`
-          : "All items in this report already match the three-month suggested min qty.";
+          ? `Copied ${result.recommendations[0]?.forecastLabel ?? forecastLabel} suggested min qty for ${result.updatedCount} item${result.updatedCount === 1 ? "" : "s"}.`
+          : `All items in this report already match the ${result.recommendations[0]?.forecastLabel ?? forecastLabel} suggested min qty.`;
 
       redirect(
         `/admin/reports/min-qty-differences${qs({
@@ -234,6 +237,44 @@ export default async function MinQtyDifferencesReportPage({
           error: message,
         })}`
       );
+    }
+  }
+
+  async function updateForecastMonthsAction(formData: FormData) {
+    "use server";
+
+    const qBack = String(formData.get("q") ?? "").trim();
+
+    try {
+      const { perms } = await requireReportView();
+      const canEdit = perms.allowAll || hasAnyPermission(perms, [Permission.ADMIN_EDIT_ITEMS]);
+      if (!canEdit) throw new Error("Forbidden");
+
+      const rawMonths = String(formData.get("forecastMonths") ?? "").trim();
+      const forecastMonths = Number(rawMonths);
+      if (!rawMonths || !Number.isInteger(forecastMonths) || forecastMonths < 1 || forecastMonths > 1200) {
+        throw new Error("Forecast months must be a whole number from 1 to 1200.");
+      }
+
+      const { config } = await loadAppConfig();
+      const result = await saveAppConfig({ ...config, minQtyForecastMonths: forecastMonths });
+      if (!result.saved) throw new Error(result.error ?? "Failed to save forecast months.");
+
+      revalidatePath("/admin/reports/min-qty-differences");
+      revalidatePath("/admin/items");
+      revalidatePath("/inventory");
+      revalidatePath("/admin/inventory-orders");
+
+      redirect(
+        `/admin/reports/min-qty-differences${qs({
+          q: qBack || undefined,
+          ok: `Suggested Min Qty forecast changed to ${formatMinQtyForecastWindow(forecastMonths)}.`,
+        })}`
+      );
+    } catch (error: unknown) {
+      if (isNextRedirectError(error)) throw error;
+      const message = error instanceof Error ? error.message : "Failed to update forecast months.";
+      redirect(`/admin/reports/min-qty-differences${qs({ q: qBack || undefined, error: message })}`);
     }
   }
 
@@ -343,8 +384,54 @@ export default async function MinQtyDifferencesReportPage({
           </div>
 
           <p style={{ margin: "10px 0 0", color: "var(--muted)", maxWidth: 880, lineHeight: 1.5 }}>
-            Active items where the current minimum quantity does not match the suggested stock for the next 3 months, based on full usage history.
+            Active items where the current minimum quantity does not match the suggested stock for the next {forecastLabel}, based on full usage history.
           </p>
+
+          <form
+            action={updateForecastMonthsAction}
+            style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}
+          >
+            <input type="hidden" name="q" value={query} />
+            <label style={{ display: "grid", gap: 5, fontSize: 12, fontWeight: 900 }}>
+              Suggested Min Qty forecast months
+              <input
+                type="number"
+                name="forecastMonths"
+                min={1}
+                max={1200}
+                step={1}
+                required
+                defaultValue={appConfig.minQtyForecastMonths}
+                disabled={!canEdit}
+                style={{
+                  width: 150,
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  border,
+                  background: panelBg,
+                  color: "var(--foreground)",
+                  fontWeight: 900,
+                }}
+              />
+            </label>
+            {canEdit ? (
+              <button
+                type="submit"
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: 12,
+                  border,
+                  background: panelBg,
+                  color: "var(--foreground)",
+                  fontWeight: 900,
+                  cursor: "pointer",
+                }}
+              >
+                Apply Timeframe
+              </button>
+            ) : null}
+            <span style={{ paddingBottom: 10, fontSize: 12, opacity: 0.72 }}>Applies app-wide</span>
+          </form>
 
           <form method="get" style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <input
@@ -465,7 +552,7 @@ export default async function MinQtyDifferencesReportPage({
                   cursor: "pointer",
                 }}
               >
-                Copy 3-Month Suggested Min Qty for All Report Items
+                Copy {forecastLabel} Suggested Min Qty for All Report Items
               </button>
             </form>
           </section>
@@ -474,7 +561,7 @@ export default async function MinQtyDifferencesReportPage({
         <section style={{ marginTop: 14, border, borderRadius: 16, background: cardBg, boxShadow: "var(--shadow)", overflow: "hidden" }}>
           {rows.length === 0 ? (
             <div style={{ padding: 18, lineHeight: 1.5, opacity: 0.88 }}>
-              {query ? "No items match your search." : "All active items already match the three-month suggested minimum."}
+              {query ? "No items match your search." : `All active items already match the ${forecastLabel} suggested minimum.`}
             </div>
           ) : (
             <div style={{ overflowX: "auto" }}>
@@ -488,7 +575,7 @@ export default async function MinQtyDifferencesReportPage({
                       ["Vendor", "auto"],
                       ["On Hand", 90],
                       ["Min Qty", 90],
-                      ["Suggested Min Qty (Next 3 Months)", 210],
+                      [`Suggested Min Qty (Next ${forecastLabel})`, 210],
                       ["Web Link", 110],
                       ["Action", 220],
                     ].map(([labelText, width]) => (
@@ -656,7 +743,7 @@ export default async function MinQtyDifferencesReportPage({
                                   whiteSpace: "nowrap",
                                 }}
                               >
-                                Copy 3-Month Suggested Min Qty
+                                Copy {forecastLabel} Suggested Min Qty
                               </button>
                             </form>
                           ) : (

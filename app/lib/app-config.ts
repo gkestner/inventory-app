@@ -7,6 +7,7 @@ export type AppConfig = {
   liveOrdersAddedRetentionDays: number;
   orderHistoryPerPage: OrderHistoryPerPage;
   minQtyRampDownMaxReductionPer30DaysPct: number;
+  minQtyForecastMonths: number;
 };
 
 type AppConfigResult = {
@@ -25,6 +26,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   liveOrdersAddedRetentionDays: 14,
   orderHistoryPerPage: 25,
   minQtyRampDownMaxReductionPer30DaysPct: 10,
+  minQtyForecastMonths: 3,
 };
 
 const APP_CONFIG_SINGLETON_ID = "default";
@@ -57,6 +59,16 @@ function toMinQtyRampDownMaxReductionPer30DaysPct(value: unknown): number {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
+function toMinQtyForecastMonths(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_APP_CONFIG.minQtyForecastMonths;
+  return Math.max(1, Math.min(1200, Math.round(n)));
+}
+
+export function formatMinQtyForecastWindow(months: number): string {
+  return months === 1 ? "1 month" : `${months} months`;
+}
+
 export function normalizeAppConfig(raw: unknown): AppConfig {
   const obj = isRecord(raw) ? raw : {};
   return {
@@ -65,6 +77,7 @@ export function normalizeAppConfig(raw: unknown): AppConfig {
     minQtyRampDownMaxReductionPer30DaysPct: toMinQtyRampDownMaxReductionPer30DaysPct(
       obj.minQtyRampDownMaxReductionPer30DaysPct
     ),
+    minQtyForecastMonths: toMinQtyForecastMonths(obj.minQtyForecastMonths),
   };
 }
 
@@ -108,17 +121,41 @@ export async function loadAppConfig(): Promise<AppConfigResult> {
           liveOrdersAddedRetentionDays: true,
           orderHistoryPerPage: true,
           minQtyRampDownMaxReductionPer30DaysPct: true,
+          minQtyForecastMonths: true,
         },
       });
     } catch {
-      // Backward compatibility with deployments where the new column is not present yet.
-      row = await client.findUnique({
-        where: { id: APP_CONFIG_SINGLETON_ID },
-        select: {
-          liveOrdersAddedRetentionDays: true,
-          orderHistoryPerPage: true,
-        },
-      });
+      try {
+        // Support databases that have the forecast column but not the ramp-down column.
+        row = await client.findUnique({
+          where: { id: APP_CONFIG_SINGLETON_ID },
+          select: {
+            liveOrdersAddedRetentionDays: true,
+            orderHistoryPerPage: true,
+            minQtyForecastMonths: true,
+          },
+        });
+      } catch {
+        try {
+          // Support databases that have the ramp-down column but not the forecast column.
+          row = await client.findUnique({
+            where: { id: APP_CONFIG_SINGLETON_ID },
+            select: {
+              liveOrdersAddedRetentionDays: true,
+              orderHistoryPerPage: true,
+              minQtyRampDownMaxReductionPer30DaysPct: true,
+            },
+          });
+        } catch {
+          row = await client.findUnique({
+            where: { id: APP_CONFIG_SINGLETON_ID },
+            select: {
+              liveOrdersAddedRetentionDays: true,
+              orderHistoryPerPage: true,
+            },
+          });
+        }
+      }
     }
 
     return {
@@ -154,27 +191,64 @@ export async function saveAppConfig(raw: unknown): Promise<SaveAppConfigResult> 
           liveOrdersAddedRetentionDays: next.liveOrdersAddedRetentionDays,
           orderHistoryPerPage: next.orderHistoryPerPage,
           minQtyRampDownMaxReductionPer30DaysPct: next.minQtyRampDownMaxReductionPer30DaysPct,
+          minQtyForecastMonths: next.minQtyForecastMonths,
         },
         update: {
           liveOrdersAddedRetentionDays: next.liveOrdersAddedRetentionDays,
           orderHistoryPerPage: next.orderHistoryPerPage,
           minQtyRampDownMaxReductionPer30DaysPct: next.minQtyRampDownMaxReductionPer30DaysPct,
+          minQtyForecastMonths: next.minQtyForecastMonths,
         },
       });
     } catch {
-      // Backward compatibility with deployments where the new column is not present yet.
-      await client.upsert({
-        where: { id: APP_CONFIG_SINGLETON_ID },
-        create: {
-          id: APP_CONFIG_SINGLETON_ID,
-          liveOrdersAddedRetentionDays: next.liveOrdersAddedRetentionDays,
-          orderHistoryPerPage: next.orderHistoryPerPage,
-        },
-        update: {
-          liveOrdersAddedRetentionDays: next.liveOrdersAddedRetentionDays,
-          orderHistoryPerPage: next.orderHistoryPerPage,
-        },
-      });
+      try {
+        // Support databases that have the forecast column but not the ramp-down column.
+        await client.upsert({
+          where: { id: APP_CONFIG_SINGLETON_ID },
+          create: {
+            id: APP_CONFIG_SINGLETON_ID,
+            liveOrdersAddedRetentionDays: next.liveOrdersAddedRetentionDays,
+            orderHistoryPerPage: next.orderHistoryPerPage,
+            minQtyForecastMonths: next.minQtyForecastMonths,
+          },
+          update: {
+            liveOrdersAddedRetentionDays: next.liveOrdersAddedRetentionDays,
+            orderHistoryPerPage: next.orderHistoryPerPage,
+            minQtyForecastMonths: next.minQtyForecastMonths,
+          },
+        });
+      } catch {
+        try {
+          // Support databases that have the ramp-down column but not the forecast column.
+          await client.upsert({
+            where: { id: APP_CONFIG_SINGLETON_ID },
+            create: {
+              id: APP_CONFIG_SINGLETON_ID,
+              liveOrdersAddedRetentionDays: next.liveOrdersAddedRetentionDays,
+              orderHistoryPerPage: next.orderHistoryPerPage,
+              minQtyRampDownMaxReductionPer30DaysPct: next.minQtyRampDownMaxReductionPer30DaysPct,
+            },
+            update: {
+              liveOrdersAddedRetentionDays: next.liveOrdersAddedRetentionDays,
+              orderHistoryPerPage: next.orderHistoryPerPage,
+              minQtyRampDownMaxReductionPer30DaysPct: next.minQtyRampDownMaxReductionPer30DaysPct,
+            },
+          });
+        } catch {
+          await client.upsert({
+            where: { id: APP_CONFIG_SINGLETON_ID },
+            create: {
+              id: APP_CONFIG_SINGLETON_ID,
+              liveOrdersAddedRetentionDays: next.liveOrdersAddedRetentionDays,
+              orderHistoryPerPage: next.orderHistoryPerPage,
+            },
+            update: {
+              liveOrdersAddedRetentionDays: next.liveOrdersAddedRetentionDays,
+              orderHistoryPerPage: next.orderHistoryPerPage,
+            },
+          });
+        }
+      }
     }
 
     return { config: next, saved: true };

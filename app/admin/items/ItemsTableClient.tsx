@@ -480,6 +480,7 @@ export default function ItemsTableClient({
   page,
   perPage,
   total,
+  forecastLabel,
   vendorFormulas,
   canEdit = true,
 }: {
@@ -488,6 +489,7 @@ export default function ItemsTableClient({
   page: number;
   perPage: number;
   total: number;
+  forecastLabel: string;
 
   // ✅ ONE formula per vendor (passed from server)
   vendorFormulas: Record<Vendor, string>;
@@ -1170,7 +1172,7 @@ export default function ItemsTableClient({
             fontWeight: 800,
           }}
         >
-          {mismatchCount} visible item{mismatchCount === 1 ? "" : "s"} have a min qty different from the three-month suggested minimum.
+          {mismatchCount} visible item{mismatchCount === 1 ? "" : "s"} have a min qty different from the {forecastLabel} suggested minimum.
         </div>
       ) : null}
 
@@ -1454,7 +1456,7 @@ export default function ItemsTableClient({
                 "Name",
                 "Category",
                 "On Hand",
-                "Suggested Min (Next 3 Months)",
+                `Suggested Min (Next ${forecastLabel})`,
                 "Cost",
                 "Price",
                 "Taxable",
@@ -2267,7 +2269,7 @@ export default function ItemsTableClient({
                               <strong>Keep on hand:</strong> {detailText.keep}
                             </span>
                             <span>
-                              <strong>Suggested Min (Next 3 Months):</strong> {detailText.suggestedMin}
+                              <strong>Suggested Min (Next {forecastLabel}):</strong> {detailText.suggestedMin}
                             </span>
                             <span>
                               <strong>Suggested Reorder:</strong> {detailText.suggestedReorder}
@@ -2318,7 +2320,7 @@ export default function ItemsTableClient({
                               <strong>Keep on hand:</strong> {detailText.keep}
                             </span>
                             <span>
-                              <strong>Suggested Min (Next 3 Months):</strong> {detailText.suggestedMin}
+                              <strong>Suggested Min (Next {forecastLabel}):</strong> {detailText.suggestedMin}
                             </span>
                             <span>
                               <strong>Suggested Reorder:</strong> {detailText.suggestedReorder}

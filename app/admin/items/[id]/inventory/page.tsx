@@ -274,8 +274,8 @@ export default async function ItemInventoryPage({
 
       const message =
         result.updatedCount > 0
-          ? `Three-month suggested minimum copied to min qty for ${result.updatedCount} item.`
-          : "This item already matches the three-month suggested minimum.";
+          ? `${result.recommendations[0]?.forecastLabel ?? "Forecast"} suggested minimum copied to min qty for ${result.updatedCount} item.`
+          : `This item already matches the ${result.recommendations[0]?.forecastLabel ?? "configured"} suggested minimum.`;
 
       redirect(`/admin/items/${id}/inventory?ok=${enc(message)}`);
     } catch (e: unknown) {
@@ -345,8 +345,8 @@ export default async function ItemInventoryPage({
 
       const message =
         result.updatedCount > 0
-          ? `Three-month suggested minimum copied to min qty for ${result.updatedCount} item${result.updatedCount === 1 ? "" : "s"}.`
-          : "All items already match the three-month suggested minimum.";
+          ? `${result.recommendations[0]?.forecastLabel ?? "Forecast"} suggested minimum copied to min qty for ${result.updatedCount} item${result.updatedCount === 1 ? "" : "s"}.`
+          : `All items already match the ${result.recommendations[0]?.forecastLabel ?? "configured"} suggested minimum.`;
 
       redirect(`/admin/items/${id}/inventory?ok=${enc(message)}`);
     } catch (e: unknown) {
@@ -390,7 +390,7 @@ export default async function ItemInventoryPage({
                 cursor: "pointer",
               }}
             >
-              Copy 3-Month Suggested Min Qty to All Items
+              Copy {recommendation?.forecastLabel ?? "Forecast"} Suggested Min Qty to All Items
             </button>
           </form>
         </div>
@@ -485,7 +485,7 @@ export default async function ItemInventoryPage({
         >
           <div style={{ fontWeight: 900, marginBottom: 8 }}>Usage Analytics</div>
           <div style={{ fontSize: 13, opacity: 0.82, marginBottom: 10 }}>
-            Suggested minimum quantity is the recommended stock for the next 3 months based on full net usage history for this item. You can save a manual override or return to the automatic calculation at any time.
+            Suggested minimum quantity is the recommended stock for the next {recommendation.forecastLabel} based on full net usage history for this item. You can save a manual override or return to the automatic calculation at any time.
           </div>
           <form
             action={updateSuggestedMinOverrideAction}
@@ -563,12 +563,12 @@ export default async function ItemInventoryPage({
                   cursor: "pointer",
                 }}
               >
-                Copy 3-Month Suggested Min Qty to This Item
+                Copy {recommendation.forecastLabel} Suggested Min Qty to This Item
               </button>
             </form>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 8 }}>
-            <div style={{ opacity: 0.8 }}>Suggested minimum quantity (next 3 months)</div>
+            <div style={{ opacity: 0.8 }}>Suggested minimum quantity (next {recommendation.forecastLabel})</div>
             <div>
               <b>{recommendation.suggestedMinQty90Day}</b>
               {recommendation.isSuggestedMinQtyOverridden ? (
@@ -578,7 +578,7 @@ export default async function ItemInventoryPage({
               ) : null}
             </div>
 
-            <div style={{ opacity: 0.8 }}>Suggested reorder quantity (next 3 months)</div>
+            <div style={{ opacity: 0.8 }}>Suggested reorder quantity (next {recommendation.forecastLabel})</div>
             <div>
               <b>{recommendation.suggestedReorderQty90Day}</b>
             </div>

@@ -503,11 +503,16 @@ export default async function AdminInventoryOrdersPage({
       const minQtyRampDownMaxReductionPer30DaysPct = Number.isFinite(requestedRampDownReductionPct)
         ? clamp(Math.round(requestedRampDownReductionPct), 0, 100)
         : DEFAULT_APP_CONFIG.minQtyRampDownMaxReductionPer30DaysPct;
+      const requestedForecastMonths = Number(formData.get("minQtyForecastMonths"));
+      const minQtyForecastMonths = Number.isFinite(requestedForecastMonths)
+        ? clamp(Math.round(requestedForecastMonths), 1, 1200)
+        : DEFAULT_APP_CONFIG.minQtyForecastMonths;
 
       const result = await saveAppConfig({
         liveOrdersAddedRetentionDays: retentionDays,
         orderHistoryPerPage,
         minQtyRampDownMaxReductionPer30DaysPct,
+        minQtyForecastMonths,
       });
 
       if (!result.saved) {
@@ -1516,6 +1521,19 @@ export default async function AdminInventoryOrdersPage({
                     max={100}
                     step={1}
                     defaultValue={appConfig.minQtyRampDownMaxReductionPer30DaysPct}
+                    style={controlBase}
+                  />
+                </label>
+
+                <label style={{ ...controlLabel, ...flexItem(220, 0) }}>
+                  Suggested Min forecast (months)
+                  <input
+                    type="number"
+                    name="minQtyForecastMonths"
+                    min={1}
+                    max={1200}
+                    step={1}
+                    defaultValue={appConfig.minQtyForecastMonths}
                     style={controlBase}
                   />
                 </label>

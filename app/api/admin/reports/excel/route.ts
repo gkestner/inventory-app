@@ -529,6 +529,7 @@ async function minQtyDifferences(sp: URLSearchParams) {
     orderBy: [{ name: "asc" }, { sku: "asc" }],
   });
   const recs = await getInventoryDemandRecommendations({ itemIds: items.map((i) => i.id) });
+  const forecastLabel = recs[0]?.forecastLabel ?? "3 months";
   const map = new Map(recs.map((r) => [r.itemId, r]));
   const rows = items
     .map((item) => {
@@ -559,10 +560,10 @@ async function minQtyDifferences(sp: URLSearchParams) {
     { key: "supplier", header: "Supplier" },
     { key: "onHand", header: "On Hand", kind: "number" },
     { key: "currentMin", header: "Current Min", kind: "number" },
-    { key: "suggestedMin", header: "Suggested Min (Next 3 Months)", kind: "number" },
+    { key: "suggestedMin", header: `Suggested Min (Next ${forecastLabel})`, kind: "number" },
     { key: "delta", header: "Delta", kind: "number" },
     { key: "webUrl", header: "Web URL", width: 260 },
-  ], [["Search", query]]);
+  ], [["Search", query], ["Forecast Window", forecastLabel]]);
 }
 
 async function partsConsumption(sp: URLSearchParams) {

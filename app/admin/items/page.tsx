@@ -515,6 +515,7 @@ export default async function AdminItemsPage({
     itemIds: allItems.map((item) => item.id),
     includeInactive: true,
   });
+  const forecastLabel = recommendations[0]?.forecastLabel ?? "3 months";
   const recommendationMap = new Map(recommendations.map((entry) => [entry.itemId, entry]));
 
   const filteredItems = allItems.filter((item) => {
@@ -716,8 +717,8 @@ export default async function AdminItemsPage({
             <option value="price">Price</option>
             <option value="taxable">Taxable</option>
             <option value="active">Active</option>
-            <option value="suggestedMinQty90Day">Suggested Min (Next 3 Months)</option>
-            <option value="suggestedReorderQty90Day">Suggested Reorder (Next 3 Months)</option>
+            <option value="suggestedMinQty90Day">Suggested Min (Next {forecastLabel})</option>
+            <option value="suggestedReorderQty90Day">Suggested Reorder (Next {forecastLabel})</option>
           </select>
         </label>
 
@@ -917,6 +918,7 @@ export default async function AdminItemsPage({
         page={page}
         perPage={perPage}
         total={total}
+        forecastLabel={forecastLabel}
         vendorFormulas={vendorFormulas}
         canEdit={canEditItems}
       />

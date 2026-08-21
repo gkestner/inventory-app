@@ -154,7 +154,7 @@ export default async function AdminReportsIndexPage({
               {
                 key: "min-qty-differences",
                 title: "Min Qty Differences",
-                description: "Review items where current min qty differs from the suggested stock for the next 3 months and copy the suggestion row by row.",
+                description: "Review items where current min qty differs from the configured forecast window and copy the suggestion row by row.",
                 href: "/admin/reports/min-qty-differences",
               },
             ]

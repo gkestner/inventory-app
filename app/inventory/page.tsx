@@ -262,6 +262,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
     itemIds: allItems.map((item) => item.id),
     includeInactive: true,
   });
+  const forecastLabel = recommendations[0]?.forecastLabel ?? "3 months";
   const recommendationMap = new Map(recommendations.map((entry) => [entry.itemId, entry]));
 
   const filteredItems = allItems.filter((item) => {
@@ -597,8 +598,8 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
               <option value="category">Category</option>
               <option value="taxable">Taxable</option>
               <option value="active">Active</option>
-              <option value="suggestedMinQty90Day">Suggested Min (Next 3 Months)</option>
-              <option value="suggestedReorderQty90Day">Suggested Reorder (Next 3 Months)</option>
+              <option value="suggestedMinQty90Day">Suggested Min (Next {forecastLabel})</option>
+              <option value="suggestedReorderQty90Day">Suggested Reorder (Next {forecastLabel})</option>
             </select>
           </label>
           <label style={label}>
@@ -641,7 +642,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  {["SKU", "Part #", "Vendor", "Name", "Category", "In Stock", "Ordered", "Arrived", "Min", "Suggested Min (Next 3 Months)", "Active", "My Comment", "Updated"].map((h) => (
+                  {["SKU", "Part #", "Vendor", "Name", "Category", "In Stock", "Ordered", "Arrived", "Min", `Suggested Min (Next ${forecastLabel})`, "Active", "My Comment", "Updated"].map((h) => (
                     <th key={h} style={{ textAlign: "left", padding: 10, borderBottom: border, whiteSpace: "nowrap", fontSize: 13 }}>{h}</th>
                   ))}
                 </tr>
@@ -723,7 +724,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                       ["Ordered", statusCounts.ordered.toLocaleString()],
                       ["Arrived", statusCounts.arrived.toLocaleString()],
                       ["Min", item.minQty.toLocaleString()],
-                      ["Suggested Min (Next 3 Months)", (recommendation?.suggestedMinQty90Day ?? 0).toLocaleString()],
+                      [`Suggested Min (Next ${forecastLabel})`, (recommendation?.suggestedMinQty90Day ?? 0).toLocaleString()],
                     ].map(([title, value]) => (
                       <div key={`${item.id}-${title}`} style={tabletMetricCard}>
                         <div style={{ fontSize: 11, fontWeight: 900, opacity: 0.7, textTransform: "uppercase", letterSpacing: 0.2 }}>{title}</div>
