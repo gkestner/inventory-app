@@ -605,6 +605,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     storeName: string;
     ticketCount: number;
     manualInvoiceCount: number;
+    manualInvoiceIds: string[];
     _count: { _all: number };
   }> = [];
   let pendingManualInvoices: Array<{
@@ -668,6 +669,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
         storeName: String(r.storeName ?? ""),
         ticketCount: toNumber((r._count as Record<string, unknown> | undefined)?._all, 0),
         manualInvoiceCount: 0,
+        manualInvoiceIds: [],
         _count: { _all: toNumber((r._count as Record<string, unknown> | undefined)?._all, 0) },
       }));
 
@@ -715,6 +717,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     const current = pendingStoreMap.get(manualInvoice.storeId);
     if (current) {
       current.manualInvoiceCount += 1;
+      current.manualInvoiceIds.push(manualInvoice.id);
       current._count._all += 1;
       continue;
     }
@@ -724,6 +727,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
       storeName: manualInvoice.storeName,
       ticketCount: 0,
       manualInvoiceCount: 1,
+      manualInvoiceIds: [manualInvoice.id],
       _count: { _all: 1 },
     };
     readyByStore.push(row);
@@ -1477,7 +1481,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr>
-                      {["Store", "Checkout tickets", "Manual invoices", "Total ready", "Inventory preview"].map((h) => (
+                      {["Store", "Checkout tickets", "Manual invoices", "Total ready", "Preview"].map((h) => (
                         <th
                           key={h}
                           style={{
@@ -1502,16 +1506,25 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                         <td style={{ padding: 10, whiteSpace: "nowrap" }}>{r.manualInvoiceCount}</td>
                         <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{r._count._all}</td>
                         <td style={{ padding: 10, whiteSpace: "nowrap" }}>
-                          {r.ticketCount > 0 ? (
-                            <Link
-                              href={`/admin/invoices/preview?storeId=${encodeURIComponent(r.storeId)}&from=${encodeURIComponent(fromStr)}&to=${encodeURIComponent(toStr)}&vendor=${encodeURIComponent(vendor)}`}
-                              style={{ ...btn, textDecoration: "none", display: "inline-block" }}
-                            >
-                              Preview
-                            </Link>
-                          ) : (
-                            "—"
-                          )}
+                          <div style={{ display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
+                            {r.ticketCount > 0 ? (
+                              <Link
+                                href={`/admin/invoices/preview?storeId=${encodeURIComponent(r.storeId)}&from=${encodeURIComponent(fromStr)}&to=${encodeURIComponent(toStr)}&vendor=${encodeURIComponent(vendor)}`}
+                                style={{ ...btn, textDecoration: "none", display: "inline-block" }}
+                              >
+                                Inventory
+                              </Link>
+                            ) : null}
+                            {r.manualInvoiceIds.map((invoiceId, index) => (
+                              <Link
+                                key={invoiceId}
+                                href={`/admin/invoices/${invoiceId}/print`}
+                                style={{ ...btn, textDecoration: "none", display: "inline-block" }}
+                              >
+                                Manual{r.manualInvoiceIds.length > 1 ? ` ${index + 1}` : ""}
+                              </Link>
+                            ))}
+                          </div>
                         </td>
                       </tr>
                     ))}
