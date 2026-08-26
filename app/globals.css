@@ -668,7 +668,7 @@ html[data-live-orders-fullscreen="true"] .live-orders-interactive {
     display: none !important;
   }
 
-  body.labels-print-mode .app-content-shell > :not(:has(.labels-page)) {
+  body.labels-print-mode .app-content-shell > :not(.labels-page):not(:has(.labels-page)) {
     display: none !important;
   }
 
