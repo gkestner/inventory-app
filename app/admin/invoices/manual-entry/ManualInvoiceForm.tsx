@@ -22,7 +22,7 @@ type Line = {
   quantity: string;
   unitPrice: string;
   taxMode: "automatic" | "manual" | "none";
-  manualTax: string;
+  manualTaxRate: string;
   sku: string;
   partNumber: string;
 };
@@ -36,7 +36,7 @@ function newLine(key: string): Line {
     quantity: "1",
     unitPrice: "",
     taxMode: "automatic",
-    manualTax: "",
+    manualTaxRate: "",
     sku: "",
     partNumber: "",
   };
@@ -82,7 +82,7 @@ export default function ManualInvoiceForm({
         const subtotal = quantity * parseAmount(line.unitPrice);
         const tax =
           line.taxMode === "manual"
-            ? parseAmount(line.manualTax)
+            ? subtotal * (parseAmount(line.manualTaxRate) / 100)
             : line.taxMode === "automatic"
               ? subtotal * (taxRate / 100)
               : 0;
@@ -184,7 +184,7 @@ export default function ManualInvoiceForm({
             const subtotal = quantity * parseAmount(line.unitPrice);
             const tax =
               line.taxMode === "manual"
-                ? parseAmount(line.manualTax)
+                ? subtotal * (parseAmount(line.manualTaxRate) / 100)
                 : line.taxMode === "automatic"
                   ? subtotal * (taxRate / 100)
                   : 0;
@@ -243,23 +243,23 @@ export default function ManualInvoiceForm({
                       onChange={(event) => updateLine(line.key, { taxMode: event.target.value as Line["taxMode"] })}
                     >
                       <option value="automatic">Add tax ({taxRate}%)</option>
-                      <option value="manual">Enter tax manually</option>
+                      <option value="manual">Enter percentage manually</option>
                       <option value="none">No tax</option>
                     </select>
                   </label>
 
                   <label>
-                    Manual tax
+                    Manual tax rate (%)
                     <input
-                      name="lineManualTax"
+                      name="lineManualTaxRate"
                       inputMode="decimal"
-                      value={line.manualTax}
-                      onChange={(event) => updateLine(line.key, { manualTax: event.target.value })}
-                      placeholder="0.00"
+                      value={line.manualTaxRate}
+                      onChange={(event) => updateLine(line.key, { manualTaxRate: event.target.value })}
+                      placeholder="9.25"
                       disabled={line.taxMode !== "manual"}
-                      aria-label={`Manual tax for line ${index + 1}`}
+                      aria-label={`Manual tax percentage for line ${index + 1}`}
                     />
-                    {line.taxMode !== "manual" ? <input type="hidden" name="lineManualTax" value="" /> : null}
+                    {line.taxMode !== "manual" ? <input type="hidden" name="lineManualTaxRate" value="" /> : null}
                   </label>
 
                   <label>
@@ -293,6 +293,22 @@ export default function ManualInvoiceForm({
                       Remove
                     </button>
                   </div>
+                </div>
+
+                <div className="manual-invoice-line-breakdown" aria-live="polite">
+                  <div><span>Line subtotal</span><strong>{money(subtotal)}</strong></div>
+                  <div>
+                    <span>
+                      Tax
+                      {line.taxMode === "manual"
+                        ? ` (${parseAmount(line.manualTaxRate)}%)`
+                        : line.taxMode === "automatic"
+                          ? ` (${taxRate}%)`
+                          : " (none)"}
+                    </span>
+                    <strong>{money(tax)}</strong>
+                  </div>
+                  <div><span>Line total</span><strong>{money(subtotal + tax)}</strong></div>
                 </div>
               </div>
             );

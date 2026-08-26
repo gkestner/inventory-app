@@ -78,6 +78,20 @@ function parseMoneyToCents(value: string, label: string, required = true): numbe
   return cents;
 }
 
+function parsePercent(value: string, label: string): number {
+  const normalized = value.replace(/[%\s]/g, "");
+  if (!normalized) throw new Error(`${label} is required.`);
+  if (!/^\d+(?:\.\d{1,4})?$/.test(normalized)) {
+    throw new Error(`${label} must be a percentage such as 9.25.`);
+  }
+
+  const percent = Number(normalized);
+  if (!Number.isFinite(percent) || percent < 0 || percent > 999.99) {
+    throw new Error(`${label} must be between 0 and 999.99.`);
+  }
+  return percent;
+}
+
 function centsToDollars(cents: number): number {
   return cents / 100;
 }
@@ -129,7 +143,7 @@ export async function createManualInvoiceAction(
     const quantities = formData.getAll("lineQuantity");
     const unitPrices = formData.getAll("lineUnitPrice");
     const taxModes = formData.getAll("lineTaxMode");
-    const manualTaxes = formData.getAll("lineManualTax");
+    const manualTaxRates = formData.getAll("lineManualTaxRate");
     const skus = formData.getAll("lineSku");
     const partNumbers = formData.getAll("linePartNumber");
 
@@ -139,7 +153,7 @@ export async function createManualInvoiceAction(
       quantities.length !== descriptions.length ||
       unitPrices.length !== descriptions.length ||
       taxModes.length !== descriptions.length ||
-      manualTaxes.length !== descriptions.length ||
+      manualTaxRates.length !== descriptions.length ||
       skus.length !== descriptions.length ||
       partNumbers.length !== descriptions.length
     ) {
@@ -166,7 +180,8 @@ export async function createManualInvoiceAction(
       let lineTaxCents = 0;
 
       if (taxMode === "manual") {
-        lineTaxCents = parseMoneyToCents(valueAt(manualTaxes, index), `Line ${lineNumber} manual tax`, false);
+        const manualTaxRate = parsePercent(valueAt(manualTaxRates, index), `Line ${lineNumber} manual tax rate`);
+        lineTaxCents = Math.round(lineSubtotalCents * (manualTaxRate / 100));
       } else if (taxMode === "automatic") {
         const evaluated = await evaluateTaxFormula(taxConfig.taxFormula, {
           lineSubtotal: centsToDollars(lineSubtotalCents),

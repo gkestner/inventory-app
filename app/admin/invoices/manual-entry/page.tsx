@@ -79,6 +79,9 @@ export default async function ManualInvoiceEntryPage({
         .manual-invoice-line-grid { display: grid; grid-template-columns: minmax(260px, 2.5fr) minmax(82px, .6fr) minmax(110px, .9fr) minmax(155px, 1.15fr) minmax(120px, .9fr); gap: 10px; align-items: end; }
         .manual-invoice-description { grid-column: span 2; }
         .manual-invoice-line-actions { display: flex; align-items: end; height: 100%; }
+        .manual-invoice-line-breakdown { display: flex; justify-content: flex-end; gap: 18px; flex-wrap: wrap; border-top: 1px solid var(--border); margin-top: 12px; padding-top: 10px; font-size: 12px; }
+        .manual-invoice-line-breakdown > div { display: flex; gap: 8px; }
+        .manual-invoice-line-breakdown span { color: var(--muted); }
         .manual-invoice-secondary, .manual-invoice-remove, .manual-invoice-primary { padding: 10px 14px; border-radius: 12px; border: 1px solid var(--border); color: var(--foreground); background: var(--surface); font-weight: 900; cursor: pointer; white-space: nowrap; }
         .manual-invoice-primary { background: color-mix(in srgb, var(--brand) 20%, var(--surface)); border-color: color-mix(in srgb, var(--brand) 60%, var(--border)); min-width: 220px; }
         .manual-invoice-remove { width: 100%; color: #d84343; border-color: rgba(216,67,67,.42); }
@@ -92,7 +95,7 @@ export default async function ManualInvoiceEntryPage({
         .manual-invoice-submit-actions { margin-left: auto; display: grid; justify-items: end; gap: 10px; }
         .manual-invoice-error { max-width: 620px; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(244,67,54,.55); background: rgba(244,67,54,.12); color: var(--foreground); font-size: 13px; font-weight: 800; }
         @media (max-width: 1120px) { .manual-invoice-header-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); } .manual-invoice-line-grid { grid-template-columns: repeat(3, minmax(130px, 1fr)); } .manual-invoice-description { grid-column: span 2; } }
-        @media (max-width: 680px) { .manual-invoice-header-grid, .manual-invoice-line-grid { grid-template-columns: 1fr; } .manual-invoice-description { grid-column: auto; } .manual-invoice-submit-card { align-items: stretch; } .manual-invoice-submit-actions { margin-left: 0; justify-items: stretch; width: 100%; } .manual-invoice-primary { width: 100%; } }
+        @media (max-width: 680px) { .manual-invoice-header-grid, .manual-invoice-line-grid { grid-template-columns: 1fr; } .manual-invoice-description { grid-column: auto; } .manual-invoice-line-breakdown { justify-content: stretch; display: grid; } .manual-invoice-line-breakdown > div { justify-content: space-between; } .manual-invoice-submit-card { align-items: stretch; } .manual-invoice-submit-actions { margin-left: 0; justify-items: stretch; width: 100%; } .manual-invoice-primary { width: 100%; } }
       `}</style>
 
       <div className="manual-invoice-page-header">
