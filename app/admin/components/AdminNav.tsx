@@ -341,6 +341,11 @@ export default async function AdminNav() {
                   </Link>
                 ) : null}
                 {canAdminInvoices ? (
+                  <Link href="/admin/invoices/manual-entry" style={menuItemStyle}>
+                    Manual Invoice Entry
+                  </Link>
+                ) : null}
+                {canAdminInvoices ? (
                   <Link href="/admin/invoices/print-batch" style={menuItemStyle}>
                     Invoices Batch Print
                   </Link>

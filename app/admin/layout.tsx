@@ -241,6 +241,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   }
   if (canOrders) {
     availableSidebarItems.push({ key: "inventory-orders", label: "Inventory Orders", href: "/admin/inventory-orders", tag: "History", group: "Inventory" });
+    availableSidebarItems.push({ key: "manual-invoice-entry", label: "Manual Invoice Entry", href: "/admin/invoices/manual-entry", tag: "Invoice", group: "Accounting" });
   }
   if (canReports) {
     availableSidebarItems.push({ key: "reports", label: "Reports Hub", href: "/admin/reports", tag: "Reports", group: "Inventory" });
@@ -307,6 +308,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     { type: "preset" as const, key: "items" },
     { type: "preset" as const, key: "inventory-alerts" },
     { type: "preset" as const, key: "inventory-orders" },
+    { type: "preset" as const, key: "manual-invoice-entry" },
     { type: "preset" as const, key: "quick-count" },
     { type: "preset" as const, key: "scanner-count" },
     { type: "preset" as const, key: "reports" },

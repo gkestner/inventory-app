@@ -1495,8 +1495,9 @@ model InvoiceLine {
   invoiceId String
   invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
-  checkoutId String              @unique
-  checkout   PartsCheckoutTicket @relation("InvoiceLineCheckout", fields: [checkoutId], references: [id], onDelete: Restrict)
+  // Inventory-generated lines point to a checkout. Manual invoice lines leave this null.
+  checkoutId String?              @unique
+  checkout   PartsCheckoutTicket? @relation("InvoiceLineCheckout", fields: [checkoutId], references: [id], onDelete: Restrict)
 
   submittedAt DateTime
 
