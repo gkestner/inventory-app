@@ -267,7 +267,9 @@ export async function createManualInvoiceAction(
 
     revalidatePath("/admin/invoices");
     revalidatePath(`/admin/invoices/${invoice.id}/print`);
-    redirect(`/admin/invoices/manual-entry?created=${encodeURIComponent(invoice.id)}`);
+    redirect(
+      `/admin/invoices?queued=${encodeURIComponent(invoice.id)}&vendor=${encodeURIComponent(vendor)}`,
+    );
   } catch (error) {
     // Next's redirect is implemented as a framework-thrown error and must be rethrown.
     if (

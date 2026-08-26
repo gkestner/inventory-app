@@ -2,7 +2,7 @@
 "use server";
 
 import { prisma } from "@/app/lib/prisma";
-import { InvoiceVendor, PartsCheckoutStatus } from "@prisma/client";
+import { InvoiceStatus, InvoiceVendor, PartsCheckoutStatus } from "@prisma/client";
 
 /**
  * Safe expression evaluator:
@@ -573,6 +573,41 @@ export async function createInvoicesForWindow(args: {
     throw new Error("periodStart must be on or before periodEnd");
   }
 
+  // Manual invoice submissions are already stored as DRAFT invoices. They remain
+  // pending until this normal generation flow sends them through batch print,
+  // which marks them ISSUED. A manual invoice is identified by having lines but
+  // no inventory checkout attached to any line.
+  const pendingManualInvoices = await prisma.invoice.findMany({
+    where: {
+      status: InvoiceStatus.DRAFT,
+      ...(requestedVendor === InvoiceVendor.AMERICAN_PLUS
+        ? { vendor: InvoiceVendor.AMERICAN_PLUS }
+        : {}),
+      ...(periodStart || periodEnd
+        ? {
+            createdAt: {
+              ...(periodStart ? { gte: periodStart } : {}),
+              ...(periodEnd ? { lte: periodEnd } : {}),
+            },
+          }
+        : {}),
+      lines: {
+        some: {},
+        every: { checkoutId: null },
+      },
+    },
+    orderBy: [{ createdAt: "asc" }, { storeName: "asc" }],
+    take: 5000,
+    select: { id: true, storeId: true },
+  });
+
+  const manualResults = pendingManualInvoices.map((invoice) => ({
+    storeId: invoice.storeId,
+    invoiceId: invoice.id,
+    created: true,
+    reason: undefined as string | undefined,
+  }));
+
   // Pull OPEN tickets in window, not already invoiced/voided.
   // Vendor routing prefers the ticket snapshot so invoicing stays stable even if the item vendor changes later.
   const ticketsAll = await prisma.partsCheckoutTicket.findMany({
@@ -613,7 +648,7 @@ export async function createInvoicesForWindow(args: {
       : ticketsAll;
 
   if (tickets.length === 0) {
-    return { results: [] };
+    return { results: manualResults };
   }
 
   // Group by (storeId, effectiveVendor)
@@ -639,7 +674,7 @@ export async function createInvoicesForWindow(args: {
 
   const locById = new Map(locations.map((l) => [l.id, l]));
 
-  const results: Array<{ storeId: string; invoiceId?: string; created?: boolean; reason?: string }> = [];
+  const results: Array<{ storeId: string; invoiceId?: string; created?: boolean; reason?: string }> = [...manualResults];
   const successfulInvoiceIds: string[] = [];
 
   // Process each (store, vendor) group in its own transaction

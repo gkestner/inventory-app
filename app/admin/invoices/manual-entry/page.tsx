@@ -109,12 +109,12 @@ export default async function ManualInvoiceEntryPage({
       {successInvoice ? (
         <div className="manual-invoice-success">
           <div>
-            <strong>Invoice created successfully.</strong>
+            <strong>Manual invoice added to pending generation.</strong>
             <span>{successInvoice.storeName} · {successInvoice.vendorNumber} · {Number(successInvoice.total).toLocaleString("en-US", { style: "currency", currency: "USD" })}</span>
           </div>
           <div className="manual-invoice-success-actions">
-            <Link href={`/admin/invoices/${successInvoice.id}/print`}>View invoice</Link>
-            <Link href={`/admin/invoices/${successInvoice.id}/print?autoprint=1`}>Print invoice</Link>
+            <Link href="/admin/invoices">View pending list</Link>
+            <Link href={`/admin/invoices/${successInvoice.id}/print`}>Review invoice</Link>
           </div>
         </div>
       ) : null}

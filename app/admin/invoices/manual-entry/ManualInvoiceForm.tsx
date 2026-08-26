@@ -55,7 +55,7 @@ function SubmitButton() {
   const { pending } = useFormStatus();
   return (
     <button className="manual-invoice-primary" type="submit" disabled={pending}>
-      {pending ? "Creating invoice…" : "Submit manual invoice"}
+      {pending ? "Adding to pending…" : "Add to pending generation"}
     </button>
   );
 }
@@ -171,7 +171,7 @@ export default function ManualInvoiceForm({
         <div className="manual-invoice-section-heading">
           <div>
             <h2>Line items</h2>
-            <p>These descriptions do not need to exist in inventory. Automatic tax uses the current {vendor === "SUCCESS_PLUS" ? "Success Plus" : "American Plus"} tax setting ({taxRate}%).</p>
+            <p>These descriptions do not need to exist in inventory. Automatic tax uses the current {vendor === "SUCCESS_PLUS" ? "Success Plus" : "American Plus"} tax setting ({taxRate}%). Submitting adds this invoice to the pending generation list.</p>
           </div>
           <button type="button" className="manual-invoice-secondary" onClick={addLine} disabled={lines.length >= 50}>
             + Add line

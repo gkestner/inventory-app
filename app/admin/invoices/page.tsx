@@ -9,7 +9,7 @@ import { cookies, headers } from "next/headers";
 import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
-import { InvoiceVendor, Permission, PartsCheckoutStatus, Role, Prisma } from "@prisma/client";
+import { InvoiceStatus, InvoiceVendor, Permission, PartsCheckoutStatus, Role, Prisma } from "@prisma/client";
 import InvoiceSelectionWiring from "./InvoiceSelectionWiring";
 
 import { createInvoicesForWindow, refreshOpenTicketCostSnapshots } from "./actions";
@@ -97,6 +97,7 @@ type SearchParams = {
   cfg?: string;
   refreshed?: string;
   undo?: string;
+  queued?: string;
 };
 
 const LAST_INVOICE_BATCH_COOKIE = "last_generated_invoice_batch";
@@ -141,7 +142,13 @@ function isNextRedirectError(error: unknown): boolean {
 
 async function inferLastGeneratedBatch(args: { userId?: string | null }): Promise<{ ids: string[]; createdAt: string } | null> {
   const latest = await prisma.invoice.findFirst({
-    where: args.userId ? { createdByUserId: args.userId } : undefined,
+    where: {
+      ...(args.userId ? { createdByUserId: args.userId } : {}),
+      NOT: {
+        status: InvoiceStatus.DRAFT,
+        lines: { some: {}, every: { checkoutId: null } },
+      },
+    },
     orderBy: { createdAt: "desc" },
     select: { createdAt: true, createdByUserId: true },
   });
@@ -155,6 +162,10 @@ async function inferLastGeneratedBatch(args: { userId?: string | null }): Promis
     where: {
       createdAt: { gte: start, lte: end },
       createdByUserId: latest.createdByUserId ?? null,
+      NOT: {
+        status: InvoiceStatus.DRAFT,
+        lines: { some: {}, every: { checkoutId: null } },
+      },
     },
     orderBy: [{ createdAt: "asc" }, { storeNumber: "asc" }],
     select: { id: true, createdAt: true },
@@ -580,6 +591,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   const cfg = String(sp.cfg ?? "").trim();
   const refreshed = String(sp.refreshed ?? "").trim();
   const undo = String(sp.undo ?? "").trim();
+  const queued = String(sp.queued ?? "").trim();
   const cookieStore = await cookies();
   const cookieBatch = parseLastInvoiceBatchCookie(cookieStore.get(LAST_INVOICE_BATCH_COOKIE)?.value);
   let lastGeneratedBatch = cookieBatch;
@@ -588,7 +600,22 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     lastGeneratedBatch = await inferLastGeneratedBatch({ userId: session?.user?.id ?? null });
   }
 
-  let readyByStore: Array<{ storeId: string; storeName: string; _count: { _all: number } }> = [];
+  let readyByStore: Array<{
+    storeId: string;
+    storeName: string;
+    ticketCount: number;
+    manualInvoiceCount: number;
+    _count: { _all: number };
+  }> = [];
+  let pendingManualInvoices: Array<{
+    id: string;
+    storeId: string;
+    storeName: string;
+    vendorNumber: string;
+    createdAt: Date;
+    total: Prisma.Decimal;
+    _count: { lines: number };
+  }> = [];
   let readyTotal = 0;
   let openTicketsBeforeWindowCount = 0;
   let oldestOpenTicketDate: Date | null = null;
@@ -639,6 +666,8 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
       readyByStore = (rows as Array<Record<string, unknown>>).map((r) => ({
         storeId: String(r.storeId ?? ""),
         storeName: String(r.storeName ?? ""),
+        ticketCount: toNumber((r._count as Record<string, unknown> | undefined)?._all, 0),
+        manualInvoiceCount: 0,
         _count: { _all: toNumber((r._count as Record<string, unknown> | undefined)?._all, 0) },
       }));
 
@@ -653,6 +682,55 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
       oldestOpenTicketDate = null;
     }
   }
+
+  pendingManualInvoices = await prisma.invoice.findMany({
+    where: {
+      status: InvoiceStatus.DRAFT,
+      ...(vendor === InvoiceVendor.AMERICAN_PLUS ? { vendor: InvoiceVendor.AMERICAN_PLUS } : {}),
+      ...(from || to
+        ? {
+            createdAt: {
+              ...(from ? { gte: from } : {}),
+              ...(to ? { lte: to } : {}),
+            },
+          }
+        : {}),
+      lines: { some: {}, every: { checkoutId: null } },
+    },
+    orderBy: [{ createdAt: "asc" }, { storeName: "asc" }],
+    take: 5000,
+    select: {
+      id: true,
+      storeId: true,
+      storeName: true,
+      vendorNumber: true,
+      createdAt: true,
+      total: true,
+      _count: { select: { lines: true } },
+    },
+  });
+
+  const pendingStoreMap = new Map(readyByStore.map((row) => [row.storeId, row]));
+  for (const manualInvoice of pendingManualInvoices) {
+    const current = pendingStoreMap.get(manualInvoice.storeId);
+    if (current) {
+      current.manualInvoiceCount += 1;
+      current._count._all += 1;
+      continue;
+    }
+
+    const row = {
+      storeId: manualInvoice.storeId,
+      storeName: manualInvoice.storeName,
+      ticketCount: 0,
+      manualInvoiceCount: 1,
+      _count: { _all: 1 },
+    };
+    readyByStore.push(row);
+    pendingStoreMap.set(row.storeId, row);
+  }
+  readyByStore.sort((left, right) => left.storeName.localeCompare(right.storeName));
+  readyTotal = readyByStore.reduce((sum, row) => sum + row._count._all, 0);
 
   let vendorConfigs: VendorTaxSettings[] = [
     {
@@ -757,7 +835,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     const merged: SearchParams = { ...sp, ...patch };
 
     const qp = new URLSearchParams();
-    const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err", "cfg", "refreshed", "undo"];
+    const keys: Array<keyof SearchParams> = ["vendor", "from", "to", "invoiceDate", "page", "perPage", "err", "cfg", "refreshed", "undo", "queued"];
 
     for (const k of keys) {
       const v = merged[k];
@@ -876,7 +954,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
     const ids = batch.ids;
     const existingInvoices = await prisma.invoice.findMany({
       where: { id: { in: ids } },
-      select: { id: true },
+      select: { id: true, lines: { select: { checkoutId: true } } },
     });
 
     if (existingInvoices.length === 0) {
@@ -884,9 +962,16 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
       redirect("/admin/invoices?err=The last generated invoice batch no longer exists.");
     }
 
+    const manualInvoiceIds = existingInvoices
+      .filter((invoice) => invoice.lines.length > 0 && invoice.lines.every((line) => line.checkoutId === null))
+      .map((invoice) => invoice.id);
+    const generatedInvoiceIds = existingInvoices
+      .filter((invoice) => !manualInvoiceIds.includes(invoice.id))
+      .map((invoice) => invoice.id);
+
     await prisma.$transaction(async (tx: TxClient) => {
       await tx.partsCheckoutTicket.updateMany({
-        where: { invoiceId: { in: ids } },
+        where: { invoiceId: { in: generatedInvoiceIds } },
         data: {
           status: PartsCheckoutStatus.OPEN,
           invoiceId: null,
@@ -895,11 +980,16 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
       });
 
       await tx.invoiceLine.deleteMany({
-        where: { invoiceId: { in: ids } },
+        where: { invoiceId: { in: generatedInvoiceIds } },
       });
 
       await tx.invoice.deleteMany({
-        where: { id: { in: ids } },
+        where: { id: { in: generatedInvoiceIds } },
+      });
+
+      await tx.invoice.updateMany({
+        where: { id: { in: manualInvoiceIds } },
+        data: { status: InvoiceStatus.DRAFT, issuedAt: null },
       });
     });
 
@@ -1056,6 +1146,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
   const undoBanner = undo
     ? `Undid the last generated batch and reopened ${undo} invoice${undo === "1" ? "" : "s"}.`
     : null;
+  const queuedBanner = queued ? "Manual invoice added to pending generation." : null;
 
   const lastGeneratedAt = lastGeneratedBatch ? new Date(lastGeneratedBatch.createdAt) : null;
   const lastGeneratedIds = lastGeneratedBatch?.ids ?? [];
@@ -1091,6 +1182,40 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
             ← Items
           </Link>
         </div>
+
+        {queuedBanner ? (
+          <div
+            style={{
+              marginTop: 12,
+              padding: 12,
+              borderRadius: 14,
+              border: "1px solid rgba(76,175,80,0.55)",
+              background: "rgba(76,175,80,0.12)",
+              fontWeight: 900,
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 10,
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <div>{queuedBanner}</div>
+            <Link
+              href={buildHref({ queued: "" })}
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(128,128,128,0.25)",
+                textDecoration: "none",
+                color: fg,
+                fontWeight: 900,
+                background: surface,
+              }}
+            >
+              Clear
+            </Link>
+          </div>
+        ) : null}
 
         {errBanner ? (
           <div
@@ -1246,7 +1371,9 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
         <div style={{ marginTop: 12, border, borderRadius: 14, background: surface, padding: 12 }}>
           <div style={{ fontWeight: 900, marginBottom: 6 }}>Generate invoices</div>
           <div style={{ fontSize: 12, opacity: 0.8 }}>
-            Ready tickets in window: <b>{readyTotal}</b> • Vendor format: <b>{vendorLabel(vendor)}</b>
+            Ready entries in window: <b>{readyTotal}</b> ({readyTotal - pendingManualInvoices.length} checkout ticket
+            {readyTotal - pendingManualInvoices.length === 1 ? "" : "s"}, {pendingManualInvoices.length} manual invoice
+            {pendingManualInvoices.length === 1 ? "" : "s"}) • Vendor format: <b>{vendorLabel(vendor)}</b>
           </div>
 
           {openTicketsBeforeWindowCount > 0 ? (
@@ -1335,22 +1462,22 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
             <div style={{ fontWeight: 900, marginBottom: 6 }}>Pending invoice generation (by store)</div>
             <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 8 }}>
               {hasDateFilter
-                ? `Stores with OPEN tickets not yet invoiced in this window (${fromStr || "start"} → ${toStr || "now"}).`
-                : "Stores with all OPEN tickets not yet invoiced."}
+                ? `Stores with OPEN checkout tickets or pending manual invoices in this window (${fromStr || "start"} → ${toStr || "now"}).`
+                : "Stores with OPEN checkout tickets or pending manual invoices."}
             </div>
 
-            {!ticketModelReady ? (
+            {!ticketModelReady && readyByStore.length === 0 ? (
               <div style={{ fontSize: 12, opacity: 0.85 }}>
                 Ticket summary is unavailable on this deployment yet (missing <code>partsCheckoutTicket.groupBy</code>).
               </div>
             ) : readyByStore.length === 0 ? (
-              <div style={{ fontSize: 12, opacity: 0.8 }}>No pending tickets for invoice generation in this window.</div>
+              <div style={{ fontSize: 12, opacity: 0.8 }}>No pending entries for invoice generation in this window.</div>
             ) : (
               <div style={{ overflowX: "auto", border, borderRadius: 14, background: surface }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr>
-                      {["Store", "Ready tickets", "Preview"].map((h) => (
+                      {["Store", "Checkout tickets", "Manual invoices", "Total ready", "Inventory preview"].map((h) => (
                         <th
                           key={h}
                           style={{
@@ -1371,14 +1498,20 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                     {readyByStore.map((r) => (
                       <tr key={r.storeId} style={{ borderBottom: border }}>
                         <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{r.storeName}</td>
-                        <td style={{ padding: 10, whiteSpace: "nowrap" }}>{r._count._all}</td>
+                        <td style={{ padding: 10, whiteSpace: "nowrap" }}>{r.ticketCount}</td>
+                        <td style={{ padding: 10, whiteSpace: "nowrap" }}>{r.manualInvoiceCount}</td>
+                        <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{r._count._all}</td>
                         <td style={{ padding: 10, whiteSpace: "nowrap" }}>
-                          <Link
-                            href={`/admin/invoices/preview?storeId=${encodeURIComponent(r.storeId)}&from=${encodeURIComponent(fromStr)}&to=${encodeURIComponent(toStr)}&vendor=${encodeURIComponent(vendor)}`}
-                            style={{ ...btn, textDecoration: "none", display: "inline-block" }}
-                          >
-                            Preview
-                          </Link>
+                          {r.ticketCount > 0 ? (
+                            <Link
+                              href={`/admin/invoices/preview?storeId=${encodeURIComponent(r.storeId)}&from=${encodeURIComponent(fromStr)}&to=${encodeURIComponent(toStr)}&vendor=${encodeURIComponent(vendor)}`}
+                              style={{ ...btn, textDecoration: "none", display: "inline-block" }}
+                            >
+                              Preview
+                            </Link>
+                          ) : (
+                            "—"
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -1386,6 +1519,47 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
                 </table>
               </div>
             )}
+
+            {pendingManualInvoices.length > 0 ? (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontWeight: 900, fontSize: 13, marginBottom: 7 }}>Pending manual invoices</div>
+                <div style={{ overflowX: "auto", border, borderRadius: 14, background: surface }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr>
+                        {["Submitted", "Store", "Invoice #", "Lines", "Total", "Review"].map((heading) => (
+                          <th
+                            key={heading}
+                            style={{ textAlign: "left", padding: 10, borderBottom: border, fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}
+                          >
+                            {heading}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pendingManualInvoices.map((invoice) => (
+                        <tr key={invoice.id} style={{ borderBottom: border }}>
+                          <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fmtLocalDate(invoice.createdAt)}</td>
+                          <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{invoice.storeName}</td>
+                          <td style={{ padding: 10, whiteSpace: "nowrap" }}>{invoice.vendorNumber}</td>
+                          <td style={{ padding: 10, whiteSpace: "nowrap" }}>{invoice._count.lines}</td>
+                          <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 900 }}>{money(Number(invoice.total))}</td>
+                          <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                            <Link
+                              href={`/admin/invoices/${invoice.id}/print`}
+                              style={{ ...btn, textDecoration: "none", display: "inline-block" }}
+                            >
+                              Review
+                            </Link>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
@@ -1427,8 +1601,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
               </div>
 
               <div style={{ fontSize: 12, opacity: 0.8 }}>
-                Manual trigger. Submitted checkouts are immediately “ready” (OPEN, not invoiced). Leave dates blank to generate from <b>all pending checkout tickets</b>, or set dates to filter the window. Generating creates <b>one invoice per store</b>{" "}
-                for the selected vendor, then marks those tickets <b>INVOICED</b>.
+                Submitted checkouts and manual invoices are immediately ready. Leave dates blank to generate from <b>all pending entries</b>, or set dates to filter the window. Inventory tickets are combined into <b>one invoice per store</b>; each manual invoice keeps its entered lines, dates, and billing details. Batch printing marks them <b>ISSUED</b>.
               </div>
             </form>
           </div>
