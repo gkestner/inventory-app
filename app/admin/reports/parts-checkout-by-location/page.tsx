@@ -39,7 +39,11 @@ export default async function PartsCheckoutByLocationPage({
     ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS, Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS,
   ])) redirect("/");
 
-  const report = await partsCheckoutLocationReport((await searchParams) ?? {});
+  const [report, coverage, voidedCount] = await Promise.all([
+    partsCheckoutLocationReport((await searchParams) ?? {}),
+    prisma.partsCheckoutTicket.aggregate({ _count: { _all: true }, _min: { createdAt: true } }),
+    prisma.partsCheckoutTicket.count({ where: { status: "VOIDED" } }),
+  ]);
   const selectedItem = report.filters.itemId
     ? await prisma.item.findUnique({
         where: { id: report.filters.itemId },
@@ -57,6 +61,12 @@ export default async function PartsCheckoutByLocationPage({
         </div>
         <p style={{ color: "var(--muted)", marginBottom: 0 }}>
           Quantities from Maintenance Tickets (Parts Checkout). Dates use ticket checkout time. Voided tickets and return records are excluded. Categories reflect the item&apos;s current category.
+        </p>
+        <p style={{ color: "var(--muted)", marginBottom: 0 }}>
+          Available ticket history: {coverage._count._all.toLocaleString()} records
+          {coverage._min.createdAt ? ` since ${new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", dateStyle: "medium" }).format(coverage._min.createdAt)}` : ""}.
+          {` ${voidedCount.toLocaleString()} voided or return records are excluded from usage totals.`}
+          {" "}<Link href="/admin/reports/checkout-orders">View every ticket status</Link>
         </p>
       </section>
 

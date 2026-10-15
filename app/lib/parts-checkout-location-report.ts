@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 
 import { parseItemLabelNumberSearchTerm } from "@/app/lib/item-label-number";
 import { prisma } from "@/app/lib/prisma";
+import { reportDateRange } from "@/app/lib/report-date-range";
 
 export type PartsLocationFilters = {
   itemId?: string;
@@ -11,47 +12,39 @@ export type PartsLocationFilters = {
   to?: string;
 };
 
-function dateBoundary(value: string, end: boolean): Date | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const date = new Date(`${value}T${end ? "23:59:59.999" : "00:00:00"}`);
-  if (Number.isNaN(date.getTime())) return null;
-  const parts = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")];
-  return parts.join("-") === value ? date : null;
-}
-
 export async function partsCheckoutLocationReport(raw: PartsLocationFilters) {
   const itemId = String(raw.itemId ?? "").trim();
   const q = String(raw.q ?? "").trim().slice(0, 200);
   const category = String(raw.category ?? "").trim().slice(0, 200);
   const from = String(raw.from ?? "").trim();
   const to = String(raw.to ?? "").trim();
-  const fromDate = from ? dateBoundary(from, false) : null;
-  const toDate = to ? dateBoundary(to, true) : null;
-  const dateError = (from && !fromDate) || (to && !toDate) || (fromDate && toDate && fromDate > toDate)
-    ? "Enter a valid date range with From on or before To."
-    : null;
+  const dateRange = reportDateRange(from, to);
+  const dateError = dateRange.error ? "Enter a valid date range with From on or before To." : null;
 
   const tokens = itemId ? [] : q.split(/\s+/).filter(Boolean).slice(0, 12);
-  const itemFilters: Prisma.ItemWhereInput[] = [];
-  if (category) itemFilters.push({ category: { contains: category, mode: "insensitive" } });
+  const searchFilters: Prisma.PartsCheckoutTicketWhereInput[] = [];
   for (const token of tokens) {
     const match = { contains: token, mode: "insensitive" as const };
     const labelNumber = parseItemLabelNumberSearchTerm(token);
-    itemFilters.push({ OR: [
-      { id: match }, { sku: match }, { partNumber: match }, { name: match },
-      { category: match }, { description: match }, { manufacturer: match },
-      { orderFrom: match }, { webUrl: match },
-      ...(labelNumber === null ? [] : [{ labelNumber }]),
+    searchFilters.push({ OR: [
+      { skuSnapshot: match }, { partNumberSnapshot: match }, { nameSnapshot: match },
+      { item: { OR: [
+        { id: match }, { sku: match }, { partNumber: match }, { name: match },
+        { category: match }, { description: match }, { manufacturer: match },
+        { orderFrom: match }, { webUrl: match },
+        ...(labelNumber === null ? [] : [{ labelNumber }]),
+      ] } },
     ] });
   }
 
   const where: Prisma.PartsCheckoutTicketWhereInput = {
     status: { not: "VOIDED" },
     ...(itemId ? { itemId } : {}),
-    ...(itemFilters.length ? { item: { AND: itemFilters } } : {}),
-    ...(fromDate || toDate ? { createdAt: {
-      ...(fromDate ? { gte: fromDate } : {}),
-      ...(toDate ? { lte: toDate } : {}),
+    ...(category ? { item: { category: { contains: category, mode: "insensitive" } } } : {}),
+    ...(searchFilters.length ? { AND: searchFilters } : {}),
+    ...(dateRange.from || dateRange.toExclusive ? { createdAt: {
+      ...(dateRange.from ? { gte: dateRange.from } : {}),
+      ...(dateRange.toExclusive ? { lt: dateRange.toExclusive } : {}),
     } } : {}),
   };
 

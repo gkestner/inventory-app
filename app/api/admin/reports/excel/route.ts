@@ -24,6 +24,8 @@ import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { prisma } from "@/app/lib/prisma";
 import { locationChargesQuery } from "@/app/lib/location-charges-report";
 import { partsCheckoutLocationReport } from "@/app/lib/parts-checkout-location-report";
+import { partsConsumptionQuery } from "@/app/lib/parts-consumption-report";
+import { reportDateRange } from "@/app/lib/report-date-range";
 import { getScannerCountReportPreferences } from "@/app/lib/scanner-count-report";
 
 export const dynamic = "force-dynamic";
@@ -160,8 +162,8 @@ async function checkoutOrders(sp: URLSearchParams) {
   const createdByUserId = String(sp.get("createdByUserId") ?? "").trim();
   const needRaw = String(sp.get("needToOrderMore") ?? "all").trim().toLowerCase();
   const quantity = parseNum(sp.get("quantity"), 0);
-  const from = parseDateStart(sp.get("from"));
-  const to = parseDateEnd(sp.get("to"));
+  const dateRange = reportDateRange(sp.get("from") ?? "", sp.get("to") ?? "");
+  if (dateRange.error) return new Response("Invalid date range", { status: 400 });
   const where: Prisma.PartsCheckoutTicketWhereInput = {
     ...(status === "all" ? {} : { status: status as PartsCheckoutStatus }),
     ...(storeId ? { storeId } : {}),
@@ -170,7 +172,7 @@ async function checkoutOrders(sp: URLSearchParams) {
     ...(needRaw === "yes" || needRaw === "true" || needRaw === "1" ? { needToOrderMore: true } : {}),
     ...(needRaw === "no" || needRaw === "false" || needRaw === "0" ? { needToOrderMore: false } : {}),
     ...(quantity > 0 ? { quantity } : {}),
-    ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
+    ...(dateRange.from || dateRange.toExclusive ? { createdAt: { ...(dateRange.from ? { gte: dateRange.from } : {}), ...(dateRange.toExclusive ? { lt: dateRange.toExclusive } : {}) } } : {}),
     ...(q
       ? {
           OR: [
@@ -178,6 +180,9 @@ async function checkoutOrders(sp: URLSearchParams) {
             { skuSnapshot: { contains: q, mode: "insensitive" } },
             { partNumberSnapshot: { contains: q, mode: "insensitive" } },
             { nameSnapshot: { contains: q, mode: "insensitive" } },
+            { item: { sku: { contains: q, mode: "insensitive" } } },
+            { item: { name: { contains: q, mode: "insensitive" } } },
+            { item: { partNumber: { contains: q, mode: "insensitive" } } },
             { storeName: { contains: q, mode: "insensitive" } },
             { createdByName: { contains: q, mode: "insensitive" } },
             { note: { contains: q, mode: "insensitive" } },
@@ -188,8 +193,7 @@ async function checkoutOrders(sp: URLSearchParams) {
   };
   const tickets = await prisma.partsCheckoutTicket.findMany({
     where,
-    orderBy: { createdAt: "desc" },
-    take: 10000,
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     select: {
       id: true,
       status: true,
@@ -661,14 +665,13 @@ async function partsCheckoutByLocation(sp: URLSearchParams) {
 }
 
 async function partsConsumption(sp: URLSearchParams) {
-  const now = new Date();
-  const from = parseDateStart(sp.get("from")) ?? new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const to = parseDateEnd(sp.get("to")) ?? now;
-  const includeVoided = boolParam(sp.get("includeVoided"));
+  const { from, to, includeVoided, dateError, where } = partsConsumptionQuery({
+    from: sp.get("from"), to: sp.get("to"), includeVoided: sp.get("includeVoided"),
+  });
+  if (dateError) return new Response("Invalid date range", { status: 400 });
   const tickets = await prisma.partsCheckoutTicket.findMany({
-    where: { createdAt: { gte: from, lte: to }, ...(includeVoided ? {} : { status: { not: "VOIDED" } }) },
+    where,
     orderBy: { createdAt: "desc" },
-    take: 10000,
     select: { id: true, status: true, createdAt: true, storeName: true, createdByName: true, skuSnapshot: true, partNumberSnapshot: true, nameSnapshot: true, quantity: true, costSnapshot: true, needToOrderMore: true },
   });
   const rows = tickets.map((r) => ({
@@ -698,7 +701,7 @@ async function partsConsumption(sp: URLSearchParams) {
     { key: "cost", header: "Cost", kind: "currency" },
     { key: "lineCost", header: "Line Cost", kind: "currency" },
     { key: "needToOrderMore", header: "Need Order More", kind: "boolean" },
-  ], [["From", from], ["To", to], ["Include Voided", includeVoided ? "Yes" : "No"]], { lineCost: rows.reduce((sum, row) => sum + Number(row.lineCost ?? 0), 0) });
+  ], [["From", from || "All available"], ["To", to || "All available"], ["Include Voided", includeVoided ? "Yes" : "No"]], { lineCost: rows.reduce((sum, row) => sum + Number(row.lineCost ?? 0), 0) });
 }
 
 async function workOrderCosts(sp: URLSearchParams) {

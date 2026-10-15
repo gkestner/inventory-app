@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
+import { Permission } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { prisma } from "@/app/lib/prisma";
 import { ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS } from "@/app/lib/permission-constants";
+import { partsConsumptionQuery } from "@/app/lib/parts-consumption-report";
 
 export const dynamic = "force-dynamic";
 
@@ -21,31 +23,12 @@ type SessionShape = {
   } | null;
 } | null;
 
-function parseDateStart(v: string | undefined): Date | null {
-  const s = String(v ?? "").trim();
-  if (!s) return null;
-  const d = new Date(`${s}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function parseDateEnd(v: string | undefined): Date | null {
-  const s = String(v ?? "").trim();
-  if (!s) return null;
-  const d = new Date(`${s}T23:59:59.999`);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function boolParam(v: string | undefined): boolean {
-  const s = String(v ?? "").trim().toLowerCase();
-  return s === "1" || s === "true" || s === "yes" || s === "on";
-}
-
 async function requireReportAccess() {
   const session = (await getServerSession(authOptions)) as SessionShape;
   if (!session) redirect("/login");
 
   const perms = await loadUserPermissions(session);
-  if (!perms.allowAll && !hasAnyPermission(perms, [ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS])) {
+  if (!perms.allowAll && !hasAnyPermission(perms, [ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS, Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS])) {
     redirect("/");
   }
 }
@@ -58,26 +41,22 @@ export default async function PartsConsumptionCostsReportPage({
   await requireReportAccess();
 
   const sp = (await searchParams) ?? {};
-  const now = new Date();
-  const defaultFrom = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const from = parseDateStart(sp.from) ?? defaultFrom;
-  const to = parseDateEnd(sp.to) ?? now;
-  const includeVoided = boolParam(sp.includeVoided);
+  const { from, to, includeVoided, dateError, where } = partsConsumptionQuery(sp);
   const exportHref = `/api/admin/reports/excel?report=parts-consumption-costs&from=${encodeURIComponent(
-    from.toISOString().slice(0, 10)
-  )}&to=${encodeURIComponent(to.toISOString().slice(0, 10))}&includeVoided=${includeVoided ? "1" : "0"}`;
+    from
+  )}&to=${encodeURIComponent(to)}&includeVoided=${includeVoided ? "1" : "0"}`;
 
-  const rows = await prisma.partsCheckoutTicket.findMany({
-    where: {
-      createdAt: { gte: from, lte: to },
-      ...(includeVoided ? {} : { status: { not: "VOIDED" } }),
-    },
+  const rows = dateError ? [] : await prisma.partsCheckoutTicket.findMany({
+    where,
     orderBy: { createdAt: "desc" },
-    take: 6000,
     select: {
       id: true,
       status: true,
+      storeId: true,
       storeName: true,
+      store: { select: { name: true } },
+      itemId: true,
+      item: { select: { sku: true, partNumber: true, name: true } },
       skuSnapshot: true,
       partNumberSnapshot: true,
       nameSnapshot: true,
@@ -88,23 +67,23 @@ export default async function PartsConsumptionCostsReportPage({
     },
   });
 
-  const byStore = new Map<string, { qty: number; cost: number; lines: number }>();
-  const byItem = new Map<string, { sku: string; partNumber: string; name: string; qty: number; cost: number; lines: number }>();
+  const byStore = new Map<string, { store: string; qty: number; cost: number; lines: number }>();
+  const byItem = new Map<string, { id: string; sku: string; partNumber: string; name: string; qty: number; cost: number; lines: number }>();
 
   for (const row of rows) {
     const estCost = Number(row.costSnapshot ?? 0) * row.quantity;
 
-    const s = byStore.get(row.storeName) ?? { qty: 0, cost: 0, lines: 0 };
+    const s = byStore.get(row.storeId) ?? { store: row.store.name || row.storeName, qty: 0, cost: 0, lines: 0 };
     s.qty += row.quantity;
     s.cost += estCost;
     s.lines += 1;
-    byStore.set(row.storeName, s);
+    byStore.set(row.storeId, s);
 
-    const key = `${row.skuSnapshot}::${row.partNumberSnapshot ?? ""}`;
-    const i = byItem.get(key) ?? {
-      sku: row.skuSnapshot,
-      partNumber: row.partNumberSnapshot ?? "",
-      name: row.nameSnapshot,
+    const i = byItem.get(row.itemId) ?? {
+      id: row.itemId,
+      sku: row.item.sku || row.skuSnapshot,
+      partNumber: row.item.partNumber ?? row.partNumberSnapshot ?? "",
+      name: row.item.name || row.nameSnapshot,
       qty: 0,
       cost: 0,
       lines: 0,
@@ -112,11 +91,10 @@ export default async function PartsConsumptionCostsReportPage({
     i.qty += row.quantity;
     i.cost += estCost;
     i.lines += 1;
-    byItem.set(key, i);
+    byItem.set(row.itemId, i);
   }
 
-  const storeRows = Array.from(byStore.entries())
-    .map(([store, v]) => ({ store, ...v }))
+  const storeRows = Array.from(byStore.entries()).map(([id, value]) => ({ id, ...value }))
     .sort((a, b) => b.cost - a.cost);
 
   const itemRows = Array.from(byItem.values()).sort((a, b) => b.cost - a.cost);
@@ -137,7 +115,7 @@ export default async function PartsConsumptionCostsReportPage({
             </Link>
           </div>
           <p style={{ margin: "8px 0 0", color: "var(--muted)" }}>
-            Estimated spend is calculated as quantity x checkout cost snapshot.
+            All available checkout dates are included when dates are blank. Estimated spend is quantity × checkout cost snapshot. Voided tickets are excluded unless selected.
           </p>
         </section>
 
@@ -145,17 +123,18 @@ export default async function PartsConsumptionCostsReportPage({
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
             <label>
               From
-              <input type="date" name="from" defaultValue={from.toISOString().slice(0, 10)} />
+              <input type="date" name="from" defaultValue={from} />
             </label>
             <label>
               To
-              <input type="date" name="to" defaultValue={to.toISOString().slice(0, 10)} />
+              <input type="date" name="to" defaultValue={to} />
             </label>
             <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <input type="checkbox" name="includeVoided" value="1" defaultChecked={includeVoided} />
               Include voided tickets
             </label>
           </div>
+          {dateError ? <p role="alert" style={{ color: "#b42318", margin: 0 }}>Enter valid dates with From on or before To.</p> : null}
           <button type="submit" style={{ width: 180, padding: "9px 12px", borderRadius: 10, border, fontWeight: 800 }}>
             Run Report
           </button>
@@ -186,7 +165,7 @@ export default async function PartsConsumptionCostsReportPage({
             </thead>
             <tbody>
               {storeRows.map((s) => (
-                <tr key={s.store}>
+                <tr key={s.id}>
                   <td style={{ padding: 10, borderBottom: border, fontWeight: 800 }}>{s.store}</td>
                   <td style={{ padding: 10, borderBottom: border }}>{s.qty}</td>
                   <td style={{ padding: 10, borderBottom: border }}>{s.lines}</td>
@@ -217,8 +196,8 @@ export default async function PartsConsumptionCostsReportPage({
               </tr>
             </thead>
             <tbody>
-              {itemRows.slice(0, 200).map((i) => (
-                <tr key={`${i.sku}::${i.partNumber}`}>
+              {itemRows.map((i) => (
+                <tr key={i.id}>
                   <td style={{ padding: 10, borderBottom: border }}>{i.sku}</td>
                   <td style={{ padding: 10, borderBottom: border }}>{i.partNumber || "-"}</td>
                   <td style={{ padding: 10, borderBottom: border, fontWeight: 800 }}>{i.name}</td>

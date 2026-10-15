@@ -6,6 +6,7 @@ import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { Permission, PartsCheckoutStatus, Prisma, Role } from "@prisma/client";
+import { reportDateRange } from "@/app/lib/report-date-range";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -28,7 +29,19 @@ type SearchParams = {
   quantity?: string;
   from?: string;
   to?: string;
+  page?: string;
 };
+
+const PAGE_SIZE = 100;
+
+function pageHref(sp: SearchParams, page: number) {
+  const params = new URLSearchParams();
+  for (const key of ["q", "status", "storeId", "itemId", "createdByUserId", "needToOrderMore", "quantity", "from", "to"] as const) {
+    if (sp[key]) params.set(key, sp[key]);
+  }
+  params.set("page", String(page));
+  return `/admin/reports/checkout-orders?${params}`;
+}
 
 async function requireReportView() {
   const session = (await getServerSession(authOptions)) as AdminSession;
@@ -71,20 +84,6 @@ function parsePositiveInt(v: string | undefined): number | null {
   return x > 0 ? x : null;
 }
 
-function parseDateStart(v: string | undefined): Date | null {
-  const s = String(v ?? "").trim();
-  if (!s) return null;
-  const d = new Date(`${s}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function parseDateEnd(v: string | undefined): Date | null {
-  const s = String(v ?? "").trim();
-  if (!s) return null;
-  const d = new Date(`${s}T23:59:59.999`);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
 export default async function CheckoutOrdersReportPage({
   searchParams,
 }: {
@@ -101,8 +100,7 @@ export default async function CheckoutOrdersReportPage({
   const createdByUserId = String(sp.createdByUserId ?? "").trim();
   const needToOrderMore = normalizeNeedMore(sp.needToOrderMore);
   const quantity = parsePositiveInt(sp.quantity);
-  const from = parseDateStart(sp.from);
-  const to = parseDateEnd(sp.to);
+  const dateRange = reportDateRange(String(sp.from ?? ""), String(sp.to ?? ""));
   const exportHref = `/api/admin/reports/excel?report=checkout-orders&q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}&storeId=${encodeURIComponent(
     storeId
   )}&itemId=${encodeURIComponent(itemId)}&createdByUserId=${encodeURIComponent(createdByUserId)}&needToOrderMore=${encodeURIComponent(
@@ -119,11 +117,11 @@ export default async function CheckoutOrdersReportPage({
     ...(needToOrderMore === "yes" ? { needToOrderMore: true } : {}),
     ...(needToOrderMore === "no" ? { needToOrderMore: false } : {}),
     ...(quantity ? { quantity } : {}),
-    ...(from || to
+    ...(dateRange.from || dateRange.toExclusive
       ? {
           createdAt: {
-            ...(from ? { gte: from } : {}),
-            ...(to ? { lte: to } : {}),
+            ...(dateRange.from ? { gte: dateRange.from } : {}),
+            ...(dateRange.toExclusive ? { lt: dateRange.toExclusive } : {}),
           },
         }
       : {}),
@@ -146,11 +144,16 @@ export default async function CheckoutOrdersReportPage({
       : {}),
   };
 
+  const totalTickets = dateRange.error ? 0 : await prisma.partsCheckoutTicket.count({ where });
+  const pageCount = Math.ceil(totalTickets / PAGE_SIZE);
+  const requestedPage = Number(sp.page);
+  const page = Math.min(Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1, Math.max(1, pageCount));
   const [tickets, stores, items, users] = await Promise.all([
-    prisma.partsCheckoutTicket.findMany({
+    dateRange.error ? Promise.resolve([]) : prisma.partsCheckoutTicket.findMany({
       where,
-      orderBy: { createdAt: "desc" },
-      take: 500,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
       select: {
         id: true,
         status: true,
@@ -178,8 +181,8 @@ export default async function CheckoutOrdersReportPage({
       },
     }),
     prisma.location.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.item.findMany({ where: { active: true }, orderBy: { sku: "asc" }, select: { id: true, sku: true, name: true } }),
-    prisma.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.item.findMany({ orderBy: { sku: "asc" }, select: { id: true, sku: true, name: true } }),
+    prisma.user.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
 
   const border = "1px solid rgba(128,128,128,0.25)";
@@ -281,9 +284,10 @@ export default async function CheckoutOrdersReportPage({
               Reset
             </Link>
             <div style={{ opacity: 0.8 }}>
-              Results: <b>{tickets.length}</b>
+              Results: <b>{totalTickets.toLocaleString()}</b>{pageCount > 1 ? ` · Page ${page} of ${pageCount}` : ""}
             </div>
           </div>
+          {dateRange.error ? <p role="alert" style={{ color: "#b42318", margin: 0 }}>Enter valid dates with From on or before To.</p> : null}
         </form>
 
         <div style={{ marginTop: 12, border, borderRadius: 10, overflowX: "hidden" }}>
@@ -300,7 +304,7 @@ export default async function CheckoutOrdersReportPage({
             <tbody>
               {tickets.map((t) => (
                 <tr key={t.id} style={{ borderBottom: border }}>
-                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>{new Date(t.createdAt).toLocaleString()}</td>
+                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>{t.createdAt.toLocaleString("en-US", { timeZone: "America/New_York" })}</td>
                   <td style={{ padding: 10, whiteSpace: "nowrap", fontWeight: 800 }}>{getTicketStatusLabel(t)}</td>
                   <td style={{ padding: 10, fontFamily: "monospace", fontSize: 12 }}>{t.id}</td>
                   <td style={{ padding: 10 }}>
@@ -347,6 +351,11 @@ export default async function CheckoutOrdersReportPage({
             </tbody>
           </table>
         </div>
+        {pageCount > 1 ? <nav aria-label="Checkout report pages" style={{ display: "flex", gap: 16, marginTop: 14 }}>
+          {page > 1 ? <Link href={pageHref(sp, page - 1)}>← Previous</Link> : null}
+          <span>Page {page} of {pageCount}</span>
+          {page < pageCount ? <Link href={pageHref(sp, page + 1)}>Next →</Link> : null}
+        </nav> : null}
       </div>
     </main>
   );

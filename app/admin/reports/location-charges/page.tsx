@@ -52,10 +52,13 @@ export default async function LocationChargesReportPage({
   const requestedPage = Number(sp.page);
   const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
 
-  const locations = await prisma.location.findMany({
-    orderBy: [{ name: "asc" }],
-    select: { id: true, name: true, locationNumber: true, active: true },
-  });
+  const [locations, coverage] = await Promise.all([
+    prisma.location.findMany({
+      orderBy: [{ name: "asc" }],
+      select: { id: true, name: true, locationNumber: true, active: true },
+    }),
+    prisma.invoiceLine.aggregate({ _count: { _all: true }, _min: { submittedAt: true } }),
+  ]);
   const locationError = Boolean(locationId && !locations.some((location) => location.id === locationId));
 
   const [totals, lines] = dateError || locationError
@@ -96,7 +99,12 @@ export default async function LocationChargesReportPage({
         </div>
         <p style={{ color: "var(--muted)", marginBottom: 0 }}>
           Invoice line items, including checkout parts and manual entries. Dates filter the original checkout or manual entry date.
-          Draft invoices are pending; voided invoices are excluded by default.
+          Draft invoices are pending; voided invoices are excluded by default. Checkouts without an invoice line appear in the checkout report instead.
+        </p>
+        <p style={{ color: "var(--muted)", marginBottom: 0 }}>
+          Available charge history: {coverage._count._all.toLocaleString()} lines
+          {coverage._min.submittedAt ? ` since ${new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", dateStyle: "medium" }).format(coverage._min.submittedAt)}` : ""}.
+          {" "}<Link href="/admin/reports/parts-checkout-by-location">View checkout history</Link>
         </p>
       </section>
 
@@ -165,7 +173,7 @@ export default async function LocationChargesReportPage({
           <tbody>
             {lines.map((line) => (
               <tr key={line.id}>
-                <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{line.submittedAt.toLocaleDateString("en-US")}</td>
+                <td style={{ padding: 10, borderBottom: border, whiteSpace: "nowrap" }}>{line.submittedAt.toLocaleDateString("en-US", { timeZone: "America/New_York" })}</td>
                 <td style={{ padding: 10, borderBottom: border }}>{line.invoice.storeNumber ? `${line.invoice.storeNumber} — ` : ""}{line.invoice.storeName}</td>
                 <td style={{ padding: 10, borderBottom: border, fontWeight: 700 }}>{line.name}</td>
                 <td style={{ padding: 10, borderBottom: border }}>{line.sku || "—"}<br />{line.partNumber || "—"}</td>
