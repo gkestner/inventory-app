@@ -22,6 +22,8 @@ type Props = {
   items: ItemLite[];
   defaultId?: string;
   defaultItemId?: string;
+  defaultQuery?: string;
+  unselectedQueryName?: string;
   autoFocus?: boolean;
   placeholder?: string;
   inputMode?: InputHTMLAttributes<HTMLInputElement>["inputMode"];
@@ -43,7 +45,7 @@ function normalize(s: string): string {
 function tokenize(q: string): string[] {
   const n = normalize(q).trim().replace(/\s+/g, " ");
   if (!n) return [];
-  return n.split(/[ \-]+/g).filter((t) => t.length >= 2);
+  return n.split(/[ \-]+/g).filter(Boolean);
 }
 
 function label(it: ItemLite): string {
@@ -101,6 +103,8 @@ export default function ItemPicker({
   items,
   defaultId,
   defaultItemId,
+  defaultQuery = "",
+  unselectedQueryName,
   autoFocus = false,
   placeholder = "Search item #, ID, SKU, part #, name, category, manufacturer…",
   inputMode,
@@ -123,7 +127,7 @@ export default function ItemPicker({
   }, [initialId, items]);
 
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState<string>(() => (defaultItem ? label(defaultItem) : ""));
+  const [query, setQuery] = useState<string>(() => (defaultItem ? label(defaultItem) : defaultQuery));
   const [selectedId, setSelectedId] = useState<string>(() => defaultItem?.id ?? "");
   const [manualEntryEnabled, setManualEntryEnabled] = useState(() => !requireExplicitManualEntry);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -135,14 +139,14 @@ export default function ItemPicker({
     if (!defaultItem) {
       if (initialId === "") {
         setSelectedId("");
-        setQuery("");
+        setQuery(defaultQuery);
       }
       return;
     }
 
     setSelectedId(defaultItem.id);
     setQuery(label(defaultItem));
-  }, [defaultItem, initialId]);
+  }, [defaultItem, defaultQuery, initialId]);
 
   const filtered = useMemo(() => {
     const toks = tokenize(query);
@@ -419,6 +423,7 @@ export default function ItemPicker({
   return (
     <div ref={rootRef} style={{ width: "100%", ...style }}>
       <input type="hidden" name={name} value={selectedId} />
+      {unselectedQueryName ? <input type="hidden" name={unselectedQueryName} value={selectedId ? "" : query.trim()} /> : null}
 
       <div style={{ display: "grid", gap: 8 }}>
         <input

@@ -8,6 +8,8 @@ import { prisma } from "@/app/lib/prisma";
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { Permission, Role } from "@prisma/client";
+import { reportItemOptions } from "@/app/lib/report-item-options";
+import ItemPicker from "@/app/admin/inventory-orders/ItemPicker";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -248,7 +250,7 @@ export default async function AdminItemCostHistoryReportPage({ searchParams }: {
   };
 
   // Base item query (bounded; can filter by itemId and paginate)
-  const itemWhere: { active: true; id?: string } = { active: true };
+  const itemWhere: { id?: string } = {};
   if (itemId) itemWhere.id = itemId;
 
   const [itemsTotal, items, itemOptions] = await Promise.all([
@@ -260,12 +262,7 @@ export default async function AdminItemCostHistoryReportPage({ searchParams }: {
       take: perPage,
       select: { id: true, sku: true, partNumber: true, name: true, cost: true },
     }),
-    prisma.item.findMany({
-      where: { active: true },
-      orderBy: { sku: "asc" },
-      select: { id: true, sku: true, partNumber: true, name: true },
-      take: 500,
-    }),
+    reportItemOptions(),
   ]);
 
   const pageCount = Math.max(1, Math.ceil(itemsTotal / perPage));
@@ -441,15 +438,7 @@ export default async function AdminItemCostHistoryReportPage({ searchParams }: {
             <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "end" }}>
               <label style={{ ...controlLabel, flex: "2 1 520px", minWidth: 260 }}>
                 Item (optional)
-                <select name="itemId" defaultValue={itemId} style={controlBase}>
-                  <option value="">All active items</option>
-                  {itemOptions.map((it) => (
-                    <option key={it.id} value={it.id}>
-                      {it.sku}
-                      {it.partNumber ? ` • ${it.partNumber}` : ""} • {it.name}
-                    </option>
-                  ))}
-                </select>
+                <ItemPicker items={itemOptions} defaultId={itemId} placeholder="Type part of an item #, SKU, part #, or name…" inputStyle={controlBase} />
               </label>
 
               <label style={{ ...controlLabel, flex: "1 1 240px", minWidth: 200 }}>

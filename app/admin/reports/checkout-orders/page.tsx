@@ -7,6 +7,8 @@ import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { Permission, PartsCheckoutStatus, Prisma, Role } from "@prisma/client";
 import { reportDateRange } from "@/app/lib/report-date-range";
+import { reportItemOptions } from "@/app/lib/report-item-options";
+import ItemPicker from "@/app/admin/inventory-orders/ItemPicker";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -181,7 +183,7 @@ export default async function CheckoutOrdersReportPage({
       },
     }),
     prisma.location.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.item.findMany({ orderBy: { sku: "asc" }, select: { id: true, sku: true, name: true } }),
+    reportItemOptions(),
     prisma.user.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
 
@@ -247,14 +249,9 @@ export default async function CheckoutOrdersReportPage({
               ))}
             </select>
 
-            <select name="itemId" defaultValue={itemId} style={{ padding: "10px 12px", borderRadius: 10, border }}>
-              <option value="">All Items</option>
-              {items.map((i) => (
-                <option key={i.id} value={i.id}>
-                  {i.sku} - {i.name}
-                </option>
-              ))}
-            </select>
+            <label style={{ display: "grid", gap: 5 }}>Item
+              <ItemPicker items={items} defaultId={itemId} placeholder="Type part of an item #, SKU, part #, or name…" />
+            </label>
 
             <select name="createdByUserId" defaultValue={createdByUserId} style={{ padding: "10px 12px", borderRadius: 10, border }}>
               <option value="">All Created By</option>

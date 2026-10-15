@@ -8,12 +8,15 @@ import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { prisma } from "@/app/lib/prisma";
 import { ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS } from "@/app/lib/permission-constants";
 import { partsConsumptionQuery } from "@/app/lib/parts-consumption-report";
+import { reportItemOptions } from "@/app/lib/report-item-options";
+import ItemPicker from "@/app/admin/inventory-orders/ItemPicker";
 
 export const dynamic = "force-dynamic";
 
 type SearchParams = {
   from?: string;
   to?: string;
+  itemId?: string;
   includeVoided?: string;
 };
 
@@ -41,10 +44,12 @@ export default async function PartsConsumptionCostsReportPage({
   await requireReportAccess();
 
   const sp = (await searchParams) ?? {};
-  const { from, to, includeVoided, dateError, where } = partsConsumptionQuery(sp);
+  const { from, to, itemId, includeVoided, dateError, where } = partsConsumptionQuery(sp);
   const exportHref = `/api/admin/reports/excel?report=parts-consumption-costs&from=${encodeURIComponent(
     from
-  )}&to=${encodeURIComponent(to)}&includeVoided=${includeVoided ? "1" : "0"}`;
+  )}&to=${encodeURIComponent(to)}&itemId=${encodeURIComponent(itemId)}&includeVoided=${includeVoided ? "1" : "0"}`;
+
+  const itemOptions = await reportItemOptions();
 
   const rows = dateError ? [] : await prisma.partsCheckoutTicket.findMany({
     where,
@@ -121,6 +126,10 @@ export default async function PartsConsumptionCostsReportPage({
 
         <form method="get" style={{ border, borderRadius: 14, background: "var(--surface)", padding: 12, display: "grid", gap: 10 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+            <label style={{ display: "grid", gap: 5 }}>
+              Item
+              <ItemPicker items={itemOptions} defaultId={itemId} placeholder="Type part of an item #, SKU, part #, or name…" />
+            </label>
             <label>
               From
               <input type="date" name="from" defaultValue={from} />

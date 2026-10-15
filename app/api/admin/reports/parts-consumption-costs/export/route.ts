@@ -5,6 +5,7 @@ import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { prisma } from "@/app/lib/prisma";
 import { ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS } from "@/app/lib/permission-constants";
+import { partsConsumptionQuery } from "@/app/lib/parts-consumption-report";
 
 export const dynamic = "force-dynamic";
 
@@ -13,25 +14,6 @@ function csvEscape(v: unknown): string {
   const s = String(v);
   if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
-}
-
-function parseDateStart(v: string | null): Date | null {
-  const s = String(v ?? "").trim();
-  if (!s) return null;
-  const d = new Date(`${s}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function parseDateEnd(v: string | null): Date | null {
-  const s = String(v ?? "").trim();
-  if (!s) return null;
-  const d = new Date(`${s}T23:59:59.999`);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function boolParam(v: string | null): boolean {
-  const s = String(v ?? "").trim().toLowerCase();
-  return s === "1" || s === "true" || s === "yes" || s === "on";
 }
 
 export async function GET(req: NextRequest) {
@@ -44,19 +26,14 @@ export async function GET(req: NextRequest) {
   }
 
   const sp = new URL(req.url).searchParams;
-  const now = new Date();
-  const defaultFrom = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const from = parseDateStart(sp.get("from")) ?? defaultFrom;
-  const to = parseDateEnd(sp.get("to")) ?? now;
-  const includeVoided = boolParam(sp.get("includeVoided"));
+  const { dateError, where } = partsConsumptionQuery({
+    from: sp.get("from"), to: sp.get("to"), itemId: sp.get("itemId"), includeVoided: sp.get("includeVoided"),
+  });
+  if (dateError) return new Response("Invalid date range", { status: 400 });
 
   const rows = await prisma.partsCheckoutTicket.findMany({
-    where: {
-      createdAt: { gte: from, lte: to },
-      ...(includeVoided ? {} : { status: { not: "VOIDED" } }),
-    },
+    where,
     orderBy: { createdAt: "desc" },
-    take: 10000,
     select: {
       id: true,
       status: true,

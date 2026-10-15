@@ -665,8 +665,8 @@ async function partsCheckoutByLocation(sp: URLSearchParams) {
 }
 
 async function partsConsumption(sp: URLSearchParams) {
-  const { from, to, includeVoided, dateError, where } = partsConsumptionQuery({
-    from: sp.get("from"), to: sp.get("to"), includeVoided: sp.get("includeVoided"),
+  const { from, to, itemId, includeVoided, dateError, where } = partsConsumptionQuery({
+    from: sp.get("from"), to: sp.get("to"), itemId: sp.get("itemId"), includeVoided: sp.get("includeVoided"),
   });
   if (dateError) return new Response("Invalid date range", { status: 400 });
   const tickets = await prisma.partsCheckoutTicket.findMany({
@@ -701,7 +701,7 @@ async function partsConsumption(sp: URLSearchParams) {
     { key: "cost", header: "Cost", kind: "currency" },
     { key: "lineCost", header: "Line Cost", kind: "currency" },
     { key: "needToOrderMore", header: "Need Order More", kind: "boolean" },
-  ], [["From", from || "All available"], ["To", to || "All available"], ["Include Voided", includeVoided ? "Yes" : "No"]], { lineCost: rows.reduce((sum, row) => sum + Number(row.lineCost ?? 0), 0) });
+  ], [["From", from || "All available"], ["To", to || "All available"], ["Item ID", itemId || "All"], ["Include Voided", includeVoided ? "Yes" : "No"]], { lineCost: rows.reduce((sum, row) => sum + Number(row.lineCost ?? 0), 0) });
 }
 
 async function workOrderCosts(sp: URLSearchParams) {

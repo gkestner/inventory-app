@@ -8,6 +8,8 @@ import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS } from "@/app/lib/permission-constants";
 import { prisma } from "@/app/lib/prisma";
 import { partsCheckoutLocationReport, type PartsLocationFilters } from "@/app/lib/parts-checkout-location-report";
+import { reportItemOptions } from "@/app/lib/report-item-options";
+import ItemPicker from "@/app/admin/inventory-orders/ItemPicker";
 
 export const dynamic = "force-dynamic";
 
@@ -39,17 +41,13 @@ export default async function PartsCheckoutByLocationPage({
     ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS, Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS,
   ])) redirect("/");
 
-  const [report, coverage, voidedCount] = await Promise.all([
+  const [report, coverage, voidedCount, items] = await Promise.all([
     partsCheckoutLocationReport((await searchParams) ?? {}),
     prisma.partsCheckoutTicket.aggregate({ _count: { _all: true }, _min: { createdAt: true } }),
     prisma.partsCheckoutTicket.count({ where: { status: "VOIDED" } }),
+    reportItemOptions(),
   ]);
-  const selectedItem = report.filters.itemId
-    ? await prisma.item.findUnique({
-        where: { id: report.filters.itemId },
-        select: { id: true, name: true, sku: true, partNumber: true },
-      })
-    : null;
+  const selectedItem = items.find((item) => item.id === report.filters.itemId);
   const invalidItem = Boolean(report.filters.itemId && !selectedItem);
 
   return (
@@ -81,25 +79,22 @@ export default async function PartsCheckoutByLocationPage({
           <label style={{ display: "grid", gap: 5 }}>Item category contains
             <input type="search" name="category" defaultValue={report.filters.category} placeholder="Type any part of a category" style={{ padding: 9, borderRadius: 8, border }} />
           </label>
-          {selectedItem ? (
-            <div style={{ display: "grid", gap: 5 }}>
-              <span>Selected item</span>
-              <strong>{selectedItem.name} ({selectedItem.partNumber || selectedItem.sku})</strong>
-              <input type="hidden" name="itemId" value={selectedItem.id} />
-              <Link href={reportLink(report.filters)}>Clear item selection</Link>
-            </div>
-          ) : (
-            <label style={{ display: "grid", gap: 5 }}>Item search
-              <input type="search" name="q" defaultValue={report.filters.q} placeholder="Item #, SKU, part #, name, description…" style={{ padding: 9, borderRadius: 8, border }} />
-            </label>
-          )}
+          <label style={{ display: "grid", gap: 5 }}>Item
+            <ItemPicker
+              items={items}
+              defaultId={report.filters.itemId}
+              defaultQuery={report.filters.q}
+              unselectedQueryName="q"
+              placeholder="Type part of an item #, SKU, part #, or name…"
+            />
+          </label>
         </div>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <button type="submit" style={{ padding: "9px 16px", borderRadius: 8, border, fontWeight: 800 }}>Run Report</button>
           <Link href="/admin/reports/parts-checkout-by-location">Clear all filters</Link>
         </div>
         {report.dateError ? <p role="alert" style={{ color: "#b42318", margin: 0 }}>{report.dateError}</p> : null}
-        {invalidItem ? <p role="alert" style={{ color: "#b42318", margin: 0 }}>The selected item no longer exists. Clear the selection to search again.</p> : null}
+        {invalidItem ? <p role="alert" style={{ color: "#b42318", margin: 0 }}>The selected item no longer exists. Type to choose another item.</p> : null}
       </form>
 
       <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
@@ -135,7 +130,7 @@ export default async function PartsCheckoutByLocationPage({
 
       <section style={{ border, borderRadius: 14, background: "var(--surface)", overflowX: "auto" }}>
         <h2 style={{ padding: 14, margin: 0 }}>Items by location</h2>
-        <p style={{ padding: "0 14px", color: "var(--muted)" }}>Search to find matching items, then choose Select item to see that item alone.</p>
+        <p style={{ padding: "0 14px", color: "var(--muted)" }}>Type in the Item box and choose a match to see that item alone.</p>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>{["Location", "Item #", "SKU", "Part #", "Item", "Category", "Parts checked out", "Tickets", ""].map((heading) => <th key={heading} style={cell}>{heading}</th>)}</tr></thead>
           <tbody>
