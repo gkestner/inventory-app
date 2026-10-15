@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { Permission, PartsCheckoutStatus, Prisma } from "@prisma/client";
 
 import { authOptions } from "@/app/lib/auth";
-import { excelResponse } from "@/app/lib/excel-export";
+import { renderReportExport, type ReportWorkbook } from "@/app/lib/report-export";
 import { getInventoryDemandRecommendations } from "@/app/lib/inventory-demand";
 import { parseSkuRoomParts } from "@/app/lib/item-sku";
 import { computeAverageResolutionHours } from "@/app/lib/maintenance-requests";
@@ -22,6 +22,8 @@ import {
 } from "@/app/lib/permission-constants";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { prisma } from "@/app/lib/prisma";
+import { locationChargesQuery } from "@/app/lib/location-charges-report";
+import { partsCheckoutLocationReport } from "@/app/lib/parts-checkout-location-report";
 import { getScannerCountReportPreferences } from "@/app/lib/scanner-count-report";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +38,8 @@ type SessionShape = {
 
 const REPORT_PERMISSIONS: Record<string, Permission[]> = {
   "checkout-orders": [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS],
+  "location-charges": [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS],
+  "parts-checkout-by-location": [ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS, Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS],
   "items-not-checked-out": [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS],
   "needs-ordering": [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS],
   "min-qty-differences": [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS],
@@ -132,20 +136,8 @@ function formatScannerLocation(sku: string): string {
   return `${location} / Shelf ${prettyCode(room.shelf)} / Bin ${prettyCode(room.bin)}`;
 }
 
-function exportWorkbook(filename: string, title: string, rows: Row[], columns: Array<{ key: string; header: string; kind?: "text" | "number" | "currency" | "date" | "datetime" | "boolean"; width?: number }>, metadata?: Array<[string, ExcelValue]>, totals?: Partial<Record<string, ExcelValue>>) {
-  return excelResponse({
-    filename,
-    sheets: [
-      {
-        name: title,
-        title,
-        columns,
-        rows,
-        metadata: [["Rows", rows.length], ...(metadata ?? [])],
-        totals,
-      },
-    ],
-  });
+function exportWorkbook(filename: string, title: string, rows: Row[], columns: Array<{ key: string; header: string; kind?: "text" | "number" | "currency" | "date" | "datetime" | "boolean"; width?: number }>, metadata?: Array<[string, ExcelValue]>, totals?: Partial<Record<string, ExcelValue>>): ReportWorkbook {
+  return { filename, title, rows, columns, metadata: [["Rows", rows.length], ...(metadata ?? [])], totals };
 }
 
 async function requireReportAccess(report: string) {
@@ -268,6 +260,64 @@ async function checkoutOrders(sp: URLSearchParams) {
     [["Search", q], ["Status", status]],
     { lineCost: rows.reduce((sum, row) => sum + Number(row.lineCost ?? 0), 0) }
   );
+}
+
+async function locationCharges(sp: URLSearchParams) {
+  const { locationId, fromRaw, toRaw, q, status, dateError, where } = locationChargesQuery({
+    locationId: sp.get("locationId") ?? "", from: sp.get("from") ?? "", to: sp.get("to") ?? "",
+    q: sp.get("q") ?? "", status: sp.get("status") ?? "active",
+  });
+  if (locationId && !(await prisma.location.findUnique({ where: { id: locationId }, select: { id: true } }))) {
+    return new Response("Unknown location", { status: 400 });
+  }
+  if (dateError) {
+    return new Response("Invalid date range", { status: 400 });
+  }
+  const lines = await prisma.invoiceLine.findMany({
+    where,
+    orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
+    select: {
+      id: true, submittedAt: true, sku: true, partNumber: true, name: true,
+      quantity: true, unitPrice: true, lineSubtotal: true, lineTax: true, lineTotal: true,
+      checkoutId: true,
+      invoice: { select: { id: true, storeName: true, storeNumber: true, vendor: true, status: true } },
+    },
+  });
+  const rows = lines.map((line) => ({
+    chargeDate: line.submittedAt,
+    location: `${line.invoice.storeNumber ? `${line.invoice.storeNumber} — ` : ""}${line.invoice.storeName}`,
+    item: line.name,
+    sku: line.sku,
+    partNumber: line.partNumber,
+    source: line.checkoutId ? "Checkout" : "Manual",
+    status: line.invoice.status,
+    quantity: line.quantity,
+    unitPrice: toNumber(line.unitPrice),
+    subtotal: toNumber(line.lineSubtotal),
+    tax: toNumber(line.lineTax),
+    total: toNumber(line.lineTotal),
+    invoiceId: line.invoice.id,
+  }));
+  return exportWorkbook(`location-charges_${fileStamp()}`, "Items Charged to Locations", rows, [
+    { key: "chargeDate", header: "Charge Date", kind: "date" },
+    { key: "location", header: "Location", width: 190 },
+    { key: "item", header: "Item", width: 240 },
+    { key: "sku", header: "SKU" },
+    { key: "partNumber", header: "Part Number" },
+    { key: "source", header: "Source" },
+    { key: "status", header: "Status" },
+    { key: "quantity", header: "Qty", kind: "number" },
+    { key: "unitPrice", header: "Unit Price", kind: "currency" },
+    { key: "subtotal", header: "Subtotal", kind: "currency" },
+    { key: "tax", header: "Tax", kind: "currency" },
+    { key: "total", header: "Total", kind: "currency" },
+    { key: "invoiceId", header: "Invoice ID", width: 210 },
+  ], [["Location ID", locationId || "All"], ["From", fromRaw], ["To", toRaw], ["Status", status], ["Search", q]], {
+    quantity: rows.reduce((sum, row) => sum + row.quantity, 0),
+    subtotal: rows.reduce((sum, row) => sum + row.subtotal, 0),
+    tax: rows.reduce((sum, row) => sum + row.tax, 0),
+    total: rows.reduce((sum, row) => sum + row.total, 0),
+  });
 }
 
 async function itemsNotCheckedOut(sp: URLSearchParams) {
@@ -564,6 +614,50 @@ async function minQtyDifferences(sp: URLSearchParams) {
     { key: "delta", header: "Delta", kind: "number" },
     { key: "webUrl", header: "Web URL", width: 260 },
   ], [["Search", query], ["Forecast Window", forecastLabel]]);
+}
+
+async function partsCheckoutByLocation(sp: URLSearchParams) {
+  const report = await partsCheckoutLocationReport({
+    itemId: sp.get("itemId") ?? "",
+    q: sp.get("q") ?? "",
+    category: sp.get("category") ?? "",
+    from: sp.get("from") ?? "",
+    to: sp.get("to") ?? "",
+  });
+  if (report.dateError) return new Response(report.dateError, { status: 400 });
+  const rows = report.rows.map((row) => ({
+    location: row.location,
+    locationNumber: row.locationNumber,
+    labelNumber: row.labelNumber,
+    sku: row.sku,
+    partNumber: row.partNumber,
+    item: row.item,
+    category: row.category,
+    quantity: row.quantity,
+    tickets: row.tickets,
+  }));
+  for (const total of report.locationTotals) {
+    rows.push({
+      location: `${total.location} TOTAL`, locationNumber: total.locationNumber,
+      labelNumber: null, sku: "", partNumber: null, item: "", category: null,
+      quantity: total.quantity, tickets: total.tickets,
+    });
+  }
+  return exportWorkbook(`parts-checkout-by-location_${fileStamp()}`, "Parts Checked Out by Location", rows, [
+    { key: "locationNumber", header: "Location #" },
+    { key: "location", header: "Location" },
+    { key: "labelNumber", header: "Item #", kind: "number" },
+    { key: "sku", header: "SKU" },
+    { key: "partNumber", header: "Part #" },
+    { key: "item", header: "Item", width: 240 },
+    { key: "category", header: "Category" },
+    { key: "quantity", header: "Parts Checked Out", kind: "number" },
+    { key: "tickets", header: "Tickets", kind: "number" },
+  ], [
+    ["From", report.filters.from || "All"], ["To", report.filters.to || "All"],
+    ["Item search", report.filters.q || "All"], ["Category", report.filters.category || "All"],
+    ["Selected item ID", report.filters.itemId || "All"],
+  ], { quantity: report.totalQuantity, tickets: report.totalTickets });
 }
 
 async function partsConsumption(sp: URLSearchParams) {
@@ -1060,9 +1154,14 @@ export async function GET(req: NextRequest) {
   const accessError = await requireReportAccess(report);
   if (accessError) return accessError;
 
+  const workbook = await (async () => {
   switch (report) {
     case "checkout-orders":
       return checkoutOrders(url.searchParams);
+    case "location-charges":
+      return locationCharges(url.searchParams);
+    case "parts-checkout-by-location":
+      return partsCheckoutByLocation(url.searchParams);
     case "items-not-checked-out":
       return itemsNotCheckedOut(url.searchParams);
     case "needs-ordering":
@@ -1098,4 +1197,9 @@ export async function GET(req: NextRequest) {
     default:
       return new Response("Unknown report", { status: 404 });
   }
+  })();
+  if (workbook instanceof Response) return workbook;
+  const format = String(url.searchParams.get("format") ?? "excel").toLowerCase();
+  if (!["excel", "csv", "pdf"].includes(format)) return new Response("Unknown export format", { status: 400 });
+  return renderReportExport(workbook, format);
 }

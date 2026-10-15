@@ -966,16 +966,16 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
       redirect("/admin/invoices?err=The last generated invoice batch no longer exists.");
     }
 
-    const manualInvoiceIds = existingInvoices
-      .filter((invoice) => invoice.lines.length > 0 && invoice.lines.every((line) => line.checkoutId === null))
+    const invoicesWithManualLines = existingInvoices
+      .filter((invoice) => invoice.lines.some((line) => line.checkoutId === null))
       .map((invoice) => invoice.id);
-    const generatedInvoiceIds = existingInvoices
-      .filter((invoice) => !manualInvoiceIds.includes(invoice.id))
+    const inventoryOnlyInvoiceIds = existingInvoices
+      .filter((invoice) => !invoicesWithManualLines.includes(invoice.id))
       .map((invoice) => invoice.id);
 
     await prisma.$transaction(async (tx: TxClient) => {
       await tx.partsCheckoutTicket.updateMany({
-        where: { invoiceId: { in: generatedInvoiceIds } },
+        where: { invoiceId: { in: ids } },
         data: {
           status: PartsCheckoutStatus.OPEN,
           invoiceId: null,
@@ -984,17 +984,38 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
       });
 
       await tx.invoiceLine.deleteMany({
-        where: { invoiceId: { in: generatedInvoiceIds } },
+        where: {
+          OR: [
+            { invoiceId: { in: inventoryOnlyInvoiceIds } },
+            { invoiceId: { in: invoicesWithManualLines }, checkoutId: { not: null } },
+          ],
+        },
       });
 
       await tx.invoice.deleteMany({
-        where: { id: { in: generatedInvoiceIds } },
+        where: { id: { in: inventoryOnlyInvoiceIds } },
       });
 
-      await tx.invoice.updateMany({
-        where: { id: { in: manualInvoiceIds } },
-        data: { status: InvoiceStatus.DRAFT, issuedAt: null },
-      });
+      for (const invoiceId of invoicesWithManualLines) {
+        const manualLines = await tx.invoiceLine.findMany({
+          where: { invoiceId, checkoutId: null },
+          select: { lineSubtotal: true, lineTax: true, lineTotal: true },
+        });
+        const subtotalCents = manualLines.reduce((sum, line) => sum + Math.round(Number(line.lineSubtotal) * 100), 0);
+        const taxCents = manualLines.reduce((sum, line) => sum + Math.round(Number(line.lineTax) * 100), 0);
+        const totalCents = manualLines.reduce((sum, line) => sum + Math.round(Number(line.lineTotal) * 100), 0);
+
+        await tx.invoice.update({
+          where: { id: invoiceId },
+          data: {
+            status: InvoiceStatus.DRAFT,
+            issuedAt: null,
+            subtotal: subtotalCents / 100,
+            taxTotal: taxCents / 100,
+            total: totalCents / 100,
+          },
+        });
+      }
     });
 
     cookieStore.delete(LAST_INVOICE_BATCH_COOKIE);
@@ -1614,7 +1635,7 @@ export default async function AdminInvoicesPage({ searchParams }: { searchParams
               </div>
 
               <div style={{ fontSize: 12, opacity: 0.8 }}>
-                Submitted checkouts and manual invoices are immediately ready. Leave dates blank to generate from <b>all pending entries</b>, or set dates to filter the window. Inventory tickets are combined into <b>one invoice per store</b>; each manual invoice keeps its entered lines, dates, and billing details. Batch printing marks them <b>ISSUED</b>.
+                Submitted checkouts and manual invoices are immediately ready. Leave dates blank to generate from <b>all pending entries</b>, or set dates to filter the window. Entries for the same store and vendor are combined. Manual lines keep their stored line tax while inventory lines use the configured vendor tax, so manual charges are not taxed twice. Batch printing marks them <b>ISSUED</b>.
               </div>
             </form>
           </div>

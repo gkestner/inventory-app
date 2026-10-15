@@ -133,7 +133,7 @@ export default function ManualInvoiceForm({
           </label>
 
           <label>
-            Invoice company
+            Invoice vendor
             <select name="vendor" value={vendor} onChange={(event) => setVendor(event.target.value as VendorTaxRate["vendor"])}>
               <option value="SUCCESS_PLUS">Success Plus</option>
               <option value="AMERICAN_PLUS">American Plus</option>
@@ -171,7 +171,7 @@ export default function ManualInvoiceForm({
         <div className="manual-invoice-section-heading">
           <div>
             <h2>Line items</h2>
-            <p>These descriptions do not need to exist in inventory. Automatic tax uses the current {vendor === "SUCCESS_PLUS" ? "Success Plus" : "American Plus"} tax setting ({taxRate}%). Submitting adds this invoice to the pending generation list.</p>
+            <p>These descriptions do not need to exist in inventory. Automatic tax uses the current {vendor === "SUCCESS_PLUS" ? "Success Plus" : "American Plus"} tax setting ({taxRate}%). When generated with checked-out parts for the same store and vendor, each line keeps its own tax and the manual lines are not taxed again.</p>
           </div>
           <button type="button" className="manual-invoice-secondary" onClick={addLine} disabled={lines.length >= 50}>
             + Add line

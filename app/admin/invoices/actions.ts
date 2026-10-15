@@ -598,7 +598,7 @@ export async function createInvoicesForWindow(args: {
     },
     orderBy: [{ createdAt: "asc" }, { storeName: "asc" }],
     take: 5000,
-    select: { id: true, storeId: true },
+    select: { id: true, storeId: true, vendor: true },
   });
 
   const manualResults = pendingManualInvoices.map((invoice) => ({
@@ -646,10 +646,6 @@ export async function createInvoicesForWindow(args: {
     requestedVendor === InvoiceVendor.AMERICAN_PLUS
       ? ticketsAll.filter((t) => effectiveTicketVendor(t) === InvoiceVendor.AMERICAN_PLUS)
       : ticketsAll;
-
-  if (tickets.length === 0) {
-    return { results: manualResults };
-  }
 
   // Group by (storeId, effectiveVendor)
   type Ticket = (typeof tickets)[number];
@@ -912,6 +908,128 @@ export async function createInvoicesForWindow(args: {
         ? `Invoice generation was rolled back. ${details}`
         : `Invoice generation was rolled back because ${failures.length} store groups failed. ${details}`
     );
+  }
+
+  // Consolidate manual drafts with inventory-generated invoices for the same
+  // store and vendor. Manual line taxes are never recalculated here: their
+  // stored lineTax values are summed alongside the separately calculated
+  // inventory taxes, preventing the manual charge from being taxed twice.
+  if (pendingManualInvoices.length > 0) {
+    const replacementInvoiceIds = new Map<string, string>();
+
+    try {
+      const generatedInvoices =
+        successfulInvoiceIds.length > 0
+          ? await prisma.invoice.findMany({
+              where: { id: { in: successfulInvoiceIds } },
+              select: { id: true, storeId: true, vendor: true },
+            })
+          : [];
+
+      const generatedByStoreVendor = new Map<string, string[]>();
+      for (const invoice of generatedInvoices) {
+        const key = `${invoice.storeId}::${invoice.vendor}`;
+        const ids = generatedByStoreVendor.get(key) ?? [];
+        ids.push(invoice.id);
+        generatedByStoreVendor.set(key, ids);
+      }
+
+      const manualByStoreVendor = new Map<string, typeof pendingManualInvoices>();
+      for (const invoice of pendingManualInvoices) {
+        const key = `${invoice.storeId}::${invoice.vendor}`;
+        const invoices = manualByStoreVendor.get(key) ?? [];
+        invoices.push(invoice);
+        manualByStoreVendor.set(key, invoices);
+      }
+
+      await prisma.$transaction(
+        async (tx) => {
+          for (const [key, manualInvoices] of manualByStoreVendor.entries()) {
+            const baseInvoice = manualInvoices[0];
+            const extraManualIds = manualInvoices.slice(1).map((invoice) => invoice.id);
+            const generatedIds = generatedByStoreVendor.get(key) ?? [];
+            const absorbedIds = [...extraManualIds, ...generatedIds];
+
+            if (absorbedIds.length > 0) {
+              await tx.invoiceLine.updateMany({
+                where: { invoiceId: { in: absorbedIds } },
+                data: { invoiceId: baseInvoice.id },
+              });
+
+              if (generatedIds.length > 0) {
+                await tx.partsCheckoutTicket.updateMany({
+                  where: { invoiceId: { in: generatedIds } },
+                  data: { invoiceId: baseInvoice.id },
+                });
+              }
+
+              await tx.invoice.deleteMany({ where: { id: { in: absorbedIds } } });
+            }
+
+            const combinedLines = await tx.invoiceLine.findMany({
+              where: { invoiceId: baseInvoice.id },
+              select: { lineSubtotal: true, lineTax: true, lineTotal: true },
+            });
+            const combinedSubtotalCents = combinedLines.reduce(
+              (sum, line) => sum + toCents(Number(line.lineSubtotal)),
+              0,
+            );
+            const combinedTaxCents = combinedLines.reduce(
+              (sum, line) => sum + toCents(Number(line.lineTax)),
+              0,
+            );
+            const combinedTotalCents = combinedLines.reduce(
+              (sum, line) => sum + toCents(Number(line.lineTotal)),
+              0,
+            );
+
+            await tx.invoice.update({
+              where: { id: baseInvoice.id },
+              data: {
+                subtotal: fromCents(combinedSubtotalCents),
+                taxTotal: fromCents(combinedTaxCents),
+                total: fromCents(combinedTotalCents),
+              },
+            });
+
+            replacementInvoiceIds.set(baseInvoice.id, baseInvoice.id);
+            for (const absorbedId of absorbedIds) {
+              replacementInvoiceIds.set(absorbedId, baseInvoice.id);
+            }
+          }
+        },
+        { timeout: 30000 },
+      );
+    } catch (error) {
+      // Consolidation is transactional, so manual drafts remain untouched if it
+      // fails. Reopen and remove only the inventory invoices created above.
+      if (successfulInvoiceIds.length > 0) {
+        await prisma.$transaction(async (tx) => {
+          await tx.partsCheckoutTicket.updateMany({
+            where: { invoiceId: { in: successfulInvoiceIds } },
+            data: { status: PartsCheckoutStatus.OPEN, invoiceId: null, invoicedAt: null },
+          });
+          await tx.invoiceLine.deleteMany({ where: { invoiceId: { in: successfulInvoiceIds } } });
+          await tx.invoice.deleteMany({ where: { id: { in: successfulInvoiceIds } } });
+        });
+      }
+      throw error;
+    }
+
+    const consolidatedResults: typeof results = [];
+    const seenInvoiceIds = new Set<string>();
+    for (const result of results) {
+      if (!result.invoiceId) {
+        consolidatedResults.push(result);
+        continue;
+      }
+      const invoiceId = replacementInvoiceIds.get(result.invoiceId) ?? result.invoiceId;
+      if (seenInvoiceIds.has(invoiceId)) continue;
+      seenInvoiceIds.add(invoiceId);
+      consolidatedResults.push({ ...result, invoiceId });
+    }
+
+    return { results: consolidatedResults };
   }
 
   return { results };
