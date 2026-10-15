@@ -639,12 +639,15 @@ async function partsCheckoutByLocation(sp: URLSearchParams) {
     category: row.category,
     quantity: row.quantity,
     tickets: row.tickets,
+    totalCost: row.costCents / 100,
+    missingCostTickets: row.missingCostTickets,
   }));
   for (const total of report.locationTotals) {
     rows.push({
       location: `${total.location} TOTAL`, locationNumber: total.locationNumber,
       labelNumber: null, sku: "", partNumber: null, item: "", category: null,
       quantity: total.quantity, tickets: total.tickets,
+      totalCost: total.costCents / 100, missingCostTickets: total.missingCostTickets,
     });
   }
   return exportWorkbook(`parts-checkout-by-location_${fileStamp()}`, "Parts Checked Out by Location", rows, [
@@ -657,11 +660,13 @@ async function partsCheckoutByLocation(sp: URLSearchParams) {
     { key: "category", header: "Category" },
     { key: "quantity", header: "Parts Checked Out", kind: "number" },
     { key: "tickets", header: "Tickets", kind: "number" },
+    { key: "totalCost", header: "Total Internal Cost", kind: "currency" },
+    { key: "missingCostTickets", header: "Tickets Without Cost", kind: "number" },
   ], [
     ["From", report.filters.from || "All"], ["To", report.filters.to || "All"],
     ["Item search", report.filters.q || "All"], ["Category", report.filters.category || "All"],
     ["Selected item ID", report.filters.itemId || "All"],
-  ], { quantity: report.totalQuantity, tickets: report.totalTickets });
+  ], { quantity: report.totalQuantity, tickets: report.totalTickets, totalCost: report.totalCostCents / 100 });
 }
 
 async function partsConsumption(sp: URLSearchParams) {

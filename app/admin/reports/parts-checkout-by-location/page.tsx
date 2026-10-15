@@ -7,7 +7,7 @@ import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { ADMIN_VIEW_REPORT_PARTS_CONSUMPTION_COSTS } from "@/app/lib/permission-constants";
 import { prisma } from "@/app/lib/prisma";
-import { partsCheckoutLocationReport, type PartsLocationFilters } from "@/app/lib/parts-checkout-location-report";
+import { partsCheckoutLocationReport, partsLocationSearchParams, type PartsLocationFilters } from "@/app/lib/parts-checkout-location-report";
 import { reportItemOptions } from "@/app/lib/report-item-options";
 import ItemPicker from "@/app/admin/inventory-orders/ItemPicker";
 
@@ -20,13 +20,18 @@ function locationLabel(name: string, number: string | null) {
   return number ? `${number} — ${name}` : name;
 }
 
+function money(cents: number) {
+  return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
+
 function reportLink(filters: PartsLocationFilters, itemId?: string) {
-  const params = new URLSearchParams();
-  for (const key of ["from", "to", "category"] as const) {
-    if (filters[key]) params.set(key, filters[key]);
-  }
+  const params = partsLocationSearchParams({ ...filters, q: "", itemId: "" });
   if (itemId) params.set("itemId", itemId);
   return `/admin/reports/parts-checkout-by-location?${params}`;
+}
+
+function detailLink(filters: PartsLocationFilters, locationId: string) {
+  return `/admin/reports/parts-checkout-by-location/${encodeURIComponent(locationId)}?${partsLocationSearchParams(filters)}`;
 }
 
 export default async function PartsCheckoutByLocationPage({
@@ -49,6 +54,8 @@ export default async function PartsCheckoutByLocationPage({
   ]);
   const selectedItem = items.find((item) => item.id === report.filters.itemId);
   const invalidItem = Boolean(report.filters.itemId && !selectedItem);
+  const exportParams = partsLocationSearchParams(report.filters);
+  exportParams.set("report", "parts-checkout-by-location");
 
   return (
     <main style={{ maxWidth: 1450, margin: "0 auto", padding: 16, display: "grid", gap: 14 }}>
@@ -56,9 +63,13 @@ export default async function PartsCheckoutByLocationPage({
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <h1 style={{ margin: 0, fontSize: 28 }}>Parts Checked Out by Location</h1>
           <Link href="/admin/reports">Reports Hub</Link>
+          <Link href={`/api/admin/reports/excel?${exportParams}`}>Export Excel</Link>
+          {permissions.allowAll || hasAnyPermission(permissions, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS])
+            ? <Link href="/admin/reports/location-charges">Invoice charges and manual entries</Link>
+            : null}
         </div>
         <p style={{ color: "var(--muted)", marginBottom: 0 }}>
-          Quantities from Maintenance Tickets (Parts Checkout). Dates use ticket checkout time. Voided tickets and return records are excluded. Categories reflect the item&apos;s current category.
+          Quantities and internal parts cost from Maintenance Tickets (Parts Checkout). Dates use ticket checkout time. Click a location to see each checkout, who checked it out, its invoice number, and daily totals. Voided tickets and return records are excluded. Categories reflect the item&apos;s current category.
         </p>
         <p style={{ color: "var(--muted)", marginBottom: 0 }}>
           Available ticket history: {coverage._count._all.toLocaleString()} records
@@ -107,23 +118,31 @@ export default async function PartsCheckoutByLocationPage({
           <strong style={{ fontSize: 30 }}>{report.totalTickets.toLocaleString()}</strong>
         </article>
         <article style={{ border, borderRadius: 12, background: "var(--surface)", padding: 14 }}>
+          <div style={{ color: "var(--muted)" }}>Total parts cost</div>
+          <strong style={{ fontSize: 30 }}>{money(report.totalCostCents)}</strong>
+        </article>
+        <article style={{ border, borderRadius: 12, background: "var(--surface)", padding: 14 }}>
           <div style={{ color: "var(--muted)" }}>Locations with matching checkouts</div>
           <strong style={{ fontSize: 30 }}>{report.locationTotals.length.toLocaleString()}</strong>
         </article>
       </section>
+      {report.missingCostTickets > 0 ? <p style={{ margin: 0, color: "var(--muted)" }}>
+        {report.missingCostTickets.toLocaleString()} checkout {report.missingCostTickets === 1 ? "ticket has" : "tickets have"} no recorded cost and cannot be included in dollar totals.
+      </p> : null}
 
       <section style={{ border, borderRadius: 14, background: "var(--surface)", overflowX: "auto" }}>
         <h2 style={{ padding: 14, margin: 0 }}>Totals by location</h2>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead><tr><th style={cell}>Location</th><th style={cell}>Parts checked out</th><th style={cell}>Tickets</th></tr></thead>
+          <thead><tr><th style={cell}>Location</th><th style={cell}>Parts checked out</th><th style={cell}>Tickets</th><th style={cell}>Total cost</th></tr></thead>
           <tbody>
             {report.locationTotals.map((row) => <tr key={row.locationId}>
-              <td style={cell}>{locationLabel(row.location, row.locationNumber)}</td>
+              <td style={cell}><Link href={detailLink(report.filters, row.locationId)}>{locationLabel(row.location, row.locationNumber)}</Link></td>
               <td style={cell}>{row.quantity.toLocaleString()}</td>
               <td style={cell}>{row.tickets.toLocaleString()}</td>
+              <td style={cell}>{money(row.costCents)}</td>
             </tr>)}
-            {report.locationTotals.length === 0 ? <tr><td colSpan={3} style={cell}>No checkouts match these filters.</td></tr> : null}
-            {report.locationTotals.length > 0 ? <tr><th style={cell}>All locations</th><th style={cell}>{report.totalQuantity.toLocaleString()}</th><th style={cell}>{report.totalTickets.toLocaleString()}</th></tr> : null}
+            {report.locationTotals.length === 0 ? <tr><td colSpan={4} style={cell}>No checkouts match these filters.</td></tr> : null}
+            {report.locationTotals.length > 0 ? <tr><th style={cell}>All locations</th><th style={cell}>{report.totalQuantity.toLocaleString()}</th><th style={cell}>{report.totalTickets.toLocaleString()}</th><th style={cell}>{money(report.totalCostCents)}</th></tr> : null}
           </tbody>
         </table>
       </section>
@@ -132,18 +151,18 @@ export default async function PartsCheckoutByLocationPage({
         <h2 style={{ padding: 14, margin: 0 }}>Items by location</h2>
         <p style={{ padding: "0 14px", color: "var(--muted)" }}>Type in the Item box and choose a match to see that item alone.</p>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead><tr>{["Location", "Item #", "SKU", "Part #", "Item", "Category", "Parts checked out", "Tickets", ""].map((heading) => <th key={heading} style={cell}>{heading}</th>)}</tr></thead>
+          <thead><tr>{["Location", "Item #", "SKU", "Part #", "Item", "Category", "Parts checked out", "Tickets", "Total cost"].map((heading) => <th key={heading} style={cell}>{heading}</th>)}</tr></thead>
           <tbody>
             {report.rows.map((row) => <tr key={`${row.locationId}:${row.itemId}`}>
-              <td style={cell}>{locationLabel(row.location, row.locationNumber)}</td>
+              <td style={cell}><Link href={detailLink(report.filters, row.locationId)}>{locationLabel(row.location, row.locationNumber)}</Link></td>
               <td style={cell}>{row.labelNumber ?? "—"}</td>
               <td style={cell}>{row.sku}</td>
               <td style={cell}>{row.partNumber || "—"}</td>
-              <td style={cell}>{row.item}</td>
+              <td style={cell}><Link href={reportLink(report.filters, row.itemId)}>{row.item}</Link></td>
               <td style={cell}>{row.category || "Uncategorized"}</td>
               <td style={cell}>{row.quantity.toLocaleString()}</td>
               <td style={cell}>{row.tickets.toLocaleString()}</td>
-              <td style={cell}><Link href={reportLink(report.filters, row.itemId)}>Select item</Link></td>
+              <td style={cell}>{money(row.costCents)}</td>
             </tr>)}
             {report.rows.length === 0 ? <tr><td colSpan={9} style={cell}>No matching items.</td></tr> : null}
           </tbody>

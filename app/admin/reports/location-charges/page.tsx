@@ -94,8 +94,9 @@ export default async function LocationChargesReportPage({
     <main style={{ maxWidth: 1450, margin: "0 auto", padding: 16, color: "var(--foreground)", display: "grid", gap: 14 }}>
       <section style={{ border, borderRadius: 14, background: "var(--surface)", padding: 16 }}>
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          <h1 style={{ fontSize: 28, margin: 0 }}>Items Charged to Locations</h1>
+          <h1 style={{ fontSize: 28, margin: 0 }}>Invoice Charges and Manual Entries</h1>
           <Link href="/admin/reports">← Reports Hub</Link>
+          <Link href="/admin/reports/parts-checkout-by-location">Parts by location</Link>
         </div>
         <p style={{ color: "var(--muted)", marginBottom: 0 }}>
           Invoice line items, including checkout parts and manual entries. Dates filter the original checkout or manual entry date.

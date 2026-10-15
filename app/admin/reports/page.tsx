@@ -119,16 +119,6 @@ export default async function AdminReportsIndexPage({
       key: "inventory",
       title: "Inventory & Ordering",
       items: [
-        ...(canItemsReports && matchesQuery(query, "items charged to locations billing invoice lines parts manual charges")
-          ? [
-              {
-                key: "location-charges",
-                title: "Items Charged to Locations",
-                description: "Search billed line items by location, charge date, invoice status, and item details.",
-                href: "/admin/reports/location-charges",
-              },
-            ]
-          : []),
         ...(canItemsReports && matchesQuery(query, "checkout orders tickets")
           ? [
               {
@@ -219,12 +209,12 @@ export default async function AdminReportsIndexPage({
               },
             ]
           : []),
-        ...((canPartsConsumptionReport || canItemsReports) && matchesQuery(query, "parts checked out location category item quantity maintenance tickets usage")
+        ...((canPartsConsumptionReport || canItemsReports) && matchesQuery(query, "parts checked out by location locations category item quantity maintenance tickets usage items charged to locations invoice cost manual charges")
           ? [
               {
                 key: "parts-checkout-by-location",
                 title: "Parts Checked Out by Location",
-                description: "Filter checkout quantities by dates, item, or category; see item and location totals.",
+                description: "See checkout quantities and internal parts cost by location, with dated details, people, and invoice numbers.",
                 href: "/admin/reports/parts-checkout-by-location",
               },
             ]
