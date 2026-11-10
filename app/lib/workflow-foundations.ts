@@ -1,5 +1,8 @@
 import { prisma } from "@/app/lib/prisma";
-import type { Permission } from "@prisma/client";
+import { scheduleNotificationEmails } from "@/app/lib/notification-email";
+import { loadNotificationOversightRecipients } from "@/app/lib/notification-oversight";
+import { notificationEmailRecipientPlan } from "@/app/lib/notification-oversight-rules";
+import { Prisma, type Permission, type PrismaClient } from "@prisma/client";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import {
   RECEIVE_NOTIFICATION_CYCLE_COUNTS,
@@ -31,13 +34,7 @@ export type CompatDb = {
     create: (args: AnyRecord) => Promise<any>;
     delete: (args: AnyRecord) => Promise<any>;
   };
-  notification?: {
-    findMany: (args?: AnyRecord) => Promise<any[]>;
-    create: (args: AnyRecord) => Promise<any>;
-    updateMany: (args: AnyRecord) => Promise<any>;
-    delete: (args: AnyRecord) => Promise<any>;
-    deleteMany: (args: AnyRecord) => Promise<any>;
-  };
+  notification?: Pick<PrismaClient["notification"], "findMany" | "create" | "updateMany" | "delete" | "deleteMany">;
   user?: {
     findMany: (args?: AnyRecord) => Promise<Array<{ id: string; active: boolean; uiPreferences: unknown }>>;
   };
@@ -112,32 +109,63 @@ export async function createNotificationForUsers(args: {
   href?: string;
   type?: "WORK_ORDER" | "SCHEDULER" | "CYCLE_COUNT" | "SYSTEM" | "TEMPERATURE_ALERT";
   requiredPermission?: Permission;
-}) {
-  const db = getCompatDb();
-  if (!db.notification?.create) return;
+  dedupeKey?: string;
+  reminderOccurrenceId?: string;
+  complianceReminderLocationId?: string;
+}, options?: { tx?: Prisma.TransactionClient; scheduleEmails?: boolean }): Promise<string[]> {
+  const db = options?.tx ?? prisma;
+  if (!db.notification?.create) return [];
 
-  const recipientIds = await resolveNotificationRecipients(args.userIds, args.requiredPermission);
-  if (recipientIds.length === 0) return;
+  const recipientIds = await resolveNotificationRecipients(args.userIds, args.requiredPermission, db);
+  if (recipientIds.length === 0) return [];
 
+  const preferences = await db.user.findMany({
+    where: { id: { in: recipientIds } },
+    select: { id: true, notificationEmailEnabled: true },
+  });
+  const emailEnabledById = new Map(preferences.map((user) => [user.id, user.notificationEmailEnabled]));
+  const observers = await loadNotificationOversightRecipients(db);
+  const notificationIds: string[] = [];
   for (const userId of recipientIds) {
-    await db.notification.create({
-      data: {
-        userId,
-        title: args.title,
-        body: args.body ?? null,
-        href: args.href ?? null,
-        type: args.type ?? "SYSTEM",
-      },
-    });
+    // Transactional reminder callers hold their section/list lock. Check a
+    // previous cycle before inserting so a duplicate does not abort their tx.
+    if (options?.tx && args.dedupeKey) {
+      const existing = await db.notification.findUnique({ where: { userId_dedupeKey: { userId, dedupeKey: args.dedupeKey } }, select: { id: true } });
+      if (existing) continue;
+    }
+    try {
+      const notification = await db.notification.create({
+        data: {
+          userId,
+          title: args.title,
+          body: args.body ?? null,
+          href: args.href ?? null,
+          type: args.type ?? "SYSTEM",
+          dedupeKey: args.dedupeKey ?? null,
+          reminderOccurrenceId: args.reminderOccurrenceId ?? null,
+          complianceReminderLocationId: args.complianceReminderLocationId ?? null,
+          // A notification and its outbox job always commit together.
+          emailDeliveries: { create: notificationEmailRecipientPlan({ id: userId, notificationEmailEnabled: emailEnabledById.get(userId) !== false }, observers) },
+        },
+        select: { id: true },
+      });
+      notificationIds.push(notification.id);
+    } catch (error) {
+      // Standalone inserts are their own transactions. Do not swallow a unique
+      // violation inside a caller's transaction, which PostgreSQL has aborted.
+      if (!options?.tx && args.dedupeKey && error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const existing = await db.notification.findUnique({ where: { userId_dedupeKey: { userId, dedupeKey: args.dedupeKey } }, select: { id: true } });
+        if (existing) continue;
+      }
+      throw error;
+    }
   }
 
-  await maybeSendEmail(args).catch(() => {
-    // Keep notification creation resilient even if SMTP config is missing.
-  });
+  if (options?.scheduleEmails !== false) scheduleNotificationEmails(notificationIds);
+  return notificationIds;
 }
 
-async function resolveNotificationRecipients(userIds: string[], requiredPermission?: Permission): Promise<string[]> {
-  const db = getCompatDb();
+async function resolveNotificationRecipients(userIds: string[], requiredPermission?: Permission, db: Pick<PrismaClient, "user"> = prisma): Promise<string[]> {
   const baseIds = Array.from(new Set(userIds.map((x) => String(x ?? "").trim()).filter(Boolean)));
   if (baseIds.length === 0) return [];
 
@@ -231,22 +259,6 @@ async function canUserReceiveNotification(userId: string, requiredPermission?: P
   if (!hasAnyRoutingPreference) return true;
 
   return hasAnyPermission(perms, [requiredPermission]);
-}
-
-async function maybeSendEmail(args: { title: string; body?: string }) {
-  const host = process.env.SMTP_HOST?.trim();
-  const port = process.env.SMTP_PORT?.trim();
-  const user = process.env.SMTP_USER?.trim();
-  const pass = process.env.SMTP_PASS?.trim();
-  const from = process.env.SMTP_FROM?.trim() || "Maintenance@PizzaPlusInc.com";
-
-  if (!host || !port || !user || !pass) {
-    return;
-  }
-
-  // Placeholder integration point. SMTP credentials are accepted and reserved;
-  // transport wiring can be switched to any provider without changing callers.
-  console.log(`[notify-email] from=${from} host=${host}:${port} subject=${args.title} body=${args.body ?? ""}`);
 }
 
 export function getGcsConfig() {

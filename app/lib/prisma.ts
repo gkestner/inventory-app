@@ -58,7 +58,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-async function isDemoModeActiveForRequest(): Promise<boolean> {
+export async function isDemoModeActiveForRequest(): Promise<boolean> {
   if (TRUTHY_QUERY_VALUES.has(String(process.env.ADMIN_DEMO_MODE_FORCE ?? "").trim().toLowerCase())) {
     return true;
   }

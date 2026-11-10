@@ -259,6 +259,19 @@ enum NotificationType {
   TEMPERATURE_ALERT
 }
 
+enum NotificationEmailStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum NotificationEmailKind {
+  PRIMARY
+  OVERSIGHT
+}
+
 enum TemperatureAlertState {
   NORMAL
   HIGH
@@ -377,6 +390,7 @@ model Location {
   maintenanceRequests MaintenanceRequest[]
   mocreoHubs MocreoHub[]
   receiptEntries ReceiptEntry[]
+  notificationReminderLocations NotificationReminderLocation[]
 
   @@index([active])
   @@index([receiptEnabled])
@@ -410,6 +424,7 @@ model User {
   securityQuestionPrompt     String?
   securityQuestionAnswerHash String?
   uiPreferences              Json?
+  notificationEmailEnabled   Boolean @default(true)
   nextWorkOrderStartingMileage Int?
 
   active    Boolean  @default(true)
@@ -433,6 +448,12 @@ model User {
 
   // Reporting / workflow additions
   notifications      Notification[]
+  notificationEmailDeliveries NotificationEmailDelivery[] @relation("NotificationEmailRecipient")
+  notificationOversightSubscription NotificationOversightSubscriber? @relation("NotificationOversightUser")
+  notificationOversightSubscriptionsCreated NotificationOversightSubscriber[] @relation("NotificationOversightCreatedBy")
+  createdNotificationReminderLists NotificationReminderList[] @relation("ReminderListCreator")
+  notificationReminderRecipients NotificationReminderRecipient[]
+  notificationReminderLocationRecipients NotificationReminderLocationRecipient[]
   savedViews         SavedView[]
   auditLogs          AuditLog[]
   attachmentsAdded   WorkOrderAttachment[] @relation("WorkOrderAttachmentAddedBy")
@@ -567,16 +588,22 @@ model PreventativeMaintenanceEntry {
   greaseTrapDatePumped String?
   greaseTrapReminderMonths String?
   greaseTrapCompany  String?
+  greaseTrapCompanyId String?
+  greaseTrapServiceCompany ReminderCompany? @relation("GreaseTrapServiceCompany", fields: [greaseTrapCompanyId], references: [id], onDelete: Restrict)
   greaseTrapCost     String?
 
   backflowDateChecked String?
   backflowReminderMonths String?
   backflowCompany    String?
+  backflowCompanyId String?
+  backflowServiceCompany ReminderCompany? @relation("BackflowServiceCompany", fields: [backflowCompanyId], references: [id], onDelete: Restrict)
   backflowAmount     String?
 
   boilerInspectionDatePrimary String?
   boilerInspectionReminderMonths String?
   boilerInspectionCompany String?
+  boilerInspectionCompanyId String?
+  boilerServiceCompany ReminderCompany? @relation("BoilerServiceCompany", fields: [boilerInspectionCompanyId], references: [id], onDelete: Restrict)
   boilerInspectionCost String?
   boilerInspectionDateSecondary String?
 
@@ -962,11 +989,151 @@ model Notification {
   href    String?
   readAt  DateTime?
   emailedAt DateTime?
+  archivedAt DateTime?
+  deletedAt DateTime?
+  emailDeliveries NotificationEmailDelivery[]
+  complianceReminderLocationId String?
+  complianceReminderLocation NotificationReminderLocation? @relation(fields: [complianceReminderLocationId], references: [id], onDelete: Restrict)
+  dedupeKey String?
+  reminderOccurrenceId String?
+  reminderOccurrence NotificationReminderOccurrence? @relation(fields: [reminderOccurrenceId], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
   @@index([userId, readAt])
+  @@index([userId, deletedAt, archivedAt, createdAt])
+  @@unique([userId, dedupeKey])
+  @@unique([userId, reminderOccurrenceId])
+  @@index([reminderOccurrenceId])
+  @@index([complianceReminderLocationId])
+}
+
+model ReminderCompany {
+  id String @id @default(cuid())
+  name String
+  normalizedName String @unique
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  reminderLocations NotificationReminderLocation[]
+  occurrences NotificationReminderOccurrence[]
+  greaseTrapEntries PreventativeMaintenanceEntry[] @relation("GreaseTrapServiceCompany")
+  backflowEntries PreventativeMaintenanceEntry[] @relation("BackflowServiceCompany")
+  boilerEntries PreventativeMaintenanceEntry[] @relation("BoilerServiceCompany")
+}
+
+model NotificationReminderList {
+  id String @id @default(cuid())
+  name String
+  description String?
+  complianceKind ComplianceSectionKind? @unique
+  sortOrder Int @default(1000)
+  defaultIntervalMonths Int @default(11)
+  active Boolean @default(true)
+  createdByUserId String?
+  createdByUser User? @relation("ReminderListCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  locations NotificationReminderLocation[]
+  recipients NotificationReminderRecipient[]
+  @@index([active])
+}
+
+model NotificationReminderLocation {
+  id String @id @default(cuid())
+  listId String
+  list NotificationReminderList @relation(fields: [listId], references: [id], onDelete: Restrict)
+  locationId String
+  location Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  companyId String?
+  company ReminderCompany? @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  referenceOn DateTime? @db.Date
+  nextDueOn DateTime? @db.Date
+  intervalMonths Int?
+  hidden Boolean @default(false)
+  useLocationRecipients Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  occurrences NotificationReminderOccurrence[]
+  recipients NotificationReminderLocationRecipient[]
+  complianceNotifications Notification[]
+  @@unique([listId, locationId])
+  @@index([hidden, nextDueOn])
+}
+
+model NotificationReminderRecipient {
+  listId String
+  userId String
+  list NotificationReminderList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  @@id([listId, userId])
+}
+
+enum ComplianceSectionKind {
+  GREASE_TRAP
+  BACKFLOW
+  BOILER
+}
+
+model NotificationReminderLocationRecipient {
+  reminderLocationId String
+  userId String
+  reminderLocation NotificationReminderLocation @relation(fields: [reminderLocationId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  @@id([reminderLocationId, userId])
+  @@index([userId])
+}
+
+model NotificationReminderOccurrence {
+  id String @id @default(cuid())
+  reminderLocationId String
+  reminderLocation NotificationReminderLocation @relation(fields: [reminderLocationId], references: [id], onDelete: Restrict)
+  dueOn DateTime @db.Date
+  referenceOn DateTime @db.Date
+  intervalMonths Int
+  companyId String?
+  company ReminderCompany? @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now())
+  notifications Notification[]
+  @@unique([reminderLocationId, dueOn])
+}
+
+// One private email job per event/recipient. Content and identities remain
+// authoritative in Notification and User instead of duplicated payload blobs.
+model NotificationEmailDelivery {
+  id String @id @default(cuid())
+  notificationId String
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  recipientUserId String
+  recipient User @relation("NotificationEmailRecipient", fields: [recipientUserId], references: [id], onDelete: Restrict)
+  kind NotificationEmailKind @default(PRIMARY)
+  status NotificationEmailStatus @default(PENDING)
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  leaseExpiresAt DateTime?
+  claimToken String?
+  lastError String?
+  messageId String?
+  sentAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([status, leaseExpiresAt])
+  @@unique([notificationId, recipientUserId])
+  @@index([recipientUserId, updatedAt])
+}
+
+model NotificationOversightSubscriber {
+  userId String @id
+  user User @relation("NotificationOversightUser", fields: [userId], references: [id], onDelete: Restrict)
+  enabled Boolean @default(true)
+  createdByUserId String?
+  createdByUser User? @relation("NotificationOversightCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([enabled])
 }
 
 model WorkOrderAttachment {

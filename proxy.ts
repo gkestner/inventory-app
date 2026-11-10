@@ -5,6 +5,11 @@ import { getToken } from "next-auth/jwt";
 function isPublicPath(pathname: string) {
   if (pathname === "/login") return true;
   if (pathname.startsWith("/api/auth")) return true;
+  // The route requires a bearer CRON_SECRET instead of a browser session.
+  if (pathname === "/api/cron/notification-emails") return true;
+  if (pathname === "/api/cron/notification-reminders") return true;
+  // This established integration endpoint verifies its own configured token.
+  if (pathname === "/api/integrations/pm-compliance/reminders") return true;
   if (pathname.startsWith("/api/integrations/mocreo/sync")) return true;
   if (pathname.startsWith("/api/integrations/mocreo/webhook")) return true;
   if (pathname.startsWith("/_next")) return true;

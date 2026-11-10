@@ -1,6 +1,6 @@
 {
   "name": "inventory-app",
-  "version": "0.1.12",
+  "version": "0.1.15",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
@@ -9,6 +9,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "test:notifications": "tsx --test app/lib/notification-counts.test.ts app/lib/notification-inbox.test.ts app/lib/notification-email.test.ts app/lib/notification-oversight.test.ts",
+    "test:reminders": "tsx --test app/lib/reminder-dates.test.ts app/lib/pm-compliance-rules.test.ts app/lib/reminder-auth.test.ts app/lib/notification-reminders.test.ts app/lib/compliance-fields.test.ts",
     "seed": "prisma db seed"
   },
   "prisma": {
@@ -23,6 +25,7 @@
     "bcryptjs": "^3.0.3",
     "next": "16.1.4",
     "next-auth": "^4.24.13",
+    "nodemailer": "^7.0.13",
     "openai": "^6.31.0",
     "pdf-lib": "^1.17.1",
     "playwright-core": "^1.58.2",
@@ -33,6 +36,7 @@
     "@tailwindcss/postcss": "^4",
     "@types/bcrypt": "^6.0.0",
     "@types/node": "^20",
+    "@types/nodemailer": "^8.0.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",

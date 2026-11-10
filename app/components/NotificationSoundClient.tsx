@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import {
+  isNewerNotification, NOTIFICATION_COUNT_EVENT,
+  type NotificationCountUpdate, type NotificationCursor,
+} from "@/app/lib/notification-counts";
 
 const POLL_MS = 20000;
 
@@ -43,9 +48,12 @@ function playNotificationTone() {
 }
 
 export default function NotificationSoundClient() {
+  const router = useRouter();
+  const pathname = usePathname();
   const enabledRef = useRef(false);
-  const prevUnreadRef = useRef<number | null>(null);
-  const initializedRef = useRef(false);
+  const previousRef = useRef<{
+    userId: string; unreadCount: number; latest: NotificationCursor; emailDeliveryRevision: string | null;
+  } | null>(null);
 
   useEffect(() => {
     const unlock = () => {
@@ -65,33 +73,56 @@ export default function NotificationSoundClient() {
 
   useEffect(() => {
     let dead = false;
+    let inFlight = false;
 
     async function tick() {
+      if (inFlight || document.visibilityState === "hidden") return;
+      inFlight = true;
       try {
         const res = await fetch("/api/me/notifications/unread-count", {
           method: "GET",
           cache: "no-store",
           credentials: "same-origin",
         });
-        if (!res.ok) return;
-
-        const json = (await res.json()) as { unreadCount?: unknown };
-        const next = Number(json.unreadCount ?? 0);
-        if (!Number.isFinite(next)) return;
-
-        const prev = prevUnreadRef.current;
-        prevUnreadRef.current = next;
-
-        if (!initializedRef.current) {
-          initializedRef.current = true;
+        if (!res.ok) {
+          if (res.status === 401) previousRef.current = null;
           return;
         }
 
-        if (prev !== null && next > prev && enabledRef.current && !dead) {
-          playNotificationTone();
+        const json = (await res.json()) as {
+          userId?: string; unreadCount?: unknown;
+          latestNotification?: NotificationCursor; latestUnreadNotification?: NotificationCursor;
+          emailDeliveryRevision?: string | null;
+        };
+        const next = Number(json.unreadCount ?? 0);
+        if (dead || !json.userId || !Number.isInteger(next) || next < 0) return;
+
+        const prev = previousRef.current;
+        const latest = json.latestNotification ?? null;
+        const emailDeliveryRevision = json.emailDeliveryRevision ?? null;
+        previousRef.current = { userId: json.userId, unreadCount: next, latest, emailDeliveryRevision };
+        window.dispatchEvent(new CustomEvent<NotificationCountUpdate>(NOTIFICATION_COUNT_EVENT, {
+          detail: { userId: json.userId, unreadCount: next },
+        }));
+        if (!prev || prev.userId !== json.userId) {
+          // Delivery can finish between the server render and this first poll.
+          if (pathname === "/notifications") router.refresh();
+          return;
+        }
+
+        // A zero-history inbox may receive its first new item after initialization.
+        const newUnread = json.latestUnreadNotification ?? null;
+        const arrived = isNewerNotification(newUnread, prev.latest);
+        if (arrived && enabledRef.current) playNotificationTone();
+        if (pathname === "/notifications" &&
+          (next !== prev.unreadCount || latest?.id !== prev.latest?.id ||
+            emailDeliveryRevision !== prev.emailDeliveryRevision)) {
+          router.refresh();
         }
       } catch {
         // Ignore polling/network errors; next interval will retry.
+      } finally {
+        inFlight = false;
       }
     }
 
@@ -99,12 +130,15 @@ export default function NotificationSoundClient() {
     const id = window.setInterval(() => {
       void tick();
     }, POLL_MS);
+    const onVisible = () => { if (document.visibilityState === "visible") void tick(); };
+    document.addEventListener("visibilitychange", onVisible);
 
     return () => {
       dead = true;
       window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
     };
-  }, []);
+  }, [pathname, router]);
 
   return null;
 }

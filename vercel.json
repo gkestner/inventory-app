@@ -4,6 +4,14 @@
   "buildCommand": "npm run migrate:deploy && npm run build",
   "crons": [
     {
+      "path": "/api/cron/notification-reminders",
+      "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/notification-emails",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/admin/inventory-recommendations/recalculate?apply=1",
       "schedule": "0 4 * * *"
     }

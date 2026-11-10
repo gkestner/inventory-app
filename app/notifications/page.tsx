@@ -1,235 +1,108 @@
 import Link from "next/link";
-import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-
-import { authOptions } from "@/app/lib/auth";
-import { getCompatDb } from "@/app/lib/workflow-foundations";
+import { prisma } from "@/app/lib/prisma";
+import { getNotificationEmailConfiguration } from "@/app/lib/notification-email";
+import { unreadNotificationWhere } from "@/app/lib/notification-counts";
+import { loadUserPermissions, hasAnyPermission } from "@/app/lib/permissions";
+import { ADMIN_VIEW_PREVENTATIVE_MAINTENANCE } from "@/app/lib/permission-constants";
+import { getNotificationOversightState } from "@/app/lib/notification-oversight";
+import { saveNotificationOversightPreference } from "./oversight-actions";
+import { NOTIFICATION_PAGE_SIZE, NOTIFICATION_TYPES, NOTIFICATION_TYPE_LABELS, notificationInboxHref, notificationInboxWhere, parseInboxFilters } from "@/app/lib/notification-inbox";
+import { requireNotificationUser, saveNotificationEmailPreference, updateNotificationsAction } from "./actions";
+import NotificationList from "./NotificationList";
+import styles from "./notifications.module.css";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-type SessionShape = {
-  user?: {
-    email?: string | null;
-  } | null;
-} | null;
-
-export default async function NotificationsPage() {
-  const session = (await getServerSession(authOptions)) as SessionShape;
-  if (!session) redirect("/login");
-
-  const email = (session.user?.email ?? "").trim().toLowerCase();
-  if (!email) redirect("/login");
-
-  const user = await (getCompatDb() as any).user.findUnique({
-    where: { email },
-    select: { id: true },
-  });
-  if (!user?.id) redirect("/login");
-
-  async function markAllReadAction() {
-    "use server";
-
-    const session = (await getServerSession(authOptions)) as SessionShape;
-    if (!session) redirect("/login");
-
-    const email = (session.user?.email ?? "").trim().toLowerCase();
-    const me = await (getCompatDb() as any).user.findUnique({ where: { email }, select: { id: true } });
-    if (!me?.id) redirect("/login");
-
-    const db = getCompatDb();
-    if (db.notification?.updateMany) {
-      await db.notification.updateMany({
-        where: { userId: me.id, readAt: null },
-        data: { readAt: new Date() },
-      });
-    }
-
-    redirect("/notifications");
-  }
-
-  async function markOneReadAction(formData: FormData) {
-    "use server";
-
-    const session = (await getServerSession(authOptions)) as SessionShape;
-    if (!session) redirect("/login");
-
-    const email = (session.user?.email ?? "").trim().toLowerCase();
-    const me = await (getCompatDb() as any).user.findUnique({ where: { email }, select: { id: true } });
-    if (!me?.id) redirect("/login");
-
-    const notificationId = String(formData.get("notificationId") ?? "").trim();
-    if (!notificationId) redirect("/notifications");
-
-    const db = getCompatDb();
-    if (db.notification?.updateMany) {
-      await db.notification.updateMany({
-        where: { id: notificationId, userId: me.id, readAt: null },
-        data: { readAt: new Date() },
-      });
-    }
-
-    redirect("/notifications");
-  }
-
-  async function clearAllAction() {
-    "use server";
-
-    const session = (await getServerSession(authOptions)) as SessionShape;
-    if (!session) redirect("/login");
-
-    const email = (session.user?.email ?? "").trim().toLowerCase();
-    const me = await (getCompatDb() as any).user.findUnique({ where: { email }, select: { id: true } });
-    if (!me?.id) redirect("/login");
-
-    const db = getCompatDb();
-    if (db.notification?.deleteMany) {
-      await db.notification.deleteMany({
-        where: { userId: me.id },
-      });
-    }
-
-    redirect("/notifications");
-  }
-
-  async function deleteOneAction(formData: FormData) {
-    "use server";
-
-    const session = (await getServerSession(authOptions)) as SessionShape;
-    if (!session) redirect("/login");
-
-    const email = (session.user?.email ?? "").trim().toLowerCase();
-    const me = await (getCompatDb() as any).user.findUnique({ where: { email }, select: { id: true } });
-    if (!me?.id) redirect("/login");
-
-    const notificationId = String(formData.get("notificationId") ?? "").trim();
-    if (!notificationId) redirect("/notifications");
-
-    const db = getCompatDb();
-    if (db.notification?.deleteMany) {
-      await db.notification.deleteMany({
-        where: { id: notificationId, userId: me.id },
-      });
-    }
-
-    redirect("/notifications");
-  }
-
-  const db = getCompatDb();
-  const rows = db.notification?.findMany
-    ? await db.notification.findMany({
-        where: { userId: user.id },
-        orderBy: { createdAt: "desc" },
-        take: 200,
-      })
-    : [];
-
-  const unread = rows.filter((r) => !r.readAt).length;
-
+export default async function NotificationsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const user = await requireNotificationUser();
+  const permissions = await loadUserPermissions({ user });
+  const canManageReminders = permissions.allowAll || hasAnyPermission(permissions, [ADMIN_VIEW_PREVENTATIVE_MAINTENANCE]);
+  const params = await searchParams;
+  const filters = parseInboxFilters(params);
+  const where = notificationInboxWhere(user.id, filters);
+  const [inbox, unread, archived, trash, total] = await Promise.all([
+    prisma.notification.count({ where: { userId: user.id, archivedAt: null, deletedAt: null } }),
+    prisma.notification.count({ where: unreadNotificationWhere(user.id) }),
+    prisma.notification.count({ where: { userId: user.id, archivedAt: { not: null }, deletedAt: null } }),
+    prisma.notification.count({ where: { userId: user.id, deletedAt: { not: null } } }),
+    prisma.notification.count({ where }),
+  ]);
+  const pages = Math.max(1, Math.ceil(total / NOTIFICATION_PAGE_SIZE));
+  filters.page = Math.min(filters.page, pages);
+  const rows = await prisma.notification.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: (filters.page - 1) * NOTIFICATION_PAGE_SIZE, take: NOTIFICATION_PAGE_SIZE, include: { emailDeliveries: { where: { kind: "PRIMARY" }, take: 1, select: { status: true } } } });
+  const oversight = await getNotificationOversightState(user.id);
+  const emailConfigured = getNotificationEmailConfiguration().configured;
+  const tabs = [
+    { view: "inbox", label: "Inbox", count: inbox },
+    { view: "unread", label: "Unread", count: unread },
+    { view: "archived", label: "Archive", count: archived },
+    { view: "trash", label: "Trash", count: trash },
+  ] as const;
   return (
-    <main style={{ padding: 16 }}>
-      <div style={{ maxWidth: 980, margin: "0 auto", display: "grid", gap: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900 }}>Notifications</h1>
-          <span style={{ opacity: 0.8, fontSize: 13 }}>{unread} unread</span>
-          <form action={markAllReadAction}>
-            <button
-              type="submit"
-              style={{
-                padding: "8px 12px",
-                borderRadius: 10,
-                border: "1px solid var(--border)",
-                background: "var(--surface)",
-                fontWeight: 800,
-                cursor: "pointer",
-              }}
-            >
-              Mark all read
-            </button>
+    <main className={styles.page}>
+      <div className={styles.container}>
+        <header className={styles.heading}>
+          <div>
+            <p className={styles.eyebrow}>YOUR WORKSPACE</p>
+            <h1>Notifications <span className={styles.unreadBadge}>{unread} unread</span></h1>
+            <p className={styles.muted}>Keep track of alerts, assignments, and workflow updates.</p>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {canManageReminders && <Link href="/admin/preventative-maintenance/compliance" className={styles.button}>Compliance &amp; Testing</Link>}
+            <Link href="/dashboard" className={styles.button}>Back to dashboard</Link>
+          </div>
+        </header>
+        <details className={styles.preferences}>
+          <summary>Email preferences <span className={styles.muted}>{!emailConfigured ? "Email setup pending" : user.notificationEmailEnabled ? "Email copies enabled" : "Email copies paused"}</span></summary>
+          <form action={saveNotificationEmailPreference} className={styles.preferenceForm}>
+            <FilterFields filters={filters} />
+            <label className={styles.checkboxLabel}><input type="checkbox" name="emailEnabled" defaultChecked={user.notificationEmailEnabled} /><span>Email me a copy of each new notification</span></label>
+            <p className={styles.muted}>Copies include the same title, details, and a link to the related item. Sent to <strong>{user.email}</strong>.</p>
+            {!emailConfigured && <p className={styles.notice}>Email delivery is awaiting administrator setup. Your in-app notifications will continue to arrive.</p>}
+            <button type="submit" className={styles.button}>Save preferences</button>
           </form>
-          <form action={clearAllAction}>
-            <button
-              type="submit"
-              style={{
-                padding: "8px 12px",
-                borderRadius: 10,
-                border: "1px solid var(--border)",
-                background: "var(--surface)",
-                fontWeight: 800,
-                cursor: "pointer",
-              }}
-            >
-              Clear all
-            </button>
+        </details>
+        {oversight.eligible && <details className={styles.preferences}>
+          <summary>Copies of other users’ notifications <span className={styles.muted}>{oversight.enabled && oversight.emailEnabled ? "Enabled" : "Paused"}</span></summary>
+          <form action={saveNotificationOversightPreference} className={styles.preferenceForm}>
+            <label className={styles.checkboxLabel}><input type="checkbox" name="oversightEnabled" defaultChecked={oversight.enabled} /><span>Email me the details of notifications sent to other users</span></label>
+            <p className={styles.muted}>Private copies go to <strong>{user.email}</strong> and include the actual recipient, notification title, and full details. You receive one copy for each recipient, without duplicate copies of your own notifications.</p>
+            {!oversight.emailEnabled && <p className={styles.notice}>Your personal email copies are paused. Enable them in Email preferences to receive these copies.</p>}
+            <button type="submit" className={styles.button}>Save notification copy settings</button>
           </form>
-          <Link href="/" style={{ marginLeft: "auto", textDecoration: "none", fontWeight: 800 }}>
-            Back
-          </Link>
-        </div>
-
-        <section style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--surface)" }}>
-          {rows.map((n) => (
-            <div
-              key={n.id}
-              style={{
-                borderTop: "1px solid var(--border)",
-                padding: 12,
-                background: n.readAt ? "transparent" : "color-mix(in srgb, var(--brand) 8%, transparent)",
-              }}
-            >
-              <div style={{ fontWeight: 900 }}>{n.title}</div>
-              {n.body ? <div style={{ marginTop: 4, opacity: 0.9 }}>{n.body}</div> : null}
-              <div style={{ marginTop: 6, display: "flex", gap: 10, fontSize: 12, opacity: 0.75 }}>
-                <span>{new Date(n.createdAt).toLocaleString()}</span>
-                {n.href ? (
-                  <Link href={n.href} style={{ textDecoration: "underline" }}>
-                    Open
-                  </Link>
-                ) : null}
-                {!n.readAt ? (
-                  <form action={markOneReadAction}>
-                    <input type="hidden" name="notificationId" value={n.id} />
-                    <button
-                      type="submit"
-                      style={{
-                        padding: "4px 8px",
-                        borderRadius: 8,
-                        border: "1px solid var(--border)",
-                        background: "var(--surface)",
-                        fontWeight: 700,
-                        cursor: "pointer",
-                      }}
-                    >
-                      Mark as read
-                    </button>
-                  </form>
-                ) : (
-                  <span>Read</span>
-                )}
-                <form action={deleteOneAction}>
-                  <input type="hidden" name="notificationId" value={n.id} />
-                  <button
-                    type="submit"
-                    style={{
-                      padding: "4px 8px",
-                      borderRadius: 8,
-                      border: "1px solid var(--border)",
-                      background: "var(--surface)",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Delete
-                  </button>
-                </form>
-              </div>
-            </div>
-          ))}
-
-          {rows.length === 0 ? (
-            <div style={{ padding: 14, opacity: 0.8 }}>No notifications yet.</div>
-          ) : null}
+        </details>}
+        {params.oversightSaved === "1" && <p role="status" className={styles.notice}>Notification copy settings saved.</p>}
+        {params.saved === "1" && <p role="status" className={styles.notice}>Email preferences saved.</p>}
+        <section className={styles.panel} aria-label="Notification inbox">
+          <nav className={styles.tabs} aria-label="Notification folders">
+            {tabs.map((tab) => <Link key={tab.view} href={notificationInboxHref(filters, { view: tab.view, page: 1 })} className={`${styles.tab} ${filters.view === tab.view ? styles.activeTab : ""}`} aria-current={filters.view === tab.view ? "page" : undefined}>{tab.label} <span>{tab.count}</span></Link>)}
+          </nav>
+          <form key={`${filters.view}:${filters.q}:${filters.type}`} method="get" className={styles.filters}>
+            <input type="hidden" name="view" value={filters.view} />
+            <label className={styles.searchLabel}>Search notifications<input name="q" type="search" maxLength={200} defaultValue={filters.q} placeholder="Search titles and details…" /></label>
+            <label>Category<select name="type" defaultValue={filters.type}><option value="">All categories</option>{NOTIFICATION_TYPES.map((type) => <option key={type} value={type}>{NOTIFICATION_TYPE_LABELS[type]}</option>)}</select></label>
+            <button type="submit" className={styles.button}>Apply</button>
+            {(filters.q || filters.type) && <Link href={notificationInboxHref({ ...filters, q: "", type: "", page: 1 })} className={styles.textButton}>Clear filters</Link>}
+          </form>
+          {(filters.view === "inbox" || filters.view === "unread") && <form action={updateNotificationsAction} className={styles.inboxActions}>
+            <FilterFields filters={filters} />
+            <button type="submit" name="operation" value="readAll" disabled={unread === 0} className={styles.textButton}>Mark entire inbox as read</button>
+            <button type="submit" name="operation" value="archiveRead" disabled={inbox <= unread} className={styles.textButton}>Archive all read</button>
+            <span className={styles.muted}>Applies to the entire inbox.</span>
+          </form>}
+          <NotificationList key={notificationInboxHref(filters)} filters={filters} action={updateNotificationsAction} rows={rows.map((row) => ({ id: row.id, title: row.title, body: row.body, href: row.href, type: row.type, readAt: row.readAt?.toISOString() ?? null, archivedAt: row.archivedAt?.toISOString() ?? null, createdAt: row.createdAt.toISOString(), emailedAt: row.emailedAt?.toISOString() ?? null, emailStatus: row.emailDeliveries[0]?.status ?? null }))} />
+          <footer className={styles.pagination}>
+            <span className={styles.muted}>{total === 0 ? "0 notifications" : `${(filters.page - 1) * NOTIFICATION_PAGE_SIZE + 1}–${Math.min(filters.page * NOTIFICATION_PAGE_SIZE, total)} of ${total} notifications`}</span>
+            <div>{filters.page > 1 && <Link href={notificationInboxHref(filters, { page: filters.page - 1 })} className={styles.button}>Previous</Link>}<span>Page {filters.page} of {pages}</span>{filters.page < pages && <Link href={notificationInboxHref(filters, { page: filters.page + 1 })} className={styles.button}>Next</Link>}</div>
+          </footer>
         </section>
+        <p className={styles.footnote}>Archive keeps notifications for later. Trash is recoverable; restoring returns a notification to its previous folder. Email delivery and in-app read status are tracked separately.</p>
       </div>
     </main>
   );
+}
+
+function FilterFields({ filters }: { filters: ReturnType<typeof parseInboxFilters> }) {
+  return <>{Object.entries(filters).map(([name, value]) => <input key={name} type="hidden" name={name} value={value} />)}</>;
 }

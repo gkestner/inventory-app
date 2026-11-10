@@ -1,5 +1,17 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Notifications
+
+The notification inbox supports read/unread states, archiving, recoverable trash, bulk actions, search, category filters, and pagination. New notifications can also send private email copies using authenticated SMTP, with durable retry tracking and per-user email preferences.
+
+See [notification email and database rollout setup](docs/notification-email-setup.md) before deploying. Run `npm run test:notifications` for the focused regression checks. The visible application version comes from `package.json`; its version must match the package lock and service-worker cache version.
+
+PM administrators manage service records and custom reminder sections under **Facilities → Compliance & Testing**. All sections start collapsed. Sections support editable names, descriptions, display order, multiple recipients, per-location recipients and intervals, and preserved annual service records. New sections default to 11 months from the date entered. Hiding a location pauses future reminders while preserving its saved details. Run `npm run test:reminders` for calendar, routing, and scheduling checks.
+
+Full administrators can enable private copies of other users' notifications in Notifications. The requested owner account is enrolled when the reviewed migration finds its current active administrator identity. See [notification oversight and coordinated rollout](docs/notification-oversight.md).
+
+See [recurring reminder usage and activation](docs/notification-reminders.md) for date examples, pause/resume behavior, and database rollout requirements.
+
 ## Getting Started
 
 First, run the development server:

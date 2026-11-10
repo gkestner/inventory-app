@@ -275,7 +275,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   }
   if (canPreventativeMaintenance) {
     availableSidebarItems.push({ key: "preventative-maintenance", label: "Preventative Maintenance", href: "/admin/preventative-maintenance", tag: "PM", group: "Facilities" });
-    availableSidebarItems.push({ key: "pm-compliance", label: "Backflow / Grease Trap / Boiler", href: "/admin/preventative-maintenance/compliance", tag: "Compliance", group: "Facilities" });
+    availableSidebarItems.push({ key: "pm-compliance", label: "Compliance & Testing", href: "/admin/preventative-maintenance/compliance", tag: "Compliance", group: "Facilities" });
   }
   if (canEquipmentTracking) {
     availableSidebarItems.push({ key: "equipment-tracking", label: "Equipment Tracking", href: "/admin/equipment-tracking", tag: "Assets", group: "Facilities" });
@@ -316,12 +316,21 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     { type: "preset" as const, key: "maintenance-requests" },
     { type: "preset" as const, key: "live-orders" },
     { type: "preset" as const, key: "preventative-maintenance" },
+    { type: "preset" as const, key: "pm-compliance" },
     { type: "preset" as const, key: "users" },
     { type: "preset" as const, key: "locations" },
   ].filter((item) => availableSidebarItems.some((availableItem) => availableItem.key === item.key));
 
   const savedSidebar = parseAdminSidebarPreferences(sidebarUser?.uiPreferences);
-  const initialSidebarItems = savedSidebar?.items ?? defaultSidebarItems;
+  const seenCompliance = new Set<string>();
+  const initialSidebarItems = (savedSidebar?.items ?? defaultSidebarItems)
+    .map((item): AdminSidebarItemPreference => item.type === "preset" && item.key === "notification-reminders" ? { ...item, key: "pm-compliance" } : item)
+    .filter((item) => {
+      if (item.type !== "preset" || item.key !== "pm-compliance") return true;
+      if (seenCompliance.has(item.key)) return false;
+      seenCompliance.add(item.key);
+      return true;
+    });
 
   return (
     <div className="admin-layout-grid" style={wrap}>

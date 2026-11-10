@@ -1,4 +1,5 @@
 import { prisma } from "@/app/lib/prisma";
+import type { Prisma } from "@prisma/client";
 
 export type PreventativeMaintenanceFieldKey =
   | "ovenCleaning"
@@ -72,7 +73,10 @@ export const PREVENTATIVE_MAINTENANCE_COMPLIANCE_SECTIONS = PREVENTATIVE_MAINTEN
   (s) => s.id === "grease-trap" || s.id === "backflow" || s.id === "boiler"
 );
 
-const ALL_FIELDS = PREVENTATIVE_MAINTENANCE_SECTIONS.flatMap((s) => s.fields);
+const ALL_FIELDS = [
+  ...PREVENTATIVE_MAINTENANCE_SECTIONS.flatMap((s) => s.fields),
+  { key: "boilerInspectionDateSecondary" as const, label: "Secondary Boiler Inspection Date" },
+];
 
 export const PREVENTATIVE_MAINTENANCE_FIELD_LABELS: Record<PreventativeMaintenanceFieldKey, string> =
   ALL_FIELDS.reduce(
@@ -114,6 +118,9 @@ export type PreventativeMaintenanceValues = {
 };
 
 type PreventativeMaintenancePersistedValues = {
+  greaseTrapCompanyId?: string | null;
+  backflowCompanyId?: string | null;
+  boilerInspectionCompanyId?: string | null;
   ovenCleaning: string | null;
   exhaustFanMotor: string | null;
   tanklessWaterHeater: string | null;
@@ -269,7 +276,7 @@ function collectChanges(
   return changes;
 }
 
-function mergeIncomingValues(
+export function mergePreventativeMaintenanceValues(
   before: PreventativeMaintenancePersistedValues | null,
   incoming: Partial<PreventativeMaintenanceValues>
 ): PreventativeMaintenanceValues {
@@ -292,19 +299,27 @@ export async function savePreventativeMaintenanceEntryWithAudit(args: {
   values: Partial<PreventativeMaintenanceValues>;
   actorUserId: string;
   source: "MAINTENANCE" | "ADMIN";
-}) {
-  const location = await db.location.findUnique({
+}, options?: { tx?: Prisma.TransactionClient; companyIds?: Partial<Record<"greaseTrapCompanyId" | "backflowCompanyId" | "boilerInspectionCompanyId", string | null>> }): Promise<{ saved: { id: string } & PreventativeMaintenancePersistedValues; hadChanges: boolean }> {
+  if (!options?.tx) {
+    return prisma.$transaction((tx) => savePreventativeMaintenanceEntryWithAudit(args, { ...options, tx }), { maxWait: 10_000, timeout: 30_000 });
+  }
+  const store = options.tx as unknown as Db;
+  // Serialize both existing and first-year writes for a location so partial
+  // section saves cannot overwrite another section's concurrently saved facts.
+  await options.tx.$queryRaw`SELECT "id" FROM "Location" WHERE "id" = ${args.locationId} FOR UPDATE`;
+  const location = await store.location.findUnique({
     where: { id: args.locationId },
     select: { id: true, name: true },
   });
   if (!location) throw new Error("Invalid location.");
 
-  const existing = await db.preventativeMaintenanceEntry.findUnique({
+  const existing = await store.preventativeMaintenanceEntry.findUnique({
     where: { locationId_year: { locationId: args.locationId, year: args.year } },
     select: {
       id: true,
       locationId: true,
       year: true,
+      greaseTrapCompanyId: true, backflowCompanyId: true, boilerInspectionCompanyId: true,
       ovenCleaning: true,
       exhaustFanMotor: true,
       tanklessWaterHeater: true,
@@ -327,24 +342,28 @@ export async function savePreventativeMaintenanceEntryWithAudit(args: {
     },
   });
 
-  const mergedValues = mergeIncomingValues(existing, args.values);
+  const mergedValues = mergePreventativeMaintenanceValues(existing, args.values);
   const changes = collectChanges(existing, mergedValues);
-  const hadChanges = Object.keys(changes).length > 0 || !existing;
+  const companyLinksChanged = Object.entries(options.companyIds ?? {}).some(([key, value]) => existing?.[key as keyof typeof options.companyIds] !== value);
+  const hadChanges = Object.keys(changes).length > 0 || companyLinksChanged || !existing;
 
-  const saved = await db.preventativeMaintenanceEntry.upsert({
+  const saved = await store.preventativeMaintenanceEntry.upsert({
     where: { locationId_year: { locationId: args.locationId, year: args.year } },
     update: {
       ...mergedValues,
+      ...options.companyIds,
       updatedByUserId: args.actorUserId,
     },
     create: {
       locationId: args.locationId,
       year: args.year,
       ...mergedValues,
+      ...options.companyIds,
       updatedByUserId: args.actorUserId,
     },
     select: {
       id: true,
+      greaseTrapCompanyId: true, backflowCompanyId: true, boilerInspectionCompanyId: true,
       ovenCleaning: true,
       exhaustFanMotor: true,
       tanklessWaterHeater: true,
@@ -369,7 +388,7 @@ export async function savePreventativeMaintenanceEntryWithAudit(args: {
 
   if (hadChanges) {
     const action = existing ? "UPDATE_ENTRY" : "CREATE_ENTRY";
-    await db.auditLog.create({
+    await store.auditLog.create({
       data: {
         actorUserId: args.actorUserId,
         module: "PREVENTATIVE_MAINTENANCE",
@@ -383,6 +402,10 @@ export async function savePreventativeMaintenanceEntryWithAudit(args: {
           locationName: location.name,
           year: args.year,
           changes,
+          companyReferences: {
+            before: { greaseTrapCompanyId: existing?.greaseTrapCompanyId ?? null, backflowCompanyId: existing?.backflowCompanyId ?? null, boilerInspectionCompanyId: existing?.boilerInspectionCompanyId ?? null },
+            after: { greaseTrapCompanyId: saved.greaseTrapCompanyId ?? null, backflowCompanyId: saved.backflowCompanyId ?? null, boilerInspectionCompanyId: saved.boilerInspectionCompanyId ?? null },
+          },
           values: {
             ovenCleaning: saved.ovenCleaning,
             exhaustFanMotor: saved.exhaustFanMotor,

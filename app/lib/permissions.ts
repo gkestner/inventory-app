@@ -1,6 +1,7 @@
 // app/lib/permissions.ts
 import { prisma } from "@/app/lib/prisma";
 import { Permission, Role } from "@prisma/client";
+import { isSystemAdminRoleName } from "@/app/lib/system-admin-role";
 
 /**
  * Canonical server-side permission loader.
@@ -138,10 +139,6 @@ function rolesReady(): boolean {
     typeof db.appRolePermissionTitle?.findMany === "function" &&
     typeof db.permissionTitlePermission?.findMany === "function"
   );
-}
-
-function isSystemAdminRoleName(name: string): boolean {
-  return name.trim().toUpperCase() === "ADMIN";
 }
 
 function uniqStrings(vals: string[]): string[] {

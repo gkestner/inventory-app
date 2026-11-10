@@ -28,6 +28,8 @@ import {
   EDIT_COMPANY_VEHICLE_INFO,
 } from "@/app/lib/permission-constants";
 import { prisma } from "@/app/lib/prisma";
+import { unreadNotificationWhere } from "@/app/lib/notification-counts";
+import NotificationBadge from "@/app/components/NotificationBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -35,22 +37,16 @@ export default async function AdminNav() {
   const session = await getServerSession(authOptions);
   const perms = await loadUserPermissions(session);
   const email = String(session?.user?.email ?? "").trim().toLowerCase();
-  const dbRole = email
-    ? (
-        await prisma.user.findUnique({
-          where: { email },
-          select: { role: true },
-        })
-      )?.role ?? null
+  const userId = String(session?.user?.id ?? "").trim();
+  const me = userId || email
+    ? await prisma.user.findUnique({
+        where: userId ? { id: userId } : { email }, select: { id: true, active: true, role: true },
+      })
     : null;
-  const isAdminByRole = session?.user?.role === Role.ADMIN || dbRole === Role.ADMIN;
-  const me = email
-    ? await prisma.user.findUnique({ where: { email }, select: { id: true } })
-    : null;
-  const unreadCount = me?.id
-    ? await prisma.notification.count({ where: { userId: me.id, readAt: null } })
+  const isAdminByRole = session?.user?.role === Role.ADMIN || me?.role === Role.ADMIN;
+  const unreadCount = me?.active
+    ? await prisma.notification.count({ where: unreadNotificationWhere(me.id) })
     : 0;
-  const unreadBadgeText = unreadCount > 99 ? "99+" : String(unreadCount);
   const isAdmin = isAdminByRole || perms.allowAll;
 
   const shell: CSSProperties = {
@@ -402,28 +398,7 @@ export default async function AdminNav() {
 
           <Link href="/notifications" style={topLinkStyle}>
             Notifications
-            {unreadCount > 0 ? (
-              <span
-                style={{
-                  minWidth: 20,
-                  height: 20,
-                  padding: "0 6px",
-                  borderRadius: 999,
-                  border: "1px solid color-mix(in srgb, var(--brand) 50%, var(--border))",
-                  background: "linear-gradient(160deg, var(--brand-2) 0%, var(--brand) 100%)",
-                  color: "var(--brand-contrast)",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 11,
-                  fontWeight: 900,
-                  lineHeight: 1,
-                }}
-                aria-label={`${unreadCount} unread notifications`}
-              >
-                {unreadBadgeText}
-              </span>
-            ) : null}
+            {me?.active ? <NotificationBadge userId={me.id} initialCount={unreadCount} /> : null}
           </Link>
 
           {/* Admin */}
@@ -517,7 +492,7 @@ export default async function AdminNav() {
               <div style={menuStyle}>
                 {canPreventativeMaintenance ? (
                   <Link href="/admin/preventative-maintenance/compliance" style={menuItemStyle}>
-                    Backflow / Grease Trap / Boiler
+                    Compliance &amp; Testing
                   </Link>
                 ) : null}
                 {canCompanyVehicles ? (

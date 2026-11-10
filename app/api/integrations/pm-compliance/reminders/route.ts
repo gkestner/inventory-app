@@ -1,34 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { runPmComplianceReminderScan } from "@/app/lib/pm-compliance-reminders";
+import { authorizePmReminderRequest } from "@/app/lib/reminder-auth";
 
 export const dynamic = "force-dynamic";
-
-function resolveSyncAuth(req: NextRequest): boolean {
-  const expected =
-    process.env.PM_COMPLIANCE_REMINDER_TOKEN?.trim() ||
-    process.env.PM_REMINDER_SYNC_TOKEN?.trim() ||
-    process.env.MOCREO_SYNC_TOKEN?.trim();
-
-  if (!expected) return true;
-
-  const tokenFromHeader = req.headers.get("x-pm-reminder-token")?.trim();
-  if (tokenFromHeader && tokenFromHeader === expected) return true;
-
-  const bearer = req.headers.get("authorization")?.trim() ?? "";
-  if (bearer.toLowerCase().startsWith("bearer ")) {
-    const incoming = bearer.slice(7).trim();
-    if (incoming && incoming === expected) return true;
-  }
-
-  const tokenFromQuery = req.nextUrl.searchParams.get("token")?.trim();
-  if (tokenFromQuery && tokenFromQuery === expected) return true;
-
-  return false;
-}
+export const runtime = "nodejs";
+export const maxDuration = 300;
 
 async function run(req: NextRequest) {
-  if (!resolveSyncAuth(req)) {
+  if (!authorizePmReminderRequest(req)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 

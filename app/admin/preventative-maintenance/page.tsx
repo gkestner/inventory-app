@@ -286,7 +286,7 @@ export default async function AdminPreventativeMaintenancePage({
             href={`/admin/preventative-maintenance/compliance?year=${year}`}
             style={{ ...saveBtn, textDecoration: "none", display: "inline-flex", alignItems: "center" }}
           >
-            Backflow / Grease Trap / Boiler
+            Compliance &amp; Testing
           </Link>
         </div>
       </section>
@@ -367,7 +367,7 @@ export default async function AdminPreventativeMaintenancePage({
         <section style={card}>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>Compliance & Testing Dashboard</h2>
           <p style={{ margin: "8px 0 0", color: "var(--muted)", lineHeight: 1.45 }}>
-            Enter all Backflow, Grease Trap, and Boiler details on the dedicated admin compliance screen.
+            Manage compliance sections, service records, recurring reminders, and notification recipients.
           </p>
           <div style={{ marginTop: 10 }}>
             <Link
