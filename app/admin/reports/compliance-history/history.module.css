@@ -1,0 +1,57 @@
+.report { display: grid; gap: 16px; max-width: 1320px; margin: 0 auto; color: var(--foreground); }
+.header, .filters, .results { border: 1px solid var(--border); border-radius: 16px; background: var(--surface); padding: 20px; min-width: 0; }
+.header { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; background: linear-gradient(130deg, color-mix(in srgb, var(--brand) 12%, var(--surface)), var(--surface)); }
+.header h1 { margin: 4px 0 8px; font-size: clamp(24px, 3vw, 32px); }
+.header p, .resultHeading p { margin: 0; color: var(--muted); }
+.eyebrow { font-size: 11px; font-weight: 800; letter-spacing: .13em; }
+.links { display: flex; gap: 10px; flex-wrap: wrap; }
+.links a, .filters button, .pagination a { display: inline-block; border: 1px solid var(--border); border-radius: 9px; padding: 10px 13px; background: var(--surface-2); color: var(--foreground); text-decoration: none; font-weight: 750; }
+.filters { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+.filters label { display: grid; gap: 7px; flex: 1 1 220px; font-size: 12px; font-weight: 750; min-width: 0; }
+.filters label:nth-child(3) { flex: 0 1 130px; }
+.filters input, .filters select { width: 100%; min-width: 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--foreground); font: inherit; font-size: 14px; }
+.filters button { background: var(--brand); color: var(--brand-contrast, white); cursor: pointer; }
+.filters a { padding: 10px 4px; font-size: 13px; }
+.guide { flex-basis: 100%; margin: 2px 0 0; font-size: 12px; color: var(--muted); line-height: 1.6; }
+.resultHeading { display: flex; gap: 12px; justify-content: space-between; align-items: center; }
+.resultHeading h2 { margin: 0 0 5px; font-size: 21px; }
+.resultHeading > strong { white-space: nowrap; font-size: 14px; }
+.muted { color: var(--muted); line-height: 1.6; font-size: 12px; margin: 0; }
+.results > .muted { margin: 14px 0; }
+.entries { display: grid; gap: 8px; }
+.entry { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; min-width: 0; }
+.entry summary { list-style: none; display: flex; gap: 16px; padding: 14px; align-items: center; cursor: pointer; background: var(--surface-2); }
+.entry summary::-webkit-details-marker { display: none; }
+.entry summary:focus-visible { outline: 3px solid var(--brand); outline-offset: -3px; }
+.entryIdentity, .entryDate { display: grid; gap: 4px; min-width: 0; flex: 1; }
+.entry summary strong { font-size: 14px; overflow-wrap: anywhere; }
+.entry summary small, .saved { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.saved { max-width: 160px; }
+.plus { font-size: 22px; line-height: 1; }
+.entry[open] .plus { transform: rotate(45deg); }
+.fields { margin: 0; padding: 18px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; border-top: 1px solid var(--border); }
+.fields div { min-width: 0; }
+.fields dt { color: var(--muted); font-size: 11px; font-weight: 750; margin-bottom: 5px; }
+.fields dd { margin: 0; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.fields .wide { grid-column: 1 / -1; }
+.identifier { font-family: monospace; }
+.pagination { display: flex; gap: 12px; justify-content: flex-end; align-items: center; margin-top: 16px; font-size: 13px; }
+.empty { padding: 28px 10px; text-align: center; color: var(--muted); }
+.empty p { margin-bottom: 0; }
+@media (max-width: 700px) {
+  .header, .filters, .results { padding: 14px; }
+  .entry summary { gap: 10px; flex-wrap: wrap; }
+  .entryIdentity { flex-basis: 55%; }
+  .entryDate { flex-basis: 30%; }
+  .saved { flex-basis: 100%; order: 4; max-width: none; }
+  .fields { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 14px; }
+  .pagination { justify-content: space-between; }
+}
+@media print {
+  .noPrint, .links, .plus { display: none !important; }
+  .report, .results { display: block; }
+  .entry { margin: 10px 0; break-inside: avoid; }
+  .entry::details-content { display: block !important; content-visibility: visible !important; }
+  .entry:not([open]) > :not(summary) { display: grid !important; }
+  .fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}

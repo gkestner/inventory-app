@@ -1,10 +1,11 @@
 import { prisma } from "@/app/lib/prisma";
 import { loadMaintenancePrimaryAssignments } from "@/app/lib/preventative-maintenance";
+import { loadLatestComplianceRecords } from "@/app/lib/compliance-history";
 
 /** Native section settings are separate from the preserved annual compliance facts. */
-export async function loadComplianceDashboard(year: number, options?: { locationIds?: string[] }) {
+export async function loadComplianceDashboard(options?: { locationIds?: string[] }) {
   const locationScope = options?.locationIds ? { id: { in: options.locationIds } } : {};
-  const [sections, locations, entries, companies, users, assignments] = await Promise.all([
+  const [sections, locations, companies, users, assignments, latestRecords] = await Promise.all([
     prisma.notificationReminderList.findMany({
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }, { id: "asc" }],
       include: {
@@ -16,14 +17,12 @@ export async function loadComplianceDashboard(year: number, options?: { location
       },
     }),
     prisma.location.findMany({ where: { active: true, ...locationScope }, select: { id: true, name: true, locationNumber: true }, orderBy: [{ name: "asc" }, { id: "asc" }] }),
-    prisma.preventativeMaintenanceEntry.findMany({
-      where: { year, ...(options?.locationIds ? { locationId: { in: options.locationIds } } : {}) },
-    }),
     prisma.reminderCompany.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.user.findMany({ where: { active: true }, select: { id: true, name: true, email: true }, orderBy: [{ name: "asc" }, { id: "asc" }] }),
     loadMaintenancePrimaryAssignments(),
+    loadLatestComplianceRecords(options?.locationIds),
   ]);
-  return { sections, locations, entries, companies, users, assignments };
+  return { sections, locations, companies, users, assignments, latestRecords };
 }
 
 export type ComplianceDashboardData = Awaited<ReturnType<typeof loadComplianceDashboard>>;

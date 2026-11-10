@@ -9,6 +9,8 @@ import { lockNotificationReminderList, pauseQueuedReminderEmails } from "@/app/l
 import { addReminderMonths, formatReminderDate, parseReminderDate, parseReminderMonths } from "@/app/lib/reminder-dates";
 import { savePreventativeMaintenanceEntryWithAudit } from "@/app/lib/preventative-maintenance";
 import { submittedComplianceValues } from "@/app/lib/compliance-fields";
+import { parsedComplianceSubmission, latestComplianceRecords } from "@/app/lib/compliance-history-fields";
+import { ComplianceHistoryInputError, recordComplianceServiceEntry } from "@/app/lib/compliance-history-writer";
 
 class ReminderInputError extends Error {}
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
@@ -38,10 +40,13 @@ function returnTo(form: FormData, listId: string, feedback: { saved?: string; er
   if (bool(form, "showHidden")) query.set("showHidden", "1");
   if (feedback.saved) query.set("saved", feedback.saved);
   if (feedback.error) query.set("error", feedback.error);
-  redirect(`/admin/preventative-maintenance/compliance?${query}`);
+  const locationId = text(form, "locationId");
+  if (locationId) query.set("location", locationId);
+  const anchor = listId && locationId ? `#location-${encodeURIComponent(listId)}-${encodeURIComponent(locationId)}` : "";
+  redirect(`/admin/preventative-maintenance/compliance?${query}${anchor}`);
 }
 function failure(error: unknown) {
-  if (error instanceof ReminderInputError) return error.message;
+  if (error instanceof ReminderInputError || error instanceof ComplianceHistoryInputError) return error.message;
   console.error("[notification-reminders] An authenticated update could not be saved.");
   return "The reminder could not be saved. Please try again.";
 }
@@ -50,9 +55,72 @@ function refresh() {
   revalidatePath("/admin/preventative-maintenance/compliance");
   revalidatePath("/maintenance/preventative-maintenance/compliance");
   revalidatePath("/notifications");
+  revalidatePath("/admin/reports/compliance-history");
+}
+
+export async function recordComplianceEntryAction(form: FormData) {
+  const actor = await requireReminderManager();
+  const listId = text(form, "listId");
+  let error: string | undefined;
+  let created = false;
+  try {
+    const locationId = text(form, "locationId");
+    const year = Number(text(form, "year"));
+    if (!Number.isInteger(year) || year < 2020 || year > 2100) throw new ReminderInputError("Choose an entry year from 2020 to 2100.");
+    const submissionToken = text(form, "submissionToken");
+    if (!/^[A-Za-z0-9_-]{16,100}$/.test(submissionToken)) throw new ReminderInputError("Refresh the page before adding a new entry.");
+    await prisma.$transaction(async tx => {
+      await lockNotificationReminderList(tx, listId);
+      const section = await tx.notificationReminderList.findUnique({where: {id: listId}});
+      if (!section) throw new ReminderInputError("Choose an existing compliance section.");
+      await tx.$queryRaw`SELECT "id" FROM "Location" WHERE "id" = ${locationId} FOR UPDATE`;
+      if (!await tx.location.findFirst({where: {id: locationId, active: true}, select: {id: true}})) throw new ReminderInputError("Choose an active location.");
+      const parsed = parsedComplianceSubmission(form, section.defaultIntervalMonths);
+      if (!parsed.values) throw new ReminderInputError(parsed.error);
+      const values = {...parsed.values,
+        tankSize: section.complianceKind === "GREASE_TRAP" ? parsed.values.tankSize : null,
+        gallons: section.complianceKind === "GREASE_TRAP" ? parsed.values.gallons : null,
+        additionalDate: section.complianceKind === "BOILER" ? parsed.values.additionalDate : null,
+      };
+      const routing = await tx.notificationReminderLocation.upsert({where: {listId_locationId: {listId, locationId}}, create: {listId, locationId}, update: {}});
+      const result = await recordComplianceServiceEntry(tx, {section, routing, actorUserId: actor.id, year, submissionToken, values});
+      created = result.created;
+      if (result.anchorChanged || routing.hidden || !section.active) await pauseQueuedReminderEmails(tx, {listId, reminderLocationId: routing.id});
+    }, {maxWait: 10_000, timeout: 30_000});
+  } catch (caught) {error = failure(caught);}
+  if (error) returnTo(form, listId, {error});
+  refresh();
+  returnTo(form, listId, {saved: created ? "New compliance entry added. Previous entries remain in history." : "This entry was already saved."});
+}
+
+export async function saveComplianceRoutingAction(form: FormData) {
+  const actor = await requireReminderManager();
+  const listId = text(form, "listId");
+  let error: string | undefined;
+  try {
+    const locationId = text(form, "locationId");
+    const expectedId = text(form, "reminderLocationId");
+    const enabled = bool(form, "useLocationRecipients");
+    const ids = recipientIds(form, "locationRecipientIds");
+    await prisma.$transaction(async tx => {
+      await lockNotificationReminderList(tx, listId);
+      const section = await tx.notificationReminderList.findUnique({where: {id: listId}});
+      if (!section || !await tx.location.findFirst({where: {id: locationId, active: true}, select: {id: true}})) throw new ReminderInputError("Choose an active section location.");
+      const previous = await tx.notificationReminderLocation.findUnique({where: {listId_locationId: {listId, locationId}}, include: {recipients: true}});
+      if (expectedId && previous?.id !== expectedId) throw new ReminderInputError("This location has changed. Refresh and try again.");
+      const saved = await tx.notificationReminderLocation.upsert({where: {listId_locationId: {listId, locationId}}, create: {listId, locationId, useLocationRecipients: enabled}, update: {useLocationRecipients: enabled}});
+      await saveLocationRecipients(tx, saved.id, enabled, ids);
+      const changed = previous?.useLocationRecipients !== enabled || (previous?.recipients.map(r => r.userId).sort().join("|") ?? "") !== (enabled ? [...ids].sort().join("|") : "");
+      if (changed || saved.hidden || !section.active) await pauseQueuedReminderEmails(tx, {listId, reminderLocationId: saved.id});
+      await audit(tx, actor.id, "NotificationReminderLocation", saved.id, "SAVE_COMPLIANCE_RECIPIENTS", {listId, locationId, before: previous ? {useLocationRecipients: previous.useLocationRecipients, recipientUserIds: previous.recipients.map(r => r.userId)} : null, after: {useLocationRecipients: enabled, recipientUserIds: enabled ? ids : []}});
+    });
+  } catch (caught) {error = failure(caught);}
+  if (error) returnTo(form, listId, {error});
+  refresh();
+  returnTo(form, listId, {saved: "Location recipients saved."});
 }
 async function audit(tx: Prisma.TransactionClient, actorUserId: string, entityType: string, entityId: string, action: string, metadata: Prisma.InputJsonValue) {
-  await tx.auditLog.create({ data: { actorUserId, module: "NOTIFICATION_REMINDERS", entityType, entityId, action, metadata } });
+  return tx.auditLog.create({ data: { actorUserId, module: "NOTIFICATION_REMINDERS", entityType, entityId, action, metadata } });
 }
 
 function recipientIds(form: FormData, key: string) {
@@ -169,7 +237,21 @@ export async function saveReminderLocationAction(form: FormData) {
       const routingChanged = previous?.useLocationRecipients !== useLocationRecipients || previous?.recipients.map((recipient) => recipient.userId).sort().join("|") !== [...selectedRecipients].sort().join("|");
       if (hidden || !referenceOn || !list.active || changedSchedule || routingChanged) await pauseQueuedReminderEmails(tx, { listId, reminderLocationId: saved.id });
       const snapshot = (row: typeof saved) => ({ companyId: row.companyId, referenceOn: row.referenceOn ? formatReminderDate(row.referenceOn) : null, nextDueOn: row.nextDueOn ? formatReminderDate(row.nextDueOn) : null, intervalMonths: row.intervalMonths, hidden: row.hidden, useLocationRecipients: row.useLocationRecipients });
-      await audit(tx, actor.id, "NotificationReminderLocation", saved.id, "SAVE_LOCATION", { listId, locationId, before: previous ? { ...snapshot(previous), recipientUserIds: previous.recipients.map((recipient) => recipient.userId) } : null, after: { ...snapshot(saved), recipientUserIds: useLocationRecipients ? selectedRecipients : [] } });
+      const locationAudit = await audit(tx, actor.id, "NotificationReminderLocation", saved.id, "SAVE_LOCATION", { listId, locationId, before: previous ? { ...snapshot(previous), recipientUserIds: previous.recipients.map((recipient) => recipient.userId) } : null, after: { ...snapshot(saved), recipientUserIds: useLocationRecipients ? selectedRecipients : [] } });
+      // Compatibility writer: recipient/visibility-only changes are not service events.
+      if (changedSchedule || previous?.companyId !== companyId) {
+        const candidates = await tx.complianceServiceEntry.findMany({where: {reminderLocationId: saved.id, supersededBy: null}});
+        const prior = latestComplianceRecords(candidates)[0];
+        const company = companyId ? await tx.reminderCompany.findUnique({where: {id: companyId}, select: {name: true}}) : null;
+        if (referenceOn || prior) await tx.complianceServiceEntry.create({data: {
+          reminderLocationId: saved.id, sourceAuditLogId: locationAudit.id, supersedesEntryId: prior?.id,
+          recordedByUserId: actor.id, companyId, companyName: company?.name ?? null,
+          serviceDate: referenceOn ? formatReminderDate(referenceOn) : "", recordYear: referenceOn?.getUTCFullYear() ?? new Date().getFullYear(),
+          intervalMonths: intervalMonths ?? list.defaultIntervalMonths, intervalOverrideMonths: intervalMonths,
+          intervalText: intervalMonths?.toString() ?? null, source: "CUSTOM_EDIT",
+          cost: prior?.cost ?? null, notes: prior?.notes ?? null,
+        }});
+      }
     }, { maxWait: 10_000, timeout: 30_000 });
   } catch (caught) { error = failure(caught); }
   if (error) returnTo(form, listId, { error });

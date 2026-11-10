@@ -13,12 +13,14 @@ export default async function AdminCompliancePage({ searchParams }: { searchPara
   const actor = await requireReminderManager();
   const params = await searchParams;
   const year = normalizePmYear(params.year);
-  const data = await loadComplianceDashboard(year);
+  const data = await loadComplianceDashboard();
   return <ComplianceDashboard
     data={data}
     year={year}
     editable
+    canViewHistory
     actorId={actor.id}
+    expanded={(value(params, "saved") || value(params, "error")) ? { sectionId: value(params, "section"), locationId: value(params, "location") } : undefined}
     filters={{ q: value(params, "q").trim().slice(0, 200), status: ["attention", "missing", "paused"].includes(value(params, "status")) ? value(params, "status") : "all", showHidden: value(params, "showHidden") === "1" }}
     feedback={{ error: value(params, "error").slice(0, 250), saved: value(params, "saved").slice(0, 250) }}
     emailConfigured={getNotificationEmailConfiguration().configured}

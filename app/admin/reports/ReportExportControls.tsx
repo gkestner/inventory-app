@@ -8,7 +8,7 @@ const REPORTS = new Set([
   "min-qty-differences", "item-cost-history", "scanner-count-untouched",
   "parts-consumption-costs", "work-order-costs", "maintenance-requests",
   "sla-breaches", "technician-workload", "preventative-maintenance",
-  "pm-compliance", "temperature-incidents", "fleet-tco",
+  "pm-compliance", "compliance-history", "temperature-incidents", "fleet-tco",
   "permission-coverage", "notification-effectiveness",
 ]);
 
@@ -23,7 +23,9 @@ export default function ReportExportControls() {
     params.set("report", slug);
     params.set("format", format);
     params.delete("page");
-    return `/api/admin/reports/excel?${params.toString()}`;
+    return slug === "compliance-history"
+      ? `/api/admin/reports/compliance-history?${params.toString()}`
+      : `/api/admin/reports/excel?${params.toString()}`;
   }
 
   const buttonStyle = {

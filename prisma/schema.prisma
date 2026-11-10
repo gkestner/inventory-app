@@ -451,6 +451,7 @@ model User {
   notificationEmailDeliveries NotificationEmailDelivery[] @relation("NotificationEmailRecipient")
   notificationOversightSubscription NotificationOversightSubscriber? @relation("NotificationOversightUser")
   notificationOversightSubscriptionsCreated NotificationOversightSubscriber[] @relation("NotificationOversightCreatedBy")
+  complianceServiceEntries ComplianceServiceEntry[] @relation("ComplianceServiceRecordedBy")
   createdNotificationReminderLists NotificationReminderList[] @relation("ReminderListCreator")
   notificationReminderRecipients NotificationReminderRecipient[]
   notificationReminderLocationRecipients NotificationReminderLocationRecipient[]
@@ -612,6 +613,8 @@ model PreventativeMaintenanceEntry {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  complianceServiceEntries ComplianceServiceEntry[]
 
   @@unique([locationId, year])
   @@index([year])
@@ -954,6 +957,8 @@ model AuditLog {
 
   createdAt DateTime @default(now())
 
+  complianceServiceEntries ComplianceServiceEntry[]
+
   @@index([module, createdAt])
   @@index([entityType, entityId])
   @@index([actorUserId, createdAt])
@@ -1021,6 +1026,7 @@ model ReminderCompany {
   greaseTrapEntries PreventativeMaintenanceEntry[] @relation("GreaseTrapServiceCompany")
   backflowEntries PreventativeMaintenanceEntry[] @relation("BackflowServiceCompany")
   boilerEntries PreventativeMaintenanceEntry[] @relation("BoilerServiceCompany")
+  complianceServiceEntries ComplianceServiceEntry[]
 }
 
 model NotificationReminderList {
@@ -1058,8 +1064,50 @@ model NotificationReminderLocation {
   occurrences NotificationReminderOccurrence[]
   recipients NotificationReminderLocationRecipient[]
   complianceNotifications Notification[]
+  serviceEntries ComplianceServiceEntry[]
   @@unique([listId, locationId])
   @@index([hidden, nextDueOn])
+}
+
+// Append-only service facts. The reminder-location FK supplies the authoritative
+// section and location; annual entries remain compatible checklist projections.
+model ComplianceServiceEntry {
+  id String @id @default(cuid())
+  reminderLocationId String
+  reminderLocation NotificationReminderLocation @relation(fields: [reminderLocationId], references: [id], onDelete: Restrict)
+  sourceAnnualEntryId String?
+  sourceAnnualEntry PreventativeMaintenanceEntry? @relation(fields: [sourceAnnualEntryId], references: [id], onDelete: Restrict)
+  sourceAuditLogId String?
+  sourceAuditLog AuditLog? @relation(fields: [sourceAuditLogId], references: [id], onDelete: SetNull)
+  supersedesEntryId String? @unique
+  supersedesEntry ComplianceServiceEntry? @relation("ComplianceServiceCorrection", fields: [supersedesEntryId, reminderLocationId], references: [id, reminderLocationId], onDelete: Restrict)
+  supersededBy ComplianceServiceEntry? @relation("ComplianceServiceCorrection")
+  recordedByUserId String?
+  recordedByUser User? @relation("ComplianceServiceRecordedBy", fields: [recordedByUserId], references: [id], onDelete: SetNull)
+  companyId String?
+  company ReminderCompany? @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  companyName String?
+  serviceDate String
+  recordYear Int
+  intervalMonths Int
+  intervalOverrideMonths Int?
+  intervalText String?
+  cost String?
+  tankSize String?
+  gallons String?
+  additionalDate String?
+  notes String?
+  source String
+  submissionToken String? @unique
+  recordedAt DateTime @default(now())
+  @@unique([id, reminderLocationId])
+  @@unique([supersedesEntryId, reminderLocationId])
+  @@unique([sourceAuditLogId, reminderLocationId])
+  @@index([reminderLocationId, recordedAt, id])
+  @@index([recordYear, recordedAt, id])
+  @@index([sourceAnnualEntryId])
+  @@index([recordedByUserId])
+  @@index([companyId])
 }
 
 model NotificationReminderRecipient {

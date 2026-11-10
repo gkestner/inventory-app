@@ -1,6 +1,6 @@
 {
   "name": "inventory-app",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test:notifications": "tsx --test app/lib/notification-counts.test.ts app/lib/notification-inbox.test.ts app/lib/notification-email.test.ts app/lib/notification-oversight.test.ts",
     "test:reminders": "tsx --test app/lib/reminder-dates.test.ts app/lib/pm-compliance-rules.test.ts app/lib/reminder-auth.test.ts app/lib/notification-reminders.test.ts app/lib/compliance-fields.test.ts",
+    "test:history": "tsx --test app/lib/compliance-history.test.ts app/admin/reports/compliance-history/report-data.test.ts app/admin/reports/compliance-history/history-pdf.test.ts",
     "seed": "prisma db seed"
   },
   "prisma": {

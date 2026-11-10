@@ -25,7 +25,7 @@ export default async function MaintenanceCompliancePage({ searchParams }: { sear
   if (perms.allowAll || hasAnyPermission(perms, [ADMIN_VIEW_PREVENTATIVE_MAINTENANCE])) redirect(`/admin/preventative-maintenance/compliance?year=${year}`);
   const assignments = await loadMaintenancePrimaryAssignments();
   const locationIds = [...new Set(assignments.filter((assignment) => assignment.userId === me.id).map((assignment) => assignment.locationId))];
-  const data = await loadComplianceDashboard(year, { locationIds });
+  const data = await loadComplianceDashboard({ locationIds });
   return <div style={{ padding: 16 }}><ComplianceDashboard
     data={data}
     year={year}

@@ -1,5 +1,7 @@
 import { prisma } from "@/app/lib/prisma";
 import type { Prisma } from "@prisma/client";
+import { appendAnnualComplianceHistory } from "@/app/lib/compliance-history";
+import { COMPLIANCE_FIELDS } from "@/app/lib/compliance-fields";
 
 export type PreventativeMaintenanceFieldKey =
   | "ovenCleaning"
@@ -299,11 +301,17 @@ export async function savePreventativeMaintenanceEntryWithAudit(args: {
   values: Partial<PreventativeMaintenanceValues>;
   actorUserId: string;
   source: "MAINTENANCE" | "ADMIN";
-}, options?: { tx?: Prisma.TransactionClient; companyIds?: Partial<Record<"greaseTrapCompanyId" | "backflowCompanyId" | "boilerInspectionCompanyId", string | null>> }): Promise<{ saved: { id: string } & PreventativeMaintenancePersistedValues; hadChanges: boolean }> {
+}, options?: { tx?: Prisma.TransactionClient; skipComplianceHistory?: boolean; companyIds?: Partial<Record<"greaseTrapCompanyId" | "backflowCompanyId" | "boilerInspectionCompanyId", string | null>> }): Promise<{ saved: { id: string } & PreventativeMaintenancePersistedValues; hadChanges: boolean }> {
   if (!options?.tx) {
     return prisma.$transaction((tx) => savePreventativeMaintenanceEntryWithAudit(args, { ...options, tx }), { maxWait: 10_000, timeout: 30_000 });
   }
   const store = options.tx as unknown as Db;
+  // List-before-location ordering matches reminder scans and dashboard writes.
+  // Lock only submitted sections; checklist-only writes do not lock unrelated lists.
+  if (!options.skipComplianceHistory) {
+    const kinds = Object.entries(COMPLIANCE_FIELDS).filter(([, fields]) => fields.some(field => Object.hasOwn(args.values, field))).map(([kind]) => kind);
+    if (kinds.length) await options.tx.$queryRawUnsafe(`SELECT "id" FROM "NotificationReminderList" WHERE "complianceKind"::TEXT IN (${kinds.map(kind => `'${kind}'`).join(",")}) ORDER BY "id" FOR UPDATE`);
+  }
   // Serialize both existing and first-year writes for a location so partial
   // section saves cannot overwrite another section's concurrently saved facts.
   await options.tx.$queryRaw`SELECT "id" FROM "Location" WHERE "id" = ${args.locationId} FOR UPDATE`;
@@ -344,21 +352,33 @@ export async function savePreventativeMaintenanceEntryWithAudit(args: {
 
   const mergedValues = mergePreventativeMaintenanceValues(existing, args.values);
   const changes = collectChanges(existing, mergedValues);
-  const companyLinksChanged = Object.entries(options.companyIds ?? {}).some(([key, value]) => existing?.[key as keyof typeof options.companyIds] !== value);
+  const companyIds = { ...options.companyIds };
+  for (const [field, link] of [["greaseTrapCompany", "greaseTrapCompanyId"], ["backflowCompany", "backflowCompanyId"], ["boilerInspectionCompany", "boilerInspectionCompanyId"]] as const) {
+    if (Object.hasOwn(companyIds, link) || !Object.hasOwn(changes, field)) continue;
+    const name = mergedValues[field].replace(/\s+/g, " ").trim();
+    // Preserve unrestricted legacy labels, while giving supported company names
+    // one stable relational identity whenever their authoritative value changes.
+    const company = name && name.length <= 160 ? await options.tx.reminderCompany.upsert({
+      where: { normalizedName: name.normalize("NFKC").toLocaleLowerCase("en-US") },
+      create: {name, normalizedName: name.normalize("NFKC").toLocaleLowerCase("en-US")}, update: {},
+    }) : null;
+    companyIds[link] = company?.id ?? null;
+  }
+  const companyLinksChanged = Object.entries(companyIds).some(([key, value]) => existing?.[key as keyof typeof companyIds] !== value);
   const hadChanges = Object.keys(changes).length > 0 || companyLinksChanged || !existing;
 
   const saved = await store.preventativeMaintenanceEntry.upsert({
     where: { locationId_year: { locationId: args.locationId, year: args.year } },
     update: {
       ...mergedValues,
-      ...options.companyIds,
+      ...companyIds,
       updatedByUserId: args.actorUserId,
     },
     create: {
       locationId: args.locationId,
       year: args.year,
       ...mergedValues,
-      ...options.companyIds,
+      ...companyIds,
       updatedByUserId: args.actorUserId,
     },
     select: {
@@ -388,7 +408,7 @@ export async function savePreventativeMaintenanceEntryWithAudit(args: {
 
   if (hadChanges) {
     const action = existing ? "UPDATE_ENTRY" : "CREATE_ENTRY";
-    await store.auditLog.create({
+    const historyAudit = await options.tx.auditLog.create({
       data: {
         actorUserId: args.actorUserId,
         module: "PREVENTATIVE_MAINTENANCE",
@@ -429,6 +449,10 @@ export async function savePreventativeMaintenanceEntryWithAudit(args: {
           },
         },
       },
+    });
+    if (!options.skipComplianceHistory) await appendAnnualComplianceHistory(options.tx, {
+      saved, locationId: args.locationId, year: args.year, actorUserId: args.actorUserId,
+      changedFields: Object.keys(changes), sourceAuditLogId: historyAudit.id,
     });
   }
 

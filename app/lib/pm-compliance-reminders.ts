@@ -6,14 +6,24 @@ import { formatReminderDate, reminderToday } from "@/app/lib/reminder-dates";
 import { reminderRecipientIds } from "@/app/lib/reminder-recipients";
 import { lockNotificationReminderList } from "@/app/lib/notification-reminders";
 import { scheduleNotificationEmails } from "@/app/lib/notification-email";
+import { loadLatestComplianceRecords } from "@/app/lib/compliance-history";
+import { latestComplianceRecords } from "@/app/lib/compliance-history-fields";
+import type { PmComplianceEntry } from "@/app/lib/pm-compliance-rules";
 
-const serviceSelect = {
-  id: true, locationId: true, year: true,
-  greaseTrapDatePumped: true, greaseTrapReminderMonths: true, greaseTrapCompany: true,
-  backflowDateChecked: true, backflowReminderMonths: true, backflowCompany: true,
-  boilerInspectionDatePrimary: true, boilerInspectionReminderMonths: true, boilerInspectionCompany: true,
-  location: { select: { name: true } },
-} as const;
+function historyRow(record: {id: string; serviceDate: string; intervalText: string | null; companyName: string | null; recordYear: number}, kind: "GREASE_TRAP" | "BACKFLOW" | "BOILER", locationId: string, locationName: string): PmComplianceEntry {
+  return {
+    id: record.id, locationId, year: record.recordYear, location: {name: locationName},
+    greaseTrapDatePumped: kind === "GREASE_TRAP" ? record.serviceDate : null,
+    greaseTrapReminderMonths: kind === "GREASE_TRAP" ? record.intervalText : null,
+    greaseTrapCompany: kind === "GREASE_TRAP" ? record.companyName : null,
+    backflowDateChecked: kind === "BACKFLOW" ? record.serviceDate : null,
+    backflowReminderMonths: kind === "BACKFLOW" ? record.intervalText : null,
+    backflowCompany: kind === "BACKFLOW" ? record.companyName : null,
+    boilerInspectionDatePrimary: kind === "BOILER" ? record.serviceDate : null,
+    boilerInspectionReminderMonths: kind === "BOILER" ? record.intervalText : null,
+    boilerInspectionCompany: kind === "BOILER" ? record.companyName : null,
+  };
+}
 
 export async function runPmComplianceReminderScan(args?: { dueSoonDays?: number }) {
   const requestedDays = args?.dueSoonDays ?? 30;
@@ -21,11 +31,12 @@ export async function runPmComplianceReminderScan(args?: { dueSoonDays?: number 
   const today = reminderToday();
   const dueSoonLimit = new Date(today);
   dueSoonLimit.setUTCDate(dueSoonLimit.getUTCDate() + dueSoonDays);
-  const [sections, assignments, rows] = await Promise.all([
+  const [sections, assignments, history] = await Promise.all([
     prisma.notificationReminderList.findMany({ where: { complianceKind: { not: null } } }),
     loadMaintenancePrimaryAssignments(),
-    prisma.preventativeMaintenanceEntry.findMany({ where: { location: { active: true } }, select: serviceSelect }),
+    loadLatestComplianceRecords(),
   ]);
+  const rows = history.flatMap(record => record.complianceKind ? [historyRow(record, record.complianceKind, record.locationId, record.locationName)] : []);
   const primaryByLocation = new Map<string, string[]>();
   for (const assignment of assignments) {
     const users = primaryByLocation.get(assignment.locationId) ?? [];
@@ -51,7 +62,8 @@ export async function runPmComplianceReminderScan(args?: { dueSoonDays?: number 
       if (routing.hidden) return null;
       // Recheck after locking settings so edits to annual service facts cannot
       // race a scan and generate reminders from an obsolete service date.
-      const currentRows = await tx.preventativeMaintenanceEntry.findMany({ where: { locationId: location.id }, select: serviceSelect });
+      const currentHistory = await tx.complianceServiceEntry.findMany({where: {reminderLocationId: routing.id, supersededBy: null}});
+      const currentRows = latestComplianceRecords(currentHistory).map(record => historyRow(record, initial.rule.key, location.id, initial.row.location.name));
       const service = latestPmServices(currentRows, { [initial.rule.key]: currentSection.defaultIntervalMonths }).find((item) => item.rule.key === initial.rule.key);
       if (!service || service.nextDueAt > dueSoonLimit) return null;
       const recipients = reminderRecipientIds({
@@ -74,7 +86,7 @@ export async function runPmComplianceReminderScan(args?: { dueSoonDays?: number 
       if (ids.length) await tx.auditLog.create({ data: {
         module: "PREVENTATIVE_MAINTENANCE", action: "GENERATE_COMPLIANCE_REMINDER",
         entityType: "NotificationReminderLocation", entityId: routing.id,
-        metadata: { listId: currentSection.id, locationId: row.locationId, preventativeMaintenanceEntryId: row.id, year: row.year, complianceKind: rule.key, notificationIds: ids },
+        metadata: { listId: currentSection.id, locationId: row.locationId, complianceServiceEntryId: row.id, year: row.year, complianceKind: rule.key, notificationIds: ids },
       } });
       return { ids, skipped: false, overdue };
     }, { maxWait: 10_000, timeout: 30_000 });

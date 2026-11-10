@@ -271,6 +271,16 @@ export default async function AdminReportsIndexPage({
       key: "pm",
       title: "Preventative Maintenance & Compliance",
       items: [
+        ...((canPmComplianceReport || canPmReports) && matchesQuery(query, "compliance history service testing inspections grease trap backflow boiler locations companies dates reminders")
+          ? [
+              {
+                key: "compliance-history",
+                title: "Compliance History",
+                description: "Every service entry and compliance field, across all years. View one location or a section covering all locations.",
+                href: "/admin/reports/compliance-history",
+              },
+            ]
+          : []),
         ...(canPmReports && matchesQuery(query, "pm audit activity preventative maintenance")
           ? [
               {
