@@ -100,6 +100,7 @@
 .newEntryFields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; align-items: start; }
 .newEntryFields .fieldStack { min-width: 0; }
 .notesLabel { display: grid; gap: 6px; color: var(--muted); font-size: 10px; }
+.notesLabel small { font-size: 11px; line-height: 1.5; }
 .routingForm { display: grid; gap: 12px; margin-top: 10px; max-width: 620px; }
 .locationSummary:focus-visible, .sectionSummary:focus-visible { outline: 2px solid var(--brand); outline-offset: -3px; border-radius: 8px; }
 .sectionFootnote, .footerNote { color: var(--muted); font-size: 10px; line-height: 1.7; margin: 0; }

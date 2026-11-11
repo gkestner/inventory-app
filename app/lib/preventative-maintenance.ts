@@ -213,26 +213,22 @@ export function normalizePmYear(raw: string | string[] | undefined): number {
   return year;
 }
 
-export async function loadMaintenancePrimaryAssignments(): Promise<PreventativeMaintenanceAssignment[]> {
+export async function loadMaintenancePrimaryAssignments(scope?: { userId?: string; locationIds?: string[] }): Promise<PreventativeMaintenanceAssignment[]> {
+  if (scope?.locationIds?.length === 0) return [];
   const maintenanceTitle = await db.permissionTitle.findFirst({
     where: { name: { equals: "Maintenance", mode: "insensitive" }, active: true },
     select: { id: true },
   });
 
-  const where = maintenanceTitle
-    ? {
-        isPrimary: true,
-        location: { active: true },
-        user: {
-          active: true,
-          OR: [{ role: "MAINTENANCE" }, { permissionTitles: { some: { titleId: maintenanceTitle.id } } }],
-        },
-      }
-    : {
-        isPrimary: true,
-        location: { active: true },
-        user: { active: true, role: "MAINTENANCE" },
-      };
+  const where = {
+    isPrimary: true,
+    ...(scope?.userId ? { userId: scope.userId } : {}),
+    ...(scope?.locationIds ? { locationId: { in: scope.locationIds } } : {}),
+    location: { active: true },
+    user: { active: true, ...(maintenanceTitle
+      ? { OR: [{ role: "MAINTENANCE" }, { permissionTitles: { some: { titleId: maintenanceTitle.id } } }] }
+      : { role: "MAINTENANCE" }) },
+  };
 
   const rows = await db.userLocation.findMany({
     where,

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { submittedComplianceValues } from "./compliance-fields";
 import { mergePreventativeMaintenanceValues } from "./preventative-maintenance";
 import { reminderRecipientIds } from "./reminder-recipients";
-import { latestPmServices, type PmComplianceEntry } from "./pm-compliance-rules";
+import { reminderSchedule } from "./reminder-dates";
 
 test("partial compliance save preserves other sections, tank gallons and legacy secondary boiler date", () => {
   const before = { ...mergePreventativeMaintenanceValues(null, {}), greaseTrapGallons: "300", backflowCompany: "Original company", boilerInspectionDateSecondary: "2025-09-17", ovenCleaning: "Done" };
@@ -35,13 +35,6 @@ test("recipient routing supports many section recipients, location replacement a
 });
 
 test("builtin blank intervals inherit editable section default while explicit annual override survives", () => {
-  const base: PmComplianceEntry = {
-    id: "entry", locationId: "store", location: { name: "Store" }, year: 2026,
-    greaseTrapDatePumped: "2026-01-01", greaseTrapReminderMonths: "", greaseTrapCompany: null,
-    backflowDateChecked: "2026-01-01", backflowReminderMonths: "12", backflowCompany: null,
-    boilerInspectionDatePrimary: null, boilerInspectionReminderMonths: null, boilerInspectionCompany: null,
-  };
-  const rows = latestPmServices([base], { GREASE_TRAP: 6, BACKFLOW: 8 });
-  assert.equal(rows.find((row) => row.rule.key === "GREASE_TRAP")?.intervalMonths, 6);
-  assert.equal(rows.find((row) => row.rule.key === "BACKFLOW")?.intervalMonths, 12);
+  assert.equal(reminderSchedule("2026-01-01", "", 6)?.intervalMonths, 6);
+  assert.equal(reminderSchedule("2026-01-01", "12", 8)?.intervalMonths, 12);
 });

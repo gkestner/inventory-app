@@ -5,7 +5,7 @@ import { complianceValuesFromAnnual, latestComplianceRecords, parsedComplianceSu
 import { appendAnnualComplianceHistory } from "./compliance-history";
 import { recordComplianceServiceEntry } from "./compliance-history-writer";
 import { mergePreventativeMaintenanceValues, savePreventativeMaintenanceEntryWithAudit } from "./preventative-maintenance";
-import { latestPmServices } from "./pm-compliance-rules";
+import { reminderSchedule } from "./reminder-dates";
 
 const now = new Date("2026-11-10T20:00:00Z");
 const section = (kind: NotificationReminderList["complianceKind"] = "GREASE_TRAP") => ({id: kind ?? "custom", name: kind ?? "Custom", complianceKind: kind, defaultIntervalMonths: 11, active: true} as NotificationReminderList);
@@ -51,7 +51,7 @@ test("annual history preserves gallons, tank/cost, secondary boiler date and inv
   const grease = complianceValuesFromAnnual("GREASE_TRAP", {greaseTrapDatePumped: "1/2/2025", greaseTrapTankSize: "1000", greaseTrapGallons: "875 / cleaned", greaseTrapCost: "$90", greaseTrapCompany: "Legacy Co", greaseTrapReminderMonths: "bad"}, 11);
   assert.deepEqual({...grease, notes: undefined}, {serviceDate: "1/2/2025", intervalMonths: 11, intervalOverrideMonths: null, intervalText: "bad", companyName: "Legacy Co", cost: "$90", tankSize: "1000", gallons: "875 / cleaned", additionalDate: null, notes: undefined});
   assert.equal(complianceValuesFromAnnual("BOILER", {boilerInspectionDateSecondary: "12/1/2025", boilerInspectionCost: "320"}, 11).additionalDate, "12/1/2025");
-  assert.equal(latestPmServices([{id: "legacy", locationId: "loc", year: 2025, location: {name: "Downtown"}, greaseTrapDatePumped: grease.serviceDate, greaseTrapReminderMonths: grease.intervalText, greaseTrapCompany: grease.companyName, backflowDateChecked: null, backflowReminderMonths: null, backflowCompany: null, boilerInspectionDatePrimary: null, boilerInspectionReminderMonths: null, boilerInspectionCompany: null}]).length, 0);
+  assert.equal(reminderSchedule(grease.serviceDate, grease.intervalText), null);
 });
 
 test("new entry validates calendar dates, integer intervals and bounded details", () => {

@@ -49,6 +49,13 @@ export function formatReminderDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+/** One date/interval calculation shared by the editor, dashboard and scan. */
+export function reminderSchedule(date: unknown, interval: unknown, defaultMonths = DEFAULT_REMINDER_MONTHS) {
+  const referenceOn = parseReminderDate(date);
+  const intervalMonths = parseReminderMonths(interval, defaultMonths);
+  return referenceOn && intervalMonths ? { referenceOn, intervalMonths, nextDueOn: addReminderMonths(referenceOn, intervalMonths) } : null;
+}
+
 /** Today's New York calendar date, represented at UTC midnight for safe comparisons. */
 export function reminderToday(now = new Date()): Date {
   const parts = new Intl.DateTimeFormat("en-US", {

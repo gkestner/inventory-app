@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { runNotificationReminderScan } from "./notification-reminders";
 import type { createNotificationForUsers } from "./workflow-foundations";
 
@@ -8,31 +8,42 @@ const date = (value: string) => new Date(`${value}T00:00:00Z`);
 type Row = {
   id: string; listId: string; locationId: string; companyId: string | null;
   hidden: boolean; referenceOn: Date | null; nextDueOn: Date | null; intervalMonths: number | null;
-  useLocationRecipients: boolean; recipients: { userId: string }[];
-  list: { name: string; active: boolean; complianceKind: "GREASE_TRAP" | null; defaultIntervalMonths: number; recipients: { userId: string }[] };
+  useLocationRecipients: boolean; recipients: { userId: string }[]; emailRecipients: { contactId: string }[];
+  list: { name: string; active: boolean; complianceKind: "GREASE_TRAP" | null; defaultIntervalMonths: number; includeCategoryRecipients: boolean; recipients: { userId: string }[]; emailRecipients: { contactId: string }[] };
   location: { name: string; active: boolean; locationNumber: string };
   company: { name: string } | null;
 };
 type Occurrence = { id: string; reminderLocationId: string; dueOn: Date; referenceOn: Date; intervalMonths: number; companyId: string | null };
-type Where = {
+type RecipientWhere = { recipients?: unknown; emailRecipients?: unknown };
+type Where = RecipientWhere & {
   id?: string | { gt: string }; listId?: string; hidden?: boolean; companyId?: string | null; intervalMonths?: number | null;
-  useLocationRecipients?: boolean; recipients?: unknown;
+  useLocationRecipients?: boolean;
   referenceOn?: Date | { not: null } | null; nextDueOn?: Date | { lte?: Date; gt?: Date } | null;
-  AND?: Where[]; OR?: Where[]; list?: { active?: boolean; complianceKind?: "GREASE_TRAP" | null; recipients?: unknown }; location?: { active?: boolean };
+  AND?: Where[]; OR?: Where[];
+  list?: RecipientWhere & { active?: boolean; complianceKind?: "GREASE_TRAP" | null; includeCategoryRecipients?: boolean; OR?: RecipientWhere[] };
+  location?: { active?: boolean };
 };
 function row(id = "row1"): Row {
   return {
     id, listId: "list1", locationId: `location-${id}`, companyId: "company1", hidden: false,
-    useLocationRecipients: false, recipients: [],
+    useLocationRecipients: false, recipients: [], emailRecipients: [],
     referenceOn: date("2025-12-31"), nextDueOn: date("2026-11-30"), intervalMonths: null,
-    list: { name: "Inspections", active: true, complianceKind: null, defaultIntervalMonths: 11, recipients: [{ userId: "user1" }] },
+    list: { name: "Inspections", active: true, complianceKind: null, defaultIntervalMonths: 11, includeCategoryRecipients: false, recipients: [{ userId: "user1" }], emailRecipients: [] },
     location: { name: "Main Street", active: true, locationNumber: "12" }, company: { name: "Service Company" },
   };
 }
-function memory(rows: Row[], initialOccurrences: Occurrence[] = []) {
-  const state = { rows, occurrences: initialOccurrences, audits: [] as unknown[], notifications: [] as Parameters<typeof createNotificationForUsers>[0][] };
+function memory(rows: Row[], initialOccurrences: Occurrence[] = [], options?: { failDelivery?: boolean; appAccountAddresses?: string[] }) {
+  const state = {
+    rows, occurrences: initialOccurrences, audits: [] as unknown[],
+    notifications: [] as Parameters<typeof createNotificationForUsers>[0][],
+    emailEvents: [] as (Prisma.ReminderEmailEventCreateManyInput & { id: string })[],
+    deliveries: [] as Prisma.NotificationEmailDeliveryCreateManyInput[],
+  };
   let tail = Promise.resolve();
   let onRead: (() => void) | undefined;
+  function matchesRecipients(item: Pick<Row, "recipients" | "emailRecipients">, where: RecipientWhere) {
+    return (!where.recipients || item.recipients.length > 0) && (!where.emailRecipients || item.emailRecipients.length > 0);
+  }
   function matches(item: Row, where: Where): boolean {
     if (where.AND && !where.AND.every((part) => matches(item, part))) return false;
     if (where.OR && !where.OR.some((part) => matches(item, part))) return false;
@@ -40,7 +51,7 @@ function memory(rows: Row[], initialOccurrences: Occurrence[] = []) {
     if (where.listId && item.listId !== where.listId) return false;
     if (where.hidden !== undefined && item.hidden !== where.hidden) return false;
     if (where.useLocationRecipients !== undefined && item.useLocationRecipients !== where.useLocationRecipients) return false;
-    if (where.recipients && !item.recipients.length) return false;
+    if (!matchesRecipients(item, where)) return false;
     if ("companyId" in where && item.companyId !== where.companyId) return false;
     if ("intervalMonths" in where && item.intervalMonths !== where.intervalMonths) return false;
     if (where.referenceOn instanceof Date && item.referenceOn?.getTime() !== where.referenceOn.getTime()) return false;
@@ -50,13 +61,17 @@ function memory(rows: Row[], initialOccurrences: Occurrence[] = []) {
       if (!item.nextDueOn || (where.nextDueOn.lte && item.nextDueOn > where.nextDueOn.lte) || (where.nextDueOn.gt && item.nextDueOn <= where.nextDueOn.gt)) return false;
     }
     if (where.list?.active !== undefined && item.list.active !== where.list.active) return false;
+    if (where.list?.includeCategoryRecipients !== undefined && item.list.includeCategoryRecipients !== where.list.includeCategoryRecipients) return false;
     if (where.list && "complianceKind" in where.list && item.list.complianceKind !== where.list.complianceKind) return false;
-    if (where.list?.recipients && !item.list.recipients.length) return false;
+    if (where.list && !matchesRecipients(item.list, where.list)) return false;
+    if (where.list?.OR && !where.list.OR.some((part) => matchesRecipients(item.list, part))) return false;
     if (where.location?.active !== undefined && item.location.active !== where.location.active) return false;
     return true;
   }
   const db = {
-    async $queryRaw() { return []; },
+    async $queryRaw(parts: TemplateStringsArray) {
+      return parts.join("").includes('FROM "User"') ? (options?.appAccountAddresses ?? []).map((email) => ({ email })) : [];
+    },
     notificationReminderLocation: {
       async findMany({ where, take }: { where: Where; take: number }) {
         const found = state.rows.filter((item) => matches(item, where)).sort((a, b) => a.nextDueOn!.getTime() - b.nextDueOn!.getTime() || a.id.localeCompare(b.id)).slice(0, take);
@@ -80,6 +95,30 @@ function memory(rows: Row[], initialOccurrences: Occurrence[] = []) {
         const created = { id: `occurrence-${state.occurrences.length + 1}`, ...structuredClone(data) };
         state.occurrences.push(created);
         return created;
+      },
+    },
+    reminderEmailContact: {
+      async findMany({ where }: { where: { id: { in: string[] } } }) {
+        return where.id.in.map((id) => ({ id, email: `${id}@example.invalid` }));
+      },
+    },
+    reminderEmailEvent: {
+      async createManyAndReturn({ data }: { data: Prisma.ReminderEmailEventCreateManyInput[] }) {
+        const events = [];
+        for (const value of data) {
+          if (state.emailEvents.some((event) => event.contactId === value.contactId && event.dedupeKey === value.dedupeKey)) continue;
+          const event = { ...value, id: `email-event-${state.emailEvents.length + 1}` };
+          state.emailEvents.push(event);
+          events.push({ id: event.id });
+        }
+        return events;
+      },
+    },
+    notificationEmailDelivery: {
+      async createMany({ data }: { data: Prisma.NotificationEmailDeliveryCreateManyInput[] }) {
+        if (options?.failDelivery) throw new Error("Delivery insert failed");
+        state.deliveries.push(...data);
+        return { count: data.length };
       },
     },
     auditLog: { async create({ data }: { data: unknown }) { state.audits.push(data); } },
@@ -117,6 +156,71 @@ test("due reminder uses shared notification pipeline and advances from original 
   assert.match(notification.body!, /every 11 months/);
   assert.equal(fixture.state.audits.length, 1);
   assert.deepEqual(fixture.scheduled, [["notification-1"]]);
+});
+
+test("all-location category recipients join custom overrides without duplicates, while paused locations stay quiet", async () => {
+  const combined = row("combined");
+  combined.useLocationRecipients = true;
+  combined.list.includeCategoryRecipients = true;
+  combined.recipients = [{ userId: "user1" }, { userId: "location-person" }];
+  const categoryOnly = row("fallback");
+  categoryOnly.useLocationRecipients = true;
+  categoryOnly.list.includeCategoryRecipients = true;
+  const paused = { ...combined, id: "paused", hidden: true };
+  const fixture = memory([combined, categoryOnly, paused]);
+  const result = await runNotificationReminderScan({ today: date("2026-11-30") }, fixture.dependencies);
+  assert.equal(result.occurrences, 2);
+  assert.deepEqual(fixture.state.notifications.map(({ userIds }) => userIds), [["user1", "location-person"], ["user1"]]);
+});
+
+test("email-only reminders advance on the anchor and queue one durable delivery for each contact", async () => {
+  const standalone = row();
+  standalone.list.recipients = [];
+  standalone.list.emailRecipients = [{ contactId: "category" }];
+  standalone.list.includeCategoryRecipients = true;
+  standalone.useLocationRecipients = true;
+  standalone.emailRecipients = [{ contactId: "category" }, { contactId: "local" }];
+  const fixture = memory([standalone]);
+
+  const result = await runNotificationReminderScan({ today: date("2026-11-30") }, fixture.dependencies);
+  assert.equal(result.occurrences, 1);
+  assert.equal(result.notifications, 0);
+  assert.equal(result.emailDeliveries, 2);
+  assert.equal(fixture.state.rows[0].nextDueOn?.toISOString().slice(0, 10), "2027-10-31");
+  assert.deepEqual(fixture.state.emailEvents.map(({ contactId }) => contactId), ["category", "local"]);
+  assert.ok(fixture.state.emailEvents.every(({ reminderOccurrenceId }) => reminderOccurrenceId === fixture.state.occurrences[0].id));
+  assert.match(fixture.state.emailEvents[0].body, /Reminder due: 2026-11-30/);
+  assert.deepEqual(fixture.state.deliveries, fixture.state.emailEvents.map(({ id }) => ({ reminderEmailEventId: id, kind: "PRIMARY" })));
+  assert.deepEqual(fixture.scheduled, [[]]);
+
+  await runNotificationReminderScan({ today: date("2026-11-30") }, fixture.dependencies);
+  assert.equal(fixture.state.deliveries.length, 2);
+});
+
+test("an email-only reminder restores its due date and occurrence if the outbox insert fails", async () => {
+  const standalone = row();
+  standalone.list.recipients = [];
+  standalone.list.emailRecipients = [{ contactId: "category" }];
+  const fixture = memory([standalone], [], { failDelivery: true });
+  await assert.rejects(runNotificationReminderScan({ today: date("2026-11-30") }, fixture.dependencies), /Delivery insert failed/);
+  assert.equal(fixture.state.rows[0].nextDueOn?.toISOString().slice(0, 10), "2026-11-30");
+  assert.equal(fixture.state.occurrences.length, 0);
+  assert.equal(fixture.state.emailEvents.length, 0);
+  assert.equal(fixture.state.deliveries.length, 0);
+});
+
+test("an email-only schedule remains due when its sole contact now has an app account", async () => {
+  const standalone = row();
+  standalone.list.recipients = [];
+  standalone.list.emailRecipients = [{ contactId: "new-account" }];
+  const fixture = memory([standalone], [], { appAccountAddresses: ["new-account@example.invalid"] });
+  const result = await runNotificationReminderScan({ today: date("2026-11-30") }, fixture.dependencies);
+  assert.equal(result.skipped, 1);
+  assert.equal(result.emailDeliveries, 0);
+  assert.equal(fixture.state.rows[0].nextDueOn?.toISOString().slice(0, 10), "2026-11-30");
+  assert.equal(fixture.state.occurrences.length, 0);
+  assert.equal(fixture.state.emailEvents.length, 0);
+  assert.equal(fixture.state.deliveries.length, 0);
 });
 
 test("many overdue cycles produce one catch-up and one next future anchored date", async () => {

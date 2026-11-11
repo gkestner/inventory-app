@@ -4,7 +4,7 @@ import { complianceValuesFromAnnual, hasComplianceFacts, latestComplianceRecords
 import { COMPLIANCE_FIELDS } from "@/app/lib/compliance-fields";
 
 const relations = {
-  reminderLocation: { include: { list: true, location: { select: { id: true, name: true, locationNumber: true } } } },
+  reminderLocation: { select: { listId: true, locationId: true, list: { select: { name: true, complianceKind: true } }, location: { select: { name: true, locationNumber: true } } } },
   recordedByUser: { select: { name: true } },
 } as const;
 type HistoryRow = Prisma.ComplianceServiceEntryGetPayload<{include: typeof relations}>;
@@ -37,9 +37,15 @@ export async function loadComplianceHistory(options?: { locationId?: string; sec
   }, {isolationLevel: "RepeatableRead"});
 }
 
-export async function loadLatestComplianceRecords(locationIds?: string[]) {
+export async function loadLatestComplianceRecords(options?: { locationIds?: string[]; includeHidden?: boolean; activeBuiltinsOnly?: boolean }) {
+  if (options?.locationIds?.length === 0) return [];
   const rows = await prisma.complianceServiceEntry.findMany({
-    where: { supersededBy: null, ...(locationIds ? {reminderLocation: {locationId: {in: locationIds}}} : {}) }, include: relations,
+    where: { supersededBy: null, reminderLocation: {
+      location: { active: true },
+      ...(options?.locationIds ? { locationId: { in: options.locationIds } } : {}),
+      ...(options?.includeHidden ? {} : { hidden: false }),
+      ...(options?.activeBuiltinsOnly ? { list: { active: true, complianceKind: { not: null } } } : {}),
+    } }, include: relations,
   });
   return latestComplianceRecords(rows).map(present);
 }

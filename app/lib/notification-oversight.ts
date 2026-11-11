@@ -3,7 +3,7 @@ import { prisma } from "@/app/lib/prisma";
 import { isNotificationOversightAdministrator } from "@/app/lib/notification-oversight-rules";
 
 export const NOTIFICATION_OBSERVER_SELECT = {
-  id: true, active: true, role: true, notificationEmailEnabled: true,
+  id: true, email: true, active: true, role: true, notificationEmailEnabled: true,
   roles: { select: { role: { select: { name: true, isSystem: true } } } },
 } as const satisfies Prisma.UserSelect;
 

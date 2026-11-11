@@ -1036,6 +1036,7 @@ model NotificationReminderList {
   complianceKind ComplianceSectionKind? @unique
   sortOrder Int @default(1000)
   defaultIntervalMonths Int @default(11)
+  includeCategoryRecipients Boolean @default(false)
   active Boolean @default(true)
   createdByUserId String?
   createdByUser User? @relation("ReminderListCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
@@ -1043,6 +1044,7 @@ model NotificationReminderList {
   updatedAt DateTime @updatedAt
   locations NotificationReminderLocation[]
   recipients NotificationReminderRecipient[]
+  emailRecipients NotificationReminderListEmailRecipient[]
   @@index([active])
 }
 
@@ -1063,6 +1065,8 @@ model NotificationReminderLocation {
   updatedAt DateTime @updatedAt
   occurrences NotificationReminderOccurrence[]
   recipients NotificationReminderLocationRecipient[]
+  emailRecipients NotificationReminderLocationEmailRecipient[]
+  reminderEmailEvents ReminderEmailEvent[]
   complianceNotifications Notification[]
   serviceEntries ComplianceServiceEntry[]
   @@unique([listId, locationId])
@@ -1100,6 +1104,7 @@ model ComplianceServiceEntry {
   source String
   submissionToken String? @unique
   recordedAt DateTime @default(now())
+  reminderEmailEvents ReminderEmailEvent[]
   @@unique([id, reminderLocationId])
   @@unique([supersedesEntryId, reminderLocationId])
   @@unique([sourceAuditLogId, reminderLocationId])
@@ -1133,6 +1138,33 @@ model NotificationReminderLocationRecipient {
   @@index([userId])
 }
 
+model ReminderEmailContact {
+  id String @id @default(cuid())
+  email String @unique
+  createdAt DateTime @default(now())
+  listAssignments NotificationReminderListEmailRecipient[]
+  locationAssignments NotificationReminderLocationEmailRecipient[]
+  reminderEmailEvents ReminderEmailEvent[]
+}
+
+model NotificationReminderListEmailRecipient {
+  listId String
+  contactId String
+  list NotificationReminderList @relation(fields: [listId], references: [id], onDelete: Cascade, map: "ReminderListEmailRecipient_list_fkey")
+  contact ReminderEmailContact @relation(fields: [contactId], references: [id], onDelete: Restrict, map: "ReminderListEmailRecipient_contact_fkey")
+  @@id([listId, contactId], map: "ReminderListEmailRecipient_pkey")
+  @@index([contactId], map: "ReminderListEmailRecipient_contact_idx")
+}
+
+model NotificationReminderLocationEmailRecipient {
+  reminderLocationId String
+  contactId String
+  reminderLocation NotificationReminderLocation @relation(fields: [reminderLocationId], references: [id], onDelete: Cascade, map: "ReminderLocationEmailRecipient_location_fkey")
+  contact ReminderEmailContact @relation(fields: [contactId], references: [id], onDelete: Restrict, map: "ReminderLocationEmailRecipient_contact_fkey")
+  @@id([reminderLocationId, contactId], map: "ReminderLocationEmailRecipient_pkey")
+  @@index([contactId], map: "ReminderLocationEmailRecipient_contact_idx")
+}
+
 model NotificationReminderOccurrence {
   id String @id @default(cuid())
   reminderLocationId String
@@ -1144,17 +1176,44 @@ model NotificationReminderOccurrence {
   company ReminderCompany? @relation(fields: [companyId], references: [id], onDelete: Restrict)
   createdAt DateTime @default(now())
   notifications Notification[]
+  reminderEmailEvents ReminderEmailEvent[]
+  @@unique([id, reminderLocationId])
   @@unique([reminderLocationId, dueOn])
 }
 
-// One private email job per event/recipient. Content and identities remain
-// authoritative in Notification and User instead of duplicated payload blobs.
+// Email-only reminders have their own event and contact without an inbox owner.
+model ReminderEmailEvent {
+  id String @id @default(cuid())
+  contactId String
+  contact ReminderEmailContact @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  reminderLocationId String
+  reminderLocation NotificationReminderLocation @relation(fields: [reminderLocationId], references: [id], onDelete: Restrict)
+  reminderOccurrenceId String?
+  reminderOccurrence NotificationReminderOccurrence? @relation(fields: [reminderOccurrenceId, reminderLocationId], references: [id, reminderLocationId], onDelete: Restrict, map: "ReminderEmailEvent_occurrence_location_fkey")
+  complianceServiceEntryId String?
+  complianceServiceEntry ComplianceServiceEntry? @relation(fields: [complianceServiceEntryId, reminderLocationId], references: [id, reminderLocationId], onDelete: Restrict, map: "ReminderEmailEvent_serviceEntry_location_fkey")
+  dedupeKey String
+  title String
+  body String
+  referenceOn DateTime @db.Date
+  intervalMonths Int
+  createdAt DateTime @default(now())
+  emailDeliveries NotificationEmailDelivery[]
+  @@unique([contactId, dedupeKey])
+  @@index([reminderLocationId])
+  @@index([reminderOccurrenceId], map: "ReminderEmailEvent_occurrence_idx")
+  @@index([complianceServiceEntryId], map: "ReminderEmailEvent_serviceEntry_idx")
+}
+
+// App and email-only reminders use the same durable delivery queue.
 model NotificationEmailDelivery {
   id String @id @default(cuid())
-  notificationId String
-  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
-  recipientUserId String
-  recipient User @relation("NotificationEmailRecipient", fields: [recipientUserId], references: [id], onDelete: Restrict)
+  notificationId String?
+  notification Notification? @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  reminderEmailEventId String?
+  reminderEmailEvent ReminderEmailEvent? @relation(fields: [reminderEmailEventId], references: [id], onDelete: Restrict)
+  recipientUserId String?
+  recipient User? @relation("NotificationEmailRecipient", fields: [recipientUserId], references: [id], onDelete: Restrict)
   kind NotificationEmailKind @default(PRIMARY)
   status NotificationEmailStatus @default(PENDING)
   attempts Int @default(0)
@@ -1170,6 +1229,7 @@ model NotificationEmailDelivery {
   @@index([status, nextAttemptAt])
   @@index([status, leaseExpiresAt])
   @@unique([notificationId, recipientUserId])
+  @@unique([reminderEmailEventId, recipientUserId], map: "NotificationEmailDelivery_event_recipientUser_key")
   @@index([recipientUserId, updatedAt])
 }
 

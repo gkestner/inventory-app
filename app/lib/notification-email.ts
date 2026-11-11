@@ -16,15 +16,22 @@ export async function processNotificationEmails(options: { notificationIds?: str
   const result = await runNotificationEmailQueue({
     db: prisma,
     ...options,
-    send: async ({ id, kind, notification, recipient }) => {
+    send: async ({ id, kind, notification, recipient, reminderEmailEvent }) => {
+      const source = notification ?? reminderEmailEvent;
+      const emailOnly = kind === "PRIMARY" && Boolean(reminderEmailEvent);
+      const address = emailOnly ? reminderEmailEvent?.contact.email : recipient?.email;
+      const originalAddress = notification?.user.email ?? reminderEmailEvent?.contact.email ?? "";
+      if (!source || !address) throw Object.assign(new Error("The email source or recipient is missing."), { code: "ERECIPIENT" });
       const message = buildNotificationEmail({
-        ...notification, appUrl: config.appUrl, deliveryId: id,
+        id: source.id, title: source.title, body: source.body,
+        href: notification?.href ?? (reminderEmailEvent ? "/admin/preventative-maintenance/compliance" : null),
+        appUrl: config.appUrl, deliveryId: id, emailOnly,
         ...(kind === "OVERSIGHT" ? { oversight: {
-          recipientName: notification.user.name, recipientEmail: notification.user.email,
-          type: notification.type, createdAt: notification.createdAt,
+          recipientName: notification?.user.name ?? "", recipientEmail: originalAddress,
+          type: notification?.type ?? "SCHEDULER", createdAt: source.createdAt, emailOnly: Boolean(reminderEmailEvent),
         } } : {}),
       });
-      return sendNotificationEmailOverSmtp(config, recipient.email, message);
+      return sendNotificationEmailOverSmtp(config, address, message);
     },
   });
   return { configured: true, ...result };

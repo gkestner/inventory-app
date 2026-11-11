@@ -11,8 +11,13 @@ import { savePreventativeMaintenanceEntryWithAudit } from "@/app/lib/preventativ
 import { submittedComplianceValues } from "@/app/lib/compliance-fields";
 import { parsedComplianceSubmission, latestComplianceRecords } from "@/app/lib/compliance-history-fields";
 import { ComplianceHistoryInputError, recordComplianceServiceEntry } from "@/app/lib/compliance-history-writer";
+import { sameRecipientIds } from "@/app/lib/reminder-recipients";
+import { readReminderEmailRecipients, reminderEmailLinkInclude, ReminderEmailInputError, saveReminderEmailLinks, type ReminderEmailLink } from "@/app/lib/reminder-email-contacts";
 
 class ReminderInputError extends Error {}
+const routingInclude = { recipients: true, emailRecipients: reminderEmailLinkInclude } as const;
+type RecipientLinks = { recipients: { userId: string }[]; emailRecipients: ReminderEmailLink[] };
+const links = (row: RecipientLinks) => ({ recipientUserIds: row.recipients.map(({ userId }) => userId), emailContactIds: row.emailRecipients.map(({ contactId }) => contactId) });
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 const bool = (form: FormData, key: string) => ["1", "true", "on", "yes"].includes(text(form, key).toLowerCase());
 function nameField(form: FormData) {
@@ -46,7 +51,7 @@ function returnTo(form: FormData, listId: string, feedback: { saved?: string; er
   redirect(`/admin/preventative-maintenance/compliance?${query}${anchor}`);
 }
 function failure(error: unknown) {
-  if (error instanceof ReminderInputError || error instanceof ComplianceHistoryInputError) return error.message;
+  if (error instanceof ReminderInputError || error instanceof ComplianceHistoryInputError || error instanceof ReminderEmailInputError) return error.message;
   console.error("[notification-reminders] An authenticated update could not be saved.");
   return "The reminder could not be saved. Please try again.";
 }
@@ -102,17 +107,17 @@ export async function saveComplianceRoutingAction(form: FormData) {
     const expectedId = text(form, "reminderLocationId");
     const enabled = bool(form, "useLocationRecipients");
     const ids = recipientIds(form, "locationRecipientIds");
+    const emails = readReminderEmailRecipients(form);
     await prisma.$transaction(async tx => {
       await lockNotificationReminderList(tx, listId);
       const section = await tx.notificationReminderList.findUnique({where: {id: listId}});
       if (!section || !await tx.location.findFirst({where: {id: locationId, active: true}, select: {id: true}})) throw new ReminderInputError("Choose an active section location.");
-      const previous = await tx.notificationReminderLocation.findUnique({where: {listId_locationId: {listId, locationId}}, include: {recipients: true}});
+      const previous = await tx.notificationReminderLocation.findUnique({where: {listId_locationId: {listId, locationId}}, include: routingInclude});
       if (expectedId && previous?.id !== expectedId) throw new ReminderInputError("This location has changed. Refresh and try again.");
       const saved = await tx.notificationReminderLocation.upsert({where: {listId_locationId: {listId, locationId}}, create: {listId, locationId, useLocationRecipients: enabled}, update: {useLocationRecipients: enabled}});
-      await saveLocationRecipients(tx, saved.id, enabled, ids);
-      const changed = previous?.useLocationRecipients !== enabled || (previous?.recipients.map(r => r.userId).sort().join("|") ?? "") !== (enabled ? [...ids].sort().join("|") : "");
-      if (changed || saved.hidden || !section.active) await pauseQueuedReminderEmails(tx, {listId, reminderLocationId: saved.id});
-      await audit(tx, actor.id, "NotificationReminderLocation", saved.id, "SAVE_COMPLIANCE_RECIPIENTS", {listId, locationId, before: previous ? {useLocationRecipients: previous.useLocationRecipients, recipientUserIds: previous.recipients.map(r => r.userId)} : null, after: {useLocationRecipients: enabled, recipientUserIds: enabled ? ids : []}});
+      const routing = await saveLocationRecipients(tx, saved.id, enabled, ids, emails, previous);
+      if (routing.changed || saved.hidden || !section.active) await pauseQueuedReminderEmails(tx, {listId, reminderLocationId: saved.id});
+      await audit(tx, actor.id, "NotificationReminderLocation", saved.id, "SAVE_COMPLIANCE_RECIPIENTS", {listId, locationId, before: previous ? {useLocationRecipients: previous.useLocationRecipients, ...links(previous)} : null, after: {useLocationRecipients: enabled, recipientUserIds: enabled ? ids : [], emailContactIds: routing.contactIds}});
     });
   } catch (caught) {error = failure(caught);}
   if (error) returnTo(form, listId, {error});
@@ -131,11 +136,56 @@ async function validateRecipients(tx: Pick<Prisma.TransactionClient, "user">, id
     throw new ReminderInputError("Choose active users from the recipient list.");
   }
 }
-async function saveLocationRecipients(tx: Prisma.TransactionClient, id: string, enabled: boolean, ids: string[]) {
-  if (enabled && !ids.length) throw new ReminderInputError("Choose at least one location recipient or use the section recipients.");
-  await validateRecipients(tx, ids);
-  await tx.notificationReminderLocationRecipient.deleteMany({ where: { reminderLocationId: id } });
-  if (enabled) await tx.notificationReminderLocationRecipient.createMany({ data: ids.map((userId) => ({ reminderLocationId: id, userId })) });
+async function saveLocationRecipients(tx: Prisma.TransactionClient, id: string, enabled: boolean, ids: string[], emails: string[] | undefined, previous: (RecipientLinks & { useLocationRecipients: boolean }) | null) {
+  if (enabled && !ids.length && !(emails?.length ?? previous?.emailRecipients.length)) throw new ReminderInputError("Choose a user or add an email address, or use the category recipients.");
+  const next = enabled ? ids : [];
+  await validateRecipients(tx, next);
+  const linksChanged = !sameRecipientIds(previous?.recipients.map(({ userId }) => userId) ?? [], next);
+  if (linksChanged) {
+    await tx.notificationReminderLocationRecipient.deleteMany({ where: { reminderLocationId: id } });
+    if (next.length) await tx.notificationReminderLocationRecipient.createMany({ data: next.map((userId) => ({ reminderLocationId: id, userId })) });
+  }
+  const email = await saveReminderEmailLinks(tx, { reminderLocationId: id }, enabled ? emails : [], previous?.emailRecipients);
+  return { contactIds: email.contactIds, changed: linksChanged || email.changed || (previous?.useLocationRecipients ?? false) !== enabled };
+}
+
+async function saveCategoryRecipientLinks(tx: Prisma.TransactionClient, listId: string, before: string[], after: string[]) {
+  await validateRecipients(tx, after);
+  if (sameRecipientIds(before, after)) return false;
+  await tx.notificationReminderRecipient.deleteMany({ where: { listId } });
+  if (after.length) await tx.notificationReminderRecipient.createMany({ data: after.map((userId) => ({ listId, userId })) });
+  return true;
+}
+
+export async function saveCategoryRecipientsAction(form: FormData) {
+  const actor = await requireReminderManager();
+  const listId = text(form, "listId");
+  const ids = recipientIds(form, "recipientIds");
+  const includeCategoryRecipients = bool(form, "includeCategoryRecipients");
+  let error: string | undefined;
+  try {
+    const emails = readReminderEmailRecipients(form);
+    await prisma.$transaction(async (tx) => {
+      await lockNotificationReminderList(tx, listId);
+      const previous = await tx.notificationReminderList.findUnique({ where: { id: listId }, include: routingInclude });
+      if (!previous) throw new ReminderInputError("Choose an existing compliance category.");
+      if (!previous.complianceKind && !ids.length && !(emails?.length ?? previous.emailRecipients.length)) throw new ReminderInputError("Choose an app user or add an email address for this category.");
+      const before = links(previous);
+      const changed = await saveCategoryRecipientLinks(tx, listId, before.recipientUserIds, ids);
+      const email = await saveReminderEmailLinks(tx, { listId }, emails, previous.emailRecipients);
+      if (changed || email.changed || previous.includeCategoryRecipients !== includeCategoryRecipients) {
+        await tx.notificationReminderList.update({ where: { id: listId }, data: { includeCategoryRecipients } });
+        await pauseQueuedReminderEmails(tx, { listId });
+        await audit(tx, actor.id, "NotificationReminderList", listId, "SAVE_CATEGORY_RECIPIENTS", {
+          listId, before: { ...before, includeCategoryRecipients: previous.includeCategoryRecipients },
+          after: { recipientUserIds: ids, emailContactIds: email.contactIds, includeCategoryRecipients },
+        });
+      }
+    }, { maxWait: 10_000, timeout: 30_000 });
+  } catch (caught) { error = failure(caught); }
+  if (error) returnTo(form, listId, { error });
+  refresh();
+  returnTo(form, listId, { saved: "Category recipients saved." });
 }
 
 export async function saveReminderListAction(form: FormData) {
@@ -152,43 +202,43 @@ export async function saveReminderListAction(form: FormData) {
     const defaultIntervalMonths = inputMonths(text(form, "defaultIntervalMonths"))!;
     const submittedActive = bool(form, "active");
     const submittedRecipients = recipientIds(form, "recipientIds");
-    await validateRecipients(prisma, submittedRecipients);
+    const emails = readReminderEmailRecipients(form);
     listId = await prisma.$transaction(async (tx) => {
       if (listId) await lockNotificationReminderList(tx, listId);
-      const previous = listId ? await tx.notificationReminderList.findUnique({ where: { id: listId }, include: { recipients: true } }) : null;
+      const previous = listId ? await tx.notificationReminderList.findUnique({ where: { id: listId }, include: routingInclude }) : null;
       if (listId && !previous) throw new ReminderInputError("This reminder list no longer exists.");
-      const selectedRecipients = submittedRecipients.length ? submittedRecipients : previous?.complianceKind ? [] : null;
-      if (!selectedRecipients) throw new ReminderInputError("Select at least one active section recipient.");
-      await validateRecipients(tx, selectedRecipients);
+      const previousIds = previous?.recipients.map(({ userId }) => userId) ?? [];
+      const keepRecipients = previous && bool(form, "keepCategoryRecipients");
+      const selectedRecipients = keepRecipients ? previousIds : submittedRecipients;
+      if (!keepRecipients && !previous?.complianceKind && !selectedRecipients.length && !(emails?.length ?? previous?.emailRecipients.length)) throw new ReminderInputError("Choose an app user or add an email address for this category.");
       // Pausing/resuming is an explicit action; a stale settings form cannot
       // silently undo another manager's pause.
       const active = previous?.active ?? submittedActive;
+      const includeCategoryRecipients = previous?.includeCategoryRecipients ?? bool(form, "includeCategoryRecipients");
       const saved = previous ? await tx.notificationReminderList.update({
         where: { id: previous.id }, data: { name, description: description || null, sortOrder, defaultIntervalMonths, active },
-      }) : await tx.notificationReminderList.create({ data: { name, description: description || null, sortOrder, defaultIntervalMonths, active, createdByUserId: actor.id } });
-      await tx.notificationReminderRecipient.deleteMany({ where: { listId: saved.id } });
-      if (selectedRecipients.length) await tx.notificationReminderRecipient.createMany({ data: selectedRecipients.map((userId) => ({ listId: saved.id, userId })) });
-      // Each active location starts as an undated row. Undated means no schedule.
-      const locations = await tx.location.findMany({ where: { active: true }, select: { id: true } });
-      await tx.notificationReminderLocation.createMany({ data: locations.map((location) => ({ listId: saved.id, locationId: location.id })), skipDuplicates: true });
+      }) : await tx.notificationReminderList.create({ data: { name, description: description || null, sortOrder, defaultIntervalMonths, includeCategoryRecipients, active, createdByUserId: actor.id } });
+      const recipientsChanged = !keepRecipients && await saveCategoryRecipientLinks(tx, saved.id, previousIds, selectedRecipients);
+      const email = await saveReminderEmailLinks(tx, { listId: saved.id }, keepRecipients ? undefined : emails, previous?.emailRecipients);
+      if (!previous) {
+        const locations = await tx.location.findMany({ where: { active: true }, select: { id: true } });
+        await tx.notificationReminderLocation.createMany({ data: locations.map((location) => ({ listId: saved.id, locationId: location.id })), skipDuplicates: true });
+      }
       const recomputed: Prisma.InputJsonValue[] = [];
-      if (previous && !previous.complianceKind && previous.defaultIntervalMonths !== defaultIntervalMonths) {
+      const intervalChanged = previous && previous.defaultIntervalMonths !== defaultIntervalMonths;
+      if (previous && !previous.complianceKind && intervalChanged) {
         const inherited = await tx.notificationReminderLocation.findMany({ where: { listId: saved.id, intervalMonths: null, referenceOn: { not: null } } });
         for (const row of inherited) {
           const nextDueOn = firstDue(row.referenceOn, defaultIntervalMonths);
           await tx.notificationReminderLocation.update({ where: { id: row.id }, data: { nextDueOn } });
-          await pauseQueuedReminderEmails(tx, { listId: saved.id, reminderLocationId: row.id });
           recomputed.push({ reminderLocationId: row.id, locationId: row.locationId, referenceOn: formatReminderDate(row.referenceOn!), previousDueOn: row.nextDueOn ? formatReminderDate(row.nextDueOn) : null, nextDueOn: nextDueOn ? formatReminderDate(nextDueOn) : null });
         }
       }
-      const recipientsChanged = previous && previous.recipients.map((recipient) => recipient.userId).sort().join("|") !== [...selectedRecipients].sort().join("|");
-      if (recipientsChanged || (previous && previous.defaultIntervalMonths !== defaultIntervalMonths)) await pauseQueuedReminderEmails(tx, { listId: saved.id });
-      // Pausing immediately cancels unsent copies already in the email queue.
-      if (!active) await pauseQueuedReminderEmails(tx, { listId: saved.id });
+      if (previous && (!active || recipientsChanged || email.changed || intervalChanged)) await pauseQueuedReminderEmails(tx, { listId: saved.id });
       await audit(tx, actor.id, "NotificationReminderList", saved.id, previous ? "UPDATE_LIST" : "CREATE_LIST", {
         listId: saved.id,
-        before: previous ? { name: previous.name, description: previous.description, sortOrder: previous.sortOrder, defaultIntervalMonths: previous.defaultIntervalMonths, active: previous.active, recipientUserIds: previous.recipients.map((recipient) => recipient.userId) } : null,
-        after: { name, description: description || null, sortOrder, defaultIntervalMonths, active, recipientUserIds: selectedRecipients },
+        before: previous ? { name: previous.name, description: previous.description, sortOrder: previous.sortOrder, defaultIntervalMonths: previous.defaultIntervalMonths, active: previous.active, includeCategoryRecipients: previous.includeCategoryRecipients, ...links(previous) } : null,
+        after: { name, description: description || null, sortOrder, defaultIntervalMonths, active, recipientUserIds: selectedRecipients, emailContactIds: email.contactIds, includeCategoryRecipients },
         recomputed,
       });
       return saved.id;
@@ -214,6 +264,7 @@ export async function saveReminderLocationAction(form: FormData) {
     const submittedHidden = bool(form, "hidden");
     const useLocationRecipients = bool(form, "useLocationRecipients");
     const selectedRecipients = recipientIds(form, "locationRecipientIds");
+    const emails = readReminderEmailRecipients(form);
     await prisma.$transaction(async (tx) => {
       await lockNotificationReminderList(tx, listId);
       const list = await tx.notificationReminderList.findUnique({ where: { id: listId } });
@@ -222,7 +273,7 @@ export async function saveReminderLocationAction(form: FormData) {
       const location = await tx.location.findFirst({ where: { id: locationId, active: true }, select: { id: true } });
       if (!location) throw new ReminderInputError("Choose an active location.");
       if (companyId && !await tx.reminderCompany.findFirst({ where: { id: companyId, active: true }, select: { id: true } })) throw new ReminderInputError("Choose an active company.");
-      const previous = await tx.notificationReminderLocation.findUnique({ where: { listId_locationId: { listId, locationId } }, include: { recipients: true } });
+      const previous = await tx.notificationReminderLocation.findUnique({ where: { listId_locationId: { listId, locationId } }, include: routingInclude });
       if (reminderLocationId && previous?.id !== reminderLocationId) throw new ReminderInputError("This row no longer matches the selected list and location. Refresh and try again.");
       // Visibility has its own action. Saving a stale row must not unpause it.
       const hidden = previous?.hidden ?? submittedHidden;
@@ -233,11 +284,10 @@ export async function saveReminderLocationAction(form: FormData) {
         create: { listId, locationId, companyId, referenceOn, nextDueOn, intervalMonths, hidden, useLocationRecipients },
         update: { companyId, referenceOn, nextDueOn, intervalMonths, hidden, useLocationRecipients },
       });
-      await saveLocationRecipients(tx, saved.id, useLocationRecipients, selectedRecipients);
-      const routingChanged = previous?.useLocationRecipients !== useLocationRecipients || previous?.recipients.map((recipient) => recipient.userId).sort().join("|") !== [...selectedRecipients].sort().join("|");
-      if (hidden || !referenceOn || !list.active || changedSchedule || routingChanged) await pauseQueuedReminderEmails(tx, { listId, reminderLocationId: saved.id });
+      const routing = await saveLocationRecipients(tx, saved.id, useLocationRecipients, selectedRecipients, emails, previous);
+      if (saved.hidden || !referenceOn || !list.active || changedSchedule || routing.changed) await pauseQueuedReminderEmails(tx, { listId, reminderLocationId: saved.id });
       const snapshot = (row: typeof saved) => ({ companyId: row.companyId, referenceOn: row.referenceOn ? formatReminderDate(row.referenceOn) : null, nextDueOn: row.nextDueOn ? formatReminderDate(row.nextDueOn) : null, intervalMonths: row.intervalMonths, hidden: row.hidden, useLocationRecipients: row.useLocationRecipients });
-      const locationAudit = await audit(tx, actor.id, "NotificationReminderLocation", saved.id, "SAVE_LOCATION", { listId, locationId, before: previous ? { ...snapshot(previous), recipientUserIds: previous.recipients.map((recipient) => recipient.userId) } : null, after: { ...snapshot(saved), recipientUserIds: useLocationRecipients ? selectedRecipients : [] } });
+      const locationAudit = await audit(tx, actor.id, "NotificationReminderLocation", saved.id, "SAVE_LOCATION", { listId, locationId, before: previous ? { ...snapshot(previous), ...links(previous) } : null, after: { ...snapshot(saved), recipientUserIds: useLocationRecipients ? selectedRecipients : [], emailContactIds: routing.contactIds } });
       // Compatibility writer: recipient/visibility-only changes are not service events.
       if (changedSchedule || previous?.companyId !== companyId) {
         const candidates = await tx.complianceServiceEntry.findMany({where: {reminderLocationId: saved.id, supersededBy: null}});
@@ -300,12 +350,13 @@ export async function saveComplianceLocationAction(form: FormData) {
     if (!Number.isInteger(year) || year < 2020 || year > 2100) throw new ReminderInputError("Choose a compliance year from 2020 to 2100.");
     const useLocationRecipients = bool(form, "useLocationRecipients");
     const selectedRecipients = recipientIds(form, "locationRecipientIds");
+    const emails = readReminderEmailRecipients(form);
     await prisma.$transaction(async (tx) => {
       await lockNotificationReminderList(tx, listId);
       const list = await tx.notificationReminderList.findUnique({ where: { id: listId } });
       if (!list?.complianceKind) throw new ReminderInputError("Choose an existing compliance service section.");
       if (!await tx.location.findFirst({ where: { id: locationId, active: true }, select: { id: true } })) throw new ReminderInputError("Choose an active location.");
-      const previous = await tx.notificationReminderLocation.findUnique({ where: { listId_locationId: { listId, locationId } }, include: { recipients: true } });
+      const previous = await tx.notificationReminderLocation.findUnique({ where: { listId_locationId: { listId, locationId } }, include: routingInclude });
       if (expectedId && previous?.id !== expectedId) throw new ReminderInputError("This compliance row has changed. Refresh and try again.");
       const parsed = submittedComplianceValues(form, list.complianceKind);
       if (parsed.error) throw new ReminderInputError(parsed.error);
@@ -325,14 +376,13 @@ export async function saveComplianceLocationAction(form: FormData) {
         where: { listId_locationId: { listId, locationId } },
         create: { listId, locationId, useLocationRecipients }, update: { useLocationRecipients },
       });
-      await saveLocationRecipients(tx, saved.id, useLocationRecipients, selectedRecipients);
+      const routing = await saveLocationRecipients(tx, saved.id, useLocationRecipients, selectedRecipients, emails, previous);
       const service = await savePreventativeMaintenanceEntryWithAudit({ locationId, year, values: parsed.values, actorUserId: actor.id, source: "ADMIN" }, { tx, companyIds });
-      const routingChanged = previous?.useLocationRecipients !== useLocationRecipients || previous?.recipients.map((recipient) => recipient.userId).sort().join("|") !== [...selectedRecipients].sort().join("|");
-      if (service.hadChanges || routingChanged || saved.hidden || !list.active) await pauseQueuedReminderEmails(tx, { listId, reminderLocationId: saved.id });
+      if (service.hadChanges || routing.changed || saved.hidden || !list.active) await pauseQueuedReminderEmails(tx, { listId, reminderLocationId: saved.id });
       await audit(tx, actor.id, "NotificationReminderLocation", saved.id, "SAVE_COMPLIANCE_LOCATION", {
         listId, locationId, year, preventativeMaintenanceEntryId: service.saved.id,
-        before: previous ? { useLocationRecipients: previous.useLocationRecipients, recipientUserIds: previous.recipients.map((recipient) => recipient.userId) } : null,
-        after: { useLocationRecipients, recipientUserIds: useLocationRecipients ? selectedRecipients : [], hidden: saved.hidden },
+        before: previous ? { useLocationRecipients: previous.useLocationRecipients, ...links(previous) } : null,
+        after: { useLocationRecipients, recipientUserIds: useLocationRecipients ? selectedRecipients : [], emailContactIds: routing.contactIds, hidden: saved.hidden },
       });
     }, { maxWait: 10_000, timeout: 30_000 });
   } catch (caught) { error = failure(caught); }

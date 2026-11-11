@@ -1,10 +1,27 @@
 import { randomUUID } from "node:crypto";
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { latestComplianceRecords } from "@/app/lib/compliance-history-fields";
+import { notificationEmailRecipient } from "@/app/lib/notification-email-content";
 import { isNotificationOversightAdministrator } from "@/app/lib/notification-oversight-rules";
+import { loadNotificationOversightRecipients } from "@/app/lib/notification-oversight";
+import { reminderSchedule } from "@/app/lib/reminder-dates";
+import { reminderEmailAccountExists } from "@/app/lib/reminder-email-contacts";
+import { reminderRecipientIds } from "@/app/lib/reminder-recipients";
 
 export const MAX_NOTIFICATION_EMAIL_ATTEMPTS = 5;
 const LEASE_MS = 5 * 60_000;
 
+const reminderState = {
+  hidden: true,
+  list: { select: { active: true } },
+  location: { select: { active: true } },
+} as const;
+const reminderTiming = {
+  ...reminderState,
+  referenceOn: true,
+  intervalMonths: true,
+  list: { select: { active: true, defaultIntervalMonths: true } },
+} as const;
 const EMAIL_JOB_INCLUDE = {
   recipient: { select: {
     id: true, name: true, email: true, active: true, role: true, notificationEmailEnabled: true,
@@ -13,16 +30,108 @@ const EMAIL_JOB_INCLUDE = {
   } },
   notification: { include: {
     user: { select: { id: true, name: true, email: true } },
-    complianceReminderLocation: { select: { hidden: true, list: { select: { active: true } }, location: { select: { active: true } } } },
-    reminderOccurrence: { include: { reminderLocation: { select: {
-      hidden: true, referenceOn: true, intervalMonths: true,
-      list: { select: { active: true, defaultIntervalMonths: true } },
-      location: { select: { active: true } },
-    } } } },
+    complianceReminderLocation: { select: reminderState },
+    reminderOccurrence: { include: { reminderLocation: { select: reminderTiming } } },
+  } },
+  reminderEmailEvent: { include: {
+    contact: { select: { email: true } },
+    reminderOccurrence: { select: { referenceOn: true, intervalMonths: true } },
+    emailDeliveries: { where: { kind: "PRIMARY", status: "SENT" }, select: { id: true }, take: 1 },
+    reminderLocation: { select: {
+      ...reminderTiming,
+      useLocationRecipients: true,
+      emailRecipients: { select: { contactId: true } },
+      list: { select: {
+        ...reminderTiming.list.select,
+        complianceKind: true,
+        includeCategoryRecipients: true,
+        emailRecipients: { select: { contactId: true } },
+      } },
+    } },
   } },
 } as const satisfies Prisma.NotificationEmailDeliveryInclude;
 type EmailJob = Prisma.NotificationEmailDeliveryGetPayload<{ include: typeof EMAIL_JOB_INCLUDE }>;
-type QueueDb = Pick<PrismaClient, "notificationEmailDelivery" | "$transaction">;
+type QueueDb = Pick<PrismaClient, "notificationEmailDelivery" | "complianceServiceEntry" | "$queryRaw" | "$transaction">;
+type ReminderState = Prisma.NotificationReminderLocationGetPayload<{ select: typeof reminderState }>;
+type ReminderTiming = Prisma.NotificationReminderLocationGetPayload<{ select: typeof reminderTiming }>;
+type ReminderSnapshot = { referenceOn: Date; intervalMonths: number };
+
+function paused(reminder: ReminderState) {
+  return reminder.hidden || !reminder.list.active || !reminder.location.active;
+}
+
+function sameTiming(snapshot: ReminderSnapshot, date: Date | null, months: number) {
+  return date?.getTime() === snapshot.referenceOn.getTime() && months === snapshot.intervalMonths;
+}
+
+function currentCustomSchedule(reminder: ReminderTiming, snapshot: ReminderSnapshot) {
+  return !paused(reminder) && sameTiming(snapshot, reminder.referenceOn, reminder.intervalMonths ?? reminder.list.defaultIntervalMonths);
+}
+
+async function canSendExternalReminder(db: QueueDb, event: NonNullable<EmailJob["reminderEmailEvent"]>) {
+  const reminder = event.reminderLocation;
+  if (paused(reminder)) return false;
+
+  const contacts = reminderRecipientIds({
+    sectionIds: reminder.list.emailRecipients.map(({ contactId }) => contactId),
+    locationIds: reminder.emailRecipients.map(({ contactId }) => contactId),
+    useLocationRecipients: reminder.useLocationRecipients,
+    includeCategoryRecipients: reminder.list.includeCategoryRecipients,
+  });
+  if (!contacts.includes(event.contactId)) return false;
+
+  if (event.reminderOccurrence) {
+    if (reminder.list.complianceKind || !currentCustomSchedule(reminder, event) ||
+      !sameTiming(event, event.reminderOccurrence.referenceOn, event.reminderOccurrence.intervalMonths)) return false;
+  } else {
+    if (!reminder.list.complianceKind || !event.complianceServiceEntryId) return false;
+    const history = await db.complianceServiceEntry.findMany({
+      where: { reminderLocationId: event.reminderLocationId, supersededBy: null },
+      select: { id: true, reminderLocationId: true, serviceDate: true, intervalText: true, recordedAt: true },
+    });
+    const latest = latestComplianceRecords(history)[0];
+    if (latest?.id !== event.complianceServiceEntryId) return false;
+    const schedule = reminderSchedule(latest.serviceDate, latest.intervalText, reminder.list.defaultIntervalMonths);
+    if (!schedule || !sameTiming(event, schedule.referenceOn, schedule.intervalMonths)) return false;
+  }
+
+  let address: string;
+  try {
+    address = notificationEmailRecipient(event.contact.email);
+  } catch {
+    return false;
+  }
+  return !await reminderEmailAccountExists(db, [address.toLowerCase()]);
+}
+
+async function canSendJob(db: QueueDb, job: EmailJob) {
+  const { kind, notification, recipient, reminderEmailEvent: event } = job;
+  if (kind === "PRIMARY" && event) return canSendExternalReminder(db, event);
+  if (!recipient?.active || !recipient.notificationEmailEnabled) return false;
+
+  if (kind === "OVERSIGHT") {
+    if (!recipient.notificationOversightSubscription?.enabled || !isNotificationOversightAdministrator(recipient)) return false;
+    // An accepted email-only delivery remains a historical event after a pause.
+    if (event) return event.emailDeliveries.length > 0 && recipient.email.trim().toLowerCase() !== event.contact.email;
+    return Boolean(notification && job.recipientUserId !== notification.userId);
+  }
+
+  if (!notification || job.recipientUserId !== notification.userId || notification.deletedAt) return false;
+  const { reminderOccurrence, complianceReminderLocation } = notification;
+  return !(reminderOccurrence && !currentCustomSchedule(reminderOccurrence.reminderLocation, reminderOccurrence)) &&
+    !(complianceReminderLocation && paused(complianceReminderLocation));
+}
+
+async function queueAcceptedExternalOversight(tx: Prisma.TransactionClient, event: NonNullable<EmailJob["reminderEmailEvent"]>) {
+  const observers = await loadNotificationOversightRecipients(tx);
+  const data = observers.filter((observer) => observer.email.trim().toLowerCase() !== event.contact.email).map((observer) => ({
+    reminderEmailEventId: event.id,
+    recipientUserId: observer.id,
+    kind: "OVERSIGHT" as const,
+    status: observer.notificationEmailEnabled ? "PENDING" as const : "SKIPPED" as const,
+  }));
+  if (data.length) await tx.notificationEmailDelivery.createMany({ data, skipDuplicates: true });
+}
 
 export function notificationEmailRetryAt(attempts: number, now: Date) {
   return new Date(now.getTime() + Math.min(60 * 60_000, 60_000 * 2 ** Math.max(0, attempts - 1)));
@@ -77,28 +186,15 @@ export async function runNotificationEmailQueue(args: {
         include: EMAIL_JOB_INCLUDE,
       });
       if (!job) continue;
-      const reminder = job.notification.reminderOccurrence?.reminderLocation;
-      const occurrence = job.notification.reminderOccurrence;
-      const reminderPaused = reminder && occurrence && (reminder.hidden || !reminder.referenceOn || !reminder.list.active || !reminder.location.active ||
-        reminder.referenceOn.getTime() !== occurrence.referenceOn.getTime() ||
-        (reminder.intervalMonths ?? reminder.list.defaultIntervalMonths) !== occurrence.intervalMonths);
-      const compliance = job.notification.complianceReminderLocation;
-      const compliancePaused = compliance && (compliance.hidden || !compliance.list.active || !compliance.location.active);
-      const primarySuppressed = job.kind === "PRIMARY" && (job.recipientUserId !== job.notification.userId || job.notification.deletedAt || reminderPaused || compliancePaused);
-      // Oversight describes an event already delivered in-app. Later changes by
-      // its original recipient or schedule do not suppress the administrator's
-      // independent copy; the observer's current enrollment/authority still do.
-      const oversightSuppressed = job.kind === "OVERSIGHT" && (job.recipientUserId === job.notification.userId ||
-        !job.recipient.notificationOversightSubscription?.enabled || !isNotificationOversightAdministrator(job.recipient));
-      if (!job.recipient.active || !job.recipient.notificationEmailEnabled || primarySuppressed || oversightSuppressed) {
-        await db.notificationEmailDelivery.updateMany({
-          where: owned,
-          data: { status: "SKIPPED", claimToken: null, leaseExpiresAt: null, lastError: null },
-        });
-        result.skipped++;
-        continue;
-      }
       try {
+        if (!await canSendJob(db, job)) {
+          await db.notificationEmailDelivery.updateMany({
+            where: owned,
+            data: { status: "SKIPPED", claimToken: null, leaseExpiresAt: null, lastError: null },
+          });
+          result.skipped++;
+          continue;
+        }
         const sent = await args.send(job);
         const sentAt = new Date();
         await db.$transaction(async (tx) => {
@@ -106,7 +202,9 @@ export async function runNotificationEmailQueue(args: {
             where: owned,
             data: { status: "SENT", sentAt, messageId: sent.messageId, claimToken: null, leaseExpiresAt: null, lastError: null },
           });
-          if (updated.count && job.kind === "PRIMARY") await tx.notification.update({ where: { id: job.notificationId }, data: { emailedAt: sentAt } });
+          if (!updated.count || job.kind !== "PRIMARY") return;
+          if (job.notificationId) await tx.notification.update({ where: { id: job.notificationId }, data: { emailedAt: sentAt } });
+          else if (job.reminderEmailEvent) await queueAcceptedExternalOversight(tx, job.reminderEmailEvent);
         });
         result.sent++;
       } catch (error) {

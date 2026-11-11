@@ -1,37 +1,28 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { latestPmServices, type PmComplianceEntry } from "./pm-compliance-rules";
-import { formatReminderDate } from "./reminder-dates";
+import { latestComplianceRecords } from "./compliance-history-fields";
+import { formatReminderDate, reminderSchedule } from "./reminder-dates";
 
-function row(overrides: Partial<PmComplianceEntry>): PmComplianceEntry {
-  return {
-    id: "entry", locationId: "location-1", year: 2026, location: { name: "Store 1" },
-    greaseTrapDatePumped: null, greaseTrapReminderMonths: null, greaseTrapCompany: null,
-    backflowDateChecked: null, backflowReminderMonths: null, backflowCompany: null,
-    boilerInspectionDatePrimary: null, boilerInspectionReminderMonths: null, boilerInspectionCompany: null,
-    ...overrides,
-  };
+function row(id: string, reminderLocationId: string, serviceDate: string, intervalText: string | null = null) {
+  return { id, reminderLocationId, serviceDate, intervalText, recordedAt: new Date("2026-11-11T12:00:00Z") };
 }
 
 test("latest service per location and type supersedes stale prior annual entries", () => {
-  const services = latestPmServices([
-    row({ id: "old", year: 2025, greaseTrapDatePumped: "2025-01-31", backflowDateChecked: "2025-03-01", backflowReminderMonths: "6" }),
-    row({ id: "new", greaseTrapDatePumped: "2026-10-31", greaseTrapCompany: "Service Co" }),
-    row({ id: "second", locationId: "location-2", greaseTrapDatePumped: "2025-05-01", greaseTrapReminderMonths: "12" }),
+  const services = latestComplianceRecords([
+    row("old", "first-grease", "1/31/2025"),
+    row("backflow", "first-backflow", "2025-03-01", "6"),
+    row("new", "first-grease", "2026-10-31"),
+    row("second", "second-grease", "2025-05-01", "12"),
   ]);
   assert.equal(services.length, 3);
-  const grease = services.find((service) => service.row.locationId === "location-1" && service.rule.key === "GREASE_TRAP")!;
-  assert.equal(grease.row.id, "new");
-  assert.equal(grease.intervalMonths, 11);
-  assert.equal(formatReminderDate(grease.nextDueAt), "2027-09-30");
-  assert.equal(grease.row[grease.rule.companyField], "Service Co");
-  assert.equal(services.find((service) => service.rule.key === "BACKFLOW")?.intervalMonths, 6);
-  assert.equal(services.find((service) => service.row.locationId === "location-2")?.intervalMonths, 12);
+  const grease = services.find(({ reminderLocationId }) => reminderLocationId === "first-grease")!;
+  assert.equal(grease.id, "new");
+  assert.equal(formatReminderDate(reminderSchedule(grease.serviceDate, grease.intervalText)!.nextDueOn), "2027-09-30");
+  assert.equal(services.find(({ id }) => id === "backflow")?.intervalText, "6");
+  assert.equal(services.find(({ id }) => id === "second")?.intervalText, "12");
 });
 
 test("invalid explicit interval on most recent service does not revive stale reminders", () => {
-  assert.equal(latestPmServices([
-    row({ year: 2025, greaseTrapDatePumped: "2025-01-01", greaseTrapReminderMonths: "12" }),
-    row({ greaseTrapDatePumped: "2026-01-01", greaseTrapReminderMonths: "invalid" }),
-  ]).length, 0);
+  const [latest] = latestComplianceRecords([row("old", "grease", "2025-01-01", "12"), row("new", "grease", "2026-01-01", "invalid")]);
+  assert.equal(reminderSchedule(latest.serviceDate, latest.intervalText), null);
 });

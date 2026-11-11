@@ -56,23 +56,27 @@ export function buildNotificationEmail(args: {
   href: string | null;
   appUrl: string;
   deliveryId?: string;
-  oversight?: { recipientName: string; recipientEmail: string; type: string; createdAt: Date };
+  emailOnly?: boolean;
+  oversight?: { recipientName: string; recipientEmail: string; type: string; createdAt: Date; emailOnly?: boolean };
 }) {
   const inboxUrl = new URL("/notifications", args.appUrl).href;
   const target = getNotificationTargetHref(args.href);
   const detailsUrl = target ? new URL(target, args.appUrl).href : inboxUrl;
   const body = args.body ?? "";
+  const originalRecipient = args.oversight?.recipientName ? `${args.oversight.recipientName} <${args.oversight.recipientEmail}>` : args.oversight?.recipientEmail;
   const context = args.oversight ? [
-    "Administrative oversight copy of a notification delivered to another user.",
-    `Original recipient: ${args.oversight.recipientName} <${args.oversight.recipientEmail}>`,
+    args.oversight.emailOnly ? "Administrative oversight copy of a compliance reminder sent by email." : "Administrative oversight copy of a notification delivered to another user.",
+    `Original recipient: ${originalRecipient}`,
     `Notification type: ${args.oversight.type}`,
     `Created (America/New_York): ${args.oversight.createdAt.toLocaleString("en-US", { timeZone: "America/New_York", timeZoneName: "short" })}`,
     `Notification ID: ${args.id}`,
   ].join("\n") : "";
+  const textLinks = args.emailOnly ? "" : `\n\nView details: ${detailsUrl}\n\nManage notifications and email preferences: ${inboxUrl}`;
+  const htmlLinks = args.emailOnly ? "" : `<p><a href="${escapeHtml(detailsUrl)}">View details</a></p><hr><p style="font-size:12px"><a href="${escapeHtml(inboxUrl)}">Manage notifications and email preferences</a></p>`;
   return {
     subject: `${args.oversight ? "[Oversight] " : ""}${args.title.replace(/[\r\n]+/g, " ")}`,
-    text: `${args.title}\n\n${context ? `${context}\n\n` : ""}${body}\n\nView details: ${detailsUrl}\n\nManage notifications and email preferences: ${inboxUrl}`,
-    html: `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#17202a"><p style="font-size:13px;color:#596673">Success Plus · ${args.oversight ? "Notification oversight" : "Notification"}</p><h1 style="font-size:24px">${escapeHtml(args.title)}</h1>${context ? `<p style="white-space:pre-wrap;line-height:1.6">${escapeHtml(context)}</p>` : ""}<div style="white-space:pre-wrap;line-height:1.6">${escapeHtml(body)}</div><p><a href="${escapeHtml(detailsUrl)}">View details</a></p><hr><p style="font-size:12px"><a href="${escapeHtml(inboxUrl)}">Manage notifications and email preferences</a></p></div>`,
+    text: `${args.title}\n\n${context ? `${context}\n\n` : ""}${body}${textLinks}`,
+    html: `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#17202a"><p style="font-size:13px;color:#596673">Success Plus · ${args.oversight ? "Notification oversight" : "Notification"}</p><h1 style="font-size:24px">${escapeHtml(args.title)}</h1>${context ? `<p style="white-space:pre-wrap;line-height:1.6">${escapeHtml(context)}</p>` : ""}<div style="white-space:pre-wrap;line-height:1.6">${escapeHtml(body)}</div>${htmlLinks}</div>`,
     // A stable identifier helps downstream mail systems recognize a retried job.
     messageId: `<notification-${(args.deliveryId ?? args.id).replace(/[^a-zA-Z0-9_-]/g, "")}@${new URL(args.appUrl).hostname}>`,
   };

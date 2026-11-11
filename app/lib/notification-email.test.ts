@@ -1,20 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { PrismaClient } from "@prisma/client";
 import { buildNotificationEmail, notificationEmailRecipient, readNotificationEmailConfig } from "./notification-email-content";
 import { notificationEmailRetryAt, runNotificationEmailQueue } from "./notification-email-queue";
 import { withNotificationEmailDeadline } from "./notification-email-smtp";
 
+type FakeRecipient = {
+  id: string; active: boolean; notificationEmailEnabled: boolean; role: string; email?: string;
+  roles: { role: { name: string; isSystem: boolean } }[];
+  notificationOversightSubscription?: { enabled: boolean } | null;
+};
 type FakeJob = {
   id: string;
   notificationId: string;
   recipientUserId: string;
   kind: "PRIMARY" | "OVERSIGHT";
-  recipient: {
-    id: string; active: boolean; notificationEmailEnabled: boolean; role: string;
-    roles: { role: { name: string; isSystem: boolean } }[];
-    notificationOversightSubscription?: { enabled: boolean } | null;
-  };
+  recipient: FakeRecipient;
   status: string;
   attempts: number;
   nextAttemptAt: Date;
@@ -32,6 +32,23 @@ type FakeJob = {
     } };
   };
 };
+type FakeExternalEvent = {
+  id: string; contactId: string; reminderLocationId: string; complianceServiceEntryId: string | null;
+  contact: { email: string };
+  referenceOn: Date; intervalMonths: number;
+  reminderOccurrence: { referenceOn: Date; intervalMonths: number } | null;
+  emailDeliveries: { id: string }[];
+  reminderLocation: {
+    hidden: boolean; referenceOn: Date | null; intervalMonths: number | null; useLocationRecipients: boolean;
+    location: { active: boolean }; emailRecipients: { contactId: string }[];
+    list: { active: boolean; complianceKind: string | null; defaultIntervalMonths: number; includeCategoryRecipients: boolean; emailRecipients: { contactId: string }[] };
+  };
+};
+type FakeExternalJob = Omit<FakeJob, "notificationId" | "recipientUserId" | "recipient" | "notification"> & {
+  notificationId: null; recipientUserId: string | null; recipient: FakeRecipient | null; notification: null;
+  reminderEmailEvent: FakeExternalEvent;
+};
+type TestJob = FakeJob | FakeExternalJob;
 function job(id = "n1", overrides: Partial<FakeJob> = {}): FakeJob {
   const user = { id: `user-${id}`, active: true, notificationEmailEnabled: true, role: "EMPLOYEE", roles: [] };
   return {
@@ -41,10 +58,13 @@ function job(id = "n1", overrides: Partial<FakeJob> = {}): FakeJob {
     ...overrides,
   };
 }
-function database(jobs: FakeJob[]) {
+function database(jobs: TestJob[], options: {
+  accounts?: string[]; observers?: FakeRecipient[];
+  history?: { id: string; reminderLocationId: string; serviceDate: string; intervalText: string | null; recordedAt: Date }[];
+} = {}) {
   type Where = { id?: string; notificationId?: string | { in: string[] }; status?: string; claimToken?: string; attempts?: { lt?: number; gte?: number }; leaseExpiresAt?: { lte: Date }; nextAttemptAt?: { lte: Date }; OR?: Where[] };
-  function matches(row: FakeJob, where: Where): boolean {
-    return (!where.id || row.id === where.id) && (!where.notificationId || (typeof where.notificationId === "string" ? row.notificationId === where.notificationId : where.notificationId.in.includes(row.notificationId))) &&
+  function matches(row: TestJob, where: Where): boolean {
+    return (!where.id || row.id === where.id) && (!where.notificationId || (typeof where.notificationId === "string" ? row.notificationId === where.notificationId : !!row.notificationId && where.notificationId.in.includes(row.notificationId))) &&
       (!where.status || row.status === where.status) && (!where.claimToken || row.claimToken === where.claimToken) &&
       (!where.attempts || ((where.attempts.lt === undefined || row.attempts < where.attempts.lt) && (where.attempts.gte === undefined || row.attempts >= where.attempts.gte))) &&
       (!where.leaseExpiresAt || Boolean(row.leaseExpiresAt && row.leaseExpiresAt <= where.leaseExpiresAt.lte)) &&
@@ -56,7 +76,14 @@ function database(jobs: FakeJob[]) {
       async findMany({ where, take }: { where: Where; take: number }) {
         return jobs.filter((row) => matches(row, where)).slice(0, take).map(({ id }) => ({ id }));
       },
-      async findFirst({ where }: { where: Where }) { return jobs.find((row) => matches(row, where)) ?? null; },
+      async findFirst({ where }: { where: Where }) {
+        const row = jobs.find((candidate) => matches(candidate, where));
+        if (row && "reminderEmailEvent" in row) {
+          row.reminderEmailEvent.emailDeliveries = jobs.filter((candidate) => "reminderEmailEvent" in candidate &&
+            candidate.reminderEmailEvent.id === row.reminderEmailEvent.id && candidate.kind === "PRIMARY" && candidate.status === "SENT").map(({ id }) => ({ id }));
+        }
+        return row ?? null;
+      },
       async updateMany({ where, data }: { where: Where; data: Record<string, unknown> }) {
         const found = jobs.filter((row) => matches(row, where));
         for (const row of found) {
@@ -66,13 +93,32 @@ function database(jobs: FakeJob[]) {
         }
         return { count: found.length };
       },
+      async createMany({ data }: { data: { reminderEmailEventId: string; recipientUserId: string; kind: "OVERSIGHT"; status: string }[] }) {
+        for (const delivery of data) {
+          const source = jobs.find((row): row is FakeExternalJob => "reminderEmailEvent" in row && row.reminderEmailEvent.id === delivery.reminderEmailEventId);
+          const recipient = options.observers?.find((observer) => observer.id === delivery.recipientUserId);
+          assert.ok(source && recipient);
+          jobs.push({ ...source, id: `${source.id}-${recipient.id}`, kind: delivery.kind, status: delivery.status,
+            recipientUserId: recipient.id, recipient, attempts: 0, claimToken: null, leaseExpiresAt: null, sentAt: null });
+        }
+        return { count: data.length };
+      },
     },
     notification: { async update({ where, data }: { where: { id: string }; data: { emailedAt: Date } }) {
-      Object.assign(jobs.find((row) => row.notificationId === where.id)!.notification, data);
+      const notification = jobs.find((row) => row.notificationId === where.id)?.notification;
+      assert.ok(notification);
+      Object.assign(notification, data);
     } },
+    complianceServiceEntry: { async findMany({ where }: { where: { reminderLocationId: string } }) {
+      return (options.history ?? []).filter((entry) => entry.reminderLocationId === where.reminderLocationId);
+    } },
+    notificationOversightSubscriber: { async findMany() { return (options.observers ?? []).map((user) => ({ user })); } },
+    async $queryRaw(_query: TemplateStringsArray, addresses: { values: string[] }) {
+      return options.accounts?.some((email) => addresses.values.includes(email.toLowerCase())) ? [{ id: "existing-account" }] : [];
+    },
     async $transaction(callback: (tx: unknown) => unknown) { return callback(db); },
   };
-  return db as unknown as Pick<PrismaClient, "notificationEmailDelivery" | "$transaction">;
+  return db as unknown as Parameters<typeof runNotificationEmailQueue>[0]["db"];
 }
 
 test("configuration requires authenticated SMTP, trusted origin, and valid ports and headers", () => {
@@ -312,4 +358,105 @@ test("built-in compliance pause suppresses primary mail while preserving deliver
   } });
   assert.equal(primary.status, "SKIPPED");
   assert.equal(oversight.status, "SENT");
+});
+
+function externalJob(id: string, kind: "CUSTOM" | "GREASE_TRAP" = "CUSTOM"): FakeExternalJob {
+  const referenceOn = new Date("2025-12-01T00:00:00Z");
+  const contactId = `contact-${id}`;
+  const row = job(id);
+  return {
+    ...row, notificationId: null, notification: null, recipientUserId: null, recipient: null,
+    reminderEmailEvent: {
+      id: `email-event-${id}`, contactId, contact: { email: `${id}@example.com` },
+      reminderLocationId: `routing-${id}`, referenceOn, intervalMonths: 11,
+      reminderOccurrence: kind === "CUSTOM" ? { referenceOn, intervalMonths: 11 } : null,
+      complianceServiceEntryId: kind === "CUSTOM" ? null : `service-${id}`,
+      emailDeliveries: [],
+      reminderLocation: {
+        hidden: false, location: { active: true }, referenceOn, intervalMonths: null,
+        useLocationRecipients: false, emailRecipients: [],
+        list: { active: true, complianceKind: kind === "CUSTOM" ? null : kind, defaultIntervalMonths: 11,
+          includeCategoryRecipients: false, emailRecipients: [{ contactId }] },
+      },
+    },
+  };
+}
+
+test("email-only recipients receive complete facts and can read the message without signing in", () => {
+  const common = { id: "external", title: "Grease trap due", body: "Location 27\nVendor <Service>\nDue 2026-11-01", href: "/notifications", appUrl: "https://inventory.example.com" };
+  const direct = buildNotificationEmail({ ...common, emailOnly: true });
+  assert.match(direct.text, /Location 27\nVendor <Service>\nDue 2026-11-01/);
+  assert.match(direct.html, /Vendor &lt;Service&gt;/);
+  assert.doesNotMatch(direct.text, /https:|preferences/);
+  assert.doesNotMatch(direct.html, /href=/);
+  const oversight = buildNotificationEmail({ ...common, oversight: { recipientName: "", recipientEmail: "vendor@example.com", type: "SCHEDULER", createdAt: new Date(), emailOnly: true } });
+  assert.match(oversight.text, /compliance reminder sent by email/);
+  assert.match(oversight.text, /Original recipient: vendor@example\.com/);
+});
+
+test("external primary rechecks assignment, active schedule and matching app accounts", async () => {
+  const hidden = externalJob("external-hidden"); hidden.reminderEmailEvent.reminderLocation.hidden = true;
+  const inactive = externalJob("external-inactive"); inactive.reminderEmailEvent.reminderLocation.location.active = false;
+  const paused = externalJob("external-paused"); paused.reminderEmailEvent.reminderLocation.list.active = false;
+  const edited = externalJob("external-edited"); edited.reminderEmailEvent.reminderLocation.list.defaultIntervalMonths = 5;
+  const removed = externalJob("external-removed"); removed.reminderEmailEvent.reminderLocation.list.emailRecipients = [];
+  const overridden = externalJob("external-overridden"); overridden.reminderEmailEvent.reminderLocation.useLocationRecipients = true;
+  const registered = externalJob("registered");
+  const active = externalJob("active-category");
+  active.reminderEmailEvent.reminderLocation.useLocationRecipients = true;
+  active.reminderEmailEvent.reminderLocation.list.includeCategoryRecipients = true;
+  const suppressed = [hidden, inactive, paused, edited, removed, overridden, registered];
+  const sent: string[] = [];
+  const db = database([...suppressed, active], { accounts: ["REGISTERED@EXAMPLE.COM"] });
+  await runNotificationEmailQueue({ db, send: async ({ id }) => { sent.push(id); return { messageId: "accepted" }; } });
+  assert.ok(suppressed.every(({ status }) => status === "SKIPPED"));
+  assert.equal(active.status, "SENT");
+  assert.deepEqual(sent, [active.id]);
+});
+
+test("external built-in mail follows the latest service entry and current interval", async () => {
+  const current = externalJob("current", "GREASE_TRAP");
+  const stale = externalJob("stale-service", "GREASE_TRAP");
+  const badInterval = externalJob("stale-interval", "GREASE_TRAP");
+  const service = (job: FakeExternalJob, id: string, serviceDate: string, intervalText: string | null) => ({
+    id, serviceDate, intervalText, reminderLocationId: job.reminderEmailEvent.reminderLocationId, recordedAt: new Date("2026-11-01"),
+  });
+  const history = [
+    service(current, "service-current", "12/1/2025", null),
+    service(current, "backdated", "11/1/2025", null),
+    service(stale, "service-stale-service", "12/1/2025", null),
+    service(stale, "new-service", "1/1/2026", null),
+    service(badInterval, "service-stale-interval", "12/1/2025", "invalid"),
+  ];
+  const sent: string[] = [];
+  await runNotificationEmailQueue({ db: database([current, stale, badInterval], { history }), send: async ({ id }) => { sent.push(id); return { messageId: "accepted" }; } });
+  assert.deepEqual(sent, [current.id]);
+  assert.equal(stale.status, "SKIPPED");
+  assert.equal(badInterval.status, "SKIPPED");
+});
+
+test("external SMTP acceptance creates independent, eligible oversight copies", async () => {
+  const success = externalJob("accepted-contact");
+  const failed = externalJob("failed-contact");
+  const observer = (id: string, email: string, role = "ADMIN", notificationEmailEnabled = true): FakeRecipient => ({
+    id, email, role, notificationEmailEnabled, active: true, roles: [], notificationOversightSubscription: { enabled: true },
+  });
+  const observers = [observer("owner", "owner@example.com"), observer("opted-out", "optedout@example.com", "ADMIN", false),
+    observer("non-admin", "nonadmin@example.com", "EMPLOYEE"), observer("self", "ACCEPTED-CONTACT@EXAMPLE.COM")];
+  const jobs = [success, failed];
+  const db = database(jobs, { observers });
+  await runNotificationEmailQueue({ db, send: async ({ id }) => {
+    if (id === failed.id) throw Object.assign(new Error("Try later"), { code: "ETIMEDOUT" });
+    return { messageId: "primary-accepted" };
+  } });
+  assert.equal(success.status, "SENT");
+  assert.equal(failed.status, "PENDING");
+  assert.deepEqual(jobs.filter(({ kind }) => kind === "OVERSIGHT").map(({ reminderEmailEvent, recipientUserId, status }) => [reminderEmailEvent.id, recipientUserId, status]), [
+    [success.reminderEmailEvent.id, "owner", "PENDING"], [success.reminderEmailEvent.id, "opted-out", "SKIPPED"],
+  ]);
+  success.reminderEmailEvent.reminderLocation.hidden = true;
+  success.reminderEmailEvent.reminderLocation.list.emailRecipients = [];
+  const sent: string[] = [];
+  await runNotificationEmailQueue({ db, send: async ({ id }) => { sent.push(id); return { messageId: "oversight-accepted" }; } });
+  assert.deepEqual(sent, [`${success.id}-owner`]);
 });
