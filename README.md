@@ -14,6 +14,8 @@ See [recurring reminder usage and activation](docs/notification-reminders.md) fo
 
 The Needs Ordering report, its Excel export, and suggested reorder quantities count only unfinished live orders (Ordered or Arrived) as incoming stock. The saved Ordered total remains separate history. Run `npm run test:inventory` for replenishment regression checks.
 
+Inventory editors can use **Unignore All** at the top of Needs Ordering to restore normal ordering checks for every ignored item, regardless of the current filters. The button shows the total ignored count; after restoring, the report resets its filters and shows items that need ordering. The action records the editor and restored count in the audit log.
+
 ## Getting Started
 
 First, run the development server:

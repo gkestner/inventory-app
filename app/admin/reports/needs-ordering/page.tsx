@@ -5,6 +5,8 @@ import { revalidatePath } from "next/cache";
 
 import { prisma } from "@/app/lib/prisma";
 import { needsOrderingReportQuery, type NeedsOrderingRow } from "@/app/lib/needs-ordering-report";
+import { restoreIgnoredInventoryItems } from "@/app/lib/inventory-ignore";
+import UnignoreAllButton from "./UnignoreAllButton";
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { Permission, Prisma, Role } from "@prisma/client";
@@ -307,7 +309,24 @@ export default async function NeedsOrderingReportPage({
     );
   }
 
-  const rows = await prisma.$queryRaw<NeedsOrderingRow[]>(needsOrderingReportQuery(q, includeIgnored));
+  async function unignoreAllAction() {
+    "use server";
+
+    const { perms } = await requireReportView();
+    const count = await restoreIgnoredInventoryItems(prisma, perms);
+    revalidatePath("/admin/reports/needs-ordering");
+    revalidatePath("/maintenance/room-diagrams");
+    redirect(`/admin/reports/needs-ordering${qs({
+      ok: count > 0
+        ? `Restored ordering checks for ${count} ignored item${count === 1 ? "" : "s"}.`
+        : "No ignored items to restore.",
+    })}`);
+  }
+
+  const [rows, totalIgnoredCount] = await Promise.all([
+    prisma.$queryRaw<NeedsOrderingRow[]>(needsOrderingReportQuery(q, includeIgnored)),
+    canEdit ? prisma.item.count({ where: { reorderIgnored: true } }) : Promise.resolve(0),
+  ]);
 
   const needsOrdering = rows
     .map((item) => {
@@ -493,12 +512,18 @@ export default async function NeedsOrderingReportPage({
           >
             Export Excel
           </Link>
+          {canEdit ? (
+            <form action={unignoreAllAction}>
+              <UnignoreAllButton count={totalIgnoredCount} />
+            </form>
+          ) : null}
         </div>
 
         <div style={{ marginTop: 8, opacity: 0.85, lineHeight: 1.5 }}>
           Items where <code>on hand + pending orders &lt; minimum</code> are listed here. Only orders awaiting receipt or being added to inventory count; historical ordered totals do not. Items flagged from checkout as &quot;Need to order
           more&quot; are also included and highlighted in magenta when they are not already short. Use Ignore to hide
           non-actionable rows.
+          {canEdit ? " Unignore All clears Ignore for every item. Items that need ordering return to this report." : ""}
         </div>
 
         {okMsg ? (
