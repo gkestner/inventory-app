@@ -560,7 +560,7 @@ export default async function NeedsOrderingReportPage({
           </label>
 
           <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="checkbox" name="includeOlderFlags" value="1" defaultChecked={includeOlderFlags} />
+            <input key={`older-flags-${includeOlderFlags}`} type="checkbox" name="includeOlderFlags" value="1" defaultChecked={includeOlderFlags} />
             Include older order flags
           </label>
 
