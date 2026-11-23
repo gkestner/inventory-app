@@ -19,8 +19,9 @@ export type NeedsOrderingRow = {
 };
 
 // Shared by the page and Excel export so both use pending orders, not the
-// historical Ordered total. A pending order only covers its actual quantity.
-export function needsOrderingReportQuery(q = "", includeIgnored = false): Prisma.Sql {
+// historical Ordered total. Old order-more flags are hidden unless requested;
+// the age limit applies only to flags, so stock shortages remain visible.
+export function needsOrderingReportQuery(q = "", includeIgnored = false, includeOlderFlags = false): Prisma.Sql {
   const search = q.trim();
   const like = `%${search}%`;
   return Prisma.sql`
@@ -36,6 +37,7 @@ export function needsOrderingReportQuery(q = "", includeIgnored = false): Prisma
       WHERE ia."type" = 'TECH_REQUEST_ORDER'::"InventoryAlertType"
         AND ia."resolvedAt" IS NULL
         AND pct."needToOrderMore" = true
+        AND ${includeOlderFlags ? Prisma.sql`TRUE` : Prisma.sql`ia."createdAt" >= CURRENT_TIMESTAMP - INTERVAL '30 days'`}
       GROUP BY ia."itemId"
     ), pending_orders AS (${pendingInventoryOrderTotalsSql})
     SELECT i."id", i."sku", i."partNumber", i."name", i."cost",

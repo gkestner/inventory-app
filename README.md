@@ -16,6 +16,8 @@ The Needs Ordering report, its Excel export, and suggested reorder quantities co
 
 Inventory editors can use **Unignore All** at the top of Needs Ordering to restore normal ordering checks for every ignored item, regardless of the current filters. The button shows the total ignored count; after restoring, the report resets its filters and shows items that need ordering. The action records the editor and restored count in the audit log.
 
+Order-more flags in Needs Ordering and its Excel export default to the last 30 days. Check **Include older order flags** and Apply to include unresolved requests from all dates. This choice follows supplier grouping, priority links, per-item Ignore/Unignore, and Excel export. Stock shortages remain eligible regardless of flag age; older requests are preserved.
+
 ## Getting Started
 
 First, run the development server:

@@ -472,7 +472,8 @@ async function itemsNotCheckedOut(sp: URLSearchParams) {
 async function needsOrdering(sp: URLSearchParams) {
   const q = String(sp.get("q") ?? "").trim();
   const includeIgnored = boolParam(sp.get("includeIgnored"));
-  const rowsRaw = await prisma.$queryRaw<NeedsOrderingRow[]>(needsOrderingReportQuery(q, includeIgnored));
+  const includeOlderFlags = boolParam(sp.get("includeOlderFlags"));
+  const rowsRaw = await prisma.$queryRaw<NeedsOrderingRow[]>(needsOrderingReportQuery(q, includeIgnored, includeOlderFlags));
   const rows = rowsRaw.map((r) => {
     const available = r.onHandQty + r.pendingOrderedQty;
     const shortBy = Math.max(0, r.minQty - available);
@@ -521,7 +522,7 @@ async function needsOrdering(sp: URLSearchParams) {
       { key: "estimatedReorder", header: "Estimated Reorder", kind: "currency" },
       { key: "webUrl", header: "Web URL", width: 260 },
     ],
-    [["Search", q], ["Include Ignored", includeIgnored ? "Yes" : "No"]],
+    [["Search", q], ["Include Ignored", includeIgnored ? "Yes" : "No"], ["Order Flags", includeOlderFlags ? "All dates" : "Last 30 days"]],
     { estimatedReorder: rows.reduce((sum, row) => sum + Number(row.estimatedReorder ?? 0), 0) }
   );
 }

@@ -25,6 +25,7 @@ type AdminSession = {
 type SearchParams = {
   q?: string;
   includeIgnored?: string;
+  includeOlderFlags?: string;
   focus?: string;
   ok?: string;
   view?: string;
@@ -191,6 +192,7 @@ export default async function NeedsOrderingReportPage({
   const sp = await searchParams;
   const q = String(sp.q ?? "").trim();
   const includeIgnored = boolFromQuery(sp.includeIgnored);
+  const includeOlderFlags = boolFromQuery(sp.includeOlderFlags);
   const focusRaw = String(sp.focus ?? "").trim().toLowerCase();
   const focus: "all" | "red" | "yellow" =
     focusRaw === "red" || focusRaw === "yellow" ? focusRaw : "all";
@@ -216,6 +218,7 @@ export default async function NeedsOrderingReportPage({
     report: "needs-ordering",
     q: q || undefined,
     includeIgnored: includeIgnored ? "1" : undefined,
+    includeOlderFlags: includeOlderFlags ? "1" : undefined,
   })}`;
 
   async function setIgnoredAction(formData: FormData) {
@@ -230,6 +233,7 @@ export default async function NeedsOrderingReportPage({
 
     const qBack = String(formData.get("q") ?? "").trim();
     const includeIgnoredBack = String(formData.get("includeIgnored") ?? "").trim();
+    const includeOlderFlagsBack = boolFromQuery(String(formData.get("includeOlderFlags") ?? ""));
     const focusBack = String(formData.get("focus") ?? "").trim();
     const sortByBack = String(formData.get("sortBy") ?? "").trim();
     const sortDirBack = String(formData.get("sortDir") ?? "").trim();
@@ -253,6 +257,7 @@ export default async function NeedsOrderingReportPage({
         `/admin/reports/needs-ordering${qs({
           q: qBack || undefined,
           includeIgnored: includeIgnoredBack || undefined,
+          includeOlderFlags: includeOlderFlagsBack ? "1" : undefined,
           focus: focusBack || undefined,
           sortBy: sortByBack || undefined,
           sortDir: sortDirBack || undefined,
@@ -287,6 +292,7 @@ export default async function NeedsOrderingReportPage({
       `/admin/reports/needs-ordering${qs({
         q: qBack || undefined,
         includeIgnored: includeIgnoredBack || undefined,
+        includeOlderFlags: includeOlderFlagsBack ? "1" : undefined,
         focus: focusBack || undefined,
         sortBy: sortByBack || undefined,
         sortDir: sortDirBack || undefined,
@@ -324,7 +330,7 @@ export default async function NeedsOrderingReportPage({
   }
 
   const [rows, totalIgnoredCount] = await Promise.all([
-    prisma.$queryRaw<NeedsOrderingRow[]>(needsOrderingReportQuery(q, includeIgnored)),
+    prisma.$queryRaw<NeedsOrderingRow[]>(needsOrderingReportQuery(q, includeIgnored, includeOlderFlags)),
     canEdit ? prisma.item.count({ where: { reorderIgnored: true } }) : Promise.resolve(0),
   ]);
 
@@ -523,6 +529,7 @@ export default async function NeedsOrderingReportPage({
           Items where <code>on hand + pending orders &lt; minimum</code> are listed here. Only orders awaiting receipt or being added to inventory count; historical ordered totals do not. Items flagged from checkout as &quot;Need to order
           more&quot; are also included and highlighted in magenta when they are not already short. Use Ignore to hide
           non-actionable rows.
+          {" Order-more flags show the last 30 days by default. Select Include older order flags to see earlier requests."}
           {canEdit ? " Unignore All clears Ignore for every item. Items that need ordering return to this report." : ""}
         </div>
 
@@ -550,6 +557,11 @@ export default async function NeedsOrderingReportPage({
           <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <input type="checkbox" name="includeIgnored" value="1" defaultChecked={includeIgnored} />
             Include ignored
+          </label>
+
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input type="checkbox" name="includeOlderFlags" value="1" defaultChecked={includeOlderFlags} />
+            Include older order flags
           </label>
 
           <input type="hidden" name="focus" value={focus} />
@@ -633,6 +645,7 @@ export default async function NeedsOrderingReportPage({
               q: q || undefined,
               includeIgnored: includeIgnored ? "1" : undefined,
               focus: "red",
+              includeOlderFlags: includeOlderFlags ? "1" : undefined,
               view: groupedBySupplier ? "supplier" : undefined,
               sortBy,
               sortDir,
@@ -668,6 +681,7 @@ export default async function NeedsOrderingReportPage({
               q: q || undefined,
               includeIgnored: includeIgnored ? "1" : undefined,
               focus: "yellow",
+              includeOlderFlags: includeOlderFlags ? "1" : undefined,
               view: groupedBySupplier ? "supplier" : undefined,
               sortBy,
               sortDir,
@@ -703,6 +717,7 @@ export default async function NeedsOrderingReportPage({
               q: q || undefined,
               includeIgnored: includeIgnored ? "1" : undefined,
               focus,
+              includeOlderFlags: includeOlderFlags ? "1" : undefined,
               view: groupedBySupplier ? undefined : "supplier",
               sortBy,
               sortDir,
@@ -908,6 +923,7 @@ export default async function NeedsOrderingReportPage({
                                     <input type="hidden" name="nextIgnored" value={row.reorderIgnored ? "0" : "1"} />
                                     <input type="hidden" name="q" value={q} />
                                     <input type="hidden" name="includeIgnored" value={includeIgnored ? "1" : ""} />
+                                    <input type="hidden" name="includeOlderFlags" value={includeOlderFlags ? "1" : ""} />
                                     <input type="hidden" name="focus" value={focus} />
                                     <input type="hidden" name="sortBy" value={sortBy} />
                                     <input type="hidden" name="sortDir" value={sortDir} />
@@ -1107,6 +1123,7 @@ export default async function NeedsOrderingReportPage({
                         <input type="hidden" name="nextIgnored" value={row.reorderIgnored ? "0" : "1"} />
                         <input type="hidden" name="q" value={q} />
                         <input type="hidden" name="includeIgnored" value={includeIgnored ? "1" : ""} />
+                        <input type="hidden" name="includeOlderFlags" value={includeOlderFlags ? "1" : ""} />
                         <input type="hidden" name="focus" value={focus} />
                         <input type="hidden" name="sortBy" value={sortBy} />
                         <input type="hidden" name="sortDir" value={sortDir} />
