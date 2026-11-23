@@ -12,6 +12,8 @@ Full administrators can enable private copies of other users' notifications in N
 
 See [recurring reminder usage and activation](docs/notification-reminders.md) for date examples, pause/resume behavior, and database rollout requirements.
 
+The Needs Ordering report, its Excel export, and suggested reorder quantities count only unfinished live orders (Ordered or Arrived) as incoming stock. The saved Ordered total remains separate history. Run `npm run test:inventory` for replenishment regression checks.
+
 ## Getting Started
 
 First, run the development server:

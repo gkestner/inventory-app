@@ -465,9 +465,14 @@ export default async function ItemInventoryPage({
             <b>{item.minQty}</b>
           </div>
 
-          <div style={{ opacity: 0.8 }}>Available (on hand + ordered)</div>
+          <div style={{ opacity: 0.8 }}>Pending orders</div>
           <div>
-            <b>{item.onHandQty + item.orderedQty}</b>
+            <b>{recommendation?.pendingOrderedQty ?? 0}</b>
+          </div>
+
+          <div style={{ opacity: 0.8 }}>Available (on hand + pending)</div>
+          <div>
+            <b>{item.onHandQty + (recommendation?.pendingOrderedQty ?? 0)}</b>
           </div>
         </div>
       </div>

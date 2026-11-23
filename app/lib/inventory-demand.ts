@@ -1,4 +1,5 @@
 import { prisma } from "@/app/lib/prisma";
+import { loadPendingInventoryOrderQuantities } from "./inventory-pending-orders";
 import { DEFAULT_APP_CONFIG, formatMinQtyForecastWindow, loadAppConfig } from "@/app/lib/app-config";
 
 type ItemInventorySnapshot = {
@@ -36,6 +37,7 @@ export type InventoryDemandRecommendation = {
   currentMinQty: number;
   onHandQty: number;
   orderedQty: number;
+  pendingOrderedQty: number;
   availableQty: number;
   usage30Day: number;
   usage60Day: number;
@@ -182,7 +184,7 @@ export async function getInventoryDemandRecommendations(
 
   const itemIds = items.map((item) => item.id);
 
-  const [tickets, orders] = await Promise.all([
+  const [tickets, orders, pendingQuantities] = await Promise.all([
     prisma.partsCheckoutTicket.findMany({
       where: {
         itemId: { in: itemIds },
@@ -208,6 +210,7 @@ export async function getInventoryDemandRecommendations(
         addedToInventoryAt: true,
       },
     }),
+    loadPendingInventoryOrderQuantities(prisma, itemIds),
   ]);
 
   const byItem = buildRecommendationMap(items);
@@ -262,7 +265,8 @@ export async function getInventoryDemandRecommendations(
     const historyProgress = clamp01(historyDays / 365);
     const conservativeHistoryProgress = historyProgress ** 2;
     const elapsed30DayPeriods = historyDays / 30;
-    const availableQty = item.onHandQty + item.orderedQty;
+    const pendingOrderedQty = pendingQuantities.get(item.id) ?? 0;
+    const availableQty = item.onHandQty + pendingOrderedQty;
     const avgDailyUsage30Day = usage30 / 30;
     // Do not turn a few hours or days of activity into an extreme daily rate.
     // Use at least 90 days as the rate denominator, while never recommending less
@@ -311,6 +315,7 @@ export async function getInventoryDemandRecommendations(
       currentMinQty: item.minQty,
       onHandQty: item.onHandQty,
       orderedQty: item.orderedQty,
+      pendingOrderedQty,
       availableQty,
       usage30Day: usage30,
       usage60Day: usage60,

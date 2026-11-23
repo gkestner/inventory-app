@@ -1,4 +1,4 @@
-const CACHE_VERSION = "inventory-app-v0.1.17";
+const CACHE_VERSION = "inventory-app-v0.1.18";
 const APP_SHELL = ["/favicon.ico"];
 
 self.addEventListener("install", (event) => {

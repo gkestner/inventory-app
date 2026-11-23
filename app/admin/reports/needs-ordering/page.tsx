@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
 import { prisma } from "@/app/lib/prisma";
+import { needsOrderingReportQuery, type NeedsOrderingRow } from "@/app/lib/needs-ordering-report";
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { Permission, Prisma, Role } from "@prisma/client";
@@ -68,7 +69,7 @@ const SORT_FIELDS: Array<{ value: SortField; label: string }> = [
   { value: "orderFrom", label: "Supplier" },
   { value: "manufacturer", label: "Manufacturer" },
   { value: "onHandQty", label: "On Hand" },
-  { value: "orderedQty", label: "Ordered" },
+  { value: "orderedQty", label: "Pending Orders" },
   { value: "available", label: "Available" },
   { value: "minQty", label: "Min" },
   { value: "shortBy", label: "Short By" },
@@ -306,96 +307,11 @@ export default async function NeedsOrderingReportPage({
     );
   }
 
-  type NeedsOrderingRow = {
-    id: string;
-    sku: string;
-    partNumber: string | null;
-    name: string;
-    cost: Prisma.Decimal | null;
-    orderFrom: string | null;
-    manufacturer: string | null;
-    webUrl: string | null;
-    onHandQty: number;
-    orderedQty: number;
-    minQty: number;
-    reorderIgnored: boolean;
-    openTechRequests: number;
-    techRequestDetails: string | null;
-  };
-
-  const like = `%${q}%`;
-  const rows = await prisma.$queryRaw<NeedsOrderingRow[]>(Prisma.sql`
-    WITH tech_req AS (
-      SELECT
-        ia."itemId",
-        COUNT(*)::int AS "openTechRequests",
-        COALESCE(
-          STRING_AGG(
-            DISTINCT CONCAT(
-              COALESCE(NULLIF(BTRIM(COALESCE(ia."createdByName", u."name", u."email", '')), ''), 'Unknown'),
-              ' (',
-              TO_CHAR(ia."createdAt" AT TIME ZONE 'America/New_York', 'MM/DD/YYYY'),
-              ')'
-            ),
-            ', '
-          ),
-          ''
-        ) AS "techRequestDetails"
-      FROM "InventoryAlert" ia
-      INNER JOIN "PartsCheckoutTicket" pct ON pct."id" = ia."checkoutId"
-      LEFT JOIN "User" u ON u."id" = ia."createdByUserId"
-      WHERE ia."type" = 'TECH_REQUEST_ORDER'::"InventoryAlertType"
-        AND ia."resolvedAt" IS NULL
-        AND pct."needToOrderMore" = true
-      GROUP BY ia."itemId"
-    ),
-    active_order_history AS (
-      SELECT DISTINCT io."itemId"
-      FROM "InventoryOrder" io
-      WHERE io."status" IN ('ORDERED'::"InventoryOrderStatus", 'ARRIVED'::"InventoryOrderStatus")
-    )
-    SELECT
-      i."id",
-      i."sku",
-      i."partNumber",
-      i."name",
-      i."cost",
-      i."orderFrom",
-      i."manufacturer",
-      i."webUrl",
-      i."onHandQty",
-      i."orderedQty",
-      i."minQty",
-      i."reorderIgnored",
-      COALESCE(t."openTechRequests", 0) AS "openTechRequests",
-      COALESCE(t."techRequestDetails", '') AS "techRequestDetails"
-    FROM "Item" i
-    LEFT JOIN tech_req t ON t."itemId" = i."id"
-    LEFT JOIN active_order_history aoh ON aoh."itemId" = i."id"
-    WHERE "active" = true
-      AND aoh."itemId" IS NULL
-      AND (
-        i."minQty" > (i."onHandQty" + i."orderedQty")
-        OR COALESCE(t."openTechRequests", 0) > 0
-      )
-      AND ${
-        q
-          ? Prisma.sql`(
-              i."sku" ILIKE ${like}
-              OR i."name" ILIKE ${like}
-              OR COALESCE(i."partNumber", '') ILIKE ${like}
-              OR COALESCE(i."orderFrom", '') ILIKE ${like}
-              OR COALESCE(i."manufacturer", '') ILIKE ${like}
-            )`
-          : Prisma.sql`TRUE`
-      }
-      AND ${includeIgnored ? Prisma.sql`TRUE` : Prisma.sql`i."reorderIgnored" = false`}
-    ORDER BY i."reorderIgnored" ASC, i."sku" ASC
-  `);
+  const rows = await prisma.$queryRaw<NeedsOrderingRow[]>(needsOrderingReportQuery(q, includeIgnored));
 
   const needsOrdering = rows
     .map((item) => {
-      const available = item.onHandQty + item.orderedQty;
+      const available = item.onHandQty + item.pendingOrderedQty;
       const shortBy = Math.max(0, item.minQty - available);
       const hasTechRequest = item.openTechRequests > 0;
       const isBelowMin = shortBy > 0;
@@ -416,7 +332,7 @@ export default async function NeedsOrderingReportPage({
     .filter((item) => includesCI(item.manufacturer, manufacturerFilter))
     .filter((item) => includesCI(item.statusText, statusFilter))
     .filter((item) => numEquals(item.onHandQty, onHandFilter))
-    .filter((item) => numEquals(item.orderedQty, orderedFilter))
+    .filter((item) => numEquals(item.pendingOrderedQty, orderedFilter))
     .filter((item) => numEquals(item.available, availableFilter))
     .filter((item) => numEquals(item.minQty, minFilter))
     .filter((item) => numEquals(item.shortBy, shortByFilter))
@@ -455,7 +371,7 @@ export default async function NeedsOrderingReportPage({
           base = a.onHandQty - b.onHandQty;
           break;
         case "orderedQty":
-          base = a.orderedQty - b.orderedQty;
+          base = a.pendingOrderedQty - b.pendingOrderedQty;
           break;
         case "available":
           base = a.available - b.available;
@@ -580,7 +496,7 @@ export default async function NeedsOrderingReportPage({
         </div>
 
         <div style={{ marginTop: 8, opacity: 0.85, lineHeight: 1.5 }}>
-          Items where <code>onHand + ordered &lt; min</code> are listed here. Items flagged from checkout as &quot;Need to order
+          Items where <code>on hand + pending orders &lt; minimum</code> are listed here. Only orders awaiting receipt or being added to inventory count; historical ordered totals do not. Items flagged from checkout as &quot;Need to order
           more&quot; are also included and highlighted in magenta when they are not already short. Use Ignore to hide
           non-actionable rows.
         </div>
@@ -661,7 +577,7 @@ export default async function NeedsOrderingReportPage({
             <input name="manufacturer" defaultValue={manufacturerFilter} placeholder="Filter Manufacturer" style={{ padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(128,128,128,0.25)", background: "var(--background)", color: "var(--foreground)" }} />
             <input name="status" defaultValue={statusFilter} placeholder="Filter Status" style={{ padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(128,128,128,0.25)", background: "var(--background)", color: "var(--foreground)" }} />
             <input name="onHand" defaultValue={onHandFilter} placeholder="On Hand =" style={{ padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(128,128,128,0.25)", background: "var(--background)", color: "var(--foreground)" }} />
-            <input name="ordered" defaultValue={orderedFilter} placeholder="Ordered =" style={{ padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(128,128,128,0.25)", background: "var(--background)", color: "var(--foreground)" }} />
+            <input name="ordered" defaultValue={orderedFilter} placeholder="Pending Orders =" style={{ padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(128,128,128,0.25)", background: "var(--background)", color: "var(--foreground)" }} />
             <input name="available" defaultValue={availableFilter} placeholder="Available =" style={{ padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(128,128,128,0.25)", background: "var(--background)", color: "var(--foreground)" }} />
             <input name="min" defaultValue={minFilter} placeholder="Min =" style={{ padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(128,128,128,0.25)", background: "var(--background)", color: "var(--foreground)" }} />
             <input name="shortBy" defaultValue={shortByFilter} placeholder="Short By =" style={{ padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(128,128,128,0.25)", background: "var(--background)", color: "var(--foreground)" }} />
@@ -863,7 +779,7 @@ export default async function NeedsOrderingReportPage({
                       <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
                         <thead>
                           <tr>
-                            {["SKU", "Item", "Web", "On Hand", "Ordered", "Available", "Min", "Short By", "Status", "Ignore"].map((h) => (
+                            {["SKU", "Item", "Web", "On Hand", "Pending Orders", "Available", "Min", "Short By", "Status", "Ignore"].map((h) => (
                               <th
                                 key={h}
                                 style={{
@@ -953,7 +869,7 @@ export default async function NeedsOrderingReportPage({
                                 </div>
                               </td>
                               <td style={{ padding: 10 }}>{row.onHandQty}</td>
-                              <td style={{ padding: 10 }}>{row.orderedQty}</td>
+                              <td style={{ padding: 10 }}>{row.pendingOrderedQty}</td>
                               <td style={{ padding: 10 }}>{row.available}</td>
                               <td style={{ padding: 10 }}>{row.minQty}</td>
                               <td style={{ padding: 10, fontWeight: 900 }}>{row.shortBy}</td>
@@ -1053,7 +969,7 @@ export default async function NeedsOrderingReportPage({
                   "Supplier",
                   "Web",
                   "On Hand",
-                  "Ordered",
+                  "Pending Orders",
                   "Available",
                   "Min",
                   "Short By",
@@ -1152,7 +1068,7 @@ export default async function NeedsOrderingReportPage({
                     </div>
                   </td>
                   <td style={{ padding: 10 }}>{row.onHandQty}</td>
-                  <td style={{ padding: 10 }}>{row.orderedQty}</td>
+                  <td style={{ padding: 10 }}>{row.pendingOrderedQty}</td>
                   <td style={{ padding: 10 }}>{row.available}</td>
                   <td style={{ padding: 10 }}>{row.minQty}</td>
                   <td style={{ padding: 10, fontWeight: 900 }}>{row.shortBy}</td>

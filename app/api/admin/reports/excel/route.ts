@@ -22,6 +22,7 @@ import {
 } from "@/app/lib/permission-constants";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { prisma } from "@/app/lib/prisma";
+import { needsOrderingReportQuery, type NeedsOrderingRow } from "@/app/lib/needs-ordering-report";
 import { locationChargesQuery } from "@/app/lib/location-charges-report";
 import { partsCheckoutLocationReport } from "@/app/lib/parts-checkout-location-report";
 import { partsConsumptionQuery } from "@/app/lib/parts-consumption-report";
@@ -471,59 +472,9 @@ async function itemsNotCheckedOut(sp: URLSearchParams) {
 async function needsOrdering(sp: URLSearchParams) {
   const q = String(sp.get("q") ?? "").trim();
   const includeIgnored = boolParam(sp.get("includeIgnored"));
-  const like = `%${q}%`;
-  type NeedsRow = Row & {
-    id: string;
-    sku: string;
-    partNumber: string | null;
-    name: string;
-    cost: Prisma.Decimal | null;
-    orderFrom: string | null;
-    manufacturer: string | null;
-    webUrl: string | null;
-    onHandQty: number;
-    orderedQty: number;
-    minQty: number;
-    reorderIgnored: boolean;
-    openTechRequests: number;
-    techRequestDetails: string | null;
-  };
-  const rowsRaw = await prisma.$queryRaw<NeedsRow[]>(Prisma.sql`
-    WITH tech_req AS (
-      SELECT ia."itemId", COUNT(*)::int AS "openTechRequests",
-        COALESCE(STRING_AGG(DISTINCT CONCAT(COALESCE(NULLIF(BTRIM(COALESCE(ia."createdByName", u."name", u."email", '')), ''), 'Unknown'), ' (', TO_CHAR(ia."createdAt" AT TIME ZONE 'America/New_York', 'MM/DD/YYYY'), ')'), ', '), '') AS "techRequestDetails"
-      FROM "InventoryAlert" ia
-      INNER JOIN "PartsCheckoutTicket" pct ON pct."id" = ia."checkoutId"
-      LEFT JOIN "User" u ON u."id" = ia."createdByUserId"
-      WHERE ia."type" = 'TECH_REQUEST_ORDER'::"InventoryAlertType"
-        AND ia."resolvedAt" IS NULL
-        AND pct."needToOrderMore" = true
-      GROUP BY ia."itemId"
-    ),
-    active_order_history AS (
-      SELECT DISTINCT io."itemId"
-      FROM "InventoryOrder" io
-      WHERE io."status" IN ('ORDERED'::"InventoryOrderStatus", 'ARRIVED'::"InventoryOrderStatus")
-    )
-    SELECT i."id", i."sku", i."partNumber", i."name", i."cost", i."orderFrom", i."manufacturer", i."webUrl", i."onHandQty", i."orderedQty", i."minQty", i."reorderIgnored",
-      COALESCE(t."openTechRequests", 0) AS "openTechRequests",
-      COALESCE(t."techRequestDetails", '') AS "techRequestDetails"
-    FROM "Item" i
-    LEFT JOIN tech_req t ON t."itemId" = i."id"
-    LEFT JOIN active_order_history aoh ON aoh."itemId" = i."id"
-    WHERE "active" = true
-      AND aoh."itemId" IS NULL
-      AND (i."minQty" > (i."onHandQty" + i."orderedQty") OR COALESCE(t."openTechRequests", 0) > 0)
-      AND ${
-        q
-          ? Prisma.sql`(i."sku" ILIKE ${like} OR i."name" ILIKE ${like} OR COALESCE(i."partNumber", '') ILIKE ${like} OR COALESCE(i."orderFrom", '') ILIKE ${like} OR COALESCE(i."manufacturer", '') ILIKE ${like})`
-          : Prisma.sql`TRUE`
-      }
-      AND ${includeIgnored ? Prisma.sql`TRUE` : Prisma.sql`i."reorderIgnored" = false`}
-    ORDER BY i."reorderIgnored" ASC, i."sku" ASC
-  `);
+  const rowsRaw = await prisma.$queryRaw<NeedsOrderingRow[]>(needsOrderingReportQuery(q, includeIgnored));
   const rows = rowsRaw.map((r) => {
-    const available = r.onHandQty + r.orderedQty;
+    const available = r.onHandQty + r.pendingOrderedQty;
     const shortBy = Math.max(0, r.minQty - available);
     const techRequest = r.openTechRequests > 0;
     const status = r.reorderIgnored ? "Ignored" : techRequest && shortBy === 0 ? `Tech Requested: ${r.techRequestDetails || "Unknown"}` : available <= 0 ? "Out" : "Below Min";
@@ -535,7 +486,7 @@ async function needsOrdering(sp: URLSearchParams) {
       manufacturer: r.manufacturer,
       webUrl: r.webUrl,
       onHand: r.onHandQty,
-      ordered: r.orderedQty,
+      ordered: r.pendingOrderedQty,
       available,
       min: r.minQty,
       shortBy,
@@ -558,7 +509,7 @@ async function needsOrdering(sp: URLSearchParams) {
       { key: "supplier", header: "Supplier" },
       { key: "manufacturer", header: "Manufacturer" },
       { key: "onHand", header: "On Hand", kind: "number" },
-      { key: "ordered", header: "Ordered", kind: "number" },
+      { key: "ordered", header: "Pending Orders", kind: "number" },
       { key: "available", header: "Available", kind: "number" },
       { key: "min", header: "Min", kind: "number" },
       { key: "shortBy", header: "Short By", kind: "number" },
