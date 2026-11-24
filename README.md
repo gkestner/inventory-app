@@ -18,6 +18,8 @@ Inventory editors can use **Unignore All** at the top of Needs Ordering to resto
 
 Order-more flags in Needs Ordering and its Excel export default to the last 30 days. Check **Include older order flags** and Apply to include unresolved requests from all dates. This choice follows supplier grouping, priority links, per-item Ignore/Unignore, and Excel export. Stock shortages remain eligible regardless of flag age; older requests are preserved.
 
+Each order-more request has a **Dismiss Flag** button beside its requester, store, and date in the flag cards and report rows. Dismissal resolves only that alert ID, preserves its original note and records the resolver. Other open requests and later flags for the same item remain eligible, including requests submitted while a dismissal is in progress. Stock levels and the item's permanent Ignore setting are unaffected. Report filters are preserved after dismissal, and the action is audit logged.
+
 ## Getting Started
 
 First, run the development server:

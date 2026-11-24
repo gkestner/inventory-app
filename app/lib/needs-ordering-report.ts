@@ -1,6 +1,13 @@
 import { Prisma } from "@prisma/client";
 import { pendingInventoryOrderTotalsSql } from "./inventory-pending-orders";
 
+export type OrderMoreFlag = {
+  id: string;
+  requestedBy: string;
+  storeName: string | null;
+  requestedAtLabel: string;
+};
+
 export type NeedsOrderingRow = {
   id: string;
   sku: string;
@@ -16,6 +23,7 @@ export type NeedsOrderingRow = {
   reorderIgnored: boolean;
   openTechRequests: number;
   techRequestDetails: string | null;
+  techRequestFlags: OrderMoreFlag[];
 };
 
 // Shared by the page and Excel export so both use pending orders, not the
@@ -29,8 +37,14 @@ export function needsOrderingReportQuery(q = "", includeIgnored = false, include
       SELECT ia."itemId", COUNT(*)::int AS "openTechRequests",
         COALESCE(STRING_AGG(DISTINCT CONCAT(
           COALESCE(NULLIF(BTRIM(COALESCE(ia."createdByName", u."name", u."email", '')), ''), 'Unknown'),
-          ' (', TO_CHAR(ia."createdAt" AT TIME ZONE 'America/New_York', 'MM/DD/YYYY'), ')'
-        ), ', '), '') AS "techRequestDetails"
+          ' (', TO_CHAR(ia."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York', 'MM/DD/YYYY'), ')'
+        ), ', '), '') AS "techRequestDetails",
+        JSONB_AGG(JSONB_BUILD_OBJECT(
+          'id', ia."id",
+          'requestedBy', COALESCE(NULLIF(BTRIM(COALESCE(ia."createdByName", u."name", u."email", '')), ''), 'Unknown'),
+          'storeName', ia."storeName",
+          'requestedAtLabel', TO_CHAR(ia."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York', 'MM/DD/YYYY HH12:MI AM')
+        ) ORDER BY ia."createdAt" DESC, ia."id") AS "techRequestFlags"
       FROM "InventoryAlert" ia
       INNER JOIN "PartsCheckoutTicket" pct ON pct."id" = ia."checkoutId"
       LEFT JOIN "User" u ON u."id" = ia."createdByUserId"
@@ -45,7 +59,8 @@ export function needsOrderingReportQuery(q = "", includeIgnored = false, include
       COALESCE(p."pendingOrderedQty", 0) AS "pendingOrderedQty",
       i."minQty", i."reorderIgnored",
       COALESCE(t."openTechRequests", 0) AS "openTechRequests",
-      COALESCE(t."techRequestDetails", '') AS "techRequestDetails"
+      COALESCE(t."techRequestDetails", '') AS "techRequestDetails",
+      COALESCE(t."techRequestFlags", '[]'::jsonb) AS "techRequestFlags"
     FROM "Item" i
     LEFT JOIN tech_req t ON t."itemId" = i."id"
     LEFT JOIN pending_orders p ON p."itemId" = i."id"

@@ -7,6 +7,8 @@ import { prisma } from "@/app/lib/prisma";
 import { needsOrderingReportQuery, type NeedsOrderingRow } from "@/app/lib/needs-ordering-report";
 import { restoreIgnoredInventoryItems } from "@/app/lib/inventory-ignore";
 import UnignoreAllButton from "./UnignoreAllButton";
+import OrderFlagList from "./OrderFlagList";
+import { dismissInventoryOrderFlag } from "@/app/lib/inventory-order-flags";
 import { authOptions } from "@/app/lib/auth";
 import { hasAnyPermission, loadUserPermissions } from "@/app/lib/permissions";
 import { Permission, Prisma, Role } from "@prisma/client";
@@ -17,6 +19,7 @@ export const runtime = "nodejs";
 type AdminSession = {
   user?: {
     id?: string | null;
+    name?: string | null;
     email?: string | null;
     role?: Role | null;
   } | null;
@@ -99,12 +102,12 @@ async function requireReportView() {
   if (!session) redirect("/login");
 
   const perms = await loadUserPermissions(session);
-  if (perms.allowAll) return { perms };
+  if (perms.allowAll) return { perms, session };
 
   const ok = hasAnyPermission(perms, [Permission.ADMIN_VIEW_ITEMS, Permission.ADMIN_EDIT_ITEMS]);
   if (!ok) redirect("/");
 
-  return { perms };
+  return { perms, session };
 }
 
 function boolFromQuery(v: string | undefined): boolean {
@@ -214,6 +217,17 @@ export default async function NeedsOrderingReportPage({
   const shortByFilter = String(sp.shortBy ?? "").trim();
   const techReqFilter = String(sp.techReq ?? "").trim();
   const ignoredFilter = String(sp.ignored ?? "").trim().toLowerCase();
+  const flagReturnQuery = qs({
+    q: q || undefined, includeIgnored: includeIgnored ? "1" : undefined,
+    includeOlderFlags: includeOlderFlags ? "1" : undefined, focus,
+    view: groupedBySupplier ? "supplier" : "table", sortBy, sortDir,
+    sku: skuFilter || undefined, item: itemFilter || undefined, part: partFilter || undefined,
+    supplier: supplierFilter || undefined, manufacturer: manufacturerFilter || undefined,
+    status: statusFilter || undefined, onHand: onHandFilter || undefined,
+    ordered: orderedFilter || undefined, available: availableFilter || undefined,
+    min: minFilter || undefined, shortBy: shortByFilter || undefined,
+    techReq: techReqFilter || undefined, ignored: ignoredFilter || undefined,
+  });
   const exportHref = `/api/admin/reports/excel${qs({
     report: "needs-ordering",
     q: q || undefined,
@@ -313,6 +327,22 @@ export default async function NeedsOrderingReportPage({
         ok: nextIgnored ? "Item ignored" : "Item restored",
       })}`
     );
+  }
+
+  async function dismissFlagAction(formData: FormData): Promise<void> {
+    "use server";
+
+    const { perms, session } = await requireReportView();
+    const dismissed = await dismissInventoryOrderFlag(
+      prisma, perms, String(formData.get("flagId") ?? ""),
+      session.user?.name ?? session.user?.email ?? "Inventory administrator"
+    );
+    const back = new URLSearchParams(String(formData.get("returnQuery") ?? "").replace(/^\?/, ""));
+    back.set("ok", dismissed ? "Flag dismissed. New requests for this item will still appear." : "This flag has already been handled.");
+    revalidatePath("/admin/reports/needs-ordering");
+    revalidatePath("/admin/inventory-alerts");
+    revalidatePath("/admin/maintenance-tickets");
+    redirect(`/admin/reports/needs-ordering?${back.toString()}`);
   }
 
   async function unignoreAllAction() {
@@ -767,16 +797,17 @@ export default async function NeedsOrderingReportPage({
           }}
         >
           <div style={{ fontWeight: 900, marginBottom: 6 }}>Order More Flags</div>
+          <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 8 }}>Dismiss Flag clears only that request. New requests for the item will still appear.</div>
           {orderMoreItems.length === 0 ? (
             <div style={{ opacity: 0.8 }}>No active Order More flags outside the main report.</div>
           ) : (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {orderMoreItems.map((x) => (
-                <span
+                <div
                   key={`order-more-${x.id}`}
                   style={{
                     padding: "4px 8px",
-                    borderRadius: 999,
+                    borderRadius: 10,
                     border: "1px solid rgba(219,39,119,0.5)",
                     background: "rgba(219,39,119,0.2)",
                     fontWeight: 800,
@@ -784,7 +815,8 @@ export default async function NeedsOrderingReportPage({
                   }}
                 >
                   {x.sku} - {x.name}
-                </span>
+                  <OrderFlagList flags={x.techRequestFlags} canEdit={canEdit} dismissAction={dismissFlagAction} returnQuery={flagReturnQuery} />
+                </div>
               ))}
             </div>
           )}
@@ -914,7 +946,8 @@ export default async function NeedsOrderingReportPage({
                               <td style={{ padding: 10 }}>{row.minQty}</td>
                               <td style={{ padding: 10, fontWeight: 900 }}>{row.shortBy}</td>
                               <td style={{ padding: 10 }}>
-                                {row.statusText}
+                                {row.priority === "blue" && !row.reorderIgnored ? "Tech Requested" : row.statusText}
+                                <OrderFlagList flags={row.techRequestFlags} canEdit={canEdit} dismissAction={dismissFlagAction} returnQuery={flagReturnQuery} />
                               </td>
                               <td style={{ padding: 10 }}>
                                 {canEdit ? (
@@ -1114,7 +1147,8 @@ export default async function NeedsOrderingReportPage({
                   <td style={{ padding: 10 }}>{row.minQty}</td>
                   <td style={{ padding: 10, fontWeight: 900 }}>{row.shortBy}</td>
                   <td style={{ padding: 10 }}>
-                    {row.statusText}
+                    {row.priority === "blue" && !row.reorderIgnored ? "Tech Requested" : row.statusText}
+                    <OrderFlagList flags={row.techRequestFlags} canEdit={canEdit} dismissAction={dismissFlagAction} returnQuery={flagReturnQuery} />
                   </td>
                   <td style={{ padding: 10 }}>
                     {canEdit ? (
